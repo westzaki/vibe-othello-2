@@ -53,7 +53,41 @@ constexpr Bitboard legal_moves_in_direction(Bitboard player, Bitboard opponent, 
   return shift(captured) & empty;
 }
 
+constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard opponent,
+                                      Shift shift) noexcept {
+  Bitboard run = shift(move) & opponent;
+  Bitboard captured = run;
+
+  while (run != 0) {
+    run = shift(run);
+    if ((run & player) != 0) {
+      return captured;
+    }
+
+    run &= opponent;
+    captured |= run;
+  }
+
+  return 0;
+}
+
 } // namespace
+
+Bitboard flips_for_move(Position position, Square move) noexcept {
+  const Bitboard move_bit = bit(move);
+  if (!is_valid(position) || move_bit == 0 || (move_bit & occupied(position)) != 0) {
+    return 0;
+  }
+
+  return flips_in_direction(move_bit, position.player, position.opponent, shift_east) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_west) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_north) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_south) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_north_east) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_north_west) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_south_east) |
+         flips_in_direction(move_bit, position.player, position.opponent, shift_south_west);
+}
 
 Bitboard legal_moves(Position position) noexcept {
   if (!is_valid(position)) {
