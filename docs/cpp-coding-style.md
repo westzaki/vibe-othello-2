@@ -3,7 +3,7 @@
 ## Baseline
 
 - C++20
-- Google C++ Style Guide as the base style
+- LLVM style as the base formatting style
 - C++ Core Guidelines for ownership, lifetime, safety, and API design
 - clang-format is the source of truth for formatting
 

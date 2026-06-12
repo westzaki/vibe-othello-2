@@ -11,6 +11,7 @@ repo/
 ├─ .github/
 ├─ docs/
 ├─ engine/
+├─ tools/
 ├─ apps/
 ├─ .clang-format
 └─ .clang-tidy
@@ -24,14 +25,16 @@ repo/
 | `README.md` | Project entry point |
 | `.github/` | Pull request templates and CI workflows |
 | `docs/` | Architecture, layout, style, and review documents |
-| `engine/` | Native C++ Othello engine |
+| `engine/` | Native C++ Othello engine static library |
+| `tools/` | Developer and validation command-line tools |
 | `apps/` | User-facing applications |
 | `.clang-format` | C++ formatting rules |
 | `.clang-tidy` | C++ static analysis rules |
 
 ## Engine Layout
 
-The engine owns Othello rules and state transitions.
+The engine owns Othello rules and state transitions. It builds as a static
+library; executable entry points live in `tools/` or `apps/`.
 
 ```text
 engine/
@@ -39,6 +42,17 @@ engine/
 ├─ include/
 ├─ src/
 └─ tests/
+```
+
+## Tools Layout
+
+Tools link against engine libraries and provide small command-line entry points for
+development, smoke checks, and validation.
+
+```text
+tools/
+└─ engine-smoke/
+   └─ main.cc
 ```
 
 ## Apps Layout
