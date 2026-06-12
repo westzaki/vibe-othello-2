@@ -5,6 +5,7 @@
 
 namespace vibe_othello::board_core {
 
+Bitboard flips_for_move(Position position, Square move) noexcept;
 Bitboard legal_moves(Position position) noexcept;
 
 } // namespace vibe_othello::board_core
