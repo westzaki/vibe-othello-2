@@ -151,6 +151,22 @@ TEST_CASE("legal move generation does not wrap across files", "[board_core][boar
   REQUIRE(legal_moves(diagonal_wrap) == 0);
 }
 
+TEST_CASE("flip calculation does not wrap across files", "[board_core][board]") {
+  constexpr Position east_wrap{
+      .player = bit(square(1, 1)),
+      .opponent = bit(square(0, 1)),
+      .side_to_move = Color::black,
+  };
+  constexpr Position north_east_wrap{
+      .player = bit(square(1, 3)),
+      .opponent = bit(square(0, 2)),
+      .side_to_move = Color::black,
+  };
+
+  REQUIRE(flips_for_move(east_wrap, square(7, 0)) == 0);
+  REQUIRE(flips_for_move(north_east_wrap, square(7, 0)) == 0);
+}
+
 TEST_CASE("legal move generation works along board edges", "[board_core][board]") {
   constexpr Position west_edge{
       .player = bit(square(7, 0)),
