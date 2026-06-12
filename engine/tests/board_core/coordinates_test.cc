@@ -19,11 +19,48 @@ TEST_CASE("file and rank are derived from square index", "[board_core][coordinat
   STATIC_REQUIRE(rank_of(d5) == 4);
 }
 
+TEST_CASE("coordinate validators reject invalid inputs", "[board_core][coordinates]") {
+  STATIC_REQUIRE(is_valid_square_index(0));
+  STATIC_REQUIRE(is_valid_square_index(63));
+  STATIC_REQUIRE_FALSE(is_valid_square_index(-1));
+  STATIC_REQUIRE_FALSE(is_valid_square_index(64));
+
+  STATIC_REQUIRE(is_valid_file_rank(0, 0));
+  STATIC_REQUIRE(is_valid_file_rank(7, 7));
+  STATIC_REQUIRE_FALSE(is_valid_file_rank(-1, 0));
+  STATIC_REQUIRE_FALSE(is_valid_file_rank(8, 0));
+  STATIC_REQUIRE_FALSE(is_valid_file_rank(0, -1));
+  STATIC_REQUIRE_FALSE(is_valid_file_rank(0, 8));
+
+  STATIC_REQUIRE(is_valid(square_from_index(0)));
+  STATIC_REQUIRE(is_valid(square_from_index(63)));
+  STATIC_REQUIRE_FALSE(is_valid(square_from_index(-1)));
+  STATIC_REQUIRE_FALSE(is_valid(square_from_index(64)));
+  STATIC_REQUIRE_FALSE(is_valid(Square{kInvalidSquareIndex}));
+  STATIC_REQUIRE_FALSE(is_valid(Square{255}));
+}
+
+TEST_CASE("invalid coordinates produce invalid squares", "[board_core][coordinates]") {
+  STATIC_REQUIRE(square_from_index(-1).index == kInvalidSquareIndex);
+  STATIC_REQUIRE(square_from_index(64).index == kInvalidSquareIndex);
+  STATIC_REQUIRE(square_from_file_rank(-1, 0).index == kInvalidSquareIndex);
+  STATIC_REQUIRE(square_from_file_rank(8, 0).index == kInvalidSquareIndex);
+  STATIC_REQUIRE(square_from_file_rank(0, -1).index == kInvalidSquareIndex);
+  STATIC_REQUIRE(square_from_file_rank(0, 8).index == kInvalidSquareIndex);
+}
+
 TEST_CASE("square bits follow documented bit order", "[board_core][coordinates]") {
   STATIC_REQUIRE(bit(square_from_file_rank(0, 0)) == 0x0000000000000001ULL);
   STATIC_REQUIRE(bit(square_from_file_rank(7, 0)) == 0x0000000000000080ULL);
   STATIC_REQUIRE(bit(square_from_file_rank(0, 7)) == 0x0100000000000000ULL);
   STATIC_REQUIRE(bit(square_from_file_rank(7, 7)) == 0x8000000000000000ULL);
+}
+
+TEST_CASE("invalid square helpers return safe sentinel values", "[board_core][coordinates]") {
+  STATIC_REQUIRE(file_of(Square{kInvalidSquareIndex}) == -1);
+  STATIC_REQUIRE(rank_of(Square{kInvalidSquareIndex}) == -1);
+  STATIC_REQUIRE(bit(Square{kInvalidSquareIndex}) == 0);
+  STATIC_REQUIRE(bit(Square{255}) == 0);
 }
 
 TEST_CASE("edge masks match the internal bit order", "[board_core][coordinates]") {
