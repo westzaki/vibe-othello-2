@@ -14,20 +14,20 @@ repo/
 ├─ apps/
 ├─ .clang-format
 └─ .clang-tidy
-````
+```
 
 ## Responsibilities
 
-| Path            | Purpose                                           |
-| --------------- | ------------------------------------------------- |
-| `AGENTS.md`     | Agent working rules                               |
-| `README.md`     | Project entry point                               |
-| `.github/`      | Pull request templates and CI workflows           |
-| `docs/`         | Architecture, layout, style, and review documents |
-| `engine/`       | Native C++ Othello engine                         |
-| `apps/`       | User-facing applications                         |
-| `.clang-format` | C++ formatting rules                              |
-| `.clang-tidy`   | C++ static analysis rules                         |
+| Path | Purpose |
+| --- | --- |
+| `AGENTS.md` | Agent working rules |
+| `README.md` | Project entry point |
+| `.github/` | Pull request templates and CI workflows |
+| `docs/` | Architecture, layout, style, and review documents |
+| `engine/` | Native C++ Othello engine |
+| `apps/` | User-facing applications |
+| `.clang-format` | C++ formatting rules |
+| `.clang-tidy` | C++ static analysis rules |
 
 ## Engine Layout
 
@@ -39,7 +39,7 @@ engine/
 ├─ include/
 ├─ src/
 └─ tests/
-````
+```
 
 ## Apps Layout
 
@@ -51,4 +51,4 @@ apps/
    ├─ README.md
    ├─ src/
    └─ tests/
-````
+```

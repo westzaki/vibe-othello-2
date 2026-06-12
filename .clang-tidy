@@ -11,4 +11,4 @@ Checks: >
 
 WarningsAsErrors: ''
 
-HeaderFilterRegex: 'src/.*|include/.*|tests/.*'
+HeaderFilterRegex: 'engine/(include|src|tests)/.*'
