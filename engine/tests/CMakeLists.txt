@@ -16,7 +16,8 @@ FetchContent_Declare(
   GIT_TAG v3.15.0)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(vibe_othello_engine_tests board_core/coordinates_test.cc
+add_executable(vibe_othello_engine_tests board_core/board_test.cc
+                                         board_core/coordinates_test.cc
                                          board_core/position_test.cc)
 
 target_link_libraries(vibe_othello_engine_tests PRIVATE vibe_othello::engine

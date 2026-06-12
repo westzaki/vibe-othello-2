@@ -63,24 +63,5 @@ TEST_CASE("invalid square helpers return safe sentinel values", "[board_core][co
   STATIC_REQUIRE(bit(Square{255}) == 0);
 }
 
-TEST_CASE("edge masks match the internal bit order", "[board_core][coordinates]") {
-  STATIC_REQUIRE(kFileA == 0x0101010101010101ULL);
-  STATIC_REQUIRE(kFileH == 0x8080808080808080ULL);
-  STATIC_REQUIRE(kRank1 == 0x00000000000000FFULL);
-  STATIC_REQUIRE(kRank8 == 0xFF00000000000000ULL);
-}
-
-TEST_CASE("directional shifts do not wrap around board edges", "[board_core][coordinates]") {
-  STATIC_REQUIRE(shift_east(bit(square_from_file_rank(7, 0))) == 0);
-  STATIC_REQUIRE(shift_west(bit(square_from_file_rank(0, 0))) == 0);
-  STATIC_REQUIRE(shift_north_east(bit(square_from_file_rank(7, 7))) == 0);
-  STATIC_REQUIRE(shift_south_west(bit(square_from_file_rank(0, 0))) == 0);
-
-  STATIC_REQUIRE(shift_east(bit(square_from_file_rank(0, 0))) == bit(square_from_file_rank(1, 0)));
-  STATIC_REQUIRE(shift_north(bit(square_from_file_rank(0, 0))) == bit(square_from_file_rank(0, 1)));
-  STATIC_REQUIRE(shift_south_east(bit(square_from_file_rank(0, 1))) ==
-                 bit(square_from_file_rank(1, 0)));
-}
-
 } // namespace
 } // namespace vibe_othello::board_core

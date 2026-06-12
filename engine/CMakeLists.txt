@@ -1,7 +1,10 @@
 add_library(vibe_othello_engine STATIC)
 add_library(vibe_othello::engine ALIAS vibe_othello_engine)
 
-target_sources(vibe_othello_engine PRIVATE src/version.cc)
+target_sources(
+  vibe_othello_engine
+  PRIVATE src/board_core/board.cc
+          src/version.cc)
 
 target_include_directories(
   vibe_othello_engine
