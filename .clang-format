@@ -6,3 +6,5 @@ UseTab: Never
 PointerAlignment: Left
 ReferenceAlignment: Left
 AllowShortFunctionsOnASingleLine: Empty
+IncludeBlocks: Regroup
+SortIncludes: CaseSensitive
