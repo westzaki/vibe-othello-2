@@ -5,7 +5,7 @@
 
 namespace vibe_othello {
 
-std::string_view EngineName();
+std::string_view engine_name() noexcept;
 
 } // namespace vibe_othello
 

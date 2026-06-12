@@ -3,6 +3,6 @@
 #include <iostream>
 
 int main() {
-  std::cout << vibe_othello::EngineName() << '\n';
+  std::cout << vibe_othello::engine_name() << '\n';
   return 0;
 }
