@@ -44,6 +44,8 @@ engine/
 └─ tests/
 ```
 
+Engine tests use Catch2 and run through CTest.
+
 ## Tools Layout
 
 Tools link against engine libraries and provide small command-line entry points for

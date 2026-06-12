@@ -19,5 +19,8 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
       - name: Run smoke tool
         run: ./build/tools/engine-smoke/vibe_othello_engine_smoke
