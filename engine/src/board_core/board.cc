@@ -73,6 +73,43 @@ constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard o
 
 } // namespace
 
+bool apply_move(Position* position, Move move, MoveDelta* delta) noexcept {
+  if (position == nullptr || delta == nullptr) {
+    return false;
+  }
+
+  const Position before = *position;
+  const Bitboard move_bit = bit(move.square);
+  const Bitboard flipped = flips_for_move(before, move.square);
+  if (move_bit == 0 || flipped == 0) {
+    return false;
+  }
+
+  const Bitboard player_after_move = before.player | move_bit | flipped;
+  const Bitboard opponent_after_move = before.opponent & ~flipped;
+
+  *delta = MoveDelta{
+      .before = before,
+      .move = move,
+      .flipped = flipped,
+  };
+  *position = Position{
+      .player = opponent_after_move,
+      .opponent = player_after_move,
+      .side_to_move = opposite(before.side_to_move),
+  };
+
+  return true;
+}
+
+void undo_move(Position* position, MoveDelta delta) noexcept {
+  if (position == nullptr) {
+    return;
+  }
+
+  *position = delta.before;
+}
+
 Bitboard flips_for_move(Position position, Square move) noexcept {
   const Bitboard move_bit = bit(move);
   if (!is_valid(position) || move_bit == 0 || (move_bit & occupied(position)) != 0) {
