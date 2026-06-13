@@ -29,6 +29,11 @@ struct MoveOrderingHints {
   bool use_opponent_mobility = false;
 };
 
+enum class SearchDispatch : std::uint8_t {
+  alphabeta,
+  pvs,
+};
+
 struct StackFrame {
   board_core::Move current_move = board_core::make_pass();
   board_core::MoveDelta delta{};
@@ -88,8 +93,26 @@ void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept
 void add_stats(SearchStats* total, SearchStats delta) noexcept;
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
+BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
 std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
                                      Score beta) noexcept;
+std::optional<SearchValue> prepare_search_node(SearchContext* context, Score alpha, Score beta,
+                                               Depth depth, Ply ply,
+                                               std::optional<TTEntry>* tt_entry);
+MoveOrderingHints build_ordering_hints_from_tt(const SearchContext& context,
+                                               const std::optional<TTEntry>& tt_entry) noexcept;
+SearchValue search_pass_child(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
+                              SearchDispatch dispatch);
+SearchValue search_full_window_child(SearchContext* context, board_core::Move move, Score alpha,
+                                     Score beta, Depth depth, Ply ply, SearchDispatch dispatch);
+SearchValue search_null_window_child(SearchContext* context, board_core::Move move, Score beta,
+                                     Depth depth, Ply ply);
+void update_best_line_and_move(SearchValue child, board_core::Move move, SearchValue* best,
+                               std::optional<board_core::Move>* best_move, StackFrame* frame);
+bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* alpha,
+                                   Score beta) noexcept;
+void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
+                            std::optional<board_core::Move> best_move) noexcept;
 
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
 SearchValue null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply);
