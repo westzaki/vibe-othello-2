@@ -74,6 +74,7 @@ class TranspositionTable {
 public:
   static constexpr std::size_t kBucketWidth = 4;
   static constexpr std::size_t kDefaultEntryCount = 4096;
+  static constexpr std::size_t kMaxBucketCount = std::size_t{1} << 20;
 
   explicit TranspositionTable(std::size_t requested_entries = kDefaultEntryCount);
 

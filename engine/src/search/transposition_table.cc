@@ -15,6 +15,9 @@ std::size_t bucket_count_for(std::size_t requested_entries) noexcept {
   if (bucket_count == 0) {
     bucket_count = 1;
   }
+  if (bucket_count > TranspositionTable::kMaxBucketCount) {
+    return TranspositionTable::kMaxBucketCount;
+  }
 
   std::size_t power_of_two = 1;
   while (power_of_two < bucket_count) {
@@ -82,7 +85,7 @@ void TranspositionTable::store(board_core::Position position, Depth depth, Score
                                SearchStats* stats) noexcept {
   if (best_move.kind != board_core::MoveKind::normal ||
       (board_core::legal_moves(position) & board_core::bit(best_move.square)) == 0) {
-    ++stats->tt_rejected_stores;
+    ++stats->tt_invalid_best_move_stores;
     return;
   }
 

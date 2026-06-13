@@ -360,6 +360,7 @@ struct SearchStats {
   NodeCount tt_overwrites;
   NodeCount tt_collisions;
   NodeCount tt_rejected_stores;
+  NodeCount tt_invalid_best_move_stores;
   NodeCount pvs_researches;
   NodeCount aspiration_fail_lows;
   NodeCount aspiration_fail_highs;
@@ -432,8 +433,10 @@ entry with a different key.
 already contains a different occupied key.
 
 `stats.tt_rejected_stores` counts transposition table stores rejected because the
-incoming entry is not useful enough for the target bucket or has no storable
-legal normal best move.
+incoming entry is not useful enough for the target bucket.
+
+`stats.tt_invalid_best_move_stores` counts transposition table stores rejected
+because the incoming entry has no storable legal normal best move.
 
 `stats.pvs_researches` counts full-window PVS re-searches after null-window
 fail-highs.
@@ -808,6 +811,9 @@ currently exposed.
 
 The table is organized as power-of-two 4-way buckets. Construction may allocate
 the bucket vector; recursive probe and store operations must not allocate.
+Requested capacities are rounded up to buckets and capped at the internal
+maximum bucket count to avoid power-of-two rounding overflow. Public capacity
+options must keep equivalent validation before exposing this constructor path.
 
 Iterative deepening advances the table generation before starting each new
 depth after depth 1. Aspiration re-searches at the same depth stay in the same

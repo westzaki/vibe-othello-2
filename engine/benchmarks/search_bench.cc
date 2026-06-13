@@ -630,8 +630,9 @@ void print_delimited_header(char delimiter) {
             << delimiter << "eval_calls" << delimiter << "beta_cutoffs" << delimiter
             << "alpha_updates" << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter
             << "tt_stores" << delimiter << "tt_cutoffs" << delimiter << "tt_overwrites" << delimiter
-            << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter << "elapsed_ms"
-            << delimiter << "nps" << '\n';
+            << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
+            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
+            << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode, TTMode tt_mode,
@@ -653,7 +654,8 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << timed_result.result.stats.tt_cutoffs << delimiter
             << timed_result.result.stats.tt_overwrites << delimiter
             << timed_result.result.stats.tt_collisions << delimiter
-            << timed_result.result.stats.tt_rejected_stores << delimiter << std::fixed
+            << timed_result.result.stats.tt_rejected_stores << delimiter
+            << timed_result.result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
             << std::setprecision(3) << elapsed_ms << delimiter << std::fixed << std::setprecision(0)
             << nps << '\n';
 }
@@ -694,6 +696,8 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode, T
   std::cout << ",\"tt_overwrites\":" << timed_result.result.stats.tt_overwrites;
   std::cout << ",\"tt_collisions\":" << timed_result.result.stats.tt_collisions;
   std::cout << ",\"tt_rejected_stores\":" << timed_result.result.stats.tt_rejected_stores;
+  std::cout << ",\"tt_invalid_best_move_stores\":"
+            << timed_result.result.stats.tt_invalid_best_move_stores;
   std::cout << ",\"elapsed_ns\":" << timed_result.elapsed.count();
   std::cout << ",\"nps\":" << std::setprecision(17) << nps;
   std::cout << "}\n";

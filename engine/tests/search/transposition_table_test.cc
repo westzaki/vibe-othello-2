@@ -98,6 +98,7 @@ TEST_CASE("transposition table updates same-position entries without collision",
   REQUIRE(stats.tt_collisions == 0);
   REQUIRE(stats.tt_overwrites == 0);
   REQUIRE(stats.tt_rejected_stores == 0);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
 TEST_CASE("transposition table bucket keeps different keys up to bucket width", "[search][tt]") {
@@ -119,6 +120,7 @@ TEST_CASE("transposition table bucket keeps different keys up to bucket width", 
   REQUIRE(stats.tt_stores == TranspositionTable::kBucketWidth);
   REQUIRE(stats.tt_overwrites == 0);
   REQUIRE(stats.tt_rejected_stores == 0);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
 TEST_CASE("transposition table rejects shallow current-generation replacement", "[search][tt]") {
@@ -139,6 +141,7 @@ TEST_CASE("transposition table rejects shallow current-generation replacement", 
   REQUIRE(table.probe(positions[0], &stats).has_value());
   REQUIRE(stats.tt_rejected_stores == 1);
   REQUIRE(stats.tt_overwrites == 0);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
 TEST_CASE("transposition table prefers deeper current-generation replacement", "[search][tt]") {
@@ -162,6 +165,7 @@ TEST_CASE("transposition table prefers deeper current-generation replacement", "
   REQUIRE_FALSE(table.probe(positions[0], &stats).has_value());
   REQUIRE(stats.tt_overwrites == 1);
   REQUIRE(stats.tt_rejected_stores == 0);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
 TEST_CASE("transposition table replaces old-generation entries more readily", "[search][tt]") {
@@ -185,6 +189,7 @@ TEST_CASE("transposition table replaces old-generation entries more readily", "[
   REQUIRE(incoming->generation == 2);
   REQUIRE(stats.tt_overwrites == 1);
   REQUIRE(stats.tt_rejected_stores == 0);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
 TEST_CASE("transposition table rejects entries without legal normal best moves", "[search][tt]") {
@@ -199,7 +204,8 @@ TEST_CASE("transposition table rejects entries without legal normal best moves",
 
   REQUIRE_FALSE(table.probe(position, &stats).has_value());
   REQUIRE(stats.tt_stores == 0);
-  REQUIRE(stats.tt_rejected_stores == 2);
+  REQUIRE(stats.tt_rejected_stores == 0);
+  REQUIRE(stats.tt_invalid_best_move_stores == 2);
 }
 
 TEST_CASE("TT cutoff score respects kind depth and bounds", "[search][tt]") {

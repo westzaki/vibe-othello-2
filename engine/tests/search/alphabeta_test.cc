@@ -101,6 +101,7 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.tt_overwrites <= result.stats.tt_stores);
   REQUIRE(result.stats.tt_collisions <= result.stats.tt_stores + result.stats.tt_rejected_stores);
   REQUIRE(result.stats.tt_rejected_stores <= result.stats.nodes);
+  REQUIRE(result.stats.tt_invalid_best_move_stores <= result.stats.nodes);
   REQUIRE(result.stats.pvs_researches <= result.stats.nodes);
   REQUIRE(result.stats.aspiration_fail_lows <= result.stats.nodes);
   REQUIRE(result.stats.aspiration_fail_highs <= result.stats.nodes);
