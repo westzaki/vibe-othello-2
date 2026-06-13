@@ -2,6 +2,23 @@
 
 namespace vibe_othello::search::internal {
 
+std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
+                                     Score beta) noexcept {
+  if (entry.kind != TTEntryKind::midgame || entry.depth < depth) {
+    return std::nullopt;
+  }
+  if (entry.bound == BoundType::exact) {
+    return entry.score;
+  }
+  if (entry.bound == BoundType::lower && entry.score >= beta) {
+    return entry.score;
+  }
+  if (entry.bound == BoundType::upper && entry.score <= alpha) {
+    return entry.score;
+  }
+  return std::nullopt;
+}
+
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
@@ -31,10 +48,25 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
     };
   }
 
+  const std::optional<TTEntry> tt_entry =
+      context->transposition_table == nullptr
+          ? std::nullopt
+          : context->transposition_table->probe(context->position, &context->stats);
+  if (context->options.use_midgame_tt && tt_entry.has_value()) {
+    const std::optional<Score> cutoff = tt_cutoff_score(*tt_entry, depth, alpha, beta);
+    if (cutoff.has_value()) {
+      ++context->stats.tt_cutoffs;
+      return SearchValue{
+          .score = *cutoff,
+          .pv = {},
+      };
+    }
+  }
+
   const MoveOrderingHints hints{
-      .tt_best_move = context->transposition_table == nullptr
-                          ? std::nullopt
-                          : context->transposition_table->probe(context->position, &context->stats),
+      .tt_best_move = context->options.use_tt_best_move_ordering && tt_entry.has_value()
+                          ? std::optional<board_core::Move>{tt_entry->best_move}
+                          : std::nullopt,
   };
   frame.moves = ordered_moves(context->position, hints);
   if (frame.moves.size == 0) {

@@ -38,6 +38,7 @@ using vibe_othello::search::Score;
 using vibe_othello::search::search_fixed_depth;
 using vibe_othello::search::search_iterative;
 using vibe_othello::search::SearchLimits;
+using vibe_othello::search::SearchOptions;
 using vibe_othello::search::SearchResult;
 
 enum class ModeFilter {
@@ -51,9 +52,17 @@ enum class BenchmarkMode {
   iterative,
 };
 
+enum class TTMode {
+  off,
+  ordering,
+  midgame,
+  both,
+};
+
 struct Config {
   std::vector<Depth> depths{Depth{6}, Depth{7}, Depth{8}};
   ModeFilter mode_filter = ModeFilter::all;
+  TTMode tt_mode = TTMode::off;
   char delimiter = '\t';
 };
 
@@ -190,10 +199,56 @@ std::optional<ModeFilter> parse_mode_filter(std::string_view value) noexcept {
   return std::nullopt;
 }
 
+std::string_view tt_mode_name(TTMode mode) noexcept {
+  switch (mode) {
+  case TTMode::off:
+    return "off";
+  case TTMode::ordering:
+    return "ordering";
+  case TTMode::midgame:
+    return "midgame";
+  case TTMode::both:
+    return "both";
+  }
+
+  return "unknown";
+}
+
+std::optional<TTMode> parse_tt_mode(std::string_view value) noexcept {
+  if (value == "off") {
+    return TTMode::off;
+  }
+  if (value == "ordering") {
+    return TTMode::ordering;
+  }
+  if (value == "midgame") {
+    return TTMode::midgame;
+  }
+  if (value == "both") {
+    return TTMode::both;
+  }
+  return std::nullopt;
+}
+
+SearchOptions search_options_for_tt_mode(TTMode mode) noexcept {
+  switch (mode) {
+  case TTMode::off:
+    return SearchOptions{};
+  case TTMode::ordering:
+    return SearchOptions{.use_tt_best_move_ordering = true};
+  case TTMode::midgame:
+    return SearchOptions{.use_midgame_tt = true};
+  case TTMode::both:
+    return SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true};
+  }
+
+  return SearchOptions{};
+}
+
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--depth N|START..END|START-END]"
-            " [--mode all|fixed|iterative] [--tsv|--csv]\n\n"
+            " [--mode all|fixed|iterative] [--tt off|ordering|midgame|both] [--tsv|--csv]\n\n"
          << "Default depth range is 6..8.\n";
 }
 
@@ -300,6 +355,19 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--tt") {
+      require_condition(index + 1 < argc, "--tt requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--tt", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<TTMode> tt_mode = parse_tt_mode(value);
+      require_condition(tt_mode.has_value(), "unknown TT mode");
+      config.tt_mode = *tt_mode;
+      continue;
+    }
+
     std::cerr << "search_bench: unknown argument: " << argument << '\n';
     print_usage(std::cerr, argv[0]);
     std::exit(2);
@@ -332,14 +400,15 @@ std::string best_move_to_string(const SearchResult& result) {
   return move_to_string(*result.best_move);
 }
 
-TimedResult run_search(BenchmarkMode mode, Position position, Depth depth) {
+TimedResult run_search(BenchmarkMode mode, TTMode tt_mode, Position position, Depth depth) {
   DiscDifferenceEvaluator evaluator;
   const auto start = std::chrono::steady_clock::now();
 
   SearchResult result =
       mode == BenchmarkMode::fixed
           ? search_fixed_depth(position, evaluator, depth)
-          : search_iterative(position, evaluator, SearchLimits{.max_depth = depth});
+          : search_iterative(position, evaluator, SearchLimits{.max_depth = depth},
+                             search_options_for_tt_mode(tt_mode));
 
   return TimedResult{
       .result = result,
@@ -349,13 +418,15 @@ TimedResult run_search(BenchmarkMode mode, Position position, Depth depth) {
 }
 
 void print_header(char delimiter) {
-  std::cout << "position_name" << delimiter << "mode" << delimiter << "depth" << delimiter
-            << "score" << delimiter << "best_move" << delimiter << "nodes" << delimiter
-            << "eval_calls" << delimiter << "beta_cutoffs" << delimiter << "alpha_updates"
-            << delimiter << "elapsed_ms" << delimiter << "nps" << '\n';
+  std::cout << "position_name" << delimiter << "mode" << delimiter << "tt_mode" << delimiter
+            << "depth" << delimiter << "score" << delimiter << "best_move" << delimiter << "nodes"
+            << delimiter << "eval_calls" << delimiter << "beta_cutoffs" << delimiter
+            << "alpha_updates" << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter
+            << "tt_stores" << delimiter << "tt_cutoffs" << delimiter << "elapsed_ms" << delimiter
+            << "nps" << '\n';
 }
 
-void print_result(PositionCase position_case, BenchmarkMode mode, Depth depth,
+void print_result(PositionCase position_case, BenchmarkMode mode, TTMode tt_mode, Depth depth,
                   TimedResult timed_result, char delimiter) {
   const double elapsed_ms = std::chrono::duration<double, std::milli>(timed_result.elapsed).count();
   const double elapsed_seconds = std::chrono::duration<double>(timed_result.elapsed).count();
@@ -363,12 +434,15 @@ void print_result(PositionCase position_case, BenchmarkMode mode, Depth depth,
                          ? static_cast<double>(timed_result.result.nodes) / elapsed_seconds
                          : 0.0;
 
-  std::cout << position_case.name << delimiter << mode_name(mode) << delimiter << depth << delimiter
-            << timed_result.result.score << delimiter << best_move_to_string(timed_result.result)
-            << delimiter << timed_result.result.nodes << delimiter
-            << timed_result.result.stats.eval_calls << delimiter
-            << timed_result.result.stats.beta_cutoffs << delimiter
-            << timed_result.result.stats.alpha_updates << delimiter << std::fixed
+  std::cout << position_case.name << delimiter << mode_name(mode) << delimiter
+            << tt_mode_name(tt_mode) << delimiter << depth << delimiter << timed_result.result.score
+            << delimiter << best_move_to_string(timed_result.result) << delimiter
+            << timed_result.result.nodes << delimiter << timed_result.result.stats.eval_calls
+            << delimiter << timed_result.result.stats.beta_cutoffs << delimiter
+            << timed_result.result.stats.alpha_updates << delimiter
+            << timed_result.result.stats.tt_probes << delimiter << timed_result.result.stats.tt_hits
+            << delimiter << timed_result.result.stats.tt_stores << delimiter
+            << timed_result.result.stats.tt_cutoffs << delimiter << std::fixed
             << std::setprecision(3) << elapsed_ms << delimiter << std::fixed << std::setprecision(0)
             << nps << '\n';
 }
@@ -388,8 +462,9 @@ int main(int argc, char** argv) {
   for (PositionCase position_case : positions) {
     for (BenchmarkMode mode : modes) {
       for (Depth depth : config->depths) {
-        print_result(position_case, mode, depth, run_search(mode, position_case.position, depth),
-                     config->delimiter);
+        const TTMode tt_mode = mode == BenchmarkMode::iterative ? config->tt_mode : TTMode::off;
+        print_result(position_case, mode, tt_mode, depth,
+                     run_search(mode, tt_mode, position_case.position, depth), config->delimiter);
       }
     }
   }

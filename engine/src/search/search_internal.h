@@ -56,8 +56,7 @@ struct TTEntry {
 
 class TranspositionTable {
 public:
-  std::optional<board_core::Move> probe(board_core::Position position,
-                                        SearchStats* stats) const noexcept;
+  std::optional<TTEntry> probe(board_core::Position position, SearchStats* stats) const noexcept;
 
   void store(board_core::Position position, Depth depth, Score score, BoundType bound,
              board_core::Move best_move, TTEntryKind kind, SearchStats* stats) noexcept;
@@ -89,6 +88,8 @@ void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept
 void add_stats(SearchStats* total, SearchStats delta) noexcept;
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
+std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
+                                     Score beta) noexcept;
 
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
 
