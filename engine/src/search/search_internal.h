@@ -5,6 +5,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -14,6 +15,9 @@ namespace vibe_othello::search::internal {
 struct SearchValue {
   Score score = 0;
   Line pv{};
+  // When stopped is true, score and pv are incomplete and must not be published
+  // or stored as semantic search results.
+  bool stopped = false;
 };
 
 struct MoveList {
@@ -82,6 +86,17 @@ private:
   std::array<TTEntry, kEntryCount> entries_{};
 };
 
+struct SearchLimitState {
+  std::chrono::steady_clock::time_point start{};
+  std::chrono::steady_clock::time_point deadline{};
+  const std::atomic_bool* stop_requested = nullptr;
+  NodeCount max_nodes = 0;
+  NodeCount nodes = 0;
+  NodeCount nodes_until_next_time_check = 0;
+  bool has_deadline = false;
+  bool stopped = false;
+};
+
 struct SearchContext {
   board_core::Position position;
   const Evaluator& evaluator;
@@ -89,6 +104,7 @@ struct SearchContext {
   SearchLimits limits{};
   SearchOptions options{};
   TranspositionTable* transposition_table = nullptr;
+  SearchLimitState* limit_state = nullptr;
   std::array<StackFrame, kMaxPly> stack{};
 };
 
@@ -97,6 +113,9 @@ bool is_valid_evaluator_score(Score score) noexcept;
 void require_invariant(bool condition) noexcept;
 void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept;
 void add_stats(SearchStats* total, SearchStats delta) noexcept;
+SearchLimitState initialize_limit_state(SearchLimits limits);
+bool should_stop_search(SearchContext* context);
+bool note_node_visited(SearchContext* context);
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
 BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
@@ -129,6 +148,7 @@ SearchValue full_window_search(SearchContext* context, Score alpha, Score beta, 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
                                           SearchOptions options, TranspositionTable* tt,
-                                          RootSearchWindow root_window = {});
+                                          RootSearchWindow root_window = {},
+                                          SearchLimitState* limit_state = nullptr);
 
 } // namespace vibe_othello::search::internal

@@ -33,12 +33,22 @@ SearchValue pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Pl
       child = search_full_window_child(context, move, alpha, beta, depth, ply, SearchDispatch::pvs);
     } else {
       child = search_null_window_child(context, move, static_cast<Score>(-alpha), depth, ply);
+      if (child.stopped) {
+        return SearchValue{
+            .stopped = true,
+        };
+      }
       const Score score = child.score;
       if (score > alpha && score < beta) {
         ++context->stats.pvs_researches;
         child =
             search_full_window_child(context, move, alpha, beta, depth, ply, SearchDispatch::pvs);
       }
+    }
+    if (child.stopped) {
+      return SearchValue{
+          .stopped = true,
+      };
     }
     update_best_line_and_move(child, move, &best, &best_move, &frame);
 
