@@ -2,9 +2,11 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
+#include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <initializer_list>
 
 namespace vibe_othello::search {
 namespace {
@@ -46,6 +48,14 @@ void require_replayable_pv(board_core::Position position, Line pv) {
   }
 }
 
+void require_replayable_root_pvs(board_core::Position position, const SearchResult& result) {
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    REQUIRE(root_move.pv.size > 0);
+    REQUIRE(root_move.pv.moves[0] == root_move.move);
+    require_replayable_pv(position, root_move.pv);
+  }
+}
+
 void require_root_moves_match(const SearchResult& actual, const SearchResult& expected) {
   REQUIRE(actual.root_moves.size() == expected.root_moves.size());
   for (std::size_t index = 0; index < actual.root_moves.size(); ++index) {
@@ -55,6 +65,36 @@ void require_root_moves_match(const SearchResult& actual, const SearchResult& ex
     REQUIRE_FALSE(actual.root_moves[index].exact);
     REQUIRE_FALSE(actual.root_moves[index].selective);
   }
+}
+
+board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {
+  const board_core::Bitboard legal_moves = board_core::legal_moves(position);
+  REQUIRE(legal_moves != 0);
+
+  std::array<board_core::Move, board_core::kSquareCount> moves{};
+  std::size_t move_count = 0;
+  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
+    const board_core::Square move_square = board_core::square_from_index(square_index);
+    if ((legal_moves & board_core::bit(move_square)) != 0) {
+      moves[move_count] = board_core::make_move(move_square);
+      ++move_count;
+    }
+  }
+
+  REQUIRE(move_count > 0);
+  return moves[choice % move_count];
+}
+
+board_core::Position position_after_fixed_choices(std::initializer_list<std::size_t> choices) {
+  board_core::Position position = board_core::initial_position();
+
+  for (const std::size_t choice : choices) {
+    const board_core::Move move = select_legal_move(position, choice);
+    board_core::MoveDelta delta{};
+    REQUIRE(board_core::apply_move(&position, move, &delta));
+  }
+
+  return position;
 }
 
 TEST_CASE("alpha-beta depth zero matches reference negamax", "[search][alphabeta]") {
@@ -89,8 +129,40 @@ TEST_CASE("alpha-beta fixed-depth results match reference negamax", "[search][al
     REQUIRE(actual.completed_depth == expected.completed_depth);
     REQUIRE(actual.pv.size > 0);
     require_replayable_pv(board_core::initial_position(), actual.pv);
+    require_replayable_root_pvs(board_core::initial_position(), actual);
     require_root_moves_match(actual, expected);
     REQUIRE(actual.nodes <= expected.nodes);
+  }
+}
+
+TEST_CASE("alpha-beta matches reference negamax on fixed midgame positions",
+          "[search][alphabeta]") {
+  const std::array<board_core::Position, 3> positions{
+      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1}),
+      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}),
+      position_after_fixed_choices({1, 1, 0, 2, 2, 0, 3, 1, 0, 2, 1, 3}),
+  };
+
+  for (const board_core::Position position : positions) {
+    REQUIRE(position != board_core::initial_position());
+
+    for (Depth depth = 1; depth <= 4; ++depth) {
+      DiscDifferenceEvaluator actual_evaluator;
+      DiscDifferenceEvaluator expected_evaluator;
+
+      const SearchResult actual = search_fixed_depth(position, actual_evaluator, depth);
+      const SearchResult expected =
+          test_support::reference_negamax_fixed_depth(position, expected_evaluator, depth);
+
+      REQUIRE(actual.best_move == expected.best_move);
+      REQUIRE(actual.score == expected.score);
+      REQUIRE(actual.completed_depth == expected.completed_depth);
+      REQUIRE(actual.pv == expected.pv);
+      require_replayable_pv(position, actual.pv);
+      require_replayable_root_pvs(position, actual);
+      require_root_moves_match(actual, expected);
+      REQUIRE(actual.nodes <= expected.nodes);
+    }
   }
 }
 
@@ -111,6 +183,7 @@ TEST_CASE("alpha-beta handles root pass like reference negamax", "[search][alpha
   REQUIRE(actual.score == expected.score);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.pv == expected.pv);
+  require_replayable_root_pvs(pass_position, actual);
   require_root_moves_match(actual, expected);
   REQUIRE(actual.nodes <= expected.nodes);
 }
