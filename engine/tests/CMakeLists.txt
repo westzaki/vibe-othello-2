@@ -37,7 +37,8 @@ add_executable(
   board_core/move_generation_test.cc
   board_core/pass_terminal_test.cc
   board_core/perft_test.cc
-  board_core/position_test.cc)
+  board_core/position_test.cc
+  board_core/serialization_test.cc)
 
 target_link_libraries(
   vibe_othello_engine_tests PRIVATE vibe_othello_engine_test_support
