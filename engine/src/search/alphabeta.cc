@@ -1,6 +1,7 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
+#include <array>
 #include <bit>
 #include <cassert>
 #include <chrono>
@@ -13,6 +14,11 @@ namespace {
 struct SearchValue {
   Score score = 0;
   Line pv{};
+};
+
+struct MoveList {
+  std::array<board_core::Move, board_core::kSquareCount> moves{};
+  std::uint8_t size = 0;
 };
 
 Score terminal_score(board_core::Position position) noexcept {
@@ -54,6 +60,45 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->root_moves_searched += delta.root_moves_searched;
 }
 
+MoveList move_list_from_legal_mask(board_core::Bitboard legal_moves) noexcept {
+  MoveList list{};
+  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
+    const board_core::Square square = board_core::square_from_index(square_index);
+    if ((legal_moves & board_core::bit(square)) != 0) {
+      list.moves[list.size] = board_core::make_move(square);
+      ++list.size;
+    }
+  }
+  return list;
+}
+
+MoveList ordered_internal_moves(board_core::Position position) noexcept {
+  return move_list_from_legal_mask(board_core::legal_moves(position));
+}
+
+void move_to_front(MoveList* list, board_core::Move move) noexcept {
+  for (std::uint8_t index = 0; index < list->size; ++index) {
+    if (list->moves[index] != move) {
+      continue;
+    }
+
+    for (std::uint8_t shift = index; shift > 0; --shift) {
+      list->moves[shift] = list->moves[shift - 1];
+    }
+    list->moves[0] = move;
+    return;
+  }
+}
+
+MoveList ordered_root_moves(board_core::Position position,
+                            std::optional<board_core::Move> first_move) noexcept {
+  MoveList list = ordered_internal_moves(position);
+  if (first_move.has_value() && first_move->kind == board_core::MoveKind::normal) {
+    move_to_front(&list, *first_move);
+  }
+  return list;
+}
+
 SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator, Score alpha,
                       Score beta, Depth depth, SearchStats* stats) {
   require_invariant(alpha < beta);
@@ -78,8 +123,8 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
     };
   }
 
-  const board_core::Bitboard legal_moves = board_core::legal_moves(*position);
-  if (legal_moves == 0) {
+  const MoveList moves = ordered_internal_moves(*position);
+  if (moves.size == 0) {
     ++stats->pass_nodes;
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, board_core::make_pass(), &delta);
@@ -105,13 +150,8 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
       .pv = {},
   };
 
-  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
-    const board_core::Square square = board_core::square_from_index(square_index);
-    if ((legal_moves & board_core::bit(square)) == 0) {
-      continue;
-    }
-
-    const board_core::Move move = board_core::make_move(square);
+  for (std::uint8_t move_index = 0; move_index < moves.size; ++move_index) {
+    const board_core::Move move = moves.moves[move_index];
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, move, &delta);
     require_invariant(made_delta);
@@ -140,19 +180,6 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
   }
 
   return best;
-}
-
-bool is_legal_hint(board_core::Bitboard legal_moves, board_core::Move hint) noexcept {
-  return hint.kind == board_core::MoveKind::normal &&
-         (legal_moves & board_core::bit(hint.square)) != 0;
-}
-
-bool should_search_root_move(board_core::Bitboard legal_moves, board_core::Move move,
-                             std::optional<board_core::Move> first_move) noexcept {
-  if ((legal_moves & board_core::bit(move.square)) == 0) {
-    return false;
-  }
-  return !first_move.has_value() || move != *first_move;
 }
 
 bool is_better_root_move(Score score, board_core::Move move, Score best_score,
@@ -228,8 +255,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   stats.nodes = 1;
-  const board_core::Bitboard legal_moves = board_core::legal_moves(position);
-  if (legal_moves == 0) {
+  const MoveList root_moves = ordered_root_moves(position, first_move);
+  if (root_moves.size == 0) {
     ++stats.pass_nodes;
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(position, board_core::make_pass(), &delta);
@@ -266,22 +293,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
   Score best_score = kScoreLoss;
   Line best_line{};
-  const std::optional<board_core::Move> legal_first_move =
-      first_move.has_value() && is_legal_hint(legal_moves, *first_move) ? first_move : std::nullopt;
-
-  if (legal_first_move.has_value()) {
-    search_root_move(position, evaluator, completed_depth, *legal_first_move, &stats, &best_score,
-                     &best_line, &result);
-    ++stats.root_moves_searched;
-  }
-
-  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
-    const board_core::Square square = board_core::square_from_index(square_index);
-    const board_core::Move move = board_core::make_move(square);
-    if (!should_search_root_move(legal_moves, move, legal_first_move)) {
-      continue;
-    }
-
+  for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
+    const board_core::Move move = root_moves.moves[move_index];
     search_root_move(position, evaluator, completed_depth, move, &stats, &best_score, &best_line,
                      &result);
     ++stats.root_moves_searched;
