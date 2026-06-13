@@ -16,8 +16,10 @@ FetchContent_Declare(
   GIT_TAG v3.15.0)
 FetchContent_MakeAvailable(Catch2)
 
-add_library(vibe_othello_engine_test_support STATIC
-            ../test_support/board_core/reference_board.cc)
+add_library(
+  vibe_othello_engine_test_support STATIC
+  ../test_support/board_core/perft.cc
+  ../test_support/board_core/reference_board.cc)
 
 target_include_directories(vibe_othello_engine_test_support
                            PUBLIC ../test_support)
@@ -31,6 +33,7 @@ add_executable(
   board_core/board_test.cc
   board_core/coordinates_test.cc
   board_core/differential_test.cc
+  board_core/perft_test.cc
   board_core/position_test.cc)
 
 target_link_libraries(
