@@ -16,6 +16,7 @@ using vibe_othello::board_core::apply_move_delta;
 using vibe_othello::board_core::bit;
 using vibe_othello::board_core::Bitboard;
 using vibe_othello::board_core::flips_for_move;
+using vibe_othello::board_core::has_legal_move;
 using vibe_othello::board_core::hash_position;
 using vibe_othello::board_core::initial_black_discs;
 using vibe_othello::board_core::initial_position;
@@ -215,6 +216,14 @@ std::uint64_t bench_legal_moves() noexcept {
   return checksum;
 }
 
+std::uint64_t bench_has_legal_move() noexcept {
+  std::uint64_t checksum = 0;
+  for (PositionCase entry : kPositionCorpus) {
+    checksum = (checksum << 1U) ^ (has_legal_move(entry.position) ? 1ULL : 0ULL);
+  }
+  return checksum;
+}
+
 std::uint64_t bench_flips_for_move() noexcept {
   std::uint64_t checksum = 0;
   for (MoveCase entry : kMoveCorpus) {
@@ -294,6 +303,8 @@ int main() {
 
   print_result(run_benchmark("legal_moves", kIterations, static_cast<int>(kPositionCorpus.size()),
                              bench_legal_moves));
+  print_result(run_benchmark("has_legal_move", kIterations,
+                             static_cast<int>(kPositionCorpus.size()), bench_has_legal_move));
   print_result(run_benchmark("flips_for_move", kIterations, static_cast<int>(kMoveCorpus.size()),
                              bench_flips_for_move));
   print_result(run_benchmark("apply_move", kIterations, static_cast<int>(kMoveCorpus.size()),

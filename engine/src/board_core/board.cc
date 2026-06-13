@@ -53,6 +53,22 @@ constexpr Bitboard legal_moves_in_direction(Bitboard player, Bitboard opponent, 
   return shift(captured) & empty;
 }
 
+constexpr bool has_legal_move_in_direction(Bitboard player, Bitboard opponent, Bitboard empty,
+                                           Shift shift) noexcept {
+  Bitboard run = shift(player) & opponent;
+  Bitboard captured = run;
+
+  while (run != 0) {
+    if ((shift(captured) & empty) != 0) {
+      return true;
+    }
+    run = shift(run) & opponent;
+    captured |= run;
+  }
+
+  return false;
+}
+
 constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard opponent,
                                       Shift shift) noexcept {
   Bitboard run = shift(move) & opponent;
@@ -211,7 +227,20 @@ Bitboard flips_for_move(Position position, Square move) noexcept {
 }
 
 bool has_legal_move(Position position) noexcept {
-  return legal_moves(position) != 0;
+  if (!is_valid(position)) {
+    return false;
+  }
+
+  const Bitboard empty = ~occupied(position);
+
+  return has_legal_move_in_direction(position.player, position.opponent, empty, shift_east) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_west) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_north) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_south) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_north_east) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_north_west) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_south_east) ||
+         has_legal_move_in_direction(position.player, position.opponent, empty, shift_south_west);
 }
 
 bool is_terminal(Position position) noexcept {
