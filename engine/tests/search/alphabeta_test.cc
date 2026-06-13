@@ -67,6 +67,17 @@ void require_root_moves_match(const SearchResult& actual, const SearchResult& ex
   }
 }
 
+void require_root_moves_in_square_order(const SearchResult& result) {
+  std::uint8_t previous = 0;
+  for (std::size_t index = 0; index < result.root_moves.size(); ++index) {
+    REQUIRE(result.root_moves[index].move.kind == board_core::MoveKind::normal);
+    if (index > 0) {
+      REQUIRE(previous < result.root_moves[index].move.square.index);
+    }
+    previous = result.root_moves[index].move.square.index;
+  }
+}
+
 void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.nodes == result.stats.nodes);
   REQUIRE(result.stats.root_moves_searched == result.root_moves.size());
@@ -147,6 +158,7 @@ TEST_CASE("alpha-beta fixed-depth results match reference negamax", "[search][al
     REQUIRE(actual.completed_depth == expected.completed_depth);
     REQUIRE(actual.pv.size > 0);
     require_basic_stats_invariants(actual);
+    require_root_moves_in_square_order(actual);
     require_replayable_pv(board_core::initial_position(), actual.pv);
     require_replayable_root_pvs(board_core::initial_position(), actual);
     require_root_moves_match(actual, expected);
@@ -178,6 +190,7 @@ TEST_CASE("alpha-beta matches reference negamax on fixed midgame positions",
       REQUIRE(actual.completed_depth == expected.completed_depth);
       REQUIRE(actual.pv == expected.pv);
       require_basic_stats_invariants(actual);
+      require_root_moves_in_square_order(actual);
       require_replayable_pv(position, actual.pv);
       require_replayable_root_pvs(position, actual);
       require_root_moves_match(actual, expected);
