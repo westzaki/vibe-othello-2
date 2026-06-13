@@ -44,6 +44,7 @@ add_executable(
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
   search/alphabeta_test.cc
+  search/iterative_search_test.cc
   search/reference_search_test.cc)
 
 target_link_libraries(
