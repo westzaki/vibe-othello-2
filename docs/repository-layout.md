@@ -41,10 +41,13 @@ engine/
 ├─ README.md
 ├─ include/
 ├─ src/
+├─ test_support/
 └─ tests/
 ```
 
 Engine tests use Catch2 and run through CTest.
+Shared test-only helpers live in `engine/test_support/` and are linked only by
+test targets.
 
 ## Tools Layout
 
