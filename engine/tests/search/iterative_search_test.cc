@@ -105,7 +105,6 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
   REQUIRE(result.stats.tt_stores <= result.stats.nodes);
   REQUIRE(result.stats.tt_cutoffs <= result.stats.tt_hits);
-  REQUIRE(result.stats.tt_cutoffs == 0);
   REQUIRE(result.stats.pvs_researches <= result.stats.nodes);
   REQUIRE(result.stats.aspiration_fail_lows <= result.stats.nodes);
   REQUIRE(result.stats.aspiration_fail_highs <= result.stats.nodes);
@@ -323,6 +322,68 @@ TEST_CASE("iterative TT ordering is correctness-neutral across depths", "[search
   }
 }
 
+TEST_CASE("iterative midgame TT cutoffs preserve search decisions", "[search][iterative]") {
+  DiscDifferenceEvaluator tt_evaluator;
+  DiscDifferenceEvaluator no_tt_evaluator;
+
+  const SearchResult with_tt =
+      search_iterative(board_core::initial_position(), tt_evaluator,
+                       SearchLimits{.max_depth = Depth{5}}, SearchOptions{.use_midgame_tt = true});
+  const SearchResult without_tt = search_iterative(board_core::initial_position(), no_tt_evaluator,
+                                                   SearchLimits{.max_depth = Depth{5}});
+
+  require_same_decision(with_tt, without_tt);
+  require_basic_stats_invariants(with_tt);
+  require_root_move_scores_match(with_tt, without_tt);
+  require_replayable_pv(board_core::initial_position(), with_tt.pv);
+  require_replayable_root_pvs(board_core::initial_position(), with_tt);
+  REQUIRE(without_tt.stats.tt_probes == 0);
+  REQUIRE(without_tt.stats.tt_hits == 0);
+  REQUIRE(without_tt.stats.tt_stores == 0);
+  REQUIRE(with_tt.stats.tt_probes > 0);
+  REQUIRE(with_tt.stats.tt_hits > 0);
+  REQUIRE(with_tt.stats.tt_stores > 0);
+  REQUIRE(with_tt.stats.tt_cutoffs > 0);
+}
+
+TEST_CASE("iterative TT ordering and cutoff options are independent", "[search][iterative]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  DiscDifferenceEvaluator baseline_evaluator;
+  DiscDifferenceEvaluator ordering_evaluator;
+  DiscDifferenceEvaluator cutoff_evaluator;
+  DiscDifferenceEvaluator both_evaluator;
+
+  const SearchResult baseline =
+      search_iterative(position, baseline_evaluator, SearchLimits{.max_depth = Depth{5}});
+  const SearchResult ordering_only =
+      search_iterative(position, ordering_evaluator, SearchLimits{.max_depth = Depth{5}},
+                       SearchOptions{.use_tt_best_move_ordering = true});
+  const SearchResult cutoff_only =
+      search_iterative(position, cutoff_evaluator, SearchLimits{.max_depth = Depth{5}},
+                       SearchOptions{.use_midgame_tt = true});
+  const SearchResult ordering_and_cutoff =
+      search_iterative(position, both_evaluator, SearchLimits{.max_depth = Depth{5}},
+                       SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true});
+
+  require_same_decision(ordering_only, baseline);
+  require_same_decision(cutoff_only, baseline);
+  require_same_decision(ordering_and_cutoff, baseline);
+  require_basic_stats_invariants(ordering_only);
+  require_basic_stats_invariants(cutoff_only);
+  require_basic_stats_invariants(ordering_and_cutoff);
+  require_root_move_scores_match(ordering_only, baseline);
+  require_root_move_scores_match(cutoff_only, baseline);
+  require_root_move_scores_match(ordering_and_cutoff, baseline);
+
+  REQUIRE(baseline.stats.tt_probes == 0);
+  REQUIRE(ordering_only.stats.tt_probes > 0);
+  REQUIRE(ordering_only.stats.tt_cutoffs == 0);
+  REQUIRE(cutoff_only.stats.tt_probes > 0);
+  REQUIRE(cutoff_only.stats.tt_cutoffs > 0);
+  REQUIRE(ordering_and_cutoff.stats.tt_probes > 0);
+  REQUIRE(ordering_and_cutoff.stats.tt_cutoffs > 0);
+}
+
 TEST_CASE("iterative TT ordering handles depth zero pass and terminal roots",
           "[search][iterative]") {
   constexpr board_core::Position pass_position{
@@ -348,16 +409,15 @@ TEST_CASE("iterative TT ordering handles depth zero pass and terminal roots",
       ConstantEvaluator tt_evaluator{5};
       ConstantEvaluator no_tt_evaluator{5};
 
-      const SearchResult with_tt =
-          search_iterative(position, tt_evaluator, SearchLimits{.max_depth = depth},
-                           SearchOptions{.use_tt_best_move_ordering = true});
+      const SearchResult with_tt = search_iterative(
+          position, tt_evaluator, SearchLimits{.max_depth = depth},
+          SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true});
       const SearchResult without_tt =
           search_iterative(position, no_tt_evaluator, SearchLimits{.max_depth = depth});
 
       require_same_final_result(with_tt, without_tt);
       require_basic_stats_invariants(with_tt);
       require_root_move_set_matches(with_tt, without_tt);
-      REQUIRE(with_tt.stats.tt_cutoffs == 0);
     }
   }
 }
@@ -385,7 +445,6 @@ TEST_CASE("iterative safely ignores unimplemented search options", "[search][ite
       .use_iid = true,
       .use_history = true,
       .use_killers = true,
-      .use_midgame_tt = true,
       .use_endgame_tt = true,
       .exact_endgame = true,
       .probcut = true,

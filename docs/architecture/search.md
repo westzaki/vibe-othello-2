@@ -293,11 +293,14 @@ Benchmarks should report which options were enabled.
 
 Midgame TT and endgame TT have different semantics.
 
-`use_midgame_tt` controls heuristic and selective midgame entries.
+`use_midgame_tt` controls midgame transposition-table cutoffs from compatible
+stored entries.
 
 `use_endgame_tt` controls exact endgame score and WLD entries.
 
 `use_endgame_tt` has no effect when `exact_endgame` is disabled.
+
+`use_endgame_tt` is currently a no-op until exact endgame search is implemented.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
@@ -308,6 +311,10 @@ Endgame TT entries may only be probed or stored by exact endgame search paths.
 TT best-move ordering may reorder legal moves.
 
 TT best-move ordering must not perform TT cutoffs by itself.
+
+`use_midgame_tt` and `use_tt_best_move_ordering` are independent. Midgame TT
+cutoffs may be enabled without TT best-move ordering, and TT best-move ordering
+may be enabled without TT cutoffs.
 
 Disabling one table must not silently disable or weaken the semantics of another
 table.
@@ -733,13 +740,25 @@ A transposition table stores search results for positions.
 
 Only fields compatible with `TTEntryKind` are valid.
 
-The current implementation is an ordering-only TT v1. It stores `key`, `depth`,
-`score`, `bound`, `best_move`, `generation`, `kind`, and `occupied`, but probes
-only return the stored best move for ordering. Stored scores and bounds must not
-perform cutoffs in this mode, and `tt_cutoffs` must remain zero.
+The current implementation stores `key`, `depth`, `score`, `bound`,
+`best_move`, `generation`, `kind`, and `occupied`.
 
-For `heuristic_midgame`, `selective_midgame`, and `exact_endgame_score`,
-`score` is valid and `wld_result` must be ignored.
+When `use_tt_best_move_ordering` is enabled, a matching entry's `best_move` may
+be used as an ordering hint.
+
+When `use_midgame_tt` is enabled, compatible midgame entries may cut off search.
+Midgame cutoff requires `entry.kind == TTEntryKind::midgame` and
+`entry.depth >= current depth`.
+
+TT entries store side-to-move-relative scores.
+
+The current implementation uses a simplified `midgame` entry kind. Future
+selective TT support may split it into separate `heuristic_midgame` and
+`selective_midgame` kinds if selective results need different compatibility
+rules.
+
+For `midgame` and `exact_endgame_score`, `score` is valid and `wld_result` must
+be ignored.
 
 For `exact_endgame_wld`, `wld_result` is valid and `score` must be ignored
 except when explicitly encoded for internal bound comparison.
@@ -748,8 +767,7 @@ Recommended entry shape:
 
 ```cpp
 enum class TTEntryKind : std::uint8_t {
-  heuristic_midgame,
-  selective_midgame,
+  midgame,
   exact_endgame_score,
   exact_endgame_wld,
 };

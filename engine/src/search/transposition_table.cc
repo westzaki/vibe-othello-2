@@ -3,8 +3,8 @@
 
 namespace vibe_othello::search::internal {
 
-std::optional<board_core::Move> TranspositionTable::probe(board_core::Position position,
-                                                          SearchStats* stats) const noexcept {
+std::optional<TTEntry> TranspositionTable::probe(board_core::Position position,
+                                                 SearchStats* stats) const noexcept {
   ++stats->tt_probes;
 
   const board_core::PositionHash key = board_core::hash_position(position);
@@ -14,7 +14,7 @@ std::optional<board_core::Move> TranspositionTable::probe(board_core::Position p
   }
 
   ++stats->tt_hits;
-  return entry.best_move;
+  return entry;
 }
 
 void TranspositionTable::store(board_core::Position position, Depth depth, Score score,

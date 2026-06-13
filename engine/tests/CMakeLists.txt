@@ -47,7 +47,8 @@ add_executable(
   search/alphabeta_test.cc
   search/iterative_search_test.cc
   search/move_ordering_test.cc
-  search/reference_search_test.cc)
+  search/reference_search_test.cc
+  search/transposition_table_test.cc)
 
 target_link_libraries(
   vibe_othello_engine_tests PRIVATE vibe_othello_engine_test_support
