@@ -26,8 +26,7 @@ void search_root_move(board_core::Position position, const Evaluator& evaluator,
   board_core::MoveDelta delta{};
   const bool made_delta = board_core::make_move_delta(position, move, &delta);
   require_invariant(made_delta);
-  const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
-  require_invariant(applied_delta);
+  board_core::apply_move_delta(&position, delta);
 
   const NodeCount before_nodes = stats->nodes;
   const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
@@ -92,8 +91,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(position, board_core::make_pass(), &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(&position, delta);
 
     const NodeCount before_nodes = stats.nodes;
     const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,

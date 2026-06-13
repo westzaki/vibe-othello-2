@@ -64,6 +64,7 @@ struct MoveCase {
 };
 
 struct AppliedMoveCase {
+  Position before;
   Position after;
   MoveDelta delta;
 };
@@ -160,6 +161,7 @@ std::array<AppliedMoveCase, kMoveCorpus.size()> make_applied_move_corpus() noexc
       continue;
     }
     result[index] = AppliedMoveCase{
+        .before = kMoveCorpus[index].position,
         .after = position,
         .delta = delta,
     };
@@ -257,7 +259,7 @@ std::uint64_t bench_make_move_delta() noexcept {
   for (MoveCase entry : kMoveCorpus) {
     MoveDelta delta{};
     if (make_move_delta(entry.position, entry.move, &delta)) {
-      checksum ^= position_checksum(delta.before) ^ delta.flipped;
+      checksum ^= position_checksum(entry.position) ^ delta.flipped;
     }
   }
   return checksum;
@@ -267,10 +269,9 @@ std::uint64_t
 bench_apply_move_delta(const std::array<AppliedMoveCase, kMoveCorpus.size()>& corpus) noexcept {
   std::uint64_t checksum = 0;
   for (AppliedMoveCase entry : corpus) {
-    Position position = entry.delta.before;
-    if (apply_move_delta(&position, entry.delta)) {
-      checksum ^= position_checksum(position) ^ entry.delta.flipped;
-    }
+    Position position = entry.before;
+    apply_move_delta(&position, entry.delta);
+    checksum ^= position_checksum(position) ^ entry.delta.flipped;
   }
   return checksum;
 }

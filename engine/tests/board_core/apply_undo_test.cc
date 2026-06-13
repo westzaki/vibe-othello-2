@@ -24,7 +24,6 @@ TEST_CASE("normal moves are applied from relative position", "[board_core][apply
 
   REQUIRE(apply_move(&position, make_move(square(2, 3)), &delta));
 
-  REQUIRE(delta.before == initial_position());
   REQUIRE(delta.move == make_move(square(2, 3)));
   REQUIRE(delta.flipped == bit(square(3, 3)));
   REQUIRE(position.side_to_move == Color::white);
@@ -51,7 +50,6 @@ TEST_CASE("white relative moves are applied from relative position", "[board_cor
 
   REQUIRE(apply_move(&position, make_move(square(2, 4)), &delta));
 
-  REQUIRE(delta.before == before);
   REQUIRE(delta.move == make_move(square(2, 4)));
   REQUIRE(delta.flipped == bit(square(3, 4)));
   REQUIRE(position.side_to_move == Color::black);
@@ -106,6 +104,9 @@ TEST_CASE("apply then undo restores the exact position", "[board_core][apply_und
 
   undo_move(&position, delta);
   REQUIRE(position == before);
+
+  REQUIRE(apply_move_delta_checked(&position, delta));
+  REQUIRE(position.side_to_move == Color::white);
 }
 
 TEST_CASE("move deltas can be prepared and applied separately", "[board_core][apply_undo]") {
@@ -115,11 +116,10 @@ TEST_CASE("move deltas can be prepared and applied separately", "[board_core][ap
 
   REQUIRE(make_move_delta(position, make_move(square(2, 3)), &delta));
   REQUIRE(position == before);
-  REQUIRE(delta.before == before);
   REQUIRE(delta.move == make_move(square(2, 3)));
   REQUIRE(delta.flipped == bit(square(3, 3)));
 
-  REQUIRE(apply_move_delta(&position, delta));
+  apply_move_delta(&position, delta);
   REQUIRE(position != before);
   REQUIRE(position.side_to_move == Color::white);
 
@@ -127,7 +127,8 @@ TEST_CASE("move deltas can be prepared and applied separately", "[board_core][ap
   REQUIRE(position == before);
 }
 
-TEST_CASE("move delta application rejects mismatched positions", "[board_core][apply_undo]") {
+TEST_CASE("checked move delta application rejects mismatched positions",
+          "[board_core][apply_undo]") {
   Position before = initial_position();
   MoveDelta delta{};
   REQUIRE(make_move_delta(before, make_move(square(2, 3)), &delta));
@@ -136,7 +137,7 @@ TEST_CASE("move delta application rejects mismatched positions", "[board_core][a
   MoveDelta different_delta{};
   REQUIRE(apply_move(&different, make_move(square(3, 2)), &different_delta));
 
-  REQUIRE_FALSE(apply_move_delta(&different, delta));
+  REQUIRE_FALSE(apply_move_delta_checked(&different, delta));
   REQUIRE(different != before);
 }
 
@@ -150,27 +151,24 @@ TEST_CASE("move delta helpers reject invalid inputs", "[board_core][apply_undo]"
   REQUIRE_FALSE(make_move_delta(position, make_move(square(2, 3)), nullptr));
 
   MoveDelta invalid_delta{
-      .before = position,
       .move = make_move(square(2, 3)),
       .flipped = 0,
   };
-  REQUIRE_FALSE(apply_move_delta(&position, invalid_delta));
+  REQUIRE_FALSE(apply_move_delta_checked(&position, invalid_delta));
   REQUIRE(position == initial_position());
 
   invalid_delta = MoveDelta{
-      .before = position,
       .move = make_move(square(2, 3)),
       .flipped = bit(square(0, 0)),
   };
-  REQUIRE_FALSE(apply_move_delta(&position, invalid_delta));
+  REQUIRE_FALSE(apply_move_delta_checked(&position, invalid_delta));
   REQUIRE(position == initial_position());
 
-  REQUIRE_FALSE(apply_move_delta(nullptr, delta));
+  REQUIRE_FALSE(apply_move_delta_checked(nullptr, delta));
 }
 
 TEST_CASE("undo move ignores null position pointers", "[board_core][apply_undo]") {
   MoveDelta delta{
-      .before = initial_position(),
       .move = make_move(square(2, 3)),
       .flipped = bit(square(3, 3)),
   };
@@ -213,7 +211,6 @@ TEST_CASE("multi-direction moves apply and undo", "[board_core][apply_undo]") {
 
   REQUIRE(apply_move(&position, make_move(square(3, 3)), &delta));
 
-  REQUIRE(delta.before == before);
   REQUIRE(delta.move == make_move(square(3, 3)));
   REQUIRE(delta.flipped == flipped);
   REQUIRE(position.side_to_move == Color::white);

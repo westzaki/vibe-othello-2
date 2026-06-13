@@ -35,8 +35,7 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, board_core::make_pass(), &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(position, delta);
 
     const SearchValue child =
         alphabeta(position, evaluator, static_cast<Score>(-beta), static_cast<Score>(-alpha),
@@ -62,8 +61,7 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, move, &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(position, delta);
 
     const SearchValue child =
         alphabeta(position, evaluator, static_cast<Score>(-beta), static_cast<Score>(-alpha),

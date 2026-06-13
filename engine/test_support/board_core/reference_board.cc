@@ -129,7 +129,6 @@ bool reference_apply_move(Position* position, Move move, MoveDelta* delta) noexc
   }
 
   *delta = MoveDelta{
-      .before = before,
       .move = move,
       .flipped = flipped,
   };
@@ -150,7 +149,6 @@ bool reference_apply_pass(Position* position, MoveDelta* delta) noexcept {
   }
 
   *delta = MoveDelta{
-      .before = before,
       .move = make_pass(),
       .flipped = 0,
   };
