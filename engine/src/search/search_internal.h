@@ -34,6 +34,12 @@ enum class SearchDispatch : std::uint8_t {
   pvs,
 };
 
+struct RootSearchWindow {
+  Score alpha = kScoreLoss;
+  Score beta = kScoreWin;
+  bool enabled = false;
+};
+
 struct StackFrame {
   board_core::Move current_move = board_core::make_pass();
   board_core::MoveDelta delta{};
@@ -107,7 +113,7 @@ SearchValue search_full_window_child(SearchContext* context, board_core::Move mo
                                      Score beta, Depth depth, Ply ply, SearchDispatch dispatch);
 SearchValue search_null_window_child(SearchContext* context, board_core::Move move, Score beta,
                                      Depth depth, Ply ply);
-void update_best_line_and_move(SearchValue child, board_core::Move move, SearchValue* best,
+void update_best_line_and_move(const SearchValue& child, board_core::Move move, SearchValue* best,
                                std::optional<board_core::Move>* best_move, StackFrame* frame);
 bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* alpha,
                                    Score beta) noexcept;
@@ -122,6 +128,7 @@ SearchValue full_window_search(SearchContext* context, Score alpha, Score beta, 
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
-                                          SearchOptions options, TranspositionTable* tt);
+                                          SearchOptions options, TranspositionTable* tt,
+                                          RootSearchWindow root_window = {});
 
 } // namespace vibe_othello::search::internal

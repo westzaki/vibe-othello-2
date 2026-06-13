@@ -16,7 +16,7 @@ SearchValue dispatch_search(SearchContext* context, SearchDispatch dispatch, Sco
   return {};
 }
 
-SearchValue child_result(board_core::Move move, SearchValue child) noexcept {
+SearchValue child_result(board_core::Move move, const SearchValue& child) noexcept {
   SearchValue result{
       .score = static_cast<Score>(-child.score),
       .pv = {},
@@ -149,7 +149,7 @@ SearchValue search_pass_child(SearchContext* context, Score alpha, Score beta, D
   return result;
 }
 
-void update_best_line_and_move(SearchValue child, board_core::Move move, SearchValue* best,
+void update_best_line_and_move(const SearchValue& child, board_core::Move move, SearchValue* best,
                                std::optional<board_core::Move>* best_move, StackFrame* frame) {
   if (!best_move->has_value() || child.score > best->score ||
       (child.score == best->score && move.square.index < (*best_move)->square.index)) {

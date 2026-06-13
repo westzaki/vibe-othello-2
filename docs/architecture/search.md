@@ -645,7 +645,7 @@ SearchValue null_window_search(SearchContext* context,
                                Ply ply);
 ```
 
-Null-window search is an internal primitive for future PVS and scout searches.
+Null-window search is an internal primitive for PVS and future scout searches.
 
 It may also be used by:
 
@@ -657,8 +657,8 @@ It may also be used by:
 Null-window search must share the same make and unmake code path as full-window
 search.
 
-The current production search path does not call the null-window primitive until
-PVS or another scout-style search is implemented and enabled.
+The production search path calls the null-window primitive when PVS or another
+scout-style search is implemented and enabled.
 
 ## Principal Variation Search
 
@@ -704,6 +704,19 @@ The root result should remain valid after every completed depth.
 
 Aspiration windows use the previous depth score as a guess.
 
+Aspiration is an optional iterative-deepening wrapper controlled by
+`SearchOptions::use_aspiration`.
+
+Aspiration is disabled by default.
+
+Fixed-depth search always uses the normal full-window root search.
+
+Depth 1 of iterative deepening always uses a full window.
+
+Recursive searches inside an aspiration window must go through
+`full_window_search()` so `SearchOptions::use_pvs` continues to dispatch between
+alpha-beta and PVS.
+
 Initial non-trivial depths may search with a full window.
 
 Later depths may search with:
@@ -718,6 +731,19 @@ If search fails low, widen downward and re-search.
 If search fails high, widen upward and re-search.
 
 Widening must eventually reach a full window.
+
+The result of the first search whose root score is inside the window is the
+completed depth result. Search must not unconditionally discard a successful
+aspiration result and run a second full-window depth search for publication.
+
+If widening reaches the full score range, that full-range result is published.
+
+Fail-low and fail-high attempts may contain bounded root move information. The
+published result must be either an exact in-window result or the full-range
+result. Published root move scores and bounds must be semantically consistent;
+if bounded root move entries from the successful aspiration attempt would be
+reported, they should be completed with exact root move searches rather than
+re-running the whole depth unconditionally.
 
 Aspiration failures must be counted in statistics.
 

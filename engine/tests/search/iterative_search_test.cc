@@ -191,6 +191,29 @@ NodeCount fixed_depth_node_sum(board_core::Position position, Depth max_depth) {
   return nodes;
 }
 
+SearchOptions enable_aspiration(SearchOptions options) noexcept {
+  options.use_aspiration = true;
+  return options;
+}
+
+void require_aspiration_matches_without(board_core::Position position, Depth depth,
+                                        SearchOptions baseline_options) {
+  DiscDifferenceEvaluator aspiration_evaluator;
+  DiscDifferenceEvaluator baseline_evaluator;
+
+  const SearchResult with_aspiration =
+      search_iterative(position, aspiration_evaluator, SearchLimits{.max_depth = depth},
+                       enable_aspiration(baseline_options));
+  const SearchResult without_aspiration = search_iterative(
+      position, baseline_evaluator, SearchLimits{.max_depth = depth}, baseline_options);
+
+  require_same_decision(with_aspiration, without_aspiration);
+  require_basic_stats_invariants(with_aspiration);
+  require_root_move_scores_match(with_aspiration, without_aspiration);
+  require_replayable_pv(position, with_aspiration.pv);
+  require_replayable_root_pvs(position, with_aspiration);
+}
+
 TEST_CASE("iterative depth zero matches fixed-depth zero", "[search][iterative]") {
   ConstantEvaluator actual_evaluator{11};
   ConstantEvaluator expected_evaluator{11};
@@ -249,6 +272,64 @@ TEST_CASE("iterative final result matches fixed-depth search", "[search][iterati
       }
     }
   }
+}
+
+TEST_CASE("iterative aspiration uses full-window search at depth one",
+          "[search][iterative][aspiration]") {
+  ConstantEvaluator aspiration_evaluator{100};
+  ConstantEvaluator baseline_evaluator{100};
+
+  const SearchResult with_aspiration =
+      search_iterative(board_core::initial_position(), aspiration_evaluator,
+                       SearchLimits{.max_depth = Depth{1}}, SearchOptions{.use_aspiration = true});
+  const SearchResult without_aspiration = search_iterative(
+      board_core::initial_position(), baseline_evaluator, SearchLimits{.max_depth = Depth{1}});
+
+  require_same_final_result(with_aspiration, without_aspiration);
+  require_basic_stats_invariants(with_aspiration);
+  require_root_move_set_matches(with_aspiration, without_aspiration);
+  REQUIRE(with_aspiration.stats == without_aspiration.stats);
+  REQUIRE(with_aspiration.nodes == without_aspiration.nodes);
+}
+
+TEST_CASE("iterative aspiration preserves deterministic search results",
+          "[search][iterative][aspiration]") {
+  const std::array<board_core::Position, 3> positions{
+      board_core::initial_position(),
+      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1}),
+      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}),
+  };
+  const std::array<SearchOptions, 5> option_cases{
+      SearchOptions{},
+      SearchOptions{.use_pvs = true},
+      SearchOptions{.use_midgame_tt = true},
+      SearchOptions{.use_tt_best_move_ordering = true},
+      SearchOptions{.use_pvs = true, .use_midgame_tt = true, .use_tt_best_move_ordering = true},
+  };
+
+  for (const board_core::Position position : positions) {
+    for (const SearchOptions baseline_options : option_cases) {
+      require_aspiration_matches_without(position, Depth{5}, baseline_options);
+    }
+  }
+}
+
+TEST_CASE("iterative aspiration counts fail-low and fail-high searches",
+          "[search][iterative][aspiration]") {
+  ConstantEvaluator fail_high_evaluator{100};
+  ConstantEvaluator fail_low_evaluator{-100};
+
+  const SearchResult fail_high =
+      search_iterative(board_core::initial_position(), fail_high_evaluator,
+                       SearchLimits{.max_depth = Depth{2}}, SearchOptions{.use_aspiration = true});
+  const SearchResult fail_low =
+      search_iterative(board_core::initial_position(), fail_low_evaluator,
+                       SearchLimits{.max_depth = Depth{2}}, SearchOptions{.use_aspiration = true});
+
+  require_basic_stats_invariants(fail_high);
+  require_basic_stats_invariants(fail_low);
+  REQUIRE(fail_high.stats.aspiration_fail_highs > 0);
+  REQUIRE(fail_low.stats.aspiration_fail_lows > 0);
 }
 
 TEST_CASE("iterative searches previous best root move first", "[search][iterative]") {
@@ -440,7 +521,6 @@ TEST_CASE("iterative safely ignores unimplemented search options", "[search][ite
   DiscDifferenceEvaluator expected_evaluator;
 
   const SearchOptions options{
-      .use_aspiration = true,
       .use_iid = true,
       .use_history = true,
       .use_killers = true,
