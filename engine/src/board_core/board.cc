@@ -69,8 +69,8 @@ constexpr bool has_legal_move_in_direction(Bitboard player, Bitboard opponent, B
   return false;
 }
 
-constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard opponent,
-                                      Shift shift) noexcept {
+template <Shift shift>
+constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard opponent) noexcept {
   Bitboard run = shift(move) & opponent;
   Bitboard captured = run;
 
@@ -216,14 +216,14 @@ Bitboard flips_for_move(Position position, Square move) noexcept {
     return 0;
   }
 
-  return flips_in_direction(move_bit, position.player, position.opponent, shift_east) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_west) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_north) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_south) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_north_east) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_north_west) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_south_east) |
-         flips_in_direction(move_bit, position.player, position.opponent, shift_south_west);
+  return flips_in_direction<shift_east>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_west>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_north>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_south>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_north_east>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_north_west>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_south_east>(move_bit, position.player, position.opponent) |
+         flips_in_direction<shift_south_west>(move_bit, position.player, position.opponent);
 }
 
 bool has_legal_move(Position position) noexcept {
