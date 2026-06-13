@@ -93,6 +93,9 @@ std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score al
 
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
 SearchValue null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply);
+SearchValue pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
+SearchValue full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
+                               Ply ply);
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,

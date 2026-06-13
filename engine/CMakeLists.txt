@@ -8,6 +8,7 @@ target_sources(
           src/board_core/serialization.cc
           src/search/alphabeta.cc
           src/search/move_ordering.cc
+          src/search/pvs.cc
           src/search/root_search.cc
           src/search/search_util.cc
           src/search/transposition_table.cc

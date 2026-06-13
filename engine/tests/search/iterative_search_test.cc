@@ -440,7 +440,6 @@ TEST_CASE("iterative safely ignores unimplemented search options", "[search][ite
   DiscDifferenceEvaluator expected_evaluator;
 
   const SearchOptions options{
-      .use_pvs = true,
       .use_aspiration = true,
       .use_iid = true,
       .use_history = true,

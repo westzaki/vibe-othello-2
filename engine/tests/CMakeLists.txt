@@ -48,6 +48,7 @@ add_executable(
   search/iterative_search_test.cc
   search/move_ordering_test.cc
   search/null_window_search_test.cc
+  search/pvs_test.cc
   search/reference_search_test.cc
   search/transposition_table_test.cc)
 

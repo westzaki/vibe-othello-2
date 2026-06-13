@@ -31,7 +31,7 @@ void search_root_move(SearchContext* context, Depth depth, board_core::Move move
 
   const NodeCount before_nodes = context->stats.nodes;
   const SearchValue child =
-      alphabeta(context, kScoreLoss, kScoreWin, static_cast<Depth>(depth - 1), Ply{1});
+      full_window_search(context, kScoreLoss, kScoreWin, static_cast<Depth>(depth - 1), Ply{1});
   board_core::undo_move(&context->position, frame.delta);
 
   const Score score = static_cast<Score>(-child.score);
@@ -77,7 +77,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   };
 
   if (board_core::is_terminal(context.position) || completed_depth == 0) {
-    const SearchValue root = alphabeta(&context, kScoreLoss, kScoreWin, completed_depth, Ply{0});
+    const SearchValue root =
+        full_window_search(&context, kScoreLoss, kScoreWin, completed_depth, Ply{0});
     result.score = root.score;
     result.nodes = context.stats.nodes;
     result.stats = context.stats;
@@ -111,8 +112,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     board_core::apply_move_delta(&context.position, root_frame.delta);
 
     const NodeCount before_nodes = context.stats.nodes;
-    const SearchValue child =
-        alphabeta(&context, kScoreLoss, kScoreWin, static_cast<Depth>(completed_depth - 1), Ply{1});
+    const SearchValue child = full_window_search(&context, kScoreLoss, kScoreWin,
+                                                 static_cast<Depth>(completed_depth - 1), Ply{1});
     board_core::undo_move(&context.position, root_frame.delta);
 
     result.best_move = board_core::make_pass();
