@@ -94,13 +94,13 @@ Status values:
 | Add docs index rows | done | `docs/README.md` |
 | Add progress documentation home | done | `docs/progress/README.md` |
 | Add endgame progress document | done | this file |
-| Add `engine/src/search/endgame.cc` | not started | First production solver file |
-| Add generic exact-score solver using board core | not started | Use board-core move deltas and pass handling |
-| Add `engine/tests/search/endgame_test.cc` | not started | Start with root exact score, pass, terminal, and small-empty cases |
+| Add `engine/src/search/endgame.cc` | done | First production solver file |
+| Add generic exact-score solver using board core | done | Root-only generic exact-score solver uses board-core move deltas and pass handling |
+| Add `engine/tests/search/endgame_test.cc` | done | Covers root exact score, pass, terminal, threshold, flags, legality, and PV replay |
 | Add reference endgame solver in test support | not started | Slow and clear, no TT or heuristic evaluation |
 | Add small-empty golden tests | not started | Generate from trusted reference solver and inspect a subset |
-| Integrate root threshold through `SearchOptions::exact_endgame` | not started | Prefer root-only integration first |
-| Mark exact root results with `exact = true` | not started | Also mark root moves exact |
+| Integrate root threshold through `SearchOptions::exact_endgame` | done | Root-only integration before normal iterative deepening |
+| Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add WLD mode | not started | May be deferred after exact score |
 | Add endgame TT probe/store with separate entry kinds | not started | Test enabled/disabled equality |
 | Add parity ordering as ordering only | not started | Test enabled/disabled equality |

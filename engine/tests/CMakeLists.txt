@@ -45,6 +45,7 @@ add_executable(
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
   search/alphabeta_test.cc
+  search/endgame_test.cc
   search/iterative_search_test.cc
   search/move_ordering_test.cc
   search/null_window_search_test.cc
