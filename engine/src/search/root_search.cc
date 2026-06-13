@@ -435,6 +435,10 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
 
+  if (internal::should_use_exact_endgame(position, options)) {
+    return internal::solve_exact_endgame(position, limits, options, nullptr, &limit_state);
+  }
+
   if (!limits.infinite && max_depth == 0) {
     SearchResult result = internal::search_fixed_depth_with_hint(
         position, evaluator, Depth{0}, internal::MoveOrderingHints{}, options, nullptr,

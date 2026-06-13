@@ -119,6 +119,16 @@ struct SearchContext {
   std::array<StackFrame, kMaxPly> stack{};
 };
 
+struct EndgameContext {
+  board_core::Position position;
+  SearchLimits limits{};
+  SearchOptions options{};
+  TranspositionTable* transposition_table = nullptr;
+  SearchLimitState* limit_state = nullptr;
+  SearchStats stats{};
+  std::array<StackFrame, kMaxPly> stack{};
+};
+
 Score terminal_score(board_core::Position position) noexcept;
 bool is_valid_evaluator_score(Score score) noexcept;
 void require_invariant(bool condition) noexcept;
@@ -155,6 +165,13 @@ SearchValue null_window_search(SearchContext* context, Score beta, Depth depth, 
 SearchValue pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
 SearchValue full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
                                Ply ply);
+std::uint8_t empty_count(board_core::Position position) noexcept;
+bool should_use_exact_endgame(board_core::Position position, SearchOptions options) noexcept;
+SearchValue exact_score_search(EndgameContext* context, Score alpha, Score beta,
+                               std::uint8_t empties, Ply ply);
+SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
+                                 SearchOptions options, TranspositionTable* tt,
+                                 SearchLimitState* limit_state = nullptr);
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,

@@ -7,6 +7,7 @@ target_sources(
           src/board_core/hash.cc
           src/board_core/serialization.cc
           src/search/alphabeta.cc
+          src/search/endgame.cc
           src/search/move_ordering.cc
           src/search/pvs.cc
           src/search/root_search.cc
