@@ -21,6 +21,10 @@ struct MoveList {
   std::uint8_t size = 0;
 };
 
+struct MoveOrderingHints {
+  std::optional<board_core::Move> first_move;
+};
+
 Score terminal_score(board_core::Position position) noexcept {
   return static_cast<Score>(std::popcount(position.player)) -
          static_cast<Score>(std::popcount(position.opponent));
@@ -72,10 +76,6 @@ MoveList move_list_from_legal_mask(board_core::Bitboard legal_moves) noexcept {
   return list;
 }
 
-MoveList ordered_internal_moves(board_core::Position position) noexcept {
-  return move_list_from_legal_mask(board_core::legal_moves(position));
-}
-
 void move_to_front(MoveList* list, board_core::Move move) noexcept {
   for (std::uint8_t index = 0; index < list->size; ++index) {
     if (list->moves[index] != move) {
@@ -90,11 +90,11 @@ void move_to_front(MoveList* list, board_core::Move move) noexcept {
   }
 }
 
-MoveList ordered_root_moves(board_core::Position position,
-                            std::optional<board_core::Move> first_move) noexcept {
-  MoveList list = ordered_internal_moves(position);
-  if (first_move.has_value() && first_move->kind == board_core::MoveKind::normal) {
-    move_to_front(&list, *first_move);
+MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept {
+  MoveList list = move_list_from_legal_mask(board_core::legal_moves(position));
+  if (hints.first_move.has_value() &&
+      hints.first_move->kind == board_core::MoveKind::normal) {
+    move_to_front(&list, *hints.first_move);
   }
   return list;
 }
@@ -123,7 +123,7 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
     };
   }
 
-  const MoveList moves = ordered_internal_moves(*position);
+  const MoveList moves = ordered_moves(*position, MoveOrderingHints{});
   if (moves.size == 0) {
     ++stats->pass_nodes;
     board_core::MoveDelta delta{};
@@ -232,7 +232,7 @@ void search_root_move(board_core::Position position, const Evaluator& evaluator,
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth,
-                                          std::optional<board_core::Move> first_move) {
+                                          MoveOrderingHints root_hints) {
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
 
@@ -255,7 +255,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   stats.nodes = 1;
-  const MoveList root_moves = ordered_root_moves(position, first_move);
+  const MoveList root_moves = ordered_moves(position, root_hints);
   if (root_moves.size == 0) {
     ++stats.pass_nodes;
     board_core::MoveDelta delta{};
@@ -313,7 +313,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth) {
-  return search_fixed_depth_with_hint(position, evaluator, depth, std::nullopt);
+  return search_fixed_depth_with_hint(position, evaluator, depth, MoveOrderingHints{});
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
@@ -333,7 +333,8 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   std::optional<board_core::Move> previous_best_move;
   for (Depth depth = 1; depth <= max_depth; ++depth) {
     SearchResult current =
-        search_fixed_depth_with_hint(position, evaluator, depth, previous_best_move);
+        search_fixed_depth_with_hint(position, evaluator, depth,
+                                     MoveOrderingHints{.first_move = previous_best_move});
     add_stats(&total_stats, current.stats);
     previous_best_move = current.best_move;
     best_completed = current;
