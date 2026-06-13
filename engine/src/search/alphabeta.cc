@@ -7,7 +7,6 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
   require_invariant(ply < kMaxPly);
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
-  frame.key = board_core::hash_position(context->position);
 
   ++context->stats.nodes;
 

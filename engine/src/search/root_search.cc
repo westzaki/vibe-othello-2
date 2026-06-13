@@ -25,7 +25,6 @@ void search_root_move(SearchContext* context, Depth depth, board_core::Move move
   StackFrame& frame = context->stack[0];
   frame = StackFrame{};
   frame.current_move = move;
-  frame.key = board_core::hash_position(context->position);
   const bool made_delta = board_core::make_move_delta(context->position, move, &frame.delta);
   require_invariant(made_delta);
   board_core::apply_move_delta(&context->position, frame.delta);
@@ -96,7 +95,6 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
   }
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
-  root_frame.key = board_core::hash_position(context.position);
   root_frame.moves = ordered_moves(context.position, root_hints);
   const MoveList root_moves = root_frame.moves;
   if (root_moves.size == 0) {
