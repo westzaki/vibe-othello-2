@@ -27,6 +27,7 @@ Optional engine benchmarks can be built and run locally:
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
 cmake --build build-bench --config Release
 ./build-bench/engine/benchmarks/vibe_othello_board_core_bench
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench --tsv --max-empties 12
 ./build-bench/engine/benchmarks/vibe_othello_search_bench
 ```
 

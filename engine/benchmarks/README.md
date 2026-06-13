@@ -11,6 +11,7 @@ Configure a Release build with benchmarks enabled:
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
 cmake --build build-bench --config Release
 ./build-bench/engine/benchmarks/vibe_othello_board_core_bench
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench --tsv --max-empties 12
 ./build-bench/engine/benchmarks/vibe_othello_search_bench
 ```
 
@@ -47,11 +48,29 @@ The search fixture corpus currently covers:
 - `pass_position`
 - `late_midgame`
 
+Endgame benchmark output is TSV by default and measures the root-only exact
+endgame solver through `search_iterative` with `exact_endgame = true`. Use
+`--csv` for comma-separated output, `--jsonl` for JSON Lines output,
+`--repeat N` to repeat each position, and `--max-empties N` to cap the built-in
+or external corpus by empty count.
+
+Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
+`--corpus` is omitted, the executable uses a deterministic built-in corpus with
+0/1/4/6/8/10/12-empty positions, including a forced-pass case. External corpus
+rows are TSV with:
+
+```text
+id	category	position	expected_empties	notes
+```
+
+`position` uses the board-core serialized position format.
+
 ## Layout
 
 | Path | Role |
 | --- | --- |
 | `board_core_bench.cc` | Board-core hot-path benchmark executable. |
+| `endgame_bench.cc` | Exact endgame benchmark executable with built-in corpus. |
 | `search_bench.cc` | Search benchmark executable with configurable fixed depths. |
 | `../testdata/search/positions.tsv` | Search benchmark corpus for repeatable local and future golden checks. |
 | `baselines/` | Optional checked-in reference measurements and their documentation. |
@@ -73,6 +92,12 @@ For search benchmarks, report the depth argument and the emitted columns:
 `position_name`, `mode`, `tt_mode`, `depth`, `score`, `best_move`, `nodes`,
 `eval_calls`, `beta_cutoffs`, `alpha_updates`, `tt_probes`, `tt_hits`,
 `tt_stores`, `tt_cutoffs`, `elapsed_ms`, and `nps`.
+
+For endgame benchmarks, report the max-empty cap and the emitted columns:
+`position_id`, `category`, `empties`, `repeat`, `score`, `best_move`, `exact`,
+`stopped`, `completed_depth`, `nodes`, `endgame_nodes`, `terminal_nodes`,
+`pass_nodes`, `beta_cutoffs`, `alpha_updates`, `root_moves_searched`,
+`elapsed_ms`, and `nps`.
 
 JSONL output emits one JSON object per position/mode/depth result. The schema is:
 

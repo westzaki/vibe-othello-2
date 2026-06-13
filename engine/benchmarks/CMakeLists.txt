@@ -1,5 +1,7 @@
 add_executable(vibe_othello_board_core_bench board_core_bench.cc)
+add_executable(vibe_othello_endgame_bench endgame_bench.cc)
 add_executable(vibe_othello_search_bench search_bench.cc)
 
 target_link_libraries(vibe_othello_board_core_bench PRIVATE vibe_othello::engine)
+target_link_libraries(vibe_othello_endgame_bench PRIVATE vibe_othello::engine)
 target_link_libraries(vibe_othello_search_bench PRIVATE vibe_othello::engine)

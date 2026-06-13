@@ -105,8 +105,8 @@ Status values:
 | Add endgame TT probe/store with separate entry kinds | not started | Test enabled/disabled equality |
 | Add parity ordering as ordering only | not started | Test enabled/disabled equality |
 | Add specialized zero/one/two/three-empty routines | not started | Test against generic solver |
-| Add `engine/benchmarks/endgame_bench.cc` | not started | Use fixed corpora by empty count |
-| Add endgame benchmark corpus | not started | Include pass, parity, and mobility categories |
+| Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |
+| Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/4/6/8/10/12 empty positions and a forced pass case |
 | Tune thresholds for native builds | deferred | Requires benchmark baselines |
 | Tune thresholds separately for WASM builds | deferred | Requires WASM measurement |
 | Consider parallel endgame search | deferred | Only after single-thread stability |
