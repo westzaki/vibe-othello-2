@@ -84,6 +84,15 @@ void require_same_final_result(const SearchResult& actual, const SearchResult& e
   REQUIRE(actual.stopped == expected.stopped);
 }
 
+void require_same_decision(const SearchResult& actual, const SearchResult& expected) {
+  REQUIRE(actual.best_move == expected.best_move);
+  REQUIRE(actual.score == expected.score);
+  REQUIRE(actual.bound == expected.bound);
+  REQUIRE(actual.completed_depth == expected.completed_depth);
+  REQUIRE(actual.exact == expected.exact);
+  REQUIRE(actual.stopped == expected.stopped);
+}
+
 void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.nodes == result.stats.nodes);
   REQUIRE(result.stats.root_moves_searched >= result.root_moves.size());
@@ -93,6 +102,8 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
   REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);
   REQUIRE(result.stats.alpha_updates <= result.stats.nodes);
+  REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
+  REQUIRE(result.stats.tt_stores <= result.stats.nodes);
 }
 
 void require_root_move_set_matches(const SearchResult& actual, const SearchResult& expected) {
@@ -105,6 +116,25 @@ void require_root_move_set_matches(const SearchResult& actual, const SearchResul
         REQUIRE(actual_root_move.bound == expected_root_move.bound);
         REQUIRE(actual_root_move.depth == expected_root_move.depth);
         REQUIRE(actual_root_move.pv == expected_root_move.pv);
+        REQUIRE(actual_root_move.exact == expected_root_move.exact);
+        REQUIRE(actual_root_move.selective == expected_root_move.selective);
+        found = true;
+        break;
+      }
+    }
+    REQUIRE(found);
+  }
+}
+
+void require_root_move_scores_match(const SearchResult& actual, const SearchResult& expected) {
+  REQUIRE(actual.root_moves.size() == expected.root_moves.size());
+  for (const RootMoveInfo& expected_root_move : expected.root_moves) {
+    bool found = false;
+    for (const RootMoveInfo& actual_root_move : actual.root_moves) {
+      if (actual_root_move.move == expected_root_move.move) {
+        REQUIRE(actual_root_move.score == expected_root_move.score);
+        REQUIRE(actual_root_move.bound == expected_root_move.bound);
+        REQUIRE(actual_root_move.depth == expected_root_move.depth);
         REQUIRE(actual_root_move.exact == expected_root_move.exact);
         REQUIRE(actual_root_move.selective == expected_root_move.selective);
         found = true;
@@ -231,6 +261,41 @@ TEST_CASE("iterative searches previous best root move first", "[search][iterativ
   require_root_move_set_matches(actual, expected);
   REQUIRE_FALSE(actual.root_moves.empty());
   REQUIRE(actual.root_moves[0].move == *depth_one.best_move);
+}
+
+TEST_CASE("iterative TT best-move ordering preserves fixed-depth result",
+          "[search][iterative]") {
+  const board_core::Position position =
+      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1, 0, 2});
+  DiscDifferenceEvaluator tt_evaluator;
+  DiscDifferenceEvaluator expected_evaluator;
+
+  const SearchResult actual =
+      search_iterative(position, tt_evaluator, SearchLimits{.max_depth = Depth{4}},
+                       SearchOptions{.use_tt_best_move_ordering = true});
+  const SearchResult expected = search_fixed_depth(position, expected_evaluator, Depth{4});
+
+  require_same_decision(actual, expected);
+  require_basic_stats_invariants(actual);
+  require_root_move_scores_match(actual, expected);
+  require_replayable_pv(position, actual.pv);
+  require_replayable_root_pvs(position, actual);
+  REQUIRE(actual.stats.tt_probes > 0);
+  REQUIRE(actual.stats.tt_hits > 0);
+  REQUIRE(actual.stats.tt_stores > 0);
+}
+
+TEST_CASE("iterative disables TT best-move ordering by default", "[search][iterative]") {
+  DiscDifferenceEvaluator evaluator;
+
+  const SearchResult result =
+      search_iterative(board_core::initial_position(), evaluator,
+                       SearchLimits{.max_depth = Depth{3}});
+
+  require_basic_stats_invariants(result);
+  REQUIRE(result.stats.tt_probes == 0);
+  REQUIRE(result.stats.tt_hits == 0);
+  REQUIRE(result.stats.tt_stores == 0);
 }
 
 TEST_CASE("iterative handles root pass like fixed-depth search", "[search][iterative]") {

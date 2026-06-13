@@ -87,6 +87,8 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
   REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);
   REQUIRE(result.stats.alpha_updates <= result.stats.nodes);
+  REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
+  REQUIRE(result.stats.tt_stores <= result.stats.nodes);
 }
 
 board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {

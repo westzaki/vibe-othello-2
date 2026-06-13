@@ -18,6 +18,9 @@ struct SearchStats {
   NodeCount beta_cutoffs = 0;
   NodeCount alpha_updates = 0;
   NodeCount root_moves_searched = 0;
+  NodeCount tt_probes = 0;
+  NodeCount tt_hits = 0;
+  NodeCount tt_stores = 0;
 
   friend bool operator==(const SearchStats&, const SearchStats&) = default;
 };

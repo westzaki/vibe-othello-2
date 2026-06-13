@@ -1,4 +1,5 @@
 #include "vibe_othello/board_core/board.h"
+#include "vibe_othello/board_core/hash.h"
 #include "vibe_othello/search/search.h"
 
 #include <array>
@@ -62,6 +63,9 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->beta_cutoffs += delta.beta_cutoffs;
   total->alpha_updates += delta.alpha_updates;
   total->root_moves_searched += delta.root_moves_searched;
+  total->tt_probes += delta.tt_probes;
+  total->tt_hits += delta.tt_hits;
+  total->tt_stores += delta.tt_stores;
 }
 
 MoveList move_list_from_legal_mask(board_core::Bitboard legal_moves) noexcept {
@@ -99,8 +103,55 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
   return list;
 }
 
+class TTBestMoveTable {
+public:
+  std::optional<board_core::Move> probe(board_core::Position position,
+                                        SearchStats* stats) const noexcept {
+    ++stats->tt_probes;
+
+    const board_core::PositionHash key = board_core::hash_position(position);
+    const Entry& entry = entries_[index_for(key)];
+    if (!entry.occupied || entry.key != key) {
+      return std::nullopt;
+    }
+
+    ++stats->tt_hits;
+    return entry.best_move;
+  }
+
+  void store(board_core::Position position, board_core::Move best_move,
+             SearchStats* stats) noexcept {
+    if (best_move.kind != board_core::MoveKind::normal) {
+      return;
+    }
+
+    const board_core::PositionHash key = board_core::hash_position(position);
+    entries_[index_for(key)] = Entry{
+        .key = key,
+        .best_move = best_move,
+        .occupied = true,
+    };
+    ++stats->tt_stores;
+  }
+
+private:
+  struct Entry {
+    board_core::PositionHash key = 0;
+    board_core::Move best_move = board_core::make_pass();
+    bool occupied = false;
+  };
+
+  static constexpr std::size_t kEntryCount = 4096;
+
+  static constexpr std::size_t index_for(board_core::PositionHash key) noexcept {
+    return static_cast<std::size_t>(key % kEntryCount);
+  }
+
+  std::array<Entry, kEntryCount> entries_{};
+};
+
 SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator, Score alpha,
-                      Score beta, Depth depth, SearchStats* stats) {
+                      Score beta, Depth depth, SearchStats* stats, TTBestMoveTable* tt) {
   require_invariant(alpha < beta);
   ++stats->nodes;
 
@@ -123,7 +174,10 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
     };
   }
 
-  const MoveList moves = ordered_moves(*position, MoveOrderingHints{});
+  const MoveOrderingHints hints{
+      .first_move = tt == nullptr ? std::nullopt : tt->probe(*position, stats),
+  };
+  const MoveList moves = ordered_moves(*position, hints);
   if (moves.size == 0) {
     ++stats->pass_nodes;
     board_core::MoveDelta delta{};
@@ -134,7 +188,7 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
 
     const SearchValue child =
         alphabeta(position, evaluator, static_cast<Score>(-beta), static_cast<Score>(-alpha),
-                  static_cast<Depth>(depth - 1), stats);
+                  static_cast<Depth>(depth - 1), stats, tt);
     board_core::undo_move(position, delta);
 
     SearchValue result{
@@ -149,6 +203,7 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
       .score = kScoreLoss,
       .pv = {},
   };
+  std::optional<board_core::Move> best_move;
 
   for (std::uint8_t move_index = 0; move_index < moves.size; ++move_index) {
     const board_core::Move move = moves.moves[move_index];
@@ -160,12 +215,14 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
 
     const SearchValue child =
         alphabeta(position, evaluator, static_cast<Score>(-beta), static_cast<Score>(-alpha),
-                  static_cast<Depth>(depth - 1), stats);
+                  static_cast<Depth>(depth - 1), stats, tt);
     board_core::undo_move(position, delta);
 
     const Score score = static_cast<Score>(-child.score);
-    if (score > best.score) {
+    if (!best_move.has_value() || score > best.score ||
+        (score == best.score && move.square.index < best_move->square.index)) {
       best.score = score;
+      best_move = move;
       prepend_move(move, child.pv, &best.pv);
     }
 
@@ -177,6 +234,10 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
       ++stats->beta_cutoffs;
       break;
     }
+  }
+
+  if (tt != nullptr && best_move.has_value()) {
+    tt->store(*position, *best_move, stats);
   }
 
   return best;
@@ -196,7 +257,7 @@ bool is_better_root_move(Score score, board_core::Move move, Score best_score,
 
 void search_root_move(board_core::Position position, const Evaluator& evaluator, Depth depth,
                       board_core::Move move, SearchStats* stats, Score* best_score,
-                      Line* best_line, SearchResult* result) {
+                      Line* best_line, SearchResult* result, TTBestMoveTable* tt) {
   board_core::MoveDelta delta{};
   const bool made_delta = board_core::make_move_delta(position, move, &delta);
   require_invariant(made_delta);
@@ -205,7 +266,7 @@ void search_root_move(board_core::Position position, const Evaluator& evaluator,
 
   const NodeCount before_nodes = stats->nodes;
   const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
-                                      static_cast<Depth>(depth - 1), stats);
+                                      static_cast<Depth>(depth - 1), stats, tt);
   board_core::undo_move(&position, delta);
 
   const Score score = static_cast<Score>(-child.score);
@@ -232,7 +293,7 @@ void search_root_move(board_core::Position position, const Evaluator& evaluator,
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth,
-                                          MoveOrderingHints root_hints) {
+                                          MoveOrderingHints root_hints, TTBestMoveTable* tt) {
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
 
@@ -243,7 +304,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   SearchStats stats{};
   if (board_core::is_terminal(position) || completed_depth == 0) {
     const SearchValue root =
-        alphabeta(&position, evaluator, kScoreLoss, kScoreWin, completed_depth, &stats);
+        alphabeta(&position, evaluator, kScoreLoss, kScoreWin, completed_depth, &stats, tt);
     result.score = root.score;
     result.nodes = stats.nodes;
     result.stats = stats;
@@ -255,6 +316,9 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   stats.nodes = 1;
+  if (!root_hints.first_move.has_value() && tt != nullptr) {
+    root_hints.first_move = tt->probe(position, &stats);
+  }
   const MoveList root_moves = ordered_moves(position, root_hints);
   if (root_moves.size == 0) {
     ++stats.pass_nodes;
@@ -266,7 +330,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
     const NodeCount before_nodes = stats.nodes;
     const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
-                                        static_cast<Depth>(completed_depth - 1), &stats);
+                                        static_cast<Depth>(completed_depth - 1), &stats, tt);
     board_core::undo_move(&position, delta);
 
     result.best_move = board_core::make_pass();
@@ -296,8 +360,12 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
     const board_core::Move move = root_moves.moves[move_index];
     search_root_move(position, evaluator, completed_depth, move, &stats, &best_score, &best_line,
-                     &result);
+                     &result, tt);
     ++stats.root_moves_searched;
+  }
+
+  if (tt != nullptr && result.best_move.has_value()) {
+    tt->store(position, *result.best_move, &stats);
   }
 
   result.score = best_score;
@@ -313,11 +381,16 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth) {
-  return search_fixed_depth_with_hint(position, evaluator, depth, MoveOrderingHints{});
+  return search_fixed_depth_with_hint(position, evaluator, depth, MoveOrderingHints{}, nullptr);
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits) {
+  return search_iterative(position, evaluator, limits, SearchOptions{});
+}
+
+SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
+                              SearchLimits limits, SearchOptions options) {
   const auto start = std::chrono::steady_clock::now();
   const Depth max_depth = limits.max_depth < 0 ? Depth{0} : limits.max_depth;
 
@@ -330,11 +403,13 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
   SearchResult best_completed{};
   SearchStats total_stats{};
+  TTBestMoveTable tt_storage{};
+  TTBestMoveTable* tt = options.use_tt_best_move_ordering ? &tt_storage : nullptr;
   std::optional<board_core::Move> previous_best_move;
   for (Depth depth = 1; depth <= max_depth; ++depth) {
     SearchResult current =
         search_fixed_depth_with_hint(position, evaluator, depth,
-                                     MoveOrderingHints{.first_move = previous_best_move});
+                                     MoveOrderingHints{.first_move = previous_best_move}, tt);
     add_stats(&total_stats, current.stats);
     previous_best_move = current.best_move;
     best_completed = current;
