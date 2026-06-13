@@ -7,5 +7,5 @@ Read only the document needed for the current task.
 | --- | --- |
 | Repository layout | `repository-layout.md` |
 | C++ style | `cpp-coding-style.md` |
-| Board core design | `architecture/board-core.md` |
+| Board core architecture | `architecture/board-core.md` |
 | Search design | `architecture/search.md` |

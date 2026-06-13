@@ -42,9 +42,10 @@ Board core must not depend on them.
 
 ## Core Approach
 
-Use a bitboard-based implementation for the production board core.
+The production board core is bitboard-based.
 
-Use a simple array-based reference implementation for correctness checks.
+A simple array-based reference implementation lives in test support for
+correctness checks.
 
 The bitboard implementation is optimized for speed.
 
@@ -153,7 +154,7 @@ Tests may use both:
 * reachable positions from legal games
 * valid synthetic positions for edge cases
 
-Board core functions should preserve position validity.
+Board core functions preserve position validity for valid inputs.
 
 ## Move Semantics
 
@@ -178,7 +179,7 @@ Move encoding details may live in code, but pass behavior must remain stable and
 
 ## Move Generation
 
-Legal move generation should use directional bitboard operations.
+Legal move generation uses directional bitboard operations.
 
 For each of the 8 directions:
 
@@ -192,7 +193,8 @@ A legal move must:
 * be on an empty square
 * flip at least one opponent disc
 
-The implementation should prefer simple, testable bitboard code before adding micro-optimizations.
+The implementation favors simple, testable bitboard code over dense
+micro-optimizations.
 
 ## Flip Calculation
 
@@ -200,13 +202,13 @@ Move generation answers “where can I move?”
 
 Flip calculation answers “what discs change if I move here?”
 
-Flip calculation should be deterministic and independently testable.
+Flip calculation is deterministic and independently testable.
 
 A non-pass move is legal only when the flip mask is non-zero.
 
 ## Move Application
 
-Move application should use a precomputed move delta.
+Move application uses a precomputed move delta.
 
 Conceptually:
 
@@ -248,7 +250,7 @@ Pass handling is part of board core, not search.
 
 ## Serialization
 
-Board core should support a stable text format for tests, tools, and debugging.
+Board core supports a stable text format for tests, tools, and debugging.
 
 Serialization uses an absolute black/white board view, not the internal `player` / `opponent` view.
 
@@ -320,9 +322,9 @@ Changes to this format must be documented and tested.
 
 ## Hashing
 
-Board core should provide deterministic position hashing.
+Board core provides deterministic position hashing.
 
-Hashing is used by future search, tests, caches, and tools.
+Hashing is used by search, tests, caches, and tools.
 
 Hashing must include:
 
@@ -336,15 +338,15 @@ If incremental hashing is added, it must match full recomputation.
 
 ## Reference Implementation
 
-Keep a slow, clear reference implementation.
+A slow, clear reference implementation exists in test support.
 
-Recommended shape:
+It uses this shape internally:
 
 ```cpp
 std::array<Cell, 64>
 ```
 
-The reference implementation should be boring and readable.
+The reference implementation is intentionally boring and readable.
 
 It exists to catch mistakes in the optimized bitboard implementation.
 
@@ -384,9 +386,9 @@ Rules:
 
 ## Testing Strategy
 
-Board core correctness should be protected by multiple test styles.
+Board core correctness is protected by multiple test styles.
 
-Use unit tests for known examples:
+Unit tests cover known examples:
 
 * initial position
 * edge flips
@@ -400,12 +402,12 @@ Use unit tests for known examples:
 * serialization round-trips
 * hash stability
 
-Use differential tests to compare:
+Differential tests compare:
 
 * bitboard implementation
 * reference implementation
 
-Use property tests for invariants:
+Property tests cover invariants:
 
 * `player & opponent == 0`
 * legal moves are empty squares
@@ -415,9 +417,9 @@ Use property tests for invariants:
 * serialization round-trips
 * full hash recomputation matches incremental hash if incremental hashing exists
 
-Use perft tests for move-tree validation.
+Perft tests validate move trees.
 
-Use benchmarks to track hot-path performance.
+Benchmarks track hot-path performance.
 
 ## Performance Principles
 
@@ -434,34 +436,46 @@ Correctness comes before micro-optimization.
 
 Optimize only after tests can detect mistakes.
 
-## Build Order
+## Current Implementation
 
-Recommended build order:
+The current board-core implementation includes:
 
-1. define bit order and coordinates
-2. define core value types
-3. implement reference board
-4. implement bitboard legal move generation
-5. implement flip calculation
-6. implement apply / undo
-7. implement pass / terminal detection
-8. add serialization
-9. add hashing
-10. add unit, differential, property, and perft tests
-11. add benchmark baselines
+* fixed bit order and coordinate helpers
+* core value types for positions, colors, squares, moves, and deltas
+* bitboard legal move generation
+* flip calculation
+* checked move application
+* precomputed delta application for trusted hot paths
+* undo for normal moves and passes
+* pass and terminal detection
+* canonical serialization and parsing
+* deterministic full position hashing
+* a slow reference board in test support
+* unit, differential, property, random-play, and perft tests
+* local benchmark coverage and checked-in board-core baseline data
 
-Do not build search or evaluation on top of board core until these pieces are stable.
+Search and evaluation are built on top of this surface. They should continue to
+use board-core primitives for rule behavior instead of duplicating move legality,
+pass, undo, serialization, or hashing logic.
 
-## Completion Bar
+## Change Checklist
 
-Board core is strong enough to build on when:
+When changing board-core public behavior, update this document and the relevant
+tests in `engine/tests/board_core`.
 
-* bit order is documented
-* serialization format is documented
-* unit tests pass
-* differential tests pass
-* property tests pass
-* perft tests pass
-* sanitizer tests pass where available
-* benchmark baselines exist
-* public behavior is stable enough for WASM and UI adapters
+Rule or representation changes should run:
+
+* unit tests
+* differential tests against the reference board
+* property tests
+* random-play differential tests
+* perft tests
+* sanitizer tests where available
+
+Hot-path changes should also run the board-core benchmark and compare against
+the checked-in baseline for the same machine, compiler, and build type when
+possible.
+
+Boundary changes should update all affected adapters and docs. Serialization,
+hashing, bit order, move semantics, and pass behavior are public behavior for
+the rest of the engine.
