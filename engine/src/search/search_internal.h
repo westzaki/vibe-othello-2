@@ -60,8 +60,8 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
 SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator, Score alpha,
                       Score beta, Depth depth, SearchStats* stats, TTBestMoveTable* tt);
 
-SearchResult search_fixed_depth_with_hint(board_core::Position position,
-                                          const Evaluator& evaluator, Depth depth,
-                                          MoveOrderingHints root_hints, TTBestMoveTable* tt);
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth, MoveOrderingHints root_hints,
+                                          TTBestMoveTable* tt);
 
 } // namespace vibe_othello::search::internal

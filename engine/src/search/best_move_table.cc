@@ -1,5 +1,4 @@
 #include "search_internal.h"
-
 #include "vibe_othello/board_core/hash.h"
 
 namespace vibe_othello::search::internal {

@@ -83,8 +83,7 @@ void play_random_property_game(std::uint64_t seed) {
 
 } // namespace
 
-TEST_CASE("representative positions satisfy board core properties",
-          "[board_core][property]") {
+TEST_CASE("representative positions satisfy board core properties", "[board_core][property]") {
   for (Position position : test_support::kRepresentativePositions) {
     require_board_core_properties(position);
   }

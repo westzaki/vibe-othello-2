@@ -90,8 +90,7 @@ void play_random_corpus_game(std::uint64_t seed) {
     }
 
     const Bitboard moves = legal_moves(position);
-    const Move move =
-        moves == 0 ? make_pass() : make_move(test_support::select_move(moves, &rng));
+    const Move move = moves == 0 ? make_pass() : make_move(test_support::select_move(moves, &rng));
     MoveDelta delta{};
     REQUIRE(apply_move(&position, move, &delta));
   }

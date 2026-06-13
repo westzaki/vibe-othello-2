@@ -21,8 +21,8 @@ bool is_better_root_move(Score score, board_core::Move move, Score best_score,
 }
 
 void search_root_move(board_core::Position position, const Evaluator& evaluator, Depth depth,
-                      board_core::Move move, SearchStats* stats, Score* best_score,
-                      Line* best_line, SearchResult* result, TTBestMoveTable* tt) {
+                      board_core::Move move, SearchStats* stats, Score* best_score, Line* best_line,
+                      SearchResult* result, TTBestMoveTable* tt) {
   board_core::MoveDelta delta{};
   const bool made_delta = board_core::make_move_delta(position, move, &delta);
   require_invariant(made_delta);
@@ -57,9 +57,9 @@ void search_root_move(board_core::Position position, const Evaluator& evaluator,
 
 } // namespace
 
-SearchResult search_fixed_depth_with_hint(board_core::Position position,
-                                          const Evaluator& evaluator, Depth depth,
-                                          MoveOrderingHints root_hints, TTBestMoveTable* tt) {
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth, MoveOrderingHints root_hints,
+                                          TTBestMoveTable* tt) {
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
 
@@ -147,7 +147,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth) {
   return internal::search_fixed_depth_with_hint(position, evaluator, depth,
-                                               internal::MoveOrderingHints{}, nullptr);
+                                                internal::MoveOrderingHints{}, nullptr);
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
