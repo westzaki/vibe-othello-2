@@ -25,6 +25,14 @@ struct MoveOrderingHints {
   std::optional<board_core::Move> first_move;
 };
 
+struct StackFrame {
+  board_core::Move current_move = board_core::make_pass();
+  board_core::MoveDelta delta{};
+  MoveList moves{};
+  Line pv{};
+  board_core::PositionHash key = 0;
+};
+
 class TTBestMoveTable {
 public:
   std::optional<board_core::Move> probe(board_core::Position position,
@@ -49,6 +57,16 @@ private:
   std::array<Entry, kEntryCount> entries_{};
 };
 
+struct SearchContext {
+  board_core::Position position;
+  const Evaluator& evaluator;
+  SearchStats stats{};
+  SearchLimits limits{};
+  SearchOptions options{};
+  TTBestMoveTable* best_move_table = nullptr;
+  std::array<StackFrame, kMaxPly> stack{};
+};
+
 Score terminal_score(board_core::Position position) noexcept;
 bool is_valid_evaluator_score(Score score) noexcept;
 void require_invariant(bool condition) noexcept;
@@ -57,11 +75,11 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept;
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
 
-SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator, Score alpha,
-                      Score beta, Depth depth, SearchStats* stats, TTBestMoveTable* tt);
+SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position,
                                           const Evaluator& evaluator, Depth depth,
-                                          MoveOrderingHints root_hints, TTBestMoveTable* tt);
+                                          MoveOrderingHints root_hints, SearchOptions options,
+                                          TTBestMoveTable* tt);
 
 } // namespace vibe_othello::search::internal
