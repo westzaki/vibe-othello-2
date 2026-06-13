@@ -268,6 +268,7 @@ struct SearchOptions {
   bool use_exact_endgame;
   bool use_probcut;
   bool use_parallel;
+  bool use_tt_best_move_ordering;
   std::uint8_t multi_pv;
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
@@ -292,6 +293,12 @@ Midgame TT and endgame TT have different semantics.
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
 `use_pv_table` controls a dedicated PV table, if one is used.
+
+`use_tt_best_move_ordering` controls transposition-table best-move ordering.
+
+TT best-move ordering may reorder legal moves.
+
+TT best-move ordering must not perform TT cutoffs by itself.
 
 Disabling one table must not silently disable or weaken the semantics of another
 table.
@@ -321,6 +328,9 @@ struct SearchStats {
   NodeCount beta_cutoffs;
   NodeCount alpha_updates;
   NodeCount root_moves_searched;
+  NodeCount tt_probes;
+  NodeCount tt_hits;
+  NodeCount tt_stores;
 };
 
 struct SearchResult {
@@ -365,6 +375,12 @@ Terminal positions should return no best move.
 `stats.alpha_updates` counts alpha-window updates.
 
 `stats.root_moves_searched` counts root candidates actually searched.
+
+`stats.tt_probes` counts transposition table probes.
+
+`stats.tt_hits` counts transposition table probes that match the current position.
+
+`stats.tt_stores` counts transposition table stores.
 
 Iterative-deepening stats are the sum of completed depth stats.
 

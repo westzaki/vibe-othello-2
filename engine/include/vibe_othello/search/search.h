@@ -12,10 +12,16 @@ struct SearchLimits {
   Depth max_depth = 0;
 };
 
+struct SearchOptions {
+  bool use_tt_best_move_ordering = false;
+};
+
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth);
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits);
+SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
+                              SearchLimits limits, SearchOptions options);
 
 } // namespace vibe_othello::search
 
