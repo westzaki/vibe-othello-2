@@ -71,9 +71,21 @@ constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard o
   return 0;
 }
 
+constexpr Position pass_position(Position position) noexcept {
+  return Position{
+      .player = position.opponent,
+      .opponent = position.player,
+      .side_to_move = opposite(position.side_to_move),
+  };
+}
+
 } // namespace
 
 bool apply_move(Position* position, Move move, MoveDelta* delta) noexcept {
+  if (move.kind == MoveKind::pass) {
+    return apply_pass(position, delta);
+  }
+
   if (position == nullptr || delta == nullptr) {
     return false;
   }
@@ -102,6 +114,26 @@ bool apply_move(Position* position, Move move, MoveDelta* delta) noexcept {
   return true;
 }
 
+bool apply_pass(Position* position, MoveDelta* delta) noexcept {
+  if (position == nullptr || delta == nullptr) {
+    return false;
+  }
+
+  const Position before = *position;
+  if (!is_valid(before) || has_legal_move(before) || !has_legal_move(pass_position(before))) {
+    return false;
+  }
+
+  *delta = MoveDelta{
+      .before = before,
+      .move = make_pass(),
+      .flipped = 0,
+  };
+  *position = pass_position(before);
+
+  return true;
+}
+
 void undo_move(Position* position, MoveDelta delta) noexcept {
   if (position == nullptr) {
     return;
@@ -124,6 +156,15 @@ Bitboard flips_for_move(Position position, Square move) noexcept {
          flips_in_direction(move_bit, position.player, position.opponent, shift_north_west) |
          flips_in_direction(move_bit, position.player, position.opponent, shift_south_east) |
          flips_in_direction(move_bit, position.player, position.opponent, shift_south_west);
+}
+
+bool has_legal_move(Position position) noexcept {
+  return legal_moves(position) != 0;
+}
+
+bool is_terminal(Position position) noexcept {
+  return is_valid(position) && !has_legal_move(position) &&
+         !has_legal_move(pass_position(position));
 }
 
 Bitboard legal_moves(Position position) noexcept {
