@@ -32,7 +32,10 @@ TEST_CASE("perft counts initial position shallow depths", "[board_core][perft]")
   REQUIRE(perft(initial_position(), 0) == 1);
   REQUIRE(perft(initial_position(), 1) == 4);
   REQUIRE(perft(initial_position(), 2) == 12);
-  REQUIRE(reference_perft(initial_position(), 2) == 12);
+  REQUIRE(perft(initial_position(), 3) == 56);
+  REQUIRE(perft(initial_position(), 4) == 244);
+  REQUIRE(perft(initial_position(), 5) == 1396);
+  REQUIRE(reference_perft(initial_position(), 3) == 56);
 }
 
 TEST_CASE("perft matches reference from representative positions", "[board_core][perft]") {
