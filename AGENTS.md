@@ -26,6 +26,9 @@ If code/tests/docs disagree, code and tests are current behavior; docs are inten
 
 Update relevant docs when changing public behavior, architecture, layout, or workflow.
 
+Avoid committing personal identifiers in docs, benchmark baselines, or result
+metadata. Prefer generic machine descriptions over user names or hostnames.
+
 ## Pull Request Rule
 
 When creating a pull request for this project:
