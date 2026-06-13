@@ -114,6 +114,17 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.selective_cuts <= result.stats.nodes);
 }
 
+void require_stopped_before_completed_depth(const SearchResult& result) {
+  REQUIRE(result.stopped);
+  REQUIRE(result.completed_depth == 0);
+  REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.score == 0);
+  REQUIRE(result.pv.size == 0);
+  REQUIRE(result.root_moves.empty());
+  REQUIRE_FALSE(result.exact);
+  require_basic_stats_invariants(result);
+}
+
 void require_root_move_set_matches(const SearchResult& actual, const SearchResult& expected) {
   REQUIRE(actual.root_moves.size() == expected.root_moves.size());
   for (const RootMoveInfo& expected_root_move : expected.root_moves) {
@@ -354,6 +365,35 @@ TEST_CASE("iterative stops before search when cancellation is already requested"
   REQUIRE(result.stats.nodes == 0);
   REQUIRE(result.root_moves.empty());
   REQUIRE(evaluator.calls == 0);
+}
+
+TEST_CASE("iterative node limit can stop before the first root search completes",
+          "[search][iterative]") {
+  DiscDifferenceEvaluator evaluator;
+
+  const SearchResult result =
+      search_iterative(board_core::initial_position(), evaluator,
+                       SearchLimits{.max_depth = Depth{3}, .max_nodes = NodeCount{1}});
+
+  require_stopped_before_completed_depth(result);
+  REQUIRE(result.nodes == 1);
+  REQUIRE(result.stats.nodes == 1);
+  REQUIRE(evaluator.calls == 0);
+}
+
+TEST_CASE("iterative discards partial root result when first depth is interrupted",
+          "[search][iterative]") {
+  DiscDifferenceEvaluator evaluator;
+
+  const SearchResult result =
+      search_iterative(board_core::initial_position(), evaluator,
+                       SearchLimits{.max_depth = Depth{3}, .max_nodes = NodeCount{2}});
+
+  require_stopped_before_completed_depth(result);
+  REQUIRE(result.nodes == 2);
+  REQUIRE(result.stats.nodes == 2);
+  REQUIRE(result.stats.root_moves_searched == 1);
+  REQUIRE(evaluator.calls == 1);
 }
 
 TEST_CASE("iterative node limit returns the best completed depth", "[search][iterative]") {

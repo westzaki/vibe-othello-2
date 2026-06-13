@@ -20,6 +20,17 @@ bool is_better_root_move(Score score, board_core::Move move, Score best_score,
   return move.square.index < best_move->square.index;
 }
 
+void discard_incomplete_result(SearchResult* result) {
+  result->best_move.reset();
+  result->score = 0;
+  result->bound = BoundType::exact;
+  result->completed_depth = 0;
+  result->pv = Line{};
+  result->root_moves.clear();
+  result->exact = false;
+  result->stopped = true;
+}
+
 bool search_root_move(SearchContext* context, Depth depth, board_core::Move move, Score* best_score,
                       Line* best_line, SearchResult* result) {
   if (should_stop(context)) {
@@ -99,6 +110,15 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
   if (board_core::is_terminal(context.position) || completed_depth == 0) {
     const SearchValue root = alphabeta(&context, kScoreLoss, kScoreWin, completed_depth, Ply{0});
+    if (root.stopped) {
+      result.nodes = context.stats.nodes;
+      result.stats = context.stats;
+      result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - start_time);
+      discard_incomplete_result(&result);
+      return result;
+    }
+
     result.score = root.score;
     result.nodes = context.stats.nodes;
     result.stats = context.stats;
@@ -140,12 +160,11 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
         alphabeta(&context, kScoreLoss, kScoreWin, static_cast<Depth>(completed_depth - 1), Ply{1});
     board_core::undo_move(&context.position, root_frame.delta);
     if (child.stopped) {
-      result.stopped = true;
-      result.completed_depth = 0;
       result.nodes = context.stats.nodes;
       result.stats = context.stats;
       result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - start_time);
+      discard_incomplete_result(&result);
       return result;
     }
 
@@ -193,6 +212,9 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   result.pv = best_line;
   result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start_time);
+  if (result.stopped) {
+    discard_incomplete_result(&result);
+  }
   return result;
 }
 
