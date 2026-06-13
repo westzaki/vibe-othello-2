@@ -287,6 +287,9 @@ Every non-baseline option must be independently disableable.
 All options default to the disabled value. Unimplemented options must be safely
 ignored or explicitly treated as disabled.
 
+`use_pvs` switches the recursive full-window search path from plain alpha-beta
+to Principal Variation Search. It is disabled by default.
+
 Regression tests should run with all selective options disabled.
 
 Benchmarks should report which options were enabled.
@@ -659,7 +662,7 @@ PVS or another scout-style search is implemented and enabled.
 
 ## Principal Variation Search
 
-PVS is the production midgame search.
+PVS is an optional production midgame search.
 
 At a PV node:
 
@@ -670,6 +673,8 @@ At a PV node:
 PVS depends on good move ordering.
 
 PVS must be disableable.
+
+Default search uses alpha-beta unless `SearchOptions::use_pvs` is enabled.
 
 PVS with selective pruning disabled must return the same score as alpha-beta at
 the same depth.
