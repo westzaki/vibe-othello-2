@@ -357,6 +357,9 @@ struct SearchStats {
   NodeCount tt_hits;
   NodeCount tt_stores;
   NodeCount tt_cutoffs;
+  NodeCount tt_overwrites;
+  NodeCount tt_collisions;
+  NodeCount tt_rejected_stores;
   NodeCount pvs_researches;
   NodeCount aspiration_fail_lows;
   NodeCount aspiration_fail_highs;
@@ -421,6 +424,16 @@ Terminal positions should return no best move.
 `stats.tt_stores` counts transposition table stores.
 
 `stats.tt_cutoffs` counts transposition table cutoffs.
+
+`stats.tt_overwrites` counts transposition table stores that replace an occupied
+entry with a different key.
+
+`stats.tt_collisions` counts transposition table stores whose target bucket
+already contains a different occupied key.
+
+`stats.tt_rejected_stores` counts transposition table stores rejected because the
+incoming entry is not useful enough for the target bucket or has no storable
+legal normal best move.
 
 `stats.pvs_researches` counts full-window PVS re-searches after null-window
 fail-highs.
@@ -788,6 +801,26 @@ Only fields compatible with `TTEntryKind` are valid.
 
 The current implementation stores `key`, `depth`, `score`, `bound`,
 `best_move`, `generation`, `kind`, and `occupied`.
+
+The midgame table uses a search-internal default capacity. Public search
+defaults do not enable TT cutoff or TT ordering, and no public capacity option is
+currently exposed.
+
+The table is organized as power-of-two 4-way buckets. Construction may allocate
+the bucket vector; recursive probe and store operations must not allocate.
+
+Iterative deepening advances the table generation before starting each new
+depth after depth 1. Aspiration re-searches at the same depth stay in the same
+generation.
+
+Replacement policy is intentionally simple:
+
+* update a same-key entry in place
+* use an empty bucket slot before overwriting
+* prefer replacing old-generation entries
+* otherwise prefer replacing shallower current-generation entries
+* reject a store only when every bucket entry is current-generation and deeper
+  than the incoming entry
 
 When `use_tt_best_move_ordering` is enabled, a matching entry's `best_move` may
 be used as an ordering hint.

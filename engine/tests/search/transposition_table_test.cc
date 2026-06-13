@@ -1,12 +1,56 @@
 #include "../../src/search/search_internal.h"
+#include "vibe_othello/board_core/board.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
+#include <initializer_list>
 
 namespace vibe_othello::search::internal {
 namespace {
 
 constexpr board_core::Square square(int file, int rank) noexcept {
   return board_core::square_from_file_rank(file, rank);
+}
+
+board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {
+  const board_core::Bitboard legal_moves = board_core::legal_moves(position);
+  REQUIRE(legal_moves != 0);
+
+  std::array<board_core::Move, board_core::kSquareCount> moves{};
+  std::size_t move_count = 0;
+  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
+    const board_core::Square move_square = board_core::square_from_index(square_index);
+    if ((legal_moves & board_core::bit(move_square)) != 0) {
+      moves[move_count] = board_core::make_move(move_square);
+      ++move_count;
+    }
+  }
+
+  REQUIRE(move_count > 0);
+  return moves[choice % move_count];
+}
+
+board_core::Position position_after_fixed_choices(std::initializer_list<std::size_t> choices) {
+  board_core::Position position = board_core::initial_position();
+
+  for (const std::size_t choice : choices) {
+    board_core::MoveDelta delta{};
+    REQUIRE(board_core::apply_move(&position, select_legal_move(position, choice), &delta));
+  }
+
+  return position;
+}
+
+std::array<board_core::Position, 6> collision_positions() {
+  return {
+      board_core::initial_position(),
+      position_after_fixed_choices({0}),
+      position_after_fixed_choices({1, 0}),
+      position_after_fixed_choices({2, 1, 0}),
+      position_after_fixed_choices({3, 2, 1, 0}),
+      position_after_fixed_choices({0, 1, 2, 3, 1}),
+  };
 }
 
 TEST_CASE("transposition table probe returns stored entries", "[search][tt]") {
@@ -32,6 +76,130 @@ TEST_CASE("transposition table probe returns stored entries", "[search][tt]") {
   REQUIRE(entry->kind == TTEntryKind::midgame);
   REQUIRE(stats.tt_probes == 2);
   REQUIRE(stats.tt_hits == 1);
+}
+
+TEST_CASE("transposition table updates same-position entries without collision", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const board_core::Position position = board_core::initial_position();
+  const board_core::Move best_move = select_legal_move(position, 0);
+
+  table.store(position, Depth{2}, Score{11}, BoundType::upper, best_move, TTEntryKind::midgame,
+              &stats);
+  table.store(position, Depth{5}, Score{23}, BoundType::exact, best_move, TTEntryKind::midgame,
+              &stats);
+
+  const std::optional<TTEntry> entry = table.probe(position, &stats);
+  REQUIRE(entry.has_value());
+  REQUIRE(entry->depth == Depth{5});
+  REQUIRE(entry->score == Score{23});
+  REQUIRE(entry->bound == BoundType::exact);
+  REQUIRE(stats.tt_stores == 2);
+  REQUIRE(stats.tt_collisions == 0);
+  REQUIRE(stats.tt_overwrites == 0);
+  REQUIRE(stats.tt_rejected_stores == 0);
+}
+
+TEST_CASE("transposition table bucket keeps different keys up to bucket width", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const std::array<board_core::Position, 6> positions = collision_positions();
+
+  for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
+    table.store(positions[index], static_cast<Depth>(index + 1), static_cast<Score>(10 + index),
+                BoundType::exact, select_legal_move(positions[index], 0), TTEntryKind::midgame,
+                &stats);
+  }
+
+  for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
+    const std::optional<TTEntry> entry = table.probe(positions[index], &stats);
+    REQUIRE(entry.has_value());
+    REQUIRE(entry->score == static_cast<Score>(10 + index));
+  }
+  REQUIRE(stats.tt_stores == TranspositionTable::kBucketWidth);
+  REQUIRE(stats.tt_overwrites == 0);
+  REQUIRE(stats.tt_rejected_stores == 0);
+}
+
+TEST_CASE("transposition table rejects shallow current-generation replacement", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const std::array<board_core::Position, 6> positions = collision_positions();
+
+  for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
+    table.store(positions[index], static_cast<Depth>(4 + index), static_cast<Score>(index),
+                BoundType::exact, select_legal_move(positions[index], 0), TTEntryKind::midgame,
+                &stats);
+  }
+
+  table.store(positions[4], Depth{1}, Score{99}, BoundType::exact,
+              select_legal_move(positions[4], 0), TTEntryKind::midgame, &stats);
+
+  REQUIRE_FALSE(table.probe(positions[4], &stats).has_value());
+  REQUIRE(table.probe(positions[0], &stats).has_value());
+  REQUIRE(stats.tt_rejected_stores == 1);
+  REQUIRE(stats.tt_overwrites == 0);
+}
+
+TEST_CASE("transposition table prefers deeper current-generation replacement", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const std::array<board_core::Position, 6> positions = collision_positions();
+
+  for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
+    table.store(positions[index], static_cast<Depth>(4 + index), static_cast<Score>(index),
+                BoundType::exact, select_legal_move(positions[index], 0), TTEntryKind::midgame,
+                &stats);
+  }
+
+  table.store(positions[4], Depth{8}, Score{99}, BoundType::exact,
+              select_legal_move(positions[4], 0), TTEntryKind::midgame, &stats);
+
+  const std::optional<TTEntry> incoming = table.probe(positions[4], &stats);
+  REQUIRE(incoming.has_value());
+  REQUIRE(incoming->depth == Depth{8});
+  REQUIRE(incoming->score == Score{99});
+  REQUIRE_FALSE(table.probe(positions[0], &stats).has_value());
+  REQUIRE(stats.tt_overwrites == 1);
+  REQUIRE(stats.tt_rejected_stores == 0);
+}
+
+TEST_CASE("transposition table replaces old-generation entries more readily", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const std::array<board_core::Position, 6> positions = collision_positions();
+
+  for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
+    table.store(positions[index], Depth{8}, static_cast<Score>(index), BoundType::exact,
+                select_legal_move(positions[index], 0), TTEntryKind::midgame, &stats);
+  }
+
+  table.new_generation();
+  table.store(positions[4], Depth{1}, Score{99}, BoundType::exact,
+              select_legal_move(positions[4], 0), TTEntryKind::midgame, &stats);
+
+  const std::optional<TTEntry> incoming = table.probe(positions[4], &stats);
+  REQUIRE(incoming.has_value());
+  REQUIRE(incoming->depth == Depth{1});
+  REQUIRE(incoming->score == Score{99});
+  REQUIRE(incoming->generation == 2);
+  REQUIRE(stats.tt_overwrites == 1);
+  REQUIRE(stats.tt_rejected_stores == 0);
+}
+
+TEST_CASE("transposition table rejects entries without legal normal best moves", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const board_core::Position position = board_core::initial_position();
+
+  table.store(position, Depth{3}, Score{17}, BoundType::exact, board_core::make_move(square(0, 0)),
+              TTEntryKind::midgame, &stats);
+  table.store(position, Depth{3}, Score{17}, BoundType::exact, board_core::make_pass(),
+              TTEntryKind::midgame, &stats);
+
+  REQUIRE_FALSE(table.probe(position, &stats).has_value());
+  REQUIRE(stats.tt_stores == 0);
+  REQUIRE(stats.tt_rejected_stores == 2);
 }
 
 TEST_CASE("TT cutoff score respects kind depth and bounds", "[search][tt]") {
@@ -62,6 +230,11 @@ TEST_CASE("TT cutoff score respects kind depth and bounds", "[search][tt]") {
   entry.score = Score{-5};
   REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{-5});
   entry.score = Score{-4};
+  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
+
+  entry.kind = TTEntryKind::exact_endgame_wld;
+  entry.bound = BoundType::exact;
+  entry.score = Score{10};
   REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
 }
 

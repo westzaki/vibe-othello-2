@@ -22,6 +22,9 @@ struct SearchStats {
   NodeCount tt_hits = 0;
   NodeCount tt_stores = 0;
   NodeCount tt_cutoffs = 0;
+  NodeCount tt_overwrites = 0;
+  NodeCount tt_collisions = 0;
+  NodeCount tt_rejected_stores = 0;
   NodeCount pvs_researches = 0;
   NodeCount aspiration_fail_lows = 0;
   NodeCount aspiration_fail_highs = 0;
