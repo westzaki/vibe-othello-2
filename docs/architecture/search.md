@@ -232,6 +232,7 @@ struct SearchLimits {
   std::uint64_t max_nodes;
   std::chrono::milliseconds max_time;
   bool infinite;
+  const bool* stop_requested;
 };
 ```
 
@@ -241,6 +242,7 @@ Rules:
 * `max_nodes` limits visited nodes
 * `max_time` limits wall-clock time
 * `infinite` searches until cancelled
+* `stop_requested` carries future cooperative cancellation requests
 
 Cancellation must be cooperative.
 
@@ -257,16 +259,16 @@ Search options control algorithms.
 
 ```cpp
 struct SearchOptions {
-  bool use_midgame_tt;
-  bool use_endgame_tt;
-  bool use_pv_table;
-  bool use_aspiration;
   bool use_pvs;
+  bool use_aspiration;
   bool use_iid;
   bool use_history;
   bool use_killers;
-  bool use_exact_endgame;
-  bool use_probcut;
+  bool use_midgame_tt;
+  bool use_endgame_tt;
+  bool exact_endgame;
+  bool probcut;
+  bool use_pv_table;
   bool use_parallel;
   bool use_tt_best_move_ordering;
   std::uint8_t multi_pv;
@@ -278,6 +280,9 @@ struct SearchOptions {
 
 Every non-baseline option must be independently disableable.
 
+All options default to the disabled value. Unimplemented options must be safely
+ignored or explicitly treated as disabled.
+
 Regression tests should run with all selective options disabled.
 
 Benchmarks should report which options were enabled.
@@ -288,7 +293,7 @@ Midgame TT and endgame TT have different semantics.
 
 `use_endgame_tt` controls exact endgame score and WLD entries.
 
-`use_endgame_tt` has no effect when exact endgame search is disabled.
+`use_endgame_tt` has no effect when `exact_endgame` is disabled.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
@@ -331,6 +336,13 @@ struct SearchStats {
   NodeCount tt_probes;
   NodeCount tt_hits;
   NodeCount tt_stores;
+  NodeCount tt_cutoffs;
+  NodeCount pvs_researches;
+  NodeCount aspiration_fail_lows;
+  NodeCount aspiration_fail_highs;
+  NodeCount iid_searches;
+  NodeCount endgame_nodes;
+  NodeCount selective_cuts;
 };
 
 struct SearchResult {
@@ -381,6 +393,21 @@ Terminal positions should return no best move.
 `stats.tt_hits` counts transposition table probes that match the current position.
 
 `stats.tt_stores` counts transposition table stores.
+
+`stats.tt_cutoffs` counts transposition table cutoffs.
+
+`stats.pvs_researches` counts full-window PVS re-searches after null-window
+fail-highs.
+
+`stats.aspiration_fail_lows` counts aspiration windows that failed low.
+
+`stats.aspiration_fail_highs` counts aspiration windows that failed high.
+
+`stats.iid_searches` counts internal iterative-deepening searches.
+
+`stats.endgame_nodes` counts nodes visited by exact endgame search paths.
+
+`stats.selective_cuts` counts selective-pruning cuts.
 
 Iterative-deepening stats are the sum of completed depth stats.
 

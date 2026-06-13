@@ -46,6 +46,13 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->tt_probes += delta.tt_probes;
   total->tt_hits += delta.tt_hits;
   total->tt_stores += delta.tt_stores;
+  total->tt_cutoffs += delta.tt_cutoffs;
+  total->pvs_researches += delta.pvs_researches;
+  total->aspiration_fail_lows += delta.aspiration_fail_lows;
+  total->aspiration_fail_highs += delta.aspiration_fail_highs;
+  total->iid_searches += delta.iid_searches;
+  total->endgame_nodes += delta.endgame_nodes;
+  total->selective_cuts += delta.selective_cuts;
 }
 
 } // namespace vibe_othello::search::internal
