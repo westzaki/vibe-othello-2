@@ -84,8 +84,50 @@ JSONL output emits one JSON object per position/mode/depth result. The schema is
 - `tt_probes`, `tt_hits`, `tt_stores`, `tt_cutoffs`
 - `elapsed_ns`, `nps`
 
+## Search Golden Checks
+
+The checked-in deterministic search golden is:
+
+```text
+engine/testdata/search/golden/discdiff_depth_1_4.jsonl
+```
+
+It is generated from the checked-in corpus with iterative search, disc-difference
+evaluation, depths 1..4, TT mode `both`, and JSONL output:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_search_bench \
+  --mode iterative \
+  --depth 1..4 \
+  --tt both \
+  --corpus engine/testdata/search/positions.tsv \
+  --jsonl > /tmp/search_actual.jsonl
+tools/search/check_golden.py \
+  /tmp/search_actual.jsonl \
+  engine/testdata/search/golden/discdiff_depth_1_4.jsonl
+```
+
+`tools/search/check_golden.py` normalizes both actual and golden JSONL before
+comparing deterministic result fields only: position metadata, mode, TT mode,
+depth, evaluator, score, best move, PV, and root move
+score/bound/depth/exact/selective values keyed by move. It intentionally does
+not gate `nodes`, eval/search statistics, TT statistics, `elapsed_ns`, or `nps`.
+Those values can move with implementation details, machine load, and benchmark
+environment, so they should be reviewed separately when relevant.
+
+Golden updates are manual. Regenerate with:
+
+```sh
+tools/search/generate_golden.sh
+```
+
+Review the JSONL diff before committing it. Do not auto-update golden files in
+CI. The checked-in golden file is deterministic-only normalized JSONL, so it
+does not contain timing, node count, eval/search statistics, or TT statistics
+even though the raw `search_bench --jsonl` output includes them.
+
 Checksum stability helps confirm that benchmarked behavior did not change.
 Timing values are environment-dependent and should be treated as local comparison
 data, not universal truth. Timing and NPS values are not intended to be CI gates;
-future golden checks should compare deterministic fields such as score, best
-move, PV, root move scores, and search statistics separately from timing.
+golden checks compare deterministic fields such as score, best move, PV, and
+root move scores separately from timing and search statistics.
