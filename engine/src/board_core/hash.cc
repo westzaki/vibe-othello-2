@@ -1,5 +1,8 @@
 #include "vibe_othello/board_core/hash.h"
 
+#include <array>
+#include <bit>
+
 namespace vibe_othello::board_core {
 namespace {
 
@@ -20,23 +23,38 @@ constexpr PositionHash side_to_move_key(Color color) noexcept {
   return color == Color::black ? 0ULL : splitmix64(0xBB67AE8584CAA73BULL);
 }
 
+constexpr std::array<PositionHash, kSquareCount> make_piece_keys(Color color) noexcept {
+  std::array<PositionHash, kSquareCount> keys{};
+  for (int index = 0; index < kSquareCount; ++index) {
+    keys[static_cast<std::size_t>(index)] = piece_key(square_from_index(index), color);
+  }
+  return keys;
+}
+
+constexpr std::array<PositionHash, kSquareCount> kBlackPieceKeys = make_piece_keys(Color::black);
+constexpr std::array<PositionHash, kSquareCount> kWhitePieceKeys = make_piece_keys(Color::white);
+
+int pop_lsb(Bitboard* bits) noexcept {
+  const int index = std::countr_zero(*bits);
+  *bits &= *bits - 1;
+  return index;
+}
+
+PositionHash hash_pieces(Bitboard pieces,
+                         const std::array<PositionHash, kSquareCount>& keys) noexcept {
+  PositionHash hash = 0;
+  while (pieces != 0) {
+    hash ^= keys[static_cast<std::size_t>(pop_lsb(&pieces))];
+  }
+  return hash;
+}
+
 } // namespace
 
 PositionHash hash_position(Position position) noexcept {
   PositionHash hash = side_to_move_key(position.side_to_move);
-  const Bitboard black = black_discs(position);
-  const Bitboard white = white_discs(position);
-
-  for (int index = 0; index < kSquareCount; ++index) {
-    const Square square = square_from_index(index);
-    const Bitboard square_bit = bit(square);
-    if ((black & square_bit) != 0) {
-      hash ^= piece_key(square, Color::black);
-    } else if ((white & square_bit) != 0) {
-      hash ^= piece_key(square, Color::white);
-    }
-  }
-
+  hash ^= hash_pieces(black_discs(position), kBlackPieceKeys);
+  hash ^= hash_pieces(white_discs(position), kWhitePieceKeys);
   return hash;
 }
 
