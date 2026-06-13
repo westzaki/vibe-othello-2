@@ -58,6 +58,23 @@ bool is_full_score_range(RootSearchWindow window) noexcept {
   return window.alpha == kScoreLoss && window.beta == kScoreWin;
 }
 
+SearchResult interrupted_depth_zero_result(board_core::Position position, SearchStats stats,
+                                           std::chrono::steady_clock::time_point start) {
+  SearchResult result{
+      .completed_depth = 0,
+      .nodes = stats.nodes,
+      .stats = stats,
+      .elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - start),
+      .exact = board_core::is_terminal(position),
+      .stopped = true,
+  };
+  if (result.exact) {
+    result.score = terminal_score(position);
+  }
+  return result;
+}
+
 BoundType bound_for_score(Score score, RootSearchWindow window) noexcept {
   if (!window.enabled) {
     return BoundType::exact;
@@ -71,8 +88,9 @@ BoundType bound_for_score(Score score, RootSearchWindow window) noexcept {
   return BoundType::exact;
 }
 
-RootMoveInfo evaluate_root_move(SearchContext* context, Depth depth, board_core::Move move,
-                                RootSearchWindow move_window) {
+std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth depth,
+                                               board_core::Move move,
+                                               RootSearchWindow move_window) {
   StackFrame& frame = context->stack[0];
   frame = StackFrame{};
   frame.current_move = move;
@@ -86,6 +104,9 @@ RootMoveInfo evaluate_root_move(SearchContext* context, Depth depth, board_core:
   const SearchValue child =
       full_window_search(context, child_alpha, child_beta, static_cast<Depth>(depth - 1), Ply{1});
   board_core::undo_move(&context->position, frame.delta);
+  if (child.stopped) {
+    return std::nullopt;
+  }
 
   const Score score = static_cast<Score>(-child.score);
   Line line{};
@@ -129,7 +150,13 @@ void complete_exact_root_move_reports(SearchContext* context, Depth depth, Searc
     if (root_move.bound == BoundType::exact) {
       continue;
     }
-    root_move = evaluate_root_move(context, depth, root_move.move, RootSearchWindow{});
+    const std::optional<RootMoveInfo> exact_root_move =
+        evaluate_root_move(context, depth, root_move.move, RootSearchWindow{});
+    if (!exact_root_move.has_value()) {
+      result->stopped = true;
+      return;
+    }
+    root_move = *exact_root_move;
     ++context->stats.root_moves_searched;
     updated = true;
   }
@@ -141,7 +168,7 @@ void complete_exact_root_move_reports(SearchContext* context, Depth depth, Searc
 SearchResult search_depth_with_aspiration(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
                                           SearchOptions options, TranspositionTable* tt,
-                                          Score previous_score) {
+                                          Score previous_score, SearchLimitState* limit_state) {
   SearchStats depth_stats{};
   Score low_margin = kAspirationInitialWindow;
   Score high_margin = kAspirationInitialWindow;
@@ -149,9 +176,14 @@ SearchResult search_depth_with_aspiration(board_core::Position position, const E
 
   SearchResult current{};
   for (;;) {
-    current =
-        search_fixed_depth_with_hint(position, evaluator, depth, root_hints, options, tt, window);
+    current = search_fixed_depth_with_hint(position, evaluator, depth, root_hints, options, tt,
+                                           window, limit_state);
     add_stats(&depth_stats, current.stats);
+    if (current.stopped) {
+      current.nodes = depth_stats.nodes;
+      current.stats = depth_stats;
+      return current;
+    }
 
     if (current.score <= window.alpha) {
       ++depth_stats.aspiration_fail_lows;
@@ -194,7 +226,8 @@ SearchResult search_depth_with_aspiration(board_core::Position position, const E
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
                                           SearchOptions options, TranspositionTable* tt,
-                                          RootSearchWindow root_window) {
+                                          RootSearchWindow root_window,
+                                          SearchLimitState* limit_state) {
   require_invariant(!root_window.enabled || root_window.alpha < root_window.beta);
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
@@ -204,6 +237,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .limits = SearchLimits{.max_depth = completed_depth},
       .options = options,
       .transposition_table = tt,
+      .limit_state = limit_state,
   };
 
   SearchResult result{
@@ -214,6 +248,14 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     const Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
     const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
     const SearchValue root = full_window_search(&context, alpha, beta, completed_depth, Ply{0});
+    if (root.stopped) {
+      result.stopped = true;
+      result.nodes = context.stats.nodes;
+      result.stats = context.stats;
+      result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - start);
+      return result;
+    }
     result.score = root.score;
     result.bound = bound_for_score(root.score, root_window);
     result.nodes = context.stats.nodes;
@@ -225,7 +267,14 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     return result;
   }
 
-  context.stats.nodes = 1;
+  if (note_node_visited(&context)) {
+    result.stopped = true;
+    result.nodes = context.stats.nodes;
+    result.stats = context.stats;
+    result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    return result;
+  }
   if (context.options.use_tt_best_move_ordering && !root_hints.tt_best_move.has_value() &&
       context.transposition_table != nullptr) {
     const std::optional<TTEntry> root_tt_entry =
@@ -240,6 +289,14 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   root_frame.moves = ordered_moves(context.position, root_hints);
   const MoveList root_moves = root_frame.moves;
   if (root_moves.size == 0) {
+    if (should_stop_search(&context)) {
+      result.stopped = true;
+      result.nodes = context.stats.nodes;
+      result.stats = context.stats;
+      result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - start);
+      return result;
+    }
     ++context.stats.pass_nodes;
     root_frame.current_move = board_core::make_pass();
     const bool made_delta =
@@ -254,6 +311,14 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
         full_window_search(&context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                            static_cast<Depth>(completed_depth - 1), Ply{1});
     board_core::undo_move(&context.position, root_frame.delta);
+    if (child.stopped) {
+      result.stopped = true;
+      result.nodes = context.stats.nodes;
+      result.stats = context.stats;
+      result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - start);
+      return result;
+    }
 
     result.best_move = board_core::make_pass();
     result.score = static_cast<Score>(-child.score);
@@ -283,13 +348,23 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   Line best_line{};
   Score alpha = root_window.alpha;
   for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
+    if (should_stop_search(&context)) {
+      result.stopped = true;
+      break;
+    }
     const board_core::Move move = root_moves.moves[move_index];
     const RootSearchWindow move_window =
         root_window.enabled
             ? RootSearchWindow{.alpha = alpha, .beta = root_window.beta, .enabled = true}
             : RootSearchWindow{};
-    result.root_moves.push_back(evaluate_root_move(&context, completed_depth, move, move_window));
-    const Score score = result.root_moves.back().score;
+    const std::optional<RootMoveInfo> root_move =
+        evaluate_root_move(&context, completed_depth, move, move_window);
+    if (!root_move.has_value()) {
+      result.stopped = true;
+      break;
+    }
+    result.root_moves.push_back(*root_move);
+    const Score score = root_move->score;
     ++context.stats.root_moves_searched;
     update_best_root_move(result.root_moves.back(), &best_score, &best_line, &result);
     if (root_window.enabled && score > alpha) {
@@ -302,10 +377,26 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     }
   }
 
+  if (result.stopped) {
+    result.nodes = context.stats.nodes;
+    result.stats = context.stats;
+    result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    return result;
+  }
+
   const BoundType result_bound = bound_for_score(best_score, root_window);
   if (root_window.enabled && result_bound == BoundType::exact &&
       !is_full_score_range(root_window)) {
     complete_exact_root_move_reports(&context, completed_depth, &result, &best_score, &best_line);
+  }
+
+  if (result.stopped) {
+    result.nodes = context.stats.nodes;
+    result.stats = context.stats;
+    result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    return result;
   }
 
   if (context.transposition_table != nullptr && result.best_move.has_value()) {
@@ -341,30 +432,69 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
                               SearchLimits limits, SearchOptions options) {
   const auto start = std::chrono::steady_clock::now();
   const Depth max_depth = limits.max_depth < 0 ? Depth{0} : limits.max_depth;
+  internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
+  SearchStats total_stats{};
 
-  if (max_depth == 0) {
-    SearchResult result = search_fixed_depth(position, evaluator, Depth{0});
+  if (!limits.infinite && max_depth == 0) {
+    SearchResult result = internal::search_fixed_depth_with_hint(
+        position, evaluator, Depth{0}, internal::MoveOrderingHints{}, options, nullptr,
+        internal::RootSearchWindow{}, &limit_state);
     result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
     return result;
   }
 
-  SearchResult best_completed{};
-  SearchStats total_stats{};
+  SearchResult best_completed{
+      .completed_depth = 0,
+      .exact = board_core::is_terminal(position),
+  };
+  if (best_completed.exact) {
+    best_completed.score = internal::terminal_score(position);
+  }
   internal::TranspositionTable tt_storage{};
   internal::TranspositionTable* tt =
       (options.use_tt_best_move_ordering || options.use_midgame_tt) ? &tt_storage : nullptr;
   std::optional<board_core::Move> previous_best_move;
   std::optional<Score> previous_score;
-  for (Depth depth = 1; depth <= max_depth; ++depth) {
+
+  for (Depth depth = 1;; ++depth) {
+    if (!limits.infinite && depth > max_depth) {
+      break;
+    }
+    if (depth >= static_cast<Depth>(kMaxPly)) {
+      break;
+    }
+    if (limit_state.stopped) {
+      best_completed.stopped = true;
+      break;
+    }
+    internal::SearchContext limit_check_context{
+        .position = position,
+        .evaluator = evaluator,
+        .limit_state = &limit_state,
+    };
+    if (internal::should_stop_search(&limit_check_context)) {
+      best_completed.stopped = true;
+      break;
+    }
+
     const internal::MoveOrderingHints root_hints{.root_best_move = previous_best_move};
     SearchResult current =
         options.use_aspiration && depth >= 2 && previous_score.has_value()
             ? internal::search_depth_with_aspiration(position, evaluator, depth, root_hints,
-                                                     options, tt, *previous_score)
+                                                     options, tt, *previous_score, &limit_state)
             : internal::search_fixed_depth_with_hint(position, evaluator, depth, root_hints,
-                                                     options, tt);
+                                                     options, tt, internal::RootSearchWindow{},
+                                                     &limit_state);
     internal::add_stats(&total_stats, current.stats);
+    if (current.stopped) {
+      if (best_completed.completed_depth == 0 && !best_completed.exact) {
+        best_completed = internal::interrupted_depth_zero_result(position, total_stats, start);
+      } else {
+        best_completed.stopped = true;
+      }
+      break;
+    }
     previous_best_move = current.best_move;
     previous_score = current.score;
     best_completed = current;

@@ -50,6 +50,7 @@ add_executable(
   search/null_window_search_test.cc
   search/pvs_test.cc
   search/reference_search_test.cc
+  search/search_limits_test.cc
   search/transposition_table_test.cc)
 
 target_link_libraries(

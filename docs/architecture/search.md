@@ -255,6 +255,10 @@ Cancellation must be cooperative.
 Search should check limits at root, before starting a new depth, and at periodic
 internal nodes.
 
+Wall-clock limits are cooperative, not hard preemption deadlines. Recursive
+search may check time periodically to keep the hot path small, so a `max_time`
+budget can be exceeded before the next cancellation checkpoint observes it.
+
 Search must return the best completed result when interrupted.
 
 Search must never return an illegal move.
@@ -386,6 +390,9 @@ order should sort by move, score, or their own policy.
 `pv` must be legal when replayed from the root position.
 
 A stopped search may have a lower completed depth than requested.
+
+If search is stopped before the first depth completes, `best_move` may be empty
+even when the root position is not terminal.
 
 Terminal positions should return no best move.
 

@@ -17,6 +17,12 @@ SearchValue dispatch_search(SearchContext* context, SearchDispatch dispatch, Sco
 }
 
 SearchValue child_result(board_core::Move move, const SearchValue& child) noexcept {
+  if (child.stopped) {
+    return SearchValue{
+        .stopped = true,
+    };
+  }
+
   SearchValue result{
       .score = static_cast<Score>(-child.score),
       .pv = {},
@@ -62,7 +68,11 @@ std::optional<SearchValue> prepare_search_node(SearchContext* context, Score alp
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
 
-  ++context->stats.nodes;
+  if (note_node_visited(context)) {
+    return SearchValue{
+        .stopped = true,
+    };
+  }
 
   if (board_core::is_terminal(context->position)) {
     ++context->stats.terminal_nodes;
@@ -95,6 +105,12 @@ std::optional<SearchValue> prepare_search_node(SearchContext* context, Score alp
           .pv = {},
       };
     }
+  }
+
+  if (should_stop_search(context)) {
+    return SearchValue{
+        .stopped = true,
+    };
   }
 
   return std::nullopt;
@@ -151,6 +167,10 @@ SearchValue search_pass_child(SearchContext* context, Score alpha, Score beta, D
 
 void update_best_line_and_move(const SearchValue& child, board_core::Move move, SearchValue* best,
                                std::optional<board_core::Move>* best_move, StackFrame* frame) {
+  if (child.stopped) {
+    return;
+  }
+
   if (!best_move->has_value() || child.score > best->score ||
       (child.score == best->score && move.square.index < (*best_move)->square.index)) {
     *best = child;

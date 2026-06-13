@@ -55,6 +55,8 @@ The current search implementation includes:
 * midgame transposition-table cutoffs
 * transposition-table best-move ordering
 * Othello-specific move ordering
+* `max_nodes`, `max_time`, `infinite`, and `stop_requested` enforcement
+* best-completed-depth publication when iterative search is interrupted
 * search statistics aggregation
 * search benchmark coverage
 
@@ -62,6 +64,7 @@ Existing search tests include:
 
 * alpha-beta tests
 * iterative search tests
+* search-limit and cancellation tests
 * move-ordering tests
 * null-window search tests
 * PVS tests
@@ -81,10 +84,13 @@ The current implementation does not yet have:
 * history heuristic
 * dedicated PV table
 * Multi-PV limiting
-* max-node, max-time, infinite, and external-stop enforcement
 * ProbCut or calibrated selective pruning
 * parallel search
 * analysis and review-specific result adapters
+
+Current time limits are cooperative and checked periodically inside recursive
+search. This keeps the hot path smaller, but it is not a hard real-time
+deadline.
 
 Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 
@@ -114,12 +120,13 @@ Status values:
 | Add root move ordering | done | Previous root best move and deterministic ordering |
 | Add TT best-move ordering | done | Controlled by `use_tt_best_move_ordering` |
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
+| Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
 | Add killer and history heuristics | not started | Options currently safe no-ops |
 | Add exact endgame solver | not started | Tracked in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | not started | Tracked in `docs/progress/endgame.md` |
 | Add specialized endgame routines | not started | Tracked in `docs/progress/endgame.md` |
 | Add Multi-PV root search | not started | `multi_pv` currently safe no-op |
-| Add time management and cancellation | not started | Limit fields exist, enforcement is pending |
+| Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |
 | Add analysis and review-facing result adapters | deferred | Requires consumer needs |

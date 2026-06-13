@@ -29,6 +29,11 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
     const board_core::Move move = frame.moves.moves[move_index];
     const SearchValue child =
         search_full_window_child(context, move, alpha, beta, depth, ply, SearchDispatch::alphabeta);
+    if (child.stopped) {
+      return SearchValue{
+          .stopped = true,
+      };
+    }
     update_best_line_and_move(child, move, &best, &best_move, &frame);
 
     if (update_alpha_and_check_cutoff(context, child.score, &alpha, beta)) {
