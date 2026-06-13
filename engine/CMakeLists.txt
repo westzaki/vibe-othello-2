@@ -4,7 +4,10 @@ add_library(vibe_othello::engine ALIAS vibe_othello_engine)
 target_sources(
   vibe_othello_engine
   PRIVATE src/board_core/board.cc
+          src/board_core/flips.cc
           src/board_core/hash.cc
+          src/board_core/move_application.cc
+          src/board_core/move_generation.cc
           src/board_core/serialization.cc
           src/search/alphabeta.cc
           src/search/best_move_table.cc

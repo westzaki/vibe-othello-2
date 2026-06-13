@@ -40,6 +40,14 @@ Board core does not own:
 Search, evaluation, WASM, tools, and UI may depend on board core.
 Board core must not depend on them.
 
+## Implementation Notes
+
+The production board core is internally separated by responsibility: move
+generation, flip calculation, move application, and board-level helpers.
+
+This separation is intentionally internal. Public behavior is defined by the
+board-core API and tests, not by the current file layout.
+
 ## Core Approach
 
 Use a bitboard-based implementation for the production board core.
@@ -231,6 +239,10 @@ Board core exposes two delta application paths:
 Search should use the hot path after creating a delta through board core.
 Tests, adapters, and external input should use the checked path when accepting a
 delta-shaped value from outside the trusted flow.
+
+Debug builds may assert lightweight trusted-delta preconditions in the hot path
+without turning it into a full verification path. The checked path remains the
+full validation path for untrusted delta-shaped input.
 
 ## Pass and Terminal Rules
 
