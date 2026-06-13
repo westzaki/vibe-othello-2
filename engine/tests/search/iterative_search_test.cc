@@ -270,8 +270,7 @@ TEST_CASE("iterative searches previous best root move first", "[search][iterativ
   REQUIRE(actual.root_moves[0].move == *depth_one.best_move);
 }
 
-TEST_CASE("iterative TT best-move ordering preserves fixed-depth result",
-          "[search][iterative]") {
+TEST_CASE("iterative TT best-move ordering preserves fixed-depth result", "[search][iterative]") {
   const board_core::Position position =
       position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1, 0, 2});
   DiscDifferenceEvaluator tt_evaluator;
@@ -295,9 +294,8 @@ TEST_CASE("iterative TT best-move ordering preserves fixed-depth result",
 TEST_CASE("iterative disables TT best-move ordering by default", "[search][iterative]") {
   DiscDifferenceEvaluator evaluator;
 
-  const SearchResult result =
-      search_iterative(board_core::initial_position(), evaluator,
-                       SearchLimits{.max_depth = Depth{3}});
+  const SearchResult result = search_iterative(board_core::initial_position(), evaluator,
+                                               SearchLimits{.max_depth = Depth{3}});
 
   require_basic_stats_invariants(result);
   REQUIRE(result.stats.tt_probes == 0);
@@ -306,8 +304,7 @@ TEST_CASE("iterative disables TT best-move ordering by default", "[search][itera
 }
 
 TEST_CASE("iterative safely ignores unimplemented search options", "[search][iterative]") {
-  const board_core::Position position =
-      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
   DiscDifferenceEvaluator actual_evaluator;
   DiscDifferenceEvaluator expected_evaluator;
 
