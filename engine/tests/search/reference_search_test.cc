@@ -1,5 +1,5 @@
+#include "search/reference_search.h"
 #include "vibe_othello/board_core/board.h"
-#include "vibe_othello/search/search.h"
 
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
@@ -54,11 +54,12 @@ void require_replayable_pv(board_core::Position position, Line pv) {
   }
 }
 
-TEST_CASE("depth zero evaluates the root without choosing a move", "[search][negamax]") {
+TEST_CASE("reference depth zero evaluates the root without choosing a move",
+          "[search][reference]") {
   ConstantEvaluator evaluator{17};
 
-  const SearchResult result =
-      search_fixed_depth(board_core::initial_position(), evaluator, Depth{0});
+  const SearchResult result = test_support::reference_negamax_fixed_depth(
+      board_core::initial_position(), evaluator, Depth{0});
 
   REQUIRE_FALSE(result.best_move.has_value());
   REQUIRE(result.score == 17);
@@ -71,12 +72,13 @@ TEST_CASE("depth zero evaluates the root without choosing a move", "[search][neg
   REQUIRE_FALSE(result.stopped);
 }
 
-TEST_CASE("initial position returns a legal deterministic best move", "[search][negamax]") {
+TEST_CASE("reference initial position returns a legal deterministic best move",
+          "[search][reference]") {
   ConstantEvaluator evaluator{0};
   constexpr board_core::Move expected = board_core::make_move(square(3, 2));
 
-  const SearchResult result =
-      search_fixed_depth(board_core::initial_position(), evaluator, Depth{1});
+  const SearchResult result = test_support::reference_negamax_fixed_depth(
+      board_core::initial_position(), evaluator, Depth{1});
 
   REQUIRE(result.best_move.has_value());
   REQUIRE(*result.best_move == expected);
@@ -97,13 +99,13 @@ TEST_CASE("initial position returns a legal deterministic best move", "[search][
   }
 }
 
-TEST_CASE("search result is deterministic for repeated calls", "[search][negamax]") {
+TEST_CASE("reference search result is deterministic for repeated calls", "[search][reference]") {
   ConstantEvaluator evaluator{3};
 
-  const SearchResult first =
-      search_fixed_depth(board_core::initial_position(), evaluator, Depth{2});
-  const SearchResult second =
-      search_fixed_depth(board_core::initial_position(), evaluator, Depth{2});
+  const SearchResult first = test_support::reference_negamax_fixed_depth(
+      board_core::initial_position(), evaluator, Depth{2});
+  const SearchResult second = test_support::reference_negamax_fixed_depth(
+      board_core::initial_position(), evaluator, Depth{2});
 
   REQUIRE(first.best_move == second.best_move);
   REQUIRE(first.score == second.score);
@@ -117,18 +119,19 @@ TEST_CASE("search result is deterministic for repeated calls", "[search][negamax
   }
 }
 
-TEST_CASE("principal variation can be replayed from the root", "[search][negamax]") {
+TEST_CASE("reference principal variation can be replayed from the root", "[search][reference]") {
   DiscDifferenceEvaluator evaluator;
 
-  const SearchResult result =
-      search_fixed_depth(board_core::initial_position(), evaluator, Depth{2});
+  const SearchResult result = test_support::reference_negamax_fixed_depth(
+      board_core::initial_position(), evaluator, Depth{2});
 
   REQUIRE(result.best_move.has_value());
   REQUIRE(result.pv.size > 0);
   require_replayable_pv(board_core::initial_position(), result.pv);
 }
 
-TEST_CASE("terminal root returns exact disc difference and no move", "[search][negamax]") {
+TEST_CASE("reference terminal root returns exact disc difference and no move",
+          "[search][reference]") {
   constexpr board_core::Bitboard player = (board_core::Bitboard{1} << 40) - 1;
   constexpr board_core::Position terminal{
       .player = player,
@@ -137,7 +140,8 @@ TEST_CASE("terminal root returns exact disc difference and no move", "[search][n
   };
   ConstantEvaluator evaluator{99};
 
-  const SearchResult result = search_fixed_depth(terminal, evaluator, Depth{5});
+  const SearchResult result =
+      test_support::reference_negamax_fixed_depth(terminal, evaluator, Depth{5});
 
   REQUIRE_FALSE(result.best_move.has_value());
   REQUIRE(result.score == 16);
@@ -149,7 +153,7 @@ TEST_CASE("terminal root returns exact disc difference and no move", "[search][n
   REQUIRE(evaluator.calls == 0);
 }
 
-TEST_CASE("root pass is searched as the only child", "[search][negamax]") {
+TEST_CASE("reference root pass is searched as the only child", "[search][reference]") {
   constexpr board_core::Position pass_position{
       .player = board_core::bit(square(1, 0)),
       .opponent = board_core::bit(square(0, 0)),
@@ -160,7 +164,8 @@ TEST_CASE("root pass is searched as the only child", "[search][negamax]") {
   REQUIRE_FALSE(board_core::has_legal_move(pass_position));
   REQUIRE_FALSE(board_core::is_terminal(pass_position));
 
-  const SearchResult result = search_fixed_depth(pass_position, evaluator, Depth{1});
+  const SearchResult result =
+      test_support::reference_negamax_fixed_depth(pass_position, evaluator, Depth{1});
 
   REQUIRE(result.best_move.has_value());
   REQUIRE(*result.best_move == board_core::make_pass());

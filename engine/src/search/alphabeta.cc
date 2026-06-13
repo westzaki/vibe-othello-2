@@ -9,7 +9,7 @@
 namespace vibe_othello::search {
 namespace {
 
-struct NegamaxResult {
+struct SearchValue {
   Score score = 0;
   Line pv{};
 };
@@ -42,12 +42,13 @@ void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept
   line->size = static_cast<std::uint8_t>(line->size + copy_count);
 }
 
-NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator, Depth depth,
-                      NodeCount* nodes) {
+SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator, Score alpha,
+                      Score beta, Depth depth, NodeCount* nodes) {
+  require_invariant(alpha < beta);
   ++(*nodes);
 
   if (board_core::is_terminal(*position)) {
-    return NegamaxResult{
+    return SearchValue{
         .score = terminal_score(*position),
         .pv = {},
     };
@@ -56,7 +57,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
   if (depth <= 0) {
     const Score score = evaluator.evaluate(*position);
     require_invariant(is_valid_evaluator_score(score));
-    return NegamaxResult{
+    return SearchValue{
         .score = score,
         .pv = {},
     };
@@ -70,10 +71,12 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
     require_invariant(applied_delta);
 
-    const NegamaxResult child = negamax(position, evaluator, static_cast<Depth>(depth - 1), nodes);
+    const SearchValue child =
+        alphabeta(position, evaluator, static_cast<Score>(-beta), static_cast<Score>(-alpha),
+                  static_cast<Depth>(depth - 1), nodes);
     board_core::undo_move(position, delta);
 
-    NegamaxResult result{
+    SearchValue result{
         .score = static_cast<Score>(-child.score),
         .pv = {},
     };
@@ -81,7 +84,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     return result;
   }
 
-  NegamaxResult best{
+  SearchValue best{
       .score = kScoreLoss,
       .pv = {},
   };
@@ -99,13 +102,22 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
     require_invariant(applied_delta);
 
-    const NegamaxResult child = negamax(position, evaluator, static_cast<Depth>(depth - 1), nodes);
+    const SearchValue child =
+        alphabeta(position, evaluator, static_cast<Score>(-beta), static_cast<Score>(-alpha),
+                  static_cast<Depth>(depth - 1), nodes);
     board_core::undo_move(position, delta);
 
     const Score score = static_cast<Score>(-child.score);
     if (score > best.score) {
       best.score = score;
       prepend_move(move, child.pv, &best.pv);
+    }
+
+    if (score > alpha) {
+      alpha = score;
+    }
+    if (alpha >= beta) {
+      break;
     }
   }
 
@@ -125,7 +137,8 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
 
   NodeCount nodes = 0;
   if (board_core::is_terminal(position) || completed_depth == 0) {
-    const NegamaxResult root = negamax(&position, evaluator, completed_depth, &nodes);
+    const SearchValue root =
+        alphabeta(&position, evaluator, kScoreLoss, kScoreWin, completed_depth, &nodes);
     result.score = root.score;
     result.nodes = nodes;
     result.pv = root.pv;
@@ -145,8 +158,8 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
     require_invariant(applied_delta);
 
     const NodeCount before_nodes = nodes;
-    const NegamaxResult child =
-        negamax(&position, evaluator, static_cast<Depth>(completed_depth - 1), &nodes);
+    const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
+                                        static_cast<Depth>(completed_depth - 1), &nodes);
     board_core::undo_move(&position, delta);
 
     result.best_move = board_core::make_pass();
@@ -186,8 +199,8 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
     require_invariant(applied_delta);
 
     const NodeCount before_nodes = nodes;
-    const NegamaxResult child =
-        negamax(&position, evaluator, static_cast<Depth>(completed_depth - 1), &nodes);
+    const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
+                                        static_cast<Depth>(completed_depth - 1), &nodes);
     board_core::undo_move(&position, delta);
 
     const Score score = static_cast<Score>(-child.score);
