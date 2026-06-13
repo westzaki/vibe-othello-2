@@ -233,4 +233,30 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
   return result;
 }
 
+SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
+                              SearchLimits limits) {
+  const auto start = std::chrono::steady_clock::now();
+  const Depth max_depth = limits.max_depth < 0 ? Depth{0} : limits.max_depth;
+
+  if (max_depth == 0) {
+    SearchResult result = search_fixed_depth(position, evaluator, Depth{0});
+    result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    return result;
+  }
+
+  SearchResult best_completed{};
+  NodeCount total_nodes = 0;
+  for (Depth depth = 1; depth <= max_depth; ++depth) {
+    SearchResult current = search_fixed_depth(position, evaluator, depth);
+    total_nodes += current.nodes;
+    best_completed = current;
+  }
+
+  best_completed.nodes = total_nodes;
+  best_completed.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start);
+  return best_completed;
+}
+
 } // namespace vibe_othello::search

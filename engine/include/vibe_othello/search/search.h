@@ -8,8 +8,14 @@
 
 namespace vibe_othello::search {
 
+struct SearchLimits {
+  Depth max_depth = 0;
+};
+
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth);
+SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
+                              SearchLimits limits);
 
 } // namespace vibe_othello::search
 
