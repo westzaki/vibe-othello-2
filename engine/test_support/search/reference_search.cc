@@ -44,10 +44,11 @@ void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept
 }
 
 NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator, Depth depth,
-                      NodeCount* nodes) {
-  ++(*nodes);
+                      SearchStats* stats) {
+  ++stats->nodes;
 
   if (board_core::is_terminal(*position)) {
+    ++stats->terminal_nodes;
     return NegamaxResult{
         .score = terminal_score(*position),
         .pv = {},
@@ -55,6 +56,8 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
   }
 
   if (depth <= 0) {
+    ++stats->leaf_nodes;
+    ++stats->eval_calls;
     const Score score = evaluator.evaluate(*position);
     require_invariant(is_valid_evaluator_score(score));
     return NegamaxResult{
@@ -65,13 +68,15 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
 
   const board_core::Bitboard legal_moves = board_core::legal_moves(*position);
   if (legal_moves == 0) {
+    ++stats->pass_nodes;
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, board_core::make_pass(), &delta);
     require_invariant(made_delta);
     const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
     require_invariant(applied_delta);
 
-    const NegamaxResult child = negamax(position, evaluator, static_cast<Depth>(depth - 1), nodes);
+    const NegamaxResult child =
+        negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
     board_core::undo_move(position, delta);
 
     NegamaxResult result{
@@ -100,7 +105,8 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
     require_invariant(applied_delta);
 
-    const NegamaxResult child = negamax(position, evaluator, static_cast<Depth>(depth - 1), nodes);
+    const NegamaxResult child =
+        negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
     board_core::undo_move(position, delta);
 
     const Score score = static_cast<Score>(-child.score);
@@ -124,11 +130,12 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
       .completed_depth = completed_depth,
   };
 
-  NodeCount nodes = 0;
+  SearchStats stats{};
   if (board_core::is_terminal(position) || completed_depth == 0) {
-    const NegamaxResult root = negamax(&position, evaluator, completed_depth, &nodes);
+    const NegamaxResult root = negamax(&position, evaluator, completed_depth, &stats);
     result.score = root.score;
-    result.nodes = nodes;
+    result.nodes = stats.nodes;
+    result.stats = stats;
     result.pv = root.pv;
     result.exact = board_core::is_terminal(position);
     result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -136,18 +143,19 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
     return result;
   }
 
-  nodes = 1;
+  stats.nodes = 1;
   const board_core::Bitboard legal_moves = board_core::legal_moves(position);
   if (legal_moves == 0) {
+    ++stats.pass_nodes;
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(position, board_core::make_pass(), &delta);
     require_invariant(made_delta);
     const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
     require_invariant(applied_delta);
 
-    const NodeCount before_nodes = nodes;
+    const NodeCount before_nodes = stats.nodes;
     const NegamaxResult child =
-        negamax(&position, evaluator, static_cast<Depth>(completed_depth - 1), &nodes);
+        negamax(&position, evaluator, static_cast<Depth>(completed_depth - 1), &stats);
     board_core::undo_move(&position, delta);
 
     result.best_move = board_core::make_pass();
@@ -158,13 +166,15 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
         .score = result.score,
         .bound = BoundType::exact,
         .depth = completed_depth,
-        .nodes = nodes - before_nodes,
+        .nodes = stats.nodes - before_nodes,
         .pv = result.pv,
         .exact = false,
         .selective = false,
     });
+    stats.root_moves_searched = 1;
 
-    result.nodes = nodes;
+    result.nodes = stats.nodes;
+    result.stats = stats;
     result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
     return result;
@@ -186,9 +196,9 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
     const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
     require_invariant(applied_delta);
 
-    const NodeCount before_nodes = nodes;
+    const NodeCount before_nodes = stats.nodes;
     const NegamaxResult child =
-        negamax(&position, evaluator, static_cast<Depth>(completed_depth - 1), &nodes);
+        negamax(&position, evaluator, static_cast<Depth>(completed_depth - 1), &stats);
     board_core::undo_move(&position, delta);
 
     const Score score = static_cast<Score>(-child.score);
@@ -200,11 +210,12 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
         .score = score,
         .bound = BoundType::exact,
         .depth = completed_depth,
-        .nodes = nodes - before_nodes,
+        .nodes = stats.nodes - before_nodes,
         .pv = line,
         .exact = false,
         .selective = false,
     });
+    ++stats.root_moves_searched;
 
     if (!result.best_move.has_value() || score > best_score) {
       result.best_move = move;
@@ -214,7 +225,8 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
   }
 
   result.score = best_score;
-  result.nodes = nodes;
+  result.nodes = stats.nodes;
+  result.stats = stats;
   result.pv = best_line;
   result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start);

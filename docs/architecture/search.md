@@ -312,12 +312,24 @@ struct RootMoveInfo {
   bool selective;
 };
 
+struct SearchStats {
+  NodeCount nodes;
+  NodeCount leaf_nodes;
+  NodeCount eval_calls;
+  NodeCount terminal_nodes;
+  NodeCount pass_nodes;
+  NodeCount beta_cutoffs;
+  NodeCount alpha_updates;
+  NodeCount root_moves_searched;
+};
+
 struct SearchResult {
   std::optional<board_core::Move> best_move;
   Score score;
   BoundType bound;
   Depth completed_depth;
   NodeCount nodes;
+  SearchStats stats;
   std::chrono::milliseconds elapsed;
   Line pv;
   std::vector<RootMoveInfo> root_moves;
@@ -335,6 +347,26 @@ struct SearchResult {
 A stopped search may have a lower completed depth than requested.
 
 Terminal positions should return no best move.
+
+`nodes` must equal `stats.nodes`.
+
+`stats.nodes` counts all visited root, internal, leaf, and terminal nodes.
+
+`stats.leaf_nodes` counts depth-cutoff nodes that call the evaluator.
+
+`stats.eval_calls` counts calls to the evaluator.
+
+`stats.terminal_nodes` counts terminal nodes that return exact disc difference.
+
+`stats.pass_nodes` counts nodes that expand a pass child.
+
+`stats.beta_cutoffs` counts beta cutoffs.
+
+`stats.alpha_updates` counts alpha-window updates.
+
+`stats.root_moves_searched` counts root candidates actually searched.
+
+Iterative-deepening stats are the sum of completed depth stats.
 
 ## Evaluator Interface
 
