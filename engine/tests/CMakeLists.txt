@@ -41,6 +41,7 @@ add_executable(
   board_core/pass_terminal_test.cc
   board_core/perft_test.cc
   board_core/position_test.cc
+  board_core/property_test.cc
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
   search/alphabeta_test.cc
