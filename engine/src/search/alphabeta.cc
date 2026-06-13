@@ -34,9 +34,9 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
   }
 
   const MoveOrderingHints hints{
-      .first_move = context->best_move_table == nullptr
-                        ? std::nullopt
-                        : context->best_move_table->probe(context->position, &context->stats),
+      .tt_best_move = context->best_move_table == nullptr
+                          ? std::nullopt
+                          : context->best_move_table->probe(context->position, &context->stats),
   };
   frame.moves = ordered_moves(context->position, hints);
   if (frame.moves.size == 0) {

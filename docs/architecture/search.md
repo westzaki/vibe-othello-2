@@ -370,6 +370,9 @@ struct SearchResult {
 
 `root_moves` must contain only legal moves.
 
+`root_moves` are reported in search order. Consumers that need a stable display
+order should sort by move, score, or their own policy.
+
 `pv` must be legal when replayed from the root position.
 
 A stopped search may have a lower completed depth than requested.

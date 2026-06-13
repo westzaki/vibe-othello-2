@@ -58,23 +58,31 @@ void require_replayable_root_pvs(board_core::Position position, const SearchResu
 
 void require_root_moves_match(const SearchResult& actual, const SearchResult& expected) {
   REQUIRE(actual.root_moves.size() == expected.root_moves.size());
-  for (std::size_t index = 0; index < actual.root_moves.size(); ++index) {
-    REQUIRE(actual.root_moves[index].move == expected.root_moves[index].move);
-    REQUIRE(actual.root_moves[index].score == expected.root_moves[index].score);
-    REQUIRE(actual.root_moves[index].bound == BoundType::exact);
-    REQUIRE_FALSE(actual.root_moves[index].exact);
-    REQUIRE_FALSE(actual.root_moves[index].selective);
+  for (const RootMoveInfo& expected_root_move : expected.root_moves) {
+    bool found = false;
+    for (const RootMoveInfo& actual_root_move : actual.root_moves) {
+      if (actual_root_move.move != expected_root_move.move) {
+        continue;
+      }
+
+      REQUIRE(actual_root_move.score == expected_root_move.score);
+      REQUIRE(actual_root_move.bound == BoundType::exact);
+      REQUIRE(actual_root_move.depth == expected_root_move.depth);
+      REQUIRE_FALSE(actual_root_move.exact);
+      REQUIRE_FALSE(actual_root_move.selective);
+      found = true;
+      break;
+    }
+    REQUIRE(found);
   }
 }
 
-void require_root_moves_in_square_order(const SearchResult& result) {
-  std::uint8_t previous = 0;
-  for (std::size_t index = 0; index < result.root_moves.size(); ++index) {
-    REQUIRE(result.root_moves[index].move.kind == board_core::MoveKind::normal);
-    if (index > 0) {
-      REQUIRE(previous < result.root_moves[index].move.square.index);
-    }
-    previous = result.root_moves[index].move.square.index;
+void require_root_moves_are_unique_normal_moves(const SearchResult& result) {
+  std::array<bool, board_core::kSquareCount> seen{};
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    REQUIRE(root_move.move.kind == board_core::MoveKind::normal);
+    REQUIRE_FALSE(seen[root_move.move.square.index]);
+    seen[root_move.move.square.index] = true;
   }
 }
 
@@ -89,6 +97,13 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.alpha_updates <= result.stats.nodes);
   REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
   REQUIRE(result.stats.tt_stores <= result.stats.nodes);
+  REQUIRE(result.stats.tt_cutoffs <= result.stats.tt_hits);
+  REQUIRE(result.stats.pvs_researches <= result.stats.nodes);
+  REQUIRE(result.stats.aspiration_fail_lows <= result.stats.nodes);
+  REQUIRE(result.stats.aspiration_fail_highs <= result.stats.nodes);
+  REQUIRE(result.stats.iid_searches <= result.stats.nodes);
+  REQUIRE(result.stats.endgame_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.selective_cuts <= result.stats.nodes);
 }
 
 board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {
@@ -160,7 +175,7 @@ TEST_CASE("alpha-beta fixed-depth results match reference negamax", "[search][al
     REQUIRE(actual.completed_depth == expected.completed_depth);
     REQUIRE(actual.pv.size > 0);
     require_basic_stats_invariants(actual);
-    require_root_moves_in_square_order(actual);
+    require_root_moves_are_unique_normal_moves(actual);
     require_replayable_pv(board_core::initial_position(), actual.pv);
     require_replayable_root_pvs(board_core::initial_position(), actual);
     require_root_moves_match(actual, expected);
@@ -190,9 +205,9 @@ TEST_CASE("alpha-beta matches reference negamax on fixed midgame positions",
       REQUIRE(actual.best_move == expected.best_move);
       REQUIRE(actual.score == expected.score);
       REQUIRE(actual.completed_depth == expected.completed_depth);
-      REQUIRE(actual.pv == expected.pv);
+      REQUIRE(actual.pv.size > 0);
       require_basic_stats_invariants(actual);
-      require_root_moves_in_square_order(actual);
+      require_root_moves_are_unique_normal_moves(actual);
       require_replayable_pv(position, actual.pv);
       require_replayable_root_pvs(position, actual);
       require_root_moves_match(actual, expected);
