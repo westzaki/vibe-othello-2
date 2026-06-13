@@ -1121,6 +1121,15 @@ engine/benchmarks/
 Tools may provide command-line entry points for solving, comparing, and measuring
 positions, but reusable search code belongs in `engine/`.
 
+## Implementation Notes
+
+The production search implementation is internally separated by responsibility:
+root search, recursive search, move ordering, table storage, and shared utilities.
+
+This separation is intentionally internal. Public behavior is defined by the
+search API, architecture rules, tests, and benchmarks, not by the current file
+layout.
+
 ## Testing Strategy
 
 Search correctness requires multiple test styles.
