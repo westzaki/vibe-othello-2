@@ -2,7 +2,7 @@
 
 #include "vibe_othello/board_core/hash.h"
 
-namespace vibe_othello::search::detail {
+namespace vibe_othello::search::internal {
 
 std::optional<board_core::Move> TTBestMoveTable::probe(board_core::Position position,
                                                        SearchStats* stats) const noexcept {
@@ -33,4 +33,4 @@ void TTBestMoveTable::store(board_core::Position position, board_core::Move best
   ++stats->tt_stores;
 }
 
-} // namespace vibe_othello::search::detail
+} // namespace vibe_othello::search::internal

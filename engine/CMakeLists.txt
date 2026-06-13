@@ -10,6 +10,7 @@ target_sources(
           src/search/best_move_table.cc
           src/search/move_ordering.cc
           src/search/root_search.cc
+          src/search/search_util.cc
           src/version.cc)
 
 target_include_directories(

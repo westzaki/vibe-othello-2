@@ -1,6 +1,6 @@
 #include "search_internal.h"
 
-namespace vibe_othello::search::detail {
+namespace vibe_othello::search::internal {
 
 namespace {
 
@@ -41,4 +41,4 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
   return list;
 }
 
-} // namespace vibe_othello::search::detail
+} // namespace vibe_othello::search::internal

@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace vibe_othello::search::detail {
+namespace vibe_othello::search::internal {
 
 struct SearchValue {
   Score score = 0;
@@ -64,4 +64,4 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
                                           const Evaluator& evaluator, Depth depth,
                                           MoveOrderingHints root_hints, TTBestMoveTable* tt);
 
-} // namespace vibe_othello::search::detail
+} // namespace vibe_othello::search::internal

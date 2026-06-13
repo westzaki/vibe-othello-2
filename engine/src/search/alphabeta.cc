@@ -1,6 +1,6 @@
 #include "search_internal.h"
 
-namespace vibe_othello::search::detail {
+namespace vibe_othello::search::internal {
 
 SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator, Score alpha,
                       Score beta, Depth depth, SearchStats* stats, TTBestMoveTable* tt) {
@@ -95,4 +95,4 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
   return best;
 }
 
-} // namespace vibe_othello::search::detail
+} // namespace vibe_othello::search::internal

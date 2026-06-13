@@ -1,55 +1,10 @@
 #include "search_internal.h"
 
-#include <bit>
-#include <cassert>
 #include <chrono>
-#include <cstdlib>
 #include <optional>
 
 namespace vibe_othello::search {
-namespace detail {
-
-Score terminal_score(board_core::Position position) noexcept {
-  return static_cast<Score>(std::popcount(position.player)) -
-         static_cast<Score>(std::popcount(position.opponent));
-}
-
-bool is_valid_evaluator_score(Score score) noexcept {
-  return kScoreLoss < score && score < kScoreWin;
-}
-
-void require_invariant(bool condition) noexcept {
-  assert(condition);
-  if (!condition) {
-    std::abort();
-  }
-}
-
-void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept {
-  line->moves[0] = move;
-  line->size = 1;
-
-  const std::uint8_t copy_count =
-      child.size < kMaxPly ? child.size : static_cast<std::uint8_t>(kMaxPly - 1);
-  for (std::uint8_t index = 0; index < copy_count; ++index) {
-    line->moves[index + 1] = child.moves[index];
-  }
-  line->size = static_cast<std::uint8_t>(line->size + copy_count);
-}
-
-void add_stats(SearchStats* total, SearchStats delta) noexcept {
-  total->nodes += delta.nodes;
-  total->leaf_nodes += delta.leaf_nodes;
-  total->eval_calls += delta.eval_calls;
-  total->terminal_nodes += delta.terminal_nodes;
-  total->pass_nodes += delta.pass_nodes;
-  total->beta_cutoffs += delta.beta_cutoffs;
-  total->alpha_updates += delta.alpha_updates;
-  total->root_moves_searched += delta.root_moves_searched;
-  total->tt_probes += delta.tt_probes;
-  total->tt_hits += delta.tt_hits;
-  total->tt_stores += delta.tt_stores;
-}
+namespace internal {
 
 namespace {
 
@@ -189,12 +144,12 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
   return result;
 }
 
-} // namespace detail
+} // namespace internal
 
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth) {
-  return detail::search_fixed_depth_with_hint(position, evaluator, depth,
-                                             detail::MoveOrderingHints{}, nullptr);
+  return internal::search_fixed_depth_with_hint(position, evaluator, depth,
+                                               internal::MoveOrderingHints{}, nullptr);
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
@@ -216,14 +171,14 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
   SearchResult best_completed{};
   SearchStats total_stats{};
-  detail::TTBestMoveTable tt_storage{};
-  detail::TTBestMoveTable* tt = options.use_tt_best_move_ordering ? &tt_storage : nullptr;
+  internal::TTBestMoveTable tt_storage{};
+  internal::TTBestMoveTable* tt = options.use_tt_best_move_ordering ? &tt_storage : nullptr;
   std::optional<board_core::Move> previous_best_move;
   for (Depth depth = 1; depth <= max_depth; ++depth) {
-    SearchResult current = detail::search_fixed_depth_with_hint(
-        position, evaluator, depth, detail::MoveOrderingHints{.first_move = previous_best_move},
+    SearchResult current = internal::search_fixed_depth_with_hint(
+        position, evaluator, depth, internal::MoveOrderingHints{.first_move = previous_best_move},
         tt);
-    detail::add_stats(&total_stats, current.stats);
+    internal::add_stats(&total_stats, current.stats);
     previous_best_move = current.best_move;
     best_completed = current;
   }
