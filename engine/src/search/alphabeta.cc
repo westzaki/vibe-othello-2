@@ -5,6 +5,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
+#include <optional>
 
 namespace vibe_othello::search {
 namespace {
@@ -124,10 +125,70 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
   return best;
 }
 
-} // namespace
+bool is_legal_hint(board_core::Bitboard legal_moves, board_core::Move hint) noexcept {
+  return hint.kind == board_core::MoveKind::normal &&
+         (legal_moves & board_core::bit(hint.square)) != 0;
+}
 
-SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
-                                Depth depth) {
+bool should_search_root_move(board_core::Bitboard legal_moves, board_core::Move move,
+                             std::optional<board_core::Move> first_move) noexcept {
+  if ((legal_moves & board_core::bit(move.square)) == 0) {
+    return false;
+  }
+  return !first_move.has_value() || move != *first_move;
+}
+
+bool is_better_root_move(Score score, board_core::Move move, Score best_score,
+                         std::optional<board_core::Move> best_move) noexcept {
+  if (!best_move.has_value() || score > best_score) {
+    return true;
+  }
+  if (score < best_score || move.kind != board_core::MoveKind::normal ||
+      best_move->kind != board_core::MoveKind::normal) {
+    return false;
+  }
+  return move.square.index < best_move->square.index;
+}
+
+void search_root_move(board_core::Position position, const Evaluator& evaluator, Depth depth,
+                      board_core::Move move, NodeCount* nodes, Score* best_score,
+                      Line* best_line, SearchResult* result) {
+  board_core::MoveDelta delta{};
+  const bool made_delta = board_core::make_move_delta(position, move, &delta);
+  require_invariant(made_delta);
+  const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
+  require_invariant(applied_delta);
+
+  const NodeCount before_nodes = *nodes;
+  const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
+                                      static_cast<Depth>(depth - 1), nodes);
+  board_core::undo_move(&position, delta);
+
+  const Score score = static_cast<Score>(-child.score);
+  Line line{};
+  prepend_move(move, child.pv, &line);
+
+  result->root_moves.push_back(RootMoveInfo{
+      .move = move,
+      .score = score,
+      .bound = BoundType::exact,
+      .depth = depth,
+      .nodes = *nodes - before_nodes,
+      .pv = line,
+      .exact = false,
+      .selective = false,
+  });
+
+  if (is_better_root_move(score, move, *best_score, result->best_move)) {
+    result->best_move = move;
+    *best_score = score;
+    *best_line = line;
+  }
+}
+
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth,
+                                          std::optional<board_core::Move> first_move) {
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
 
@@ -184,45 +245,23 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
 
   Score best_score = kScoreLoss;
   Line best_line{};
+  const std::optional<board_core::Move> legal_first_move =
+      first_move.has_value() && is_legal_hint(legal_moves, *first_move) ? first_move : std::nullopt;
+
+  if (legal_first_move.has_value()) {
+    search_root_move(position, evaluator, completed_depth, *legal_first_move, &nodes, &best_score,
+                     &best_line, &result);
+  }
 
   for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
     const board_core::Square square = board_core::square_from_index(square_index);
-    if ((legal_moves & board_core::bit(square)) == 0) {
+    const board_core::Move move = board_core::make_move(square);
+    if (!should_search_root_move(legal_moves, move, legal_first_move)) {
       continue;
     }
 
-    const board_core::Move move = board_core::make_move(square);
-    board_core::MoveDelta delta{};
-    const bool made_delta = board_core::make_move_delta(position, move, &delta);
-    require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
-    require_invariant(applied_delta);
-
-    const NodeCount before_nodes = nodes;
-    const SearchValue child = alphabeta(&position, evaluator, kScoreLoss, kScoreWin,
-                                        static_cast<Depth>(completed_depth - 1), &nodes);
-    board_core::undo_move(&position, delta);
-
-    const Score score = static_cast<Score>(-child.score);
-    Line line{};
-    prepend_move(move, child.pv, &line);
-
-    result.root_moves.push_back(RootMoveInfo{
-        .move = move,
-        .score = score,
-        .bound = BoundType::exact,
-        .depth = completed_depth,
-        .nodes = nodes - before_nodes,
-        .pv = line,
-        .exact = false,
-        .selective = false,
-    });
-
-    if (!result.best_move.has_value() || score > best_score) {
-      result.best_move = move;
-      best_score = score;
-      best_line = line;
-    }
+    search_root_move(position, evaluator, completed_depth, move, &nodes, &best_score, &best_line,
+                     &result);
   }
 
   result.score = best_score;
@@ -231,6 +270,13 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
   result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start);
   return result;
+}
+
+} // namespace
+
+SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
+                                Depth depth) {
+  return search_fixed_depth_with_hint(position, evaluator, depth, std::nullopt);
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
@@ -247,9 +293,12 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
   SearchResult best_completed{};
   NodeCount total_nodes = 0;
+  std::optional<board_core::Move> previous_best_move;
   for (Depth depth = 1; depth <= max_depth; ++depth) {
-    SearchResult current = search_fixed_depth(position, evaluator, depth);
+    SearchResult current =
+        search_fixed_depth_with_hint(position, evaluator, depth, previous_best_move);
     total_nodes += current.nodes;
+    previous_best_move = current.best_move;
     best_completed = current;
   }
 
