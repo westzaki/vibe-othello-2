@@ -72,8 +72,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, board_core::make_pass(), &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(position, delta);
 
     const NegamaxResult child =
         negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
@@ -102,8 +101,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(*position, move, &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(position, delta);
 
     const NegamaxResult child =
         negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
@@ -150,8 +148,7 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(position, board_core::make_pass(), &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(&position, delta);
 
     const NodeCount before_nodes = stats.nodes;
     const NegamaxResult child =
@@ -193,8 +190,7 @@ SearchResult reference_negamax_fixed_depth(board_core::Position position,
     board_core::MoveDelta delta{};
     const bool made_delta = board_core::make_move_delta(position, move, &delta);
     require_invariant(made_delta);
-    const bool applied_delta = made_delta && board_core::apply_move_delta(&position, delta);
-    require_invariant(applied_delta);
+    board_core::apply_move_delta(&position, delta);
 
     const NodeCount before_nodes = stats.nodes;
     const NegamaxResult child =

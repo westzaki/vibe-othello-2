@@ -39,7 +39,6 @@ void require_board_core_properties(Position position) {
     Position applied = position;
     MoveDelta delta{};
     REQUIRE(apply_move(&applied, make_move(square), &delta));
-    REQUIRE(delta.before == position);
     REQUIRE(delta.move == make_move(square));
     REQUIRE(delta.flipped == flipped);
     REQUIRE(is_valid(applied));
@@ -47,7 +46,7 @@ void require_board_core_properties(Position position) {
             test_support::popcount(occupied_before) + 1);
 
     Position applied_from_delta = position;
-    REQUIRE(apply_move_delta(&applied_from_delta, delta));
+    apply_move_delta(&applied_from_delta, delta);
     REQUIRE(applied_from_delta == applied);
 
     undo_move(&applied, delta);

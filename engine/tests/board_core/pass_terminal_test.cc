@@ -26,7 +26,6 @@ TEST_CASE("pass moves swap perspective without changing discs", "[board_core][pa
   }));
   REQUIRE(apply_pass(&position, &delta));
 
-  REQUIRE(delta.before == before);
   REQUIRE(delta.move == make_pass());
   REQUIRE(delta.flipped == 0);
   REQUIRE(position.side_to_move == Color::white);
@@ -50,7 +49,6 @@ TEST_CASE("apply move accepts pass moves", "[board_core][pass_terminal]") {
 
   REQUIRE(apply_move(&position, make_pass(), &delta));
 
-  REQUIRE(delta.before == before);
   REQUIRE(delta.move == make_pass());
   REQUIRE(delta.flipped == 0);
   REQUIRE(position.player == before.opponent);
@@ -69,11 +67,10 @@ TEST_CASE("pass deltas can be prepared and applied separately", "[board_core][pa
 
   REQUIRE(make_move_delta(position, make_pass(), &delta));
   REQUIRE(position == before);
-  REQUIRE(delta.before == before);
   REQUIRE(delta.move == make_pass());
   REQUIRE(delta.flipped == 0);
 
-  REQUIRE(apply_move_delta(&position, delta));
+  apply_move_delta(&position, delta);
   REQUIRE(position.player == before.opponent);
   REQUIRE(position.opponent == before.player);
   REQUIRE(position.side_to_move == Color::white);

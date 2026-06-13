@@ -120,37 +120,34 @@ bool apply_move(Position* position, Move move, MoveDelta* delta) noexcept {
     return false;
   }
 
-  *position =
-      move_delta.move.kind == MoveKind::pass
-          ? pass_position(move_delta.before)
-          : apply_normal_delta_position(move_delta.before, move_delta.move, move_delta.flipped);
-
+  apply_move_delta(position, move_delta);
   *delta = move_delta;
   return true;
 }
 
-bool apply_move_delta(Position* position, MoveDelta delta) noexcept {
-  if (position == nullptr || *position != delta.before || !is_valid(delta.before)) {
-    return false;
+void apply_move_delta(Position* position, MoveDelta delta) noexcept {
+  if (position == nullptr) {
+    return;
   }
-
   if (delta.move.kind == MoveKind::pass) {
-    if (delta.flipped != 0 || has_legal_move(delta.before) ||
-        !has_legal_move(pass_position(delta.before))) {
-      return false;
-    }
-    *position = pass_position(delta.before);
-    return true;
+    *position = pass_position(*position);
+    return;
   }
 
-  const Bitboard move_bit = bit(delta.move.square);
-  if (move_bit == 0 || delta.flipped == 0 || (move_bit & occupied(delta.before)) != 0 ||
-      (delta.flipped & delta.before.opponent) != delta.flipped) {
+  *position = apply_normal_delta_position(*position, delta.move, delta.flipped);
+}
+
+bool apply_move_delta_checked(Position* position, MoveDelta delta) noexcept {
+  if (position == nullptr) {
     return false;
   }
 
-  *position = apply_normal_delta_position(delta.before, delta.move, delta.flipped);
+  MoveDelta expected{};
+  if (!make_move_delta(*position, delta.move, &expected) || expected != delta) {
+    return false;
+  }
 
+  apply_move_delta(position, delta);
   return true;
 }
 
@@ -164,7 +161,7 @@ bool apply_pass(Position* position, MoveDelta* delta) noexcept {
     return false;
   }
 
-  *position = pass_position(pass_delta.before);
+  apply_move_delta(position, pass_delta);
   *delta = pass_delta;
   return true;
 }
@@ -181,11 +178,14 @@ bool make_move_delta(Position position, Move move, MoveDelta* delta) noexcept {
     }
 
     *delta = MoveDelta{
-        .before = position,
         .move = make_pass(),
         .flipped = 0,
     };
     return true;
+  }
+
+  if (move.kind != MoveKind::normal) {
+    return false;
   }
 
   const Bitboard move_bit = bit(move.square);
@@ -195,7 +195,6 @@ bool make_move_delta(Position position, Move move, MoveDelta* delta) noexcept {
   }
 
   *delta = MoveDelta{
-      .before = position,
       .move = move,
       .flipped = flipped,
   };
@@ -207,7 +206,20 @@ void undo_move(Position* position, MoveDelta delta) noexcept {
     return;
   }
 
-  *position = delta.before;
+  if (delta.move.kind == MoveKind::pass) {
+    *position = pass_position(*position);
+    return;
+  }
+
+  const Bitboard move_bit = bit(delta.move.square);
+  const Bitboard player_before = position->opponent & ~(move_bit | delta.flipped);
+  const Bitboard opponent_before = position->player | delta.flipped;
+
+  *position = Position{
+      .player = player_before,
+      .opponent = opponent_before,
+      .side_to_move = opposite(position->side_to_move),
+  };
 }
 
 Bitboard flips_for_move(Position position, Square move) noexcept {

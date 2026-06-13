@@ -215,9 +215,22 @@ Conceptually:
 * swap player/opponent perspective
 * toggle side to move
 
-The move delta should contain enough information for undo without recomputing flips.
+The move delta stores the move and flipped-disc mask.
+It does not store a full previous position.
+For a normal move, undo reconstructs the previous position algebraically from the
+current position, placed square, and flipped-disc mask.
+For a pass, undo swaps perspective back without changing occupancy.
 
 Apply and undo must round-trip exactly.
+
+Board core exposes two delta application paths:
+
+* a hot path that trusts a delta produced for the current position
+* a checked path that recomputes and verifies the delta before applying it
+
+Search should use the hot path after creating a delta through board core.
+Tests, adapters, and external input should use the checked path when accepting a
+delta-shaped value from outside the trusted flow.
 
 ## Pass and Terminal Rules
 
