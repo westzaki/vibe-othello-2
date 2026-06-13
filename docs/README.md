@@ -9,3 +9,6 @@ Read only the document needed for the current task.
 | C++ style | `cpp-coding-style.md` |
 | Board core architecture | `architecture/board-core.md` |
 | Search design | `architecture/search.md` |
+| Endgame architecture | `architecture/endgame.md` |
+| Progress documentation rules | `progress/README.md` |
+| Endgame implementation status | `progress/endgame.md` |

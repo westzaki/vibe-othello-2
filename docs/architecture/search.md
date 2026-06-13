@@ -907,6 +907,10 @@ Expensive ordering should be used only where it saves more nodes than it costs.
 
 Endgame solver computes exact outcomes.
 
+Detailed endgame design lives in `docs/architecture/endgame.md`.
+
+This section records the search-level integration boundary.
+
 It should be a separate search path sharing board core, search stack concepts,
 and transposition table infrastructure.
 
