@@ -17,14 +17,15 @@ ctest --test-dir build --output-on-failure
 ```
 
 Pull requests run the same configure, build, test, and smoke-tool checks in
-GitHub Actions.
+GitHub Actions. Benchmark executables are built in CI but run locally.
 
-Optional board-core benchmarks can be run locally:
+Optional engine benchmarks can be built and run locally:
 
 ```sh
 cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
 cmake --build build-bench --config Release
 ./build-bench/engine/benchmarks/vibe_othello_board_core_bench
+./build-bench/engine/benchmarks/vibe_othello_search_bench
 ```
 
 See engine/benchmarks/README.md for benchmark layout and result handling.

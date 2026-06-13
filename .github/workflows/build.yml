@@ -19,6 +19,16 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Configure benchmarks
+        run: >
+          cmake -S . -B build-bench
+          -DCMAKE_BUILD_TYPE=Release
+          -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
+          -DBUILD_TESTING=OFF
+
+      - name: Build benchmarks
+        run: cmake --build build-bench --config Release
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
