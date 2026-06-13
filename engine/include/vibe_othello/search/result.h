@@ -21,6 +21,13 @@ struct SearchStats {
   NodeCount tt_probes = 0;
   NodeCount tt_hits = 0;
   NodeCount tt_stores = 0;
+  NodeCount tt_cutoffs = 0;
+  NodeCount pvs_researches = 0;
+  NodeCount aspiration_fail_lows = 0;
+  NodeCount aspiration_fail_highs = 0;
+  NodeCount iid_searches = 0;
+  NodeCount endgame_nodes = 0;
+  NodeCount selective_cuts = 0;
 
   friend bool operator==(const SearchStats&, const SearchStats&) = default;
 };

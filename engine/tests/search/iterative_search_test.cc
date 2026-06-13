@@ -104,6 +104,13 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.alpha_updates <= result.stats.nodes);
   REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
   REQUIRE(result.stats.tt_stores <= result.stats.nodes);
+  REQUIRE(result.stats.tt_cutoffs <= result.stats.tt_hits);
+  REQUIRE(result.stats.pvs_researches <= result.stats.nodes);
+  REQUIRE(result.stats.aspiration_fail_lows <= result.stats.nodes);
+  REQUIRE(result.stats.aspiration_fail_highs <= result.stats.nodes);
+  REQUIRE(result.stats.iid_searches <= result.stats.nodes);
+  REQUIRE(result.stats.endgame_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.selective_cuts <= result.stats.nodes);
 }
 
 void require_root_move_set_matches(const SearchResult& actual, const SearchResult& expected) {
@@ -294,6 +301,40 @@ TEST_CASE("iterative disables TT best-move ordering by default", "[search][itera
   REQUIRE(result.stats.tt_probes == 0);
   REQUIRE(result.stats.tt_hits == 0);
   REQUIRE(result.stats.tt_stores == 0);
+}
+
+TEST_CASE("iterative safely ignores unimplemented search options", "[search][iterative]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  DiscDifferenceEvaluator actual_evaluator;
+  DiscDifferenceEvaluator expected_evaluator;
+
+  const SearchOptions options{
+      .use_pvs = true,
+      .use_aspiration = true,
+      .use_iid = true,
+      .use_history = true,
+      .use_killers = true,
+      .use_midgame_tt = true,
+      .use_endgame_tt = true,
+      .exact_endgame = true,
+      .probcut = true,
+      .use_pv_table = true,
+      .use_parallel = true,
+      .multi_pv = 3,
+      .endgame_exact_empties = 8,
+      .endgame_wld_empties = 10,
+      .selectivity_level = 2,
+  };
+
+  const SearchResult actual =
+      search_iterative(position, actual_evaluator, SearchLimits{.max_depth = Depth{3}}, options);
+  const SearchResult expected =
+      search_iterative(position, expected_evaluator, SearchLimits{.max_depth = Depth{3}});
+
+  require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
+  require_root_move_set_matches(actual, expected);
+  REQUIRE(actual.stats == expected.stats);
 }
 
 TEST_CASE("iterative handles root pass like fixed-depth search", "[search][iterative]") {
