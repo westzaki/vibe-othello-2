@@ -478,6 +478,9 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
       break;
     }
 
+    if (tt != nullptr && depth > 1) {
+      tt->new_generation();
+    }
     const internal::MoveOrderingHints root_hints{.root_best_move = previous_best_move};
     SearchResult current =
         options.use_aspiration && depth >= 2 && previous_score.has_value()

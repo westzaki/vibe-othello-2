@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 namespace vibe_othello::search::internal {
 
@@ -71,19 +72,29 @@ struct TTEntry {
 
 class TranspositionTable {
 public:
+  static constexpr std::size_t kBucketWidth = 4;
+  static constexpr std::size_t kDefaultEntryCount = 4096;
+  static constexpr std::size_t kMaxBucketCount = std::size_t{1} << 20;
+
+  explicit TranspositionTable(std::size_t requested_entries = kDefaultEntryCount);
+
+  void clear() noexcept;
+  void new_generation() noexcept;
+
   std::optional<TTEntry> probe(board_core::Position position, SearchStats* stats) const noexcept;
 
   void store(board_core::Position position, Depth depth, Score score, BoundType bound,
              board_core::Move best_move, TTEntryKind kind, SearchStats* stats) noexcept;
 
 private:
-  static constexpr std::size_t kEntryCount = 4096;
+  struct TTBucket {
+    std::array<TTEntry, kBucketWidth> entries{};
+  };
 
-  static constexpr std::size_t index_for(board_core::PositionHash key) noexcept {
-    return static_cast<std::size_t>(key % kEntryCount);
-  }
+  std::size_t index_for(board_core::PositionHash key) const noexcept;
 
-  std::array<TTEntry, kEntryCount> entries_{};
+  std::vector<TTBucket> buckets_;
+  std::uint8_t generation_ = 1;
 };
 
 struct SearchLimitState {
