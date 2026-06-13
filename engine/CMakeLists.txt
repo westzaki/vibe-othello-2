@@ -10,6 +10,7 @@ target_sources(
           src/search/move_ordering.cc
           src/search/pvs.cc
           src/search/root_search.cc
+          src/search/search_node_common.cc
           src/search/search_util.cc
           src/search/transposition_table.cc
           src/version.cc)
