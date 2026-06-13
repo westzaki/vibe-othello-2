@@ -88,6 +88,7 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.nodes == result.stats.nodes);
   REQUIRE(result.stats.root_moves_searched >= result.root_moves.size());
   REQUIRE(result.stats.leaf_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.eval_calls <= result.stats.leaf_nodes);
   REQUIRE(result.stats.terminal_nodes <= result.stats.nodes);
   REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
   REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);

@@ -315,6 +315,7 @@ struct RootMoveInfo {
 struct SearchStats {
   NodeCount nodes;
   NodeCount leaf_nodes;
+  NodeCount eval_calls;
   NodeCount terminal_nodes;
   NodeCount pass_nodes;
   NodeCount beta_cutoffs;
@@ -352,6 +353,8 @@ Terminal positions should return no best move.
 `stats.nodes` counts all visited root, internal, leaf, and terminal nodes.
 
 `stats.leaf_nodes` counts depth-cutoff nodes that call the evaluator.
+
+`stats.eval_calls` counts calls to the evaluator.
 
 `stats.terminal_nodes` counts terminal nodes that return exact disc difference.
 

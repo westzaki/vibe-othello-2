@@ -46,6 +46,7 @@ void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept
 void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->nodes += delta.nodes;
   total->leaf_nodes += delta.leaf_nodes;
+  total->eval_calls += delta.eval_calls;
   total->terminal_nodes += delta.terminal_nodes;
   total->pass_nodes += delta.pass_nodes;
   total->beta_cutoffs += delta.beta_cutoffs;
@@ -68,6 +69,7 @@ SearchValue alphabeta(board_core::Position* position, const Evaluator& evaluator
 
   if (depth <= 0) {
     ++stats->leaf_nodes;
+    ++stats->eval_calls;
     const Score score = evaluator.evaluate(*position);
     require_invariant(is_valid_evaluator_score(score));
     return SearchValue{

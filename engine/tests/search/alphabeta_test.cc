@@ -71,6 +71,7 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.nodes == result.stats.nodes);
   REQUIRE(result.stats.root_moves_searched == result.root_moves.size());
   REQUIRE(result.stats.leaf_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.eval_calls <= result.stats.leaf_nodes);
   REQUIRE(result.stats.terminal_nodes <= result.stats.nodes);
   REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
   REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);
@@ -122,6 +123,7 @@ TEST_CASE("alpha-beta depth zero matches reference negamax", "[search][alphabeta
   REQUIRE(actual.nodes == expected.nodes);
   require_basic_stats_invariants(actual);
   REQUIRE(actual.stats.leaf_nodes == 1);
+  REQUIRE(actual.stats.eval_calls == 1);
   REQUIRE(actual.stats.terminal_nodes == 0);
   REQUIRE(actual.stats.pass_nodes == 0);
   REQUIRE(actual.stats.beta_cutoffs == 0);
@@ -230,6 +232,7 @@ TEST_CASE("alpha-beta terminal root matches reference negamax", "[search][alphab
   require_basic_stats_invariants(actual);
   REQUIRE(actual.stats.terminal_nodes == 1);
   REQUIRE(actual.stats.leaf_nodes == 0);
+  REQUIRE(actual.stats.eval_calls == 0);
   REQUIRE(actual.stats.root_moves_searched == 0);
   REQUIRE(actual.pv == expected.pv);
   REQUIRE(actual.exact);

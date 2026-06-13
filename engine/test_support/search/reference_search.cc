@@ -57,6 +57,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
 
   if (depth <= 0) {
     ++stats->leaf_nodes;
+    ++stats->eval_calls;
     const Score score = evaluator.evaluate(*position);
     require_invariant(is_valid_evaluator_score(score));
     return NegamaxResult{

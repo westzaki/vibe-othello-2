@@ -12,6 +12,7 @@ namespace vibe_othello::search {
 struct SearchStats {
   NodeCount nodes = 0;
   NodeCount leaf_nodes = 0;
+  NodeCount eval_calls = 0;
   NodeCount terminal_nodes = 0;
   NodeCount pass_nodes = 0;
   NodeCount beta_cutoffs = 0;
