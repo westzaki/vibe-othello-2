@@ -10,6 +10,8 @@ Search must be correct, deterministic in single-thread mode, interruptible,
 measurable, and strong enough to support play, analysis, review, tools, WASM, and
 UI adapters.
 
+Implementation status and milestone tracking live in `docs/progress/search.md`.
+
 ## Boundary
 
 Search owns:
@@ -1444,58 +1446,3 @@ Optimize after reference tests and benchmarks exist.
 Avoid virtual dispatch in deep recursion unless profiling shows it is harmless.
 
 Use board-core primitives rather than duplicating board rules.
-
-## Build Order
-
-Recommended build order:
-
-1. define score semantics
-2. define search limits, options, result, and stats types
-3. define evaluator interface
-4. implement reference negamax
-5. implement alpha-beta
-6. add search stack and pass handling tests
-7. add transposition table
-8. add iterative deepening
-9. add aspiration windows
-10. add PVS and null-window search
-11. add root move ordering
-12. add TT best-move ordering
-13. add Othello-specific ordering
-14. add killer and history heuristics
-15. add exact endgame solver
-16. add exact endgame TT semantics
-17. add specialized endgame routines
-18. add Multi-PV root search
-19. add time management and cancellation
-20. add optional selective pruning after calibration
-21. add optional parallel search after single-thread search is stable
-22. add analysis and review-facing result adapters
-
-Do not add selective pruning before non-selective search is correct.
-
-Do not add parallel search before single-thread search is stable.
-
-Do not use search work as an evaluation-training plan.
-
-## Completion Bar
-
-Search is strong enough to build on when:
-
-* score semantics are documented
-* reference negamax exists
-* alpha-beta matches reference search
-* PVS matches alpha-beta with selectivity disabled
-* TT enabled and disabled produce the same exact fixed-depth results
-* exact endgame TT enabled and disabled produce the same exact results
-* returned best moves are always legal
-* returned PVs are replayable
-* pass positions are tested
-* exact endgame solver has known-position tests
-* specialized endgame routines match generic endgame search
-* time-limited search returns best completed results
-* search stats are available
-* benchmark baselines exist
-* selective pruning is optional and measured
-* single-thread deterministic mode is stable
-* public results are stable enough for WASM, UI, tools, and review adapters

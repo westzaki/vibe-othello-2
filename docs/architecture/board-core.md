@@ -8,6 +8,9 @@ It is the foundation used by search, evaluation, pattern learning, WASM, tools, 
 
 The board core must be correct, deterministic, fast, and easy to validate.
 
+Implementation status and milestone tracking live in
+`docs/progress/board-core.md`.
+
 ## Boundary
 
 Board core owns:
@@ -436,32 +439,11 @@ Correctness comes before micro-optimization.
 
 Optimize only after tests can detect mistakes.
 
-## Current Implementation
-
-The current board-core implementation includes:
-
-* fixed bit order and coordinate helpers
-* core value types for positions, colors, squares, moves, and deltas
-* bitboard legal move generation
-* flip calculation
-* checked move application
-* precomputed delta application for trusted hot paths
-* undo for normal moves and passes
-* pass and terminal detection
-* canonical serialization and parsing
-* deterministic full position hashing
-* a slow reference board in test support
-* unit, differential, property, random-play, and perft tests
-* local benchmark coverage and checked-in board-core baseline data
-
-Search and evaluation are built on top of this surface. They should continue to
-use board-core primitives for rule behavior instead of duplicating move legality,
-pass, undo, serialization, or hashing logic.
-
 ## Change Checklist
 
-When changing board-core public behavior, update this document and the relevant
-tests in `engine/tests/board_core`.
+When changing board-core public behavior, update this document for intended
+design changes, update `docs/progress/board-core.md` for current implementation
+status changes, and update the relevant tests in `engine/tests/board_core`.
 
 Rule or representation changes should run:
 
