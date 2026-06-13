@@ -39,6 +39,7 @@ library; executable entry points live in `tools/` or `apps/`.
 ```text
 engine/
 ├─ README.md
+├─ benchmarks/
 ├─ include/
 ├─ src/
 ├─ test_support/
