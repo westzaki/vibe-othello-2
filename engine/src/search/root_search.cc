@@ -61,7 +61,7 @@ void search_root_move(SearchContext* context, Depth depth, board_core::Move move
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
-                                          SearchOptions options, TTBestMoveTable* tt) {
+                                          SearchOptions options, TranspositionTable* tt) {
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
   SearchContext context{
@@ -69,7 +69,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = completed_depth},
       .options = options,
-      .best_move_table = tt,
+      .transposition_table = tt,
   };
 
   SearchResult result{
@@ -89,8 +89,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   context.stats.nodes = 1;
-  if (!root_hints.tt_best_move.has_value() && context.best_move_table != nullptr) {
-    root_hints.tt_best_move = context.best_move_table->probe(context.position, &context.stats);
+  if (!root_hints.tt_best_move.has_value() && context.transposition_table != nullptr) {
+    root_hints.tt_best_move = context.transposition_table->probe(context.position, &context.stats);
   }
   root_hints.use_opponent_mobility = true;
   StackFrame& root_frame = context.stack[0];
@@ -141,8 +141,10 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     ++context.stats.root_moves_searched;
   }
 
-  if (context.best_move_table != nullptr && result.best_move.has_value()) {
-    context.best_move_table->store(context.position, *result.best_move, &context.stats);
+  if (context.transposition_table != nullptr && result.best_move.has_value()) {
+    context.transposition_table->store(context.position, completed_depth, best_score,
+                                       BoundType::exact, *result.best_move, TTEntryKind::midgame,
+                                       &context.stats);
   }
 
   result.score = best_score;
@@ -181,8 +183,8 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
   SearchResult best_completed{};
   SearchStats total_stats{};
-  internal::TTBestMoveTable tt_storage{};
-  internal::TTBestMoveTable* tt = options.use_tt_best_move_ordering ? &tt_storage : nullptr;
+  internal::TranspositionTable tt_storage{};
+  internal::TranspositionTable* tt = options.use_tt_best_move_ordering ? &tt_storage : nullptr;
   std::optional<board_core::Move> previous_best_move;
   for (Depth depth = 1; depth <= max_depth; ++depth) {
     SearchResult current = internal::search_fixed_depth_with_hint(

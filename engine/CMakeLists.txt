@@ -7,10 +7,10 @@ target_sources(
           src/board_core/hash.cc
           src/board_core/serialization.cc
           src/search/alphabeta.cc
-          src/search/best_move_table.cc
           src/search/move_ordering.cc
           src/search/root_search.cc
           src/search/search_util.cc
+          src/search/transposition_table.cc
           src/version.cc)
 
 target_include_directories(
