@@ -12,6 +12,7 @@
 namespace {
 
 using vibe_othello::board_core::apply_move;
+using vibe_othello::board_core::apply_move_delta;
 using vibe_othello::board_core::bit;
 using vibe_othello::board_core::Bitboard;
 using vibe_othello::board_core::flips_for_move;
@@ -21,6 +22,7 @@ using vibe_othello::board_core::initial_position;
 using vibe_othello::board_core::initial_white_discs;
 using vibe_othello::board_core::legal_moves;
 using vibe_othello::board_core::make_move;
+using vibe_othello::board_core::make_move_delta;
 using vibe_othello::board_core::Move;
 using vibe_othello::board_core::MoveDelta;
 using vibe_othello::board_core::Position;
@@ -241,6 +243,29 @@ std::uint64_t bench_apply_move() noexcept {
   return checksum;
 }
 
+std::uint64_t bench_make_move_delta() noexcept {
+  std::uint64_t checksum = 0;
+  for (MoveCase entry : kMoveCorpus) {
+    MoveDelta delta{};
+    if (make_move_delta(entry.position, entry.move, &delta)) {
+      checksum ^= position_checksum(delta.before) ^ delta.flipped;
+    }
+  }
+  return checksum;
+}
+
+std::uint64_t
+bench_apply_move_delta(const std::array<AppliedMoveCase, kMoveCorpus.size()>& corpus) noexcept {
+  std::uint64_t checksum = 0;
+  for (AppliedMoveCase entry : corpus) {
+    Position position = entry.delta.before;
+    if (apply_move_delta(&position, entry.delta)) {
+      checksum ^= position_checksum(position) ^ entry.delta.flipped;
+    }
+  }
+  return checksum;
+}
+
 std::uint64_t
 bench_undo_move(const std::array<AppliedMoveCase, kMoveCorpus.size()>& corpus) noexcept {
   std::uint64_t checksum = 0;
@@ -273,6 +298,11 @@ int main() {
                              bench_flips_for_move));
   print_result(run_benchmark("apply_move", kIterations, static_cast<int>(kMoveCorpus.size()),
                              bench_apply_move));
+  print_result(run_benchmark("make_move_delta", kIterations, static_cast<int>(kMoveCorpus.size()),
+                             bench_make_move_delta));
+  print_result(run_benchmark(
+      "apply_move_delta", kIterations, static_cast<int>(kMoveCorpus.size()),
+      [&applied_move_corpus] { return bench_apply_move_delta(applied_move_corpus); }));
   print_result(
       run_benchmark("undo_move", kIterations, static_cast<int>(kMoveCorpus.size()),
                     [&applied_move_corpus] { return bench_undo_move(applied_move_corpus); }));
