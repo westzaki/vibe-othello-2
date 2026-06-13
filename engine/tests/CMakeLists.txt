@@ -16,12 +16,26 @@ FetchContent_Declare(
   GIT_TAG v3.15.0)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(vibe_othello_engine_tests board_core/board_test.cc
-                                         board_core/coordinates_test.cc
-                                         board_core/position_test.cc)
+add_library(vibe_othello_engine_test_support STATIC
+            ../test_support/board_core/reference_board.cc)
 
-target_link_libraries(vibe_othello_engine_tests PRIVATE vibe_othello::engine
-                                                        Catch2::Catch2WithMain)
+target_include_directories(vibe_othello_engine_test_support
+                           PUBLIC ../test_support)
+
+target_link_libraries(vibe_othello_engine_test_support PUBLIC vibe_othello::engine)
+
+target_compile_features(vibe_othello_engine_test_support PUBLIC cxx_std_20)
+
+add_executable(
+  vibe_othello_engine_tests
+  board_core/board_test.cc
+  board_core/coordinates_test.cc
+  board_core/differential_test.cc
+  board_core/position_test.cc)
+
+target_link_libraries(
+  vibe_othello_engine_tests PRIVATE vibe_othello_engine_test_support
+                                    Catch2::Catch2WithMain)
 
 target_compile_features(vibe_othello_engine_tests PRIVATE cxx_std_20)
 
