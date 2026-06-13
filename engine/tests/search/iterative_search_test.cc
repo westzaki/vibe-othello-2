@@ -10,6 +10,10 @@
 namespace vibe_othello::search {
 namespace {
 
+constexpr board_core::Square square(int file, int rank) noexcept {
+  return board_core::square_from_file_rank(file, rank);
+}
+
 class ConstantEvaluator final : public Evaluator {
 public:
   explicit constexpr ConstantEvaluator(Score score) noexcept : score_(score) {}
@@ -36,9 +40,24 @@ public:
   mutable int calls = 0;
 };
 
-constexpr board_core::Square square(int file, int rank) noexcept {
-  return board_core::square_from_file_rank(file, rank);
-}
+class CornerPreferenceEvaluator final : public Evaluator {
+public:
+  Score evaluate(const board_core::Position& position) const noexcept override {
+    ++calls;
+
+    Score score = 0;
+    if ((board_core::black_discs(position) & board_core::bit(square(0, 0))) != 0) {
+      score += 100;
+    }
+    if ((board_core::white_discs(position) & board_core::bit(square(0, 0))) != 0) {
+      score -= 100;
+    }
+
+    return position.side_to_move == board_core::Color::black ? score : static_cast<Score>(-score);
+  }
+
+  mutable int calls = 0;
+};
 
 void require_replayable_pv(board_core::Position position, Line pv) {
   for (std::uint8_t index = 0; index < pv.size; ++index) {
@@ -61,9 +80,28 @@ void require_same_final_result(const SearchResult& actual, const SearchResult& e
   REQUIRE(actual.bound == expected.bound);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.pv == expected.pv);
-  REQUIRE(actual.root_moves == expected.root_moves);
   REQUIRE(actual.exact == expected.exact);
   REQUIRE(actual.stopped == expected.stopped);
+}
+
+void require_root_move_set_matches(const SearchResult& actual, const SearchResult& expected) {
+  REQUIRE(actual.root_moves.size() == expected.root_moves.size());
+  for (const RootMoveInfo& expected_root_move : expected.root_moves) {
+    bool found = false;
+    for (const RootMoveInfo& actual_root_move : actual.root_moves) {
+      if (actual_root_move.move == expected_root_move.move) {
+        REQUIRE(actual_root_move.score == expected_root_move.score);
+        REQUIRE(actual_root_move.bound == expected_root_move.bound);
+        REQUIRE(actual_root_move.depth == expected_root_move.depth);
+        REQUIRE(actual_root_move.pv == expected_root_move.pv);
+        REQUIRE(actual_root_move.exact == expected_root_move.exact);
+        REQUIRE(actual_root_move.selective == expected_root_move.selective);
+        found = true;
+        break;
+      }
+    }
+    REQUIRE(found);
+  }
 }
 
 board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {
@@ -149,12 +187,32 @@ TEST_CASE("iterative final result matches fixed-depth search", "[search][iterati
       const SearchResult expected = search_fixed_depth(position, expected_evaluator, depth);
 
       require_same_final_result(actual, expected);
+      require_root_move_set_matches(actual, expected);
       require_replayable_pv(position, actual.pv);
       require_replayable_root_pvs(position, actual);
-      REQUIRE(actual.nodes == fixed_depth_node_sum(position, depth));
-      REQUIRE(actual.nodes >= expected.nodes);
+      if (depth == 1) {
+        REQUIRE(actual.nodes == fixed_depth_node_sum(position, depth));
+      }
     }
   }
+}
+
+TEST_CASE("iterative searches previous best root move first", "[search][iterative]") {
+  const board_core::Position position =
+      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1, 0, 2});
+  CornerPreferenceEvaluator evaluator;
+
+  const SearchResult depth_one = search_fixed_depth(position, evaluator, Depth{1});
+  REQUIRE(depth_one.best_move.has_value());
+
+  const SearchResult actual =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{2}});
+  const SearchResult expected = search_fixed_depth(position, evaluator, Depth{2});
+
+  require_same_final_result(actual, expected);
+  require_root_move_set_matches(actual, expected);
+  REQUIRE_FALSE(actual.root_moves.empty());
+  REQUIRE(actual.root_moves[0].move == *depth_one.best_move);
 }
 
 TEST_CASE("iterative handles root pass like fixed-depth search", "[search][iterative]") {
@@ -171,6 +229,7 @@ TEST_CASE("iterative handles root pass like fixed-depth search", "[search][itera
   const SearchResult expected = search_fixed_depth(pass_position, expected_evaluator, Depth{3});
 
   require_same_final_result(actual, expected);
+  require_root_move_set_matches(actual, expected);
   require_replayable_root_pvs(pass_position, actual);
   REQUIRE(actual.nodes >= expected.nodes);
 }
@@ -190,6 +249,7 @@ TEST_CASE("iterative terminal root returns the fixed-depth exact result", "[sear
   const SearchResult expected = search_fixed_depth(terminal, expected_evaluator, Depth{5});
 
   require_same_final_result(actual, expected);
+  require_root_move_set_matches(actual, expected);
   REQUIRE(actual.exact);
   REQUIRE(actual.nodes >= expected.nodes);
   REQUIRE(actual_evaluator.calls == 0);
