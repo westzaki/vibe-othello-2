@@ -1,0 +1,9 @@
+id	category	position	depths	notes
+initial	opening	......../......../......../...BW.../...WB.../......../......../........ b	6..8	Initial position
+early_balanced	early	......../......../..W...../...WBB../.WBWWB../.BW...B./......../........ b	6..8	Balanced early position
+early_high_mobility	early	......../......../....W.../...WWB../..WBBBB./...BW.W./......../........ b	6..8	Early high-mobility position
+midgame_balanced	midgame	......../......../..W.W.../...WWWBW/.BBWWBW./BBBWWWW./...BB.W./....B... b	6..8	Balanced midgame position
+midgame_high_mobility	midgame	......../.W....../.WW...../.WWWW.W./..WBBW../.WBBBW../WWWWWBW./.B....B. b	6..8	High-mobility midgame position
+corner_available	tactical	......../.....B../...WBBW./...BBB../...WWBW./..W..W../.W....W./........ b	6..8	Corner is available
+pass_position	edge_case	......../......../......../......../......../......../......../WB...... b	6..8	Root pass position
+late_midgame	late_midgame	WWWWWB../.WWWBW../BBWBBW../BWWBB.W./BWBBBWW./BWBBB.W./.WWWWB../BW.WWWWW b	6..8	Late midgame position
