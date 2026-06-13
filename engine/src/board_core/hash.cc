@@ -39,7 +39,7 @@ PositionHash hash_pieces(Bitboard pieces,
                          const std::array<PositionHash, kSquareCount>& keys) noexcept {
   PositionHash hash = 0;
   while (pieces != 0) {
-    hash ^= keys[static_cast<std::size_t>(detail::pop_lsb_index(&pieces))];
+    hash ^= keys[static_cast<std::size_t>(detail::pop_lsb_index(pieces))];
   }
   return hash;
 }

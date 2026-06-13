@@ -8,10 +8,10 @@
 namespace vibe_othello::board_core {
 namespace detail {
 
-// Precondition: bits is non-null and *bits != 0.
-inline int pop_lsb_index(Bitboard* bits) noexcept {
-  const int index = std::countr_zero(*bits);
-  *bits &= *bits - 1;
+// Precondition: bits != 0.
+[[nodiscard]] inline int pop_lsb_index(Bitboard& bits) noexcept {
+  const int index = std::countr_zero(bits);
+  bits &= bits - 1;
   return index;
 }
 
