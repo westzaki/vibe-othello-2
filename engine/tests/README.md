@@ -1,0 +1,38 @@
+# Engine Tests
+
+Engine tests use Catch2 and run through CTest.
+
+## Board Core Tests
+
+| File | Role |
+| --- | --- |
+| `board_core/coordinates_test.cc` | Coordinate, square, and bit-index invariants. |
+| `board_core/position_test.cc` | Initial position, color-relative views, and validity helpers. |
+| `board_core/move_generation_test.cc` | Known legal move examples and edge/wraparound cases. |
+| `board_core/flip_test.cc` | Known flip masks, illegal move flips, and multi-direction flips. |
+| `board_core/apply_undo_test.cc` | Move delta creation, apply, apply_delta, and undo round-trips. |
+| `board_core/pass_terminal_test.cc` | Pass legality, pass application, and terminal detection. |
+| `board_core/serialization_test.cc` | Canonical format, parser rejection, and round-trips. |
+| `board_core/hash_test.cc` | Hash stability and semantic coverage. |
+| `board_core/differential_test.cc` | Focused production-vs-reference comparisons. |
+| `board_core/corpus_test.cc` | Representative and random corpus positions against reference behavior. |
+| `board_core/random_play_differential_test.cc` | Full deterministic random games against the reference board. |
+| `board_core/property_test.cc` | Invariants that must hold for representative and random reachable positions. |
+| `board_core/perft_test.cc` | Move-tree validation including pass and terminal behavior. |
+
+## Search Tests
+
+| File | Role |
+| --- | --- |
+| `search/reference_search_test.cc` | Reference search behavior and deterministic result coverage. |
+| `search/alphabeta_test.cc` | Alpha-beta results against reference search behavior. |
+| `search/iterative_search_test.cc` | Iterative search behavior across depth limits and pass/terminal positions. |
+
+## Test Support
+
+| File | Role |
+| --- | --- |
+| `../test_support/board_core/reference_board.*` | Slow readable reference board for differential tests. |
+| `../test_support/board_core/perft.*` | Shared perft implementation for board-core validation. |
+| `../test_support/board_core/corpus.h` | Shared representative positions, deterministic seeds, RNG, and move selection helpers. |
+| `../test_support/search/reference_search.*` | Shared reference search implementation for search validation. |
