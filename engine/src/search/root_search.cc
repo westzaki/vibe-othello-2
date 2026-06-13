@@ -89,9 +89,10 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   context.stats.nodes = 1;
-  if (!root_hints.first_move.has_value() && context.best_move_table != nullptr) {
-    root_hints.first_move = context.best_move_table->probe(context.position, &context.stats);
+  if (!root_hints.tt_best_move.has_value() && context.best_move_table != nullptr) {
+    root_hints.tt_best_move = context.best_move_table->probe(context.position, &context.stats);
   }
+  root_hints.use_opponent_mobility = true;
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
   root_frame.moves = ordered_moves(context.position, root_hints);
@@ -185,8 +186,8 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   std::optional<board_core::Move> previous_best_move;
   for (Depth depth = 1; depth <= max_depth; ++depth) {
     SearchResult current = internal::search_fixed_depth_with_hint(
-        position, evaluator, depth, internal::MoveOrderingHints{.first_move = previous_best_move},
-        options, tt);
+        position, evaluator, depth,
+        internal::MoveOrderingHints{.root_best_move = previous_best_move}, options, tt);
     internal::add_stats(&total_stats, current.stats);
     previous_best_move = current.best_move;
     best_completed = current;
