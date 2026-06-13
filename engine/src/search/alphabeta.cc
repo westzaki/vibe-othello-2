@@ -142,4 +142,10 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
   return best;
 }
 
+SearchValue null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply) {
+  require_invariant(beta > kScoreLoss);
+  require_invariant(beta <= kScoreWin);
+  return alphabeta(context, static_cast<Score>(beta - 1), beta, depth, ply);
+}
+
 } // namespace vibe_othello::search::internal

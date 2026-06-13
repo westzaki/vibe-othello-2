@@ -630,18 +630,21 @@ This rule applies to alpha-beta, PVS, null-window search, and endgame search.
 
 ## Null-Window Search
 
-Null-window search uses `beta = alpha + 1`.
+Null-window search uses the narrow alpha-beta window `alpha = beta - 1`,
+`beta = beta`.
 
 It answers whether a position can beat a bound.
 
 ```cpp
-Score search_null_window(SearchContext& context,
-                         board_core::Position& position,
-                         Score alpha,
-                         Depth depth);
+SearchValue null_window_search(SearchContext* context,
+                               Score beta,
+                               Depth depth,
+                               Ply ply);
 ```
 
-Null-window search is used by:
+Null-window search is an internal primitive for future PVS and scout searches.
+
+It may also be used by:
 
 * PVS sibling refutation
 * transposition-table cutoffs
@@ -650,6 +653,9 @@ Null-window search is used by:
 
 Null-window search must share the same make and unmake code path as full-window
 search.
+
+The current production search path does not call the null-window primitive until
+PVS or another scout-style search is implemented and enabled.
 
 ## Principal Variation Search
 

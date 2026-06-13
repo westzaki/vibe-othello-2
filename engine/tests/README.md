@@ -28,6 +28,7 @@ Engine tests use Catch2 and run through CTest.
 | `search/alphabeta_test.cc` | Alpha-beta results against reference search behavior. |
 | `search/iterative_search_test.cc` | Iterative search behavior across depth limits and pass/terminal positions. |
 | `search/move_ordering_test.cc` | Move ordering legality preservation and priority feature coverage. |
+| `search/null_window_search_test.cc` | Internal null-window fail-high and fail-low bound semantics. |
 
 ## Test Support
 
