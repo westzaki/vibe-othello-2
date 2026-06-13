@@ -29,6 +29,12 @@ struct MoveOrderingHints {
   bool use_opponent_mobility = false;
 };
 
+struct RootSearchWindow {
+  Score alpha = kScoreLoss;
+  Score beta = kScoreWin;
+  bool enabled = false;
+};
+
 struct StackFrame {
   board_core::Move current_move = board_core::make_pass();
   board_core::MoveDelta delta{};
@@ -99,6 +105,7 @@ SearchValue full_window_search(SearchContext* context, Score alpha, Score beta, 
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
-                                          SearchOptions options, TranspositionTable* tt);
+                                          SearchOptions options, TranspositionTable* tt,
+                                          RootSearchWindow root_window = {});
 
 } // namespace vibe_othello::search::internal
