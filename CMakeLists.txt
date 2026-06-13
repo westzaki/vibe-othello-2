@@ -10,6 +10,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(VIBE_OTHELLO_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
+option(VIBE_OTHELLO_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if(VIBE_OTHELLO_ENABLE_SANITIZERS)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+  else()
+    message(FATAL_ERROR "VIBE_OTHELLO_ENABLE_SANITIZERS requires Clang or GCC")
+  endif()
+endif()
 
 include(CTest)
 

@@ -31,6 +31,7 @@ target_compile_features(vibe_othello_engine_test_support PUBLIC cxx_std_20)
 add_executable(
   vibe_othello_engine_tests
   board_core/apply_undo_test.cc
+  board_core/corpus_test.cc
   board_core/coordinates_test.cc
   board_core/differential_test.cc
   board_core/flip_test.cc

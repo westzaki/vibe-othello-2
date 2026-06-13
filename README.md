@@ -27,4 +27,12 @@ cmake --build build --config Release
 ./build/engine/benchmarks/vibe_othello_board_core_bench
 ```
 
+Sanitizer checks can be run locally with Clang or GCC:
+
+```sh
+cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DVIBE_OTHELLO_ENABLE_SANITIZERS=ON
+cmake --build build-sanitize
+ctest --test-dir build-sanitize --output-on-failure
+```
+
 See docs/README.md for the documentation index.
