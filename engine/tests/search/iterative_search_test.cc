@@ -84,6 +84,16 @@ void require_same_final_result(const SearchResult& actual, const SearchResult& e
   REQUIRE(actual.stopped == expected.stopped);
 }
 
+void require_basic_stats_invariants(const SearchResult& result) {
+  REQUIRE(result.nodes == result.stats.nodes);
+  REQUIRE(result.stats.root_moves_searched >= result.root_moves.size());
+  REQUIRE(result.stats.leaf_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.terminal_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);
+  REQUIRE(result.stats.alpha_updates <= result.stats.nodes);
+}
+
 void require_root_move_set_matches(const SearchResult& actual, const SearchResult& expected) {
   REQUIRE(actual.root_moves.size() == expected.root_moves.size());
   for (const RootMoveInfo& expected_root_move : expected.root_moves) {
@@ -153,6 +163,8 @@ TEST_CASE("iterative depth zero matches fixed-depth zero", "[search][iterative]"
       search_fixed_depth(board_core::initial_position(), expected_evaluator, Depth{0});
 
   require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
+  REQUIRE(actual.stats == expected.stats);
   REQUIRE(actual.nodes == expected.nodes);
   REQUIRE(actual_evaluator.calls == expected_evaluator.calls);
 }
@@ -167,6 +179,8 @@ TEST_CASE("iterative negative max depth clamps to depth zero", "[search][iterati
       search_fixed_depth(board_core::initial_position(), expected_evaluator, Depth{0});
 
   require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
+  REQUIRE(actual.stats == expected.stats);
   REQUIRE(actual.nodes == expected.nodes);
 }
 
@@ -187,11 +201,13 @@ TEST_CASE("iterative final result matches fixed-depth search", "[search][iterati
       const SearchResult expected = search_fixed_depth(position, expected_evaluator, depth);
 
       require_same_final_result(actual, expected);
+      require_basic_stats_invariants(actual);
       require_root_move_set_matches(actual, expected);
       require_replayable_pv(position, actual.pv);
       require_replayable_root_pvs(position, actual);
       if (depth == 1) {
         REQUIRE(actual.nodes == fixed_depth_node_sum(position, depth));
+        REQUIRE(actual.stats == expected.stats);
       }
     }
   }
@@ -210,6 +226,7 @@ TEST_CASE("iterative searches previous best root move first", "[search][iterativ
   const SearchResult expected = search_fixed_depth(position, evaluator, Depth{2});
 
   require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
   require_root_move_set_matches(actual, expected);
   REQUIRE_FALSE(actual.root_moves.empty());
   REQUIRE(actual.root_moves[0].move == *depth_one.best_move);
@@ -229,6 +246,7 @@ TEST_CASE("iterative handles root pass like fixed-depth search", "[search][itera
   const SearchResult expected = search_fixed_depth(pass_position, expected_evaluator, Depth{3});
 
   require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
   require_root_move_set_matches(actual, expected);
   require_replayable_root_pvs(pass_position, actual);
   REQUIRE(actual.nodes >= expected.nodes);
@@ -249,6 +267,7 @@ TEST_CASE("iterative terminal root returns the fixed-depth exact result", "[sear
   const SearchResult expected = search_fixed_depth(terminal, expected_evaluator, Depth{5});
 
   require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
   require_root_move_set_matches(actual, expected);
   REQUIRE(actual.exact);
   REQUIRE(actual.nodes >= expected.nodes);

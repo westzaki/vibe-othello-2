@@ -67,6 +67,16 @@ void require_root_moves_match(const SearchResult& actual, const SearchResult& ex
   }
 }
 
+void require_basic_stats_invariants(const SearchResult& result) {
+  REQUIRE(result.nodes == result.stats.nodes);
+  REQUIRE(result.stats.root_moves_searched == result.root_moves.size());
+  REQUIRE(result.stats.leaf_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.terminal_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
+  REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);
+  REQUIRE(result.stats.alpha_updates <= result.stats.nodes);
+}
+
 board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {
   const board_core::Bitboard legal_moves = board_core::legal_moves(position);
   REQUIRE(legal_moves != 0);
@@ -110,6 +120,12 @@ TEST_CASE("alpha-beta depth zero matches reference negamax", "[search][alphabeta
   REQUIRE(actual.score == expected.score);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.nodes == expected.nodes);
+  require_basic_stats_invariants(actual);
+  REQUIRE(actual.stats.leaf_nodes == 1);
+  REQUIRE(actual.stats.terminal_nodes == 0);
+  REQUIRE(actual.stats.pass_nodes == 0);
+  REQUIRE(actual.stats.beta_cutoffs == 0);
+  REQUIRE(actual.stats.root_moves_searched == 0);
   REQUIRE(actual.pv == expected.pv);
   require_root_moves_match(actual, expected);
 }
@@ -128,6 +144,7 @@ TEST_CASE("alpha-beta fixed-depth results match reference negamax", "[search][al
     REQUIRE(actual.score == expected.score);
     REQUIRE(actual.completed_depth == expected.completed_depth);
     REQUIRE(actual.pv.size > 0);
+    require_basic_stats_invariants(actual);
     require_replayable_pv(board_core::initial_position(), actual.pv);
     require_replayable_root_pvs(board_core::initial_position(), actual);
     require_root_moves_match(actual, expected);
@@ -158,6 +175,7 @@ TEST_CASE("alpha-beta matches reference negamax on fixed midgame positions",
       REQUIRE(actual.score == expected.score);
       REQUIRE(actual.completed_depth == expected.completed_depth);
       REQUIRE(actual.pv == expected.pv);
+      require_basic_stats_invariants(actual);
       require_replayable_pv(position, actual.pv);
       require_replayable_root_pvs(position, actual);
       require_root_moves_match(actual, expected);
@@ -183,6 +201,9 @@ TEST_CASE("alpha-beta handles root pass like reference negamax", "[search][alpha
   REQUIRE(actual.score == expected.score);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.pv == expected.pv);
+  require_basic_stats_invariants(actual);
+  REQUIRE(actual.stats.pass_nodes >= 1);
+  REQUIRE(actual.stats.root_moves_searched == 1);
   require_replayable_root_pvs(pass_position, actual);
   require_root_moves_match(actual, expected);
   REQUIRE(actual.nodes <= expected.nodes);
@@ -206,6 +227,10 @@ TEST_CASE("alpha-beta terminal root matches reference negamax", "[search][alphab
   REQUIRE(actual.score == expected.score);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.nodes == expected.nodes);
+  require_basic_stats_invariants(actual);
+  REQUIRE(actual.stats.terminal_nodes == 1);
+  REQUIRE(actual.stats.leaf_nodes == 0);
+  REQUIRE(actual.stats.root_moves_searched == 0);
   REQUIRE(actual.pv == expected.pv);
   REQUIRE(actual.exact);
 }
