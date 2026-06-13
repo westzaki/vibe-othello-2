@@ -449,6 +449,25 @@ Move ordering is owned by search.
 
 Recursive search uses a fixed-size stack.
 
+Search-owned mutable state should be gathered in a search context instead of
+threading every dependency through recursive calls.
+
+```cpp
+struct SearchContext {
+  board_core::Position position;
+  const Evaluator& evaluator;
+  SearchStats stats;
+  SearchLimits limits;
+  SearchOptions options;
+  TTBestMoveTable* best_move_table;
+  std::array<StackFrame, kMaxPly> stack;
+};
+```
+
+The context owns the single mutable position used during search, the current
+statistics, configured limits and options, optional search tables, and per-ply
+scratch frames.
+
 ```cpp
 struct StackFrame {
   board_core::Move current_move;
@@ -467,6 +486,10 @@ The stack has at most one frame per ply.
 Search should mutate a single `Position` with apply and undo.
 
 Search must restore the exact position after every recursive call.
+
+Initial stack-frame implementations may leave future fields such as hash keys,
+killer moves, history-related scratch, or static eval unused until the
+corresponding feature is added.
 
 Search must restore evaluator incremental state after every recursive call.
 
