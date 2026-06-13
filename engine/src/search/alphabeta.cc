@@ -5,6 +5,8 @@ namespace vibe_othello::search::internal {
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
+  const Score original_alpha = alpha;
+  const Score original_beta = beta;
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
 
@@ -30,9 +32,9 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
   }
 
   const MoveOrderingHints hints{
-      .tt_best_move = context->best_move_table == nullptr
+      .tt_best_move = context->transposition_table == nullptr
                           ? std::nullopt
-                          : context->best_move_table->probe(context->position, &context->stats),
+                          : context->transposition_table->probe(context->position, &context->stats),
   };
   frame.moves = ordered_moves(context->position, hints);
   if (frame.moves.size == 0) {
@@ -94,8 +96,15 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
     }
   }
 
-  if (context->best_move_table != nullptr && best_move.has_value()) {
-    context->best_move_table->store(context->position, *best_move, &context->stats);
+  if (context->transposition_table != nullptr && best_move.has_value()) {
+    BoundType bound = BoundType::exact;
+    if (best.score <= original_alpha) {
+      bound = BoundType::upper;
+    } else if (best.score >= original_beta) {
+      bound = BoundType::lower;
+    }
+    context->transposition_table->store(context->position, depth, best.score, bound, *best_move,
+                                        TTEntryKind::midgame, &context->stats);
   }
 
   return best;

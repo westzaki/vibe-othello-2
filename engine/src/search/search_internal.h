@@ -37,28 +37,39 @@ struct StackFrame {
   board_core::PositionHash key = 0;
 };
 
-class TTBestMoveTable {
+enum class TTEntryKind : std::uint8_t {
+  midgame,
+  exact_endgame_score,
+  exact_endgame_wld,
+};
+
+struct TTEntry {
+  board_core::PositionHash key = 0;
+  Depth depth = 0;
+  Score score = 0;
+  BoundType bound = BoundType::exact;
+  board_core::Move best_move = board_core::make_pass();
+  std::uint8_t generation = 0;
+  TTEntryKind kind = TTEntryKind::midgame;
+  bool occupied = false;
+};
+
+class TranspositionTable {
 public:
   std::optional<board_core::Move> probe(board_core::Position position,
                                         SearchStats* stats) const noexcept;
 
-  void store(board_core::Position position, board_core::Move best_move,
-             SearchStats* stats) noexcept;
+  void store(board_core::Position position, Depth depth, Score score, BoundType bound,
+             board_core::Move best_move, TTEntryKind kind, SearchStats* stats) noexcept;
 
 private:
-  struct Entry {
-    board_core::PositionHash key = 0;
-    board_core::Move best_move = board_core::make_pass();
-    bool occupied = false;
-  };
-
   static constexpr std::size_t kEntryCount = 4096;
 
   static constexpr std::size_t index_for(board_core::PositionHash key) noexcept {
     return static_cast<std::size_t>(key % kEntryCount);
   }
 
-  std::array<Entry, kEntryCount> entries_{};
+  std::array<TTEntry, kEntryCount> entries_{};
 };
 
 struct SearchContext {
@@ -67,7 +78,7 @@ struct SearchContext {
   SearchStats stats{};
   SearchLimits limits{};
   SearchOptions options{};
-  TTBestMoveTable* best_move_table = nullptr;
+  TranspositionTable* transposition_table = nullptr;
   std::array<StackFrame, kMaxPly> stack{};
 };
 
@@ -83,6 +94,6 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
-                                          SearchOptions options, TTBestMoveTable* tt);
+                                          SearchOptions options, TranspositionTable* tt);
 
 } // namespace vibe_othello::search::internal

@@ -493,7 +493,7 @@ struct SearchContext {
   SearchStats stats;
   SearchLimits limits;
   SearchOptions options;
-  TTBestMoveTable* best_move_table;
+  TranspositionTable* transposition_table;
   std::array<StackFrame, kMaxPly> stack;
 };
 ```
@@ -732,6 +732,11 @@ Board core owns deterministic position hashing.
 A transposition table stores search results for positions.
 
 Only fields compatible with `TTEntryKind` are valid.
+
+The current implementation is an ordering-only TT v1. It stores `key`, `depth`,
+`score`, `bound`, `best_move`, `generation`, `kind`, and `occupied`, but probes
+only return the stored best move for ordering. Stored scores and bounds must not
+perform cutoffs in this mode, and `tt_cutoffs` must remain zero.
 
 For `heuristic_midgame`, `selective_midgame`, and `exact_endgame_score`,
 `score` is valid and `wld_result` must be ignored.

@@ -3,12 +3,12 @@
 
 namespace vibe_othello::search::internal {
 
-std::optional<board_core::Move> TTBestMoveTable::probe(board_core::Position position,
-                                                       SearchStats* stats) const noexcept {
+std::optional<board_core::Move> TranspositionTable::probe(board_core::Position position,
+                                                          SearchStats* stats) const noexcept {
   ++stats->tt_probes;
 
   const board_core::PositionHash key = board_core::hash_position(position);
-  const Entry& entry = entries_[index_for(key)];
+  const TTEntry& entry = entries_[index_for(key)];
   if (!entry.occupied || entry.key != key) {
     return std::nullopt;
   }
@@ -17,16 +17,22 @@ std::optional<board_core::Move> TTBestMoveTable::probe(board_core::Position posi
   return entry.best_move;
 }
 
-void TTBestMoveTable::store(board_core::Position position, board_core::Move best_move,
-                            SearchStats* stats) noexcept {
+void TranspositionTable::store(board_core::Position position, Depth depth, Score score,
+                               BoundType bound, board_core::Move best_move, TTEntryKind kind,
+                               SearchStats* stats) noexcept {
   if (best_move.kind != board_core::MoveKind::normal) {
     return;
   }
 
   const board_core::PositionHash key = board_core::hash_position(position);
-  entries_[index_for(key)] = Entry{
+  entries_[index_for(key)] = TTEntry{
       .key = key,
+      .depth = depth,
+      .score = score,
+      .bound = bound,
       .best_move = best_move,
+      .generation = 0,
+      .kind = kind,
       .occupied = true,
   };
   ++stats->tt_stores;
