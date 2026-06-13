@@ -19,7 +19,8 @@ FetchContent_MakeAvailable(Catch2)
 add_library(
   vibe_othello_engine_test_support STATIC
   ../test_support/board_core/perft.cc
-  ../test_support/board_core/reference_board.cc)
+  ../test_support/board_core/reference_board.cc
+  ../test_support/search/reference_search.cc)
 
 target_include_directories(vibe_othello_engine_test_support
                            PUBLIC ../test_support)
@@ -42,7 +43,8 @@ add_executable(
   board_core/position_test.cc
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
-  search/negamax_test.cc)
+  search/alphabeta_test.cc
+  search/reference_search_test.cc)
 
 target_link_libraries(
   vibe_othello_engine_tests PRIVATE vibe_othello_engine_test_support

@@ -6,7 +6,7 @@ target_sources(
   PRIVATE src/board_core/board.cc
           src/board_core/hash.cc
           src/board_core/serialization.cc
-          src/search/negamax.cc
+          src/search/alphabeta.cc
           src/version.cc)
 
 target_include_directories(
