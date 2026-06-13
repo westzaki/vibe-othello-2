@@ -1,7 +1,8 @@
 #include "vibe_othello/board_core/hash.h"
 
+#include "bit_ops.h"
+
 #include <array>
-#include <bit>
 
 namespace vibe_othello::board_core {
 namespace {
@@ -34,17 +35,11 @@ constexpr std::array<PositionHash, kSquareCount> make_piece_keys(Color color) no
 constexpr std::array<PositionHash, kSquareCount> kBlackPieceKeys = make_piece_keys(Color::black);
 constexpr std::array<PositionHash, kSquareCount> kWhitePieceKeys = make_piece_keys(Color::white);
 
-int pop_lsb(Bitboard* bits) noexcept {
-  const int index = std::countr_zero(*bits);
-  *bits &= *bits - 1;
-  return index;
-}
-
 PositionHash hash_pieces(Bitboard pieces,
                          const std::array<PositionHash, kSquareCount>& keys) noexcept {
   PositionHash hash = 0;
   while (pieces != 0) {
-    hash ^= keys[static_cast<std::size_t>(pop_lsb(&pieces))];
+    hash ^= keys[static_cast<std::size_t>(detail::pop_lsb_index(&pieces))];
   }
   return hash;
 }
