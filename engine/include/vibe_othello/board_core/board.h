@@ -40,7 +40,12 @@ constexpr Move make_pass() noexcept {
 }
 
 bool apply_move(Position* position, Move move, MoveDelta* delta) noexcept;
+// Precondition: delta was produced by make_move_delta for the current position.
+// This applies the precomputed delta without recomputing flips.
+bool apply_move_delta(Position* position, MoveDelta delta) noexcept;
 bool apply_pass(Position* position, MoveDelta* delta) noexcept;
+// Computes the move delta without modifying the position.
+bool make_move_delta(Position position, Move move, MoveDelta* delta) noexcept;
 void undo_move(Position* position, MoveDelta delta) noexcept;
 Bitboard flips_for_move(Position position, Square move) noexcept;
 bool has_legal_move(Position position) noexcept;
