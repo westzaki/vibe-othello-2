@@ -1,0 +1,3 @@
+add_executable(vibe_othello_board_core_bench board_core_bench.cc)
+
+target_link_libraries(vibe_othello_board_core_bench PRIVATE vibe_othello::engine)
