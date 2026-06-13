@@ -22,10 +22,12 @@ GitHub Actions.
 Optional board-core benchmarks can be run locally:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
-cmake --build build --config Release
-./build/engine/benchmarks/vibe_othello_board_core_bench
+cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
+cmake --build build-bench --config Release
+./build-bench/engine/benchmarks/vibe_othello_board_core_bench
 ```
+
+See engine/benchmarks/README.md for benchmark layout and result handling.
 
 Sanitizer checks can be run locally with Clang or GCC:
 
