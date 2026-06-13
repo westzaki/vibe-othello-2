@@ -34,6 +34,7 @@ add_executable(
   board_core/coordinates_test.cc
   board_core/differential_test.cc
   board_core/flip_test.cc
+  board_core/hash_test.cc
   board_core/move_generation_test.cc
   board_core/pass_terminal_test.cc
   board_core/perft_test.cc
