@@ -5,6 +5,10 @@ namespace vibe_othello::search::internal {
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
+  if (should_stop(context)) {
+    return SearchValue{.stopped = true};
+  }
+
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
 
@@ -47,6 +51,9 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
         alphabeta(context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                   static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
     board_core::undo_move(&context->position, frame.delta);
+    if (child.stopped) {
+      return SearchValue{.stopped = true};
+    }
 
     SearchValue result{
         .score = static_cast<Score>(-child.score),
@@ -64,6 +71,10 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
   std::optional<board_core::Move> best_move;
 
   for (std::uint8_t move_index = 0; move_index < frame.moves.size; ++move_index) {
+    if (should_stop(context)) {
+      return SearchValue{.stopped = true};
+    }
+
     const board_core::Move move = frame.moves.moves[move_index];
     frame.current_move = move;
     const bool made_delta = board_core::make_move_delta(context->position, move, &frame.delta);
@@ -74,6 +85,9 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
         alphabeta(context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                   static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
     board_core::undo_move(&context->position, frame.delta);
+    if (child.stopped) {
+      return SearchValue{.stopped = true};
+    }
 
     const Score score = static_cast<Score>(-child.score);
     if (!best_move.has_value() || score > best.score ||

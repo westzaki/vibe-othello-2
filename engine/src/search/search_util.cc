@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 
 namespace vibe_othello::search::internal {
@@ -53,6 +54,29 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->iid_searches += delta.iid_searches;
   total->endgame_nodes += delta.endgame_nodes;
   total->selective_cuts += delta.selective_cuts;
+}
+
+bool limits_reached(const SearchLimits& limits, std::chrono::steady_clock::time_point start_time,
+                    NodeCount nodes) noexcept {
+  if (limits.stop_requested != nullptr && limits.stop_requested->load(std::memory_order_relaxed)) {
+    return true;
+  }
+  if (limits.max_nodes != 0 && nodes >= limits.max_nodes) {
+    return true;
+  }
+  if (limits.max_time.count() > 0 &&
+      std::chrono::steady_clock::now() - start_time >= limits.max_time) {
+    return true;
+  }
+  return false;
+}
+
+bool should_stop(SearchContext* context) noexcept {
+  if (context->stopped) {
+    return true;
+  }
+  context->stopped = limits_reached(context->limits, context->start_time, context->stats.nodes);
+  return context->stopped;
 }
 
 } // namespace vibe_othello::search::internal

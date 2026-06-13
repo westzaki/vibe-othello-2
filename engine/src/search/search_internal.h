@@ -5,6 +5,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -14,6 +15,7 @@ namespace vibe_othello::search::internal {
 struct SearchValue {
   Score score = 0;
   Line pv{};
+  bool stopped = false;
 };
 
 struct MoveList {
@@ -64,6 +66,8 @@ struct SearchContext {
   SearchLimits limits{};
   SearchOptions options{};
   TTBestMoveTable* best_move_table = nullptr;
+  std::chrono::steady_clock::time_point start_time{};
+  bool stopped = false;
   std::array<StackFrame, kMaxPly> stack{};
 };
 
@@ -72,6 +76,9 @@ bool is_valid_evaluator_score(Score score) noexcept;
 void require_invariant(bool condition) noexcept;
 void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept;
 void add_stats(SearchStats* total, SearchStats delta) noexcept;
+bool limits_reached(const SearchLimits& limits, std::chrono::steady_clock::time_point start_time,
+                    NodeCount nodes) noexcept;
+bool should_stop(SearchContext* context) noexcept;
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
 
@@ -79,6 +86,8 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
-                                          SearchOptions options, TTBestMoveTable* tt);
+                                          SearchLimits limits, SearchOptions options,
+                                          TTBestMoveTable* tt,
+                                          std::chrono::steady_clock::time_point start_time);
 
 } // namespace vibe_othello::search::internal

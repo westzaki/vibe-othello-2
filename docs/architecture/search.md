@@ -242,7 +242,9 @@ Rules:
 * `max_nodes` limits visited nodes
 * `max_time` limits wall-clock time
 * `infinite` searches until cancelled
-* `stop_requested` carries future cooperative cancellation requests
+* `stop_requested` carries cooperative cancellation requests
+* `max_nodes == 0` means no node-count limit
+* `max_time <= 0ms` means no wall-clock limit
 * callers that provide `stop_requested` must keep the pointed value alive for
   the whole search call
 * callers that provide `stop_requested` must use external synchronization through

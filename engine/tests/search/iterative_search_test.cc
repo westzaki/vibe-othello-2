@@ -2,6 +2,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <array>
+#include <atomic>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
@@ -335,6 +336,47 @@ TEST_CASE("iterative safely ignores unimplemented search options", "[search][ite
   require_basic_stats_invariants(actual);
   require_root_move_set_matches(actual, expected);
   REQUIRE(actual.stats == expected.stats);
+}
+
+TEST_CASE("iterative stops before search when cancellation is already requested",
+          "[search][iterative]") {
+  std::atomic_bool stop_requested{true};
+  ConstantEvaluator evaluator{19};
+
+  const SearchResult result =
+      search_iterative(board_core::initial_position(), evaluator,
+                       SearchLimits{.max_depth = Depth{3}, .stop_requested = &stop_requested});
+
+  REQUIRE(result.stopped);
+  REQUIRE(result.completed_depth == 0);
+  REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.nodes == 0);
+  REQUIRE(result.stats.nodes == 0);
+  REQUIRE(result.root_moves.empty());
+  REQUIRE(evaluator.calls == 0);
+}
+
+TEST_CASE("iterative node limit returns the best completed depth", "[search][iterative]") {
+  DiscDifferenceEvaluator expected_evaluator;
+  DiscDifferenceEvaluator limited_evaluator;
+
+  const SearchResult expected = search_iterative(board_core::initial_position(), expected_evaluator,
+                                                 SearchLimits{.max_depth = Depth{1}});
+  const SearchResult limited =
+      search_iterative(board_core::initial_position(), limited_evaluator,
+                       SearchLimits{.max_depth = Depth{3}, .max_nodes = expected.nodes});
+
+  REQUIRE(limited.best_move == expected.best_move);
+  REQUIRE(limited.score == expected.score);
+  REQUIRE(limited.bound == expected.bound);
+  REQUIRE(limited.completed_depth == expected.completed_depth);
+  REQUIRE(limited.pv == expected.pv);
+  REQUIRE(limited.exact == expected.exact);
+  require_basic_stats_invariants(limited);
+  REQUIRE(limited.stopped);
+  REQUIRE(limited.completed_depth == Depth{1});
+  REQUIRE(limited.nodes == expected.nodes);
+  REQUIRE(limited.stats == expected.stats);
 }
 
 TEST_CASE("iterative handles root pass like fixed-depth search", "[search][iterative]") {
