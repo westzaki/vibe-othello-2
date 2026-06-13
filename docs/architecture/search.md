@@ -232,7 +232,7 @@ struct SearchLimits {
   std::uint64_t max_nodes;
   std::chrono::milliseconds max_time;
   bool infinite;
-  const bool* stop_requested;
+  const std::atomic_bool* stop_requested;
 };
 ```
 
@@ -243,6 +243,10 @@ Rules:
 * `max_time` limits wall-clock time
 * `infinite` searches until cancelled
 * `stop_requested` carries future cooperative cancellation requests
+* callers that provide `stop_requested` must keep the pointed value alive for
+  the whole search call
+* callers that provide `stop_requested` must use external synchronization through
+  the atomic value when requesting cancellation from another thread
 
 Cancellation must be cooperative.
 

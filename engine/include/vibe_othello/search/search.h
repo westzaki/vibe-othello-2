@@ -6,6 +6,7 @@
 #include "vibe_othello/search/result.h"
 #include "vibe_othello/search/score.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 
@@ -16,7 +17,7 @@ struct SearchLimits {
   NodeCount max_nodes = 0;
   std::chrono::milliseconds max_time{0};
   bool infinite = false;
-  const bool* stop_requested = nullptr;
+  const std::atomic_bool* stop_requested = nullptr;
 };
 
 struct SearchOptions {
