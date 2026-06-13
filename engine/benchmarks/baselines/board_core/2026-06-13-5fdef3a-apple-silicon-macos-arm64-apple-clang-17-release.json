@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "benchmark": "board_core",
+  "commit": "5fdef3a834c4084c2245f2c80880da82064e4e45",
+  "revision": "5fdef3a",
+  "measured_at": "2026-06-13",
+  "machine": "apple-silicon-macos-arm64",
+  "os": "Darwin 24.6.0 arm64",
+  "compiler": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+  "build_type": "Release",
+  "command": "./build-bench/engine/benchmarks/vibe_othello_board_core_bench",
+  "selection_policy": "last run after warmup",
+  "run_count": 3,
+  "selected_run": 3,
+  "results": [
+    {
+      "name": "legal_moves",
+      "operations": 1400000,
+      "elapsed_ns": 10041750,
+      "ns_per_op": 7.17,
+      "checksum": "0x49ac6394e6166160"
+    },
+    {
+      "name": "has_legal_move",
+      "operations": 1400000,
+      "elapsed_ns": 6074834,
+      "ns_per_op": 4.34,
+      "checksum": "0x4a8165160"
+    },
+    {
+      "name": "flips_for_move",
+      "operations": 800000,
+      "elapsed_ns": 4539375,
+      "ns_per_op": 5.67,
+      "checksum": "0x186abd52922c5160"
+    },
+    {
+      "name": "apply_move",
+      "operations": 800000,
+      "elapsed_ns": 8031792,
+      "ns_per_op": 10.04,
+      "checksum": "0xae817670a29a2160"
+    },
+    {
+      "name": "make_move_delta",
+      "operations": 800000,
+      "elapsed_ns": 5432958,
+      "ns_per_op": 6.79,
+      "checksum": "0xec4fbdbfb6995160"
+    },
+    {
+      "name": "apply_move_delta",
+      "operations": 800000,
+      "elapsed_ns": 2861958,
+      "ns_per_op": 3.58,
+      "checksum": "0xae817670a29a2160"
+    },
+    {
+      "name": "undo_move",
+      "operations": 800000,
+      "elapsed_ns": 1291583,
+      "ns_per_op": 1.61,
+      "checksum": "0x4ba62a3a0af4160"
+    },
+    {
+      "name": "hash_position",
+      "operations": 1400000,
+      "elapsed_ns": 16202083,
+      "ns_per_op": 11.57,
+      "checksum": "0x646707da9733d160"
+    }
+  ],
+  "raw_runs": [
+    {
+      "run": 1,
+      "ns_per_op": {
+        "legal_moves": 7.15,
+        "has_legal_move": 4.36,
+        "flips_for_move": 5.7,
+        "apply_move": 10.17,
+        "make_move_delta": 6.81,
+        "apply_move_delta": 3.55,
+        "undo_move": 1.61,
+        "hash_position": 11.61
+      }
+    },
+    {
+      "run": 2,
+      "ns_per_op": {
+        "legal_moves": 7.16,
+        "has_legal_move": 4.34,
+        "flips_for_move": 5.98,
+        "apply_move": 10.11,
+        "make_move_delta": 6.7,
+        "apply_move_delta": 3.55,
+        "undo_move": 1.6,
+        "hash_position": 11.56
+      }
+    },
+    {
+      "run": 3,
+      "ns_per_op": {
+        "legal_moves": 7.17,
+        "has_legal_move": 4.34,
+        "flips_for_move": 5.67,
+        "apply_move": 10.04,
+        "make_move_delta": 6.79,
+        "apply_move_delta": 3.58,
+        "undo_move": 1.61,
+        "hash_position": 11.57
+      }
+    }
+  ]
+}
