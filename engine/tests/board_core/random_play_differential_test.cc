@@ -54,8 +54,7 @@ void play_random_game(std::uint64_t seed) {
     }
 
     const Bitboard moves = legal_moves(production);
-    const Move move =
-        moves == 0 ? make_pass() : make_move(test_support::select_move(moves, &rng));
+    const Move move = moves == 0 ? make_pass() : make_move(test_support::select_move(moves, &rng));
     MoveDelta production_delta{};
     MoveDelta reference_delta{};
 

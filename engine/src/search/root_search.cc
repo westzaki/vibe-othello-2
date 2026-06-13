@@ -20,8 +20,8 @@ bool is_better_root_move(Score score, board_core::Move move, Score best_score,
   return move.square.index < best_move->square.index;
 }
 
-void search_root_move(SearchContext* context, Depth depth, board_core::Move move,
-                      Score* best_score, Line* best_line, SearchResult* result) {
+void search_root_move(SearchContext* context, Depth depth, board_core::Move move, Score* best_score,
+                      Line* best_line, SearchResult* result) {
   StackFrame& frame = context->stack[0];
   frame = StackFrame{};
   frame.current_move = move;
@@ -30,8 +30,8 @@ void search_root_move(SearchContext* context, Depth depth, board_core::Move move
   board_core::apply_move_delta(&context->position, frame.delta);
 
   const NodeCount before_nodes = context->stats.nodes;
-  const SearchValue child = alphabeta(context, kScoreLoss, kScoreWin,
-                                      static_cast<Depth>(depth - 1), Ply{1});
+  const SearchValue child =
+      alphabeta(context, kScoreLoss, kScoreWin, static_cast<Depth>(depth - 1), Ply{1});
   board_core::undo_move(&context->position, frame.delta);
 
   const Score score = static_cast<Score>(-child.score);
@@ -59,10 +59,9 @@ void search_root_move(SearchContext* context, Depth depth, board_core::Move move
 
 } // namespace
 
-SearchResult search_fixed_depth_with_hint(board_core::Position position,
-                                          const Evaluator& evaluator, Depth depth,
-                                          MoveOrderingHints root_hints, SearchOptions options,
-                                          TTBestMoveTable* tt) {
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth, MoveOrderingHints root_hints,
+                                          SearchOptions options, TTBestMoveTable* tt) {
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
   SearchContext context{
@@ -106,8 +105,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
     board_core::apply_move_delta(&context.position, root_frame.delta);
 
     const NodeCount before_nodes = context.stats.nodes;
-    const SearchValue child = alphabeta(&context, kScoreLoss, kScoreWin,
-                                        static_cast<Depth>(completed_depth - 1), Ply{1});
+    const SearchValue child =
+        alphabeta(&context, kScoreLoss, kScoreWin, static_cast<Depth>(completed_depth - 1), Ply{1});
     board_core::undo_move(&context.position, root_frame.delta);
 
     result.best_move = board_core::make_pass();
@@ -158,9 +157,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position,
 
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth) {
-  return internal::search_fixed_depth_with_hint(position, evaluator, depth,
-                                               internal::MoveOrderingHints{}, SearchOptions{},
-                                               nullptr);
+  return internal::search_fixed_depth_with_hint(
+      position, evaluator, depth, internal::MoveOrderingHints{}, SearchOptions{}, nullptr);
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,

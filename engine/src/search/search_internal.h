@@ -77,9 +77,8 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
 
 SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
 
-SearchResult search_fixed_depth_with_hint(board_core::Position position,
-                                          const Evaluator& evaluator, Depth depth,
-                                          MoveOrderingHints root_hints, SearchOptions options,
-                                          TTBestMoveTable* tt);
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth, MoveOrderingHints root_hints,
+                                          SearchOptions options, TTBestMoveTable* tt);
 
 } // namespace vibe_othello::search::internal

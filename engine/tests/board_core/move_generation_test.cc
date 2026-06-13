@@ -29,7 +29,8 @@ TEST_CASE("initial black legal moves are generated", "[board_core][move_generati
   REQUIRE(legal_moves(initial_position()) == expected);
 }
 
-TEST_CASE("initial white legal moves are generated from relative position", "[board_core][move_generation]") {
+TEST_CASE("initial white legal moves are generated from relative position",
+          "[board_core][move_generation]") {
   constexpr Position position{
       .player = initial_white_discs(),
       .opponent = initial_black_discs(),

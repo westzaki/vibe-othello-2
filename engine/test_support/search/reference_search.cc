@@ -74,8 +74,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     require_invariant(made_delta);
     board_core::apply_move_delta(position, delta);
 
-    const NegamaxResult child =
-        negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
+    const NegamaxResult child = negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
     board_core::undo_move(position, delta);
 
     NegamaxResult result{
@@ -103,8 +102,7 @@ NegamaxResult negamax(board_core::Position* position, const Evaluator& evaluator
     require_invariant(made_delta);
     board_core::apply_move_delta(position, delta);
 
-    const NegamaxResult child =
-        negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
+    const NegamaxResult child = negamax(position, evaluator, static_cast<Depth>(depth - 1), stats);
     board_core::undo_move(position, delta);
 
     const Score score = static_cast<Score>(-child.score);

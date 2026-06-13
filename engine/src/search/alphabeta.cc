@@ -43,10 +43,9 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
     require_invariant(made_delta);
     board_core::apply_move_delta(&context->position, frame.delta);
 
-    const SearchValue child = alphabeta(context, static_cast<Score>(-beta),
-                                        static_cast<Score>(-alpha),
-                                        static_cast<Depth>(depth - 1),
-                                        static_cast<Ply>(ply + 1));
+    const SearchValue child =
+        alphabeta(context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
+                  static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
     board_core::undo_move(&context->position, frame.delta);
 
     SearchValue result{
@@ -71,10 +70,9 @@ SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth dep
     require_invariant(made_delta);
     board_core::apply_move_delta(&context->position, frame.delta);
 
-    const SearchValue child = alphabeta(context, static_cast<Score>(-beta),
-                                        static_cast<Score>(-alpha),
-                                        static_cast<Depth>(depth - 1),
-                                        static_cast<Ply>(ply + 1));
+    const SearchValue child =
+        alphabeta(context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
+                  static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
     board_core::undo_move(&context->position, frame.delta);
 
     const Score score = static_cast<Score>(-child.score);

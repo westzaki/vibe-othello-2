@@ -16,8 +16,10 @@ ctest --test-dir build --output-on-failure
 ./build/tools/engine-smoke/vibe_othello_engine_smoke
 ```
 
-Pull requests run the same configure, build, test, and smoke-tool checks in
-GitHub Actions. Benchmark executables are built in CI but run locally.
+Pull requests run release, sanitizer, and lint checks in GitHub Actions.
+The release job runs the same configure, build, test, and smoke-tool checks.
+Benchmark executables are built in CI but run locally. The lint job enforces
+clang-format and runs clang-tidy as an advisory check.
 
 Optional engine benchmarks can be built and run locally:
 

@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  engine:
-    name: Engine
+  release:
+    name: Release
     runs-on: ubuntu-latest
 
     steps:
@@ -34,3 +34,53 @@ jobs:
 
       - name: Run smoke tool
         run: ./build/tools/engine-smoke/vibe_othello_engine_smoke
+
+  sanitize:
+    name: Sanitizers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-sanitize
+          -DCMAKE_BUILD_TYPE=Debug
+          -DVIBE_OTHELLO_ENABLE_SANITIZERS=ON
+
+      - name: Build
+        run: cmake --build build-sanitize --config Debug
+
+      - name: Test
+        run: ctest --test-dir build-sanitize --output-on-failure
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install lint tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format clang-tidy
+
+      - name: Check formatting
+        run: |
+          mapfile -t files < <(find engine tools -type f \( -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
+          clang-format --dry-run --Werror "${files[@]}"
+
+      - name: Configure compile commands
+        run: >
+          cmake -S . -B build-tidy
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy
+        continue-on-error: true
+        run: |
+          mapfile -t files < <(find engine/src engine/tests engine/test_support tools -type f -name '*.cc' -print)
+          clang-tidy -p build-tidy "${files[@]}"

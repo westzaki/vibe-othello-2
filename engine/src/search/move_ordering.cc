@@ -34,8 +34,7 @@ void move_to_front(MoveList* list, board_core::Move move) noexcept {
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept {
   MoveList list = move_list_from_legal_mask(board_core::legal_moves(position));
-  if (hints.first_move.has_value() &&
-      hints.first_move->kind == board_core::MoveKind::normal) {
+  if (hints.first_move.has_value() && hints.first_move->kind == board_core::MoveKind::normal) {
     move_to_front(&list, *hints.first_move);
   }
   return list;
