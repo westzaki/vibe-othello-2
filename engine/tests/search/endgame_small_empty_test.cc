@@ -114,6 +114,16 @@ Score root_score_for_move(const SearchResult& result, board_core::Move move) {
   return 0;
 }
 
+const RootMoveInfo& root_info_for_move(const SearchResult& result, board_core::Move move) {
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    if (root_move.move == move) {
+      return root_move;
+    }
+  }
+  FAIL("root move was missing from comparison result");
+  return result.root_moves.front();
+}
+
 void require_exact_result(board_core::Position position, const SearchResult& result) {
   REQUIRE_FALSE(result.stopped);
   REQUIRE(result.exact);
@@ -143,14 +153,22 @@ void require_small_empty_path_matches_generic(board_core::Position position) {
 
   REQUIRE(small_empty.score == generic.score);
   REQUIRE(small_empty.completed_depth == generic.completed_depth);
+  REQUIRE(small_empty.best_move == generic.best_move);
   REQUIRE(small_empty.best_move.has_value() == generic.best_move.has_value());
+  REQUIRE(small_empty.exact == generic.exact);
+  REQUIRE(small_empty.stopped == generic.stopped);
+  REQUIRE(small_empty.pv == generic.pv);
   if (small_empty.best_move.has_value()) {
     REQUIRE(root_score_for_move(generic, *small_empty.best_move) == generic.score);
   }
   REQUIRE(small_empty.root_moves.size() == generic.root_moves.size());
   for (const RootMoveInfo& small_empty_root_move : small_empty.root_moves) {
-    REQUIRE(root_score_for_move(generic, small_empty_root_move.move) ==
-            small_empty_root_move.score);
+    const RootMoveInfo& generic_root_move = root_info_for_move(generic, small_empty_root_move.move);
+    REQUIRE(small_empty_root_move.score == generic_root_move.score);
+    REQUIRE(small_empty_root_move.bound == generic_root_move.bound);
+    REQUIRE(small_empty_root_move.exact == generic_root_move.exact);
+    REQUIRE(small_empty_root_move.selective == generic_root_move.selective);
+    REQUIRE(small_empty_root_move.pv == generic_root_move.pv);
   }
 }
 
@@ -188,12 +206,16 @@ TEST_CASE("small-empty exact path matches generic generated positions",
           "[search][endgame][small_empty]") {
   require_small_empty_path_matches_generic(test_support::generated_endgame_position(2));
   require_small_empty_path_matches_generic(test_support::generated_endgame_position(3));
+  require_small_empty_path_matches_generic(test_support::generated_endgame_position(4));
+  require_small_empty_path_matches_generic(parse_position_or_fail(
+      "WWWWWWW./BBBBBW../BBWBWWWW/BBBBBWWB/BWBBWWWB/BBBWB.WW/BBBBBBWW/BBBWWWWW b"));
 }
 
-TEST_CASE("small-empty exact path matches generic forced-pass two and three-empty positions",
+TEST_CASE("small-empty exact path matches generic forced-pass two, three, and four-empty positions",
           "[search][endgame][small_empty]") {
   require_small_empty_path_matches_generic(generated_forced_pass_position(2));
   require_small_empty_path_matches_generic(generated_forced_pass_position(3));
+  require_small_empty_path_matches_generic(generated_forced_pass_position(4));
 }
 
 TEST_CASE("small-empty exact path matches generic terminal-with-empty position",
@@ -204,13 +226,14 @@ TEST_CASE("small-empty exact path matches generic terminal-with-empty position",
 
 TEST_CASE("small-empty exact path preserves TT and parity independent scores",
           "[search][endgame][small_empty][tt][parity]") {
-  const std::array<board_core::Position, 5> positions{
+  const std::array<board_core::Position, 6> positions{
       parse_position_or_fail(
           "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"),
       parse_position_or_fail(
           "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"),
       test_support::generated_endgame_position(2),
       test_support::generated_endgame_position(3),
+      test_support::generated_endgame_position(4),
       generated_forced_pass_position(3),
   };
 

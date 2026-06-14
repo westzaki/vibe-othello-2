@@ -77,7 +77,7 @@ The current search implementation includes:
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
   when `SearchOptions::use_endgame_tt` is enabled, including ordering-only legal
   TT best-move hints when a probed entry cannot cut off
-* specialized small-empty exact-score paths for 0, 1, 2, and 3 empty squares
+* specialized small-empty exact-score paths for 0, 1, 2, 3, and 4 empty squares
 * ordering-only exact endgame parity hints through
   `SearchOptions::use_endgame_parity_ordering`
 * endgame benchmark coverage through `vibe_othello_endgame_bench`, including
@@ -163,7 +163,7 @@ Status values:
 | Add real internal iterative deepening | done | Ordering-only shallow midgame search controlled by `use_iid` |
 | Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
-| Add specialized small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |
+| Add specialized small-empty exact-score path | done | 0/1/2/3/4 empty path is tested against generic exact endgame search |
 | Add public direct exact endgame solve API | done | `solve_exact_endgame` calls the exact-score solver without an evaluator or threshold gate |
 | Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |

@@ -624,7 +624,7 @@ TEST_CASE("exact endgame parity ordering preserves corpus scores and best move t
     require_exact_result_invariants(position_case.position, without_parity);
     require_exact_result_invariants(position_case.position, with_parity);
     require_same_exact_scores(position_case.position, with_parity, without_parity);
-    saw_generic_parity_position = saw_generic_parity_position || empties > 3;
+    saw_generic_parity_position = saw_generic_parity_position || empties > 4;
   }
 
   REQUIRE(saw_generic_parity_position);

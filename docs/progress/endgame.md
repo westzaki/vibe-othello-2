@@ -87,10 +87,10 @@ The current exact endgame implementation includes:
 * has checked-in exact endgame benchmark baseline data for local comparison
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
-* has specialized exact-score paths for 0, 1, 2, and 3 empty squares, guarded by
-  generic-vs-small-empty differential tests
+* has specialized exact-score paths for 0, 1, 2, 3, and 4 empty squares, guarded
+  by generic-vs-small-empty differential tests
 * avoids endgame move ordering and parity-map construction in specialized
-  0/1/2/3-empty exact-score paths
+  0/1/2/3/4-empty exact-score paths
 
 ## Current Gaps
 
@@ -136,7 +136,7 @@ Status values:
 | Add WLD mode | not started | May be deferred after exact score; no WLD public API exists yet |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score` for cutoffs and legal best-move ordering hints; WLD remains not started |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
-| Add specialized zero/one/two/three-empty path | done | 0/1 return through terminal or forced single-move/pass handling; 2/3 use direct legal-bit enumeration with board-core deltas; tested against generic solver through an internal generic-only policy |
+| Add specialized zero/one/two/three/four-empty path | done | 0/1 return through terminal or forced single-move/pass handling; 2/3/4 use direct legal-bit enumeration with board-core deltas; tested against generic solver through an internal generic-only policy |
 | Add public direct exact-score API | done | `solve_exact_endgame` bypasses the root threshold gate and respects endgame limits/options without requiring an evaluator |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count, parity-ordering mode, and exact endgame TT mode |
 | Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/2/3/4/6/8/10/12 empty positions and a forced pass case |
@@ -147,10 +147,10 @@ Status values:
 
 ## Benchmark Notes
 
-The 0/1-empty exact-score positions complete in only a few microseconds in the
-current benchmark corpus, so elapsed-time comparisons for those rows are noisy.
-Prefer score equality, node counts, and repeated same-machine measurements when
-judging the small-empty specialized paths.
+The 0/1/2/3/4-empty exact-score positions can complete in only a few
+microseconds in the current benchmark corpus, so elapsed-time comparisons for
+those rows are noisy. Prefer score equality, node counts, and repeated
+same-machine measurements when judging the small-empty specialized paths.
 
 ## Completion Bar
 

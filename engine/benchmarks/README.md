@@ -196,13 +196,13 @@ option rows on `score`, `best_move`, `pv`, `exact`, and `stopped`; only then
 review nodes, timing, NPS, and TT hit/cutoff rates.
 
 For small-empty exact-score changes, use a low cap to isolate the shared
-0/1/2/3-empty path:
+0/1/2/3/4-empty path:
 
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
   --repeat 10 \
-  --max-empties 3 \
+  --max-empties 4 \
   --corpus engine/fixtures/endgame/positions.tsv
 ```
 

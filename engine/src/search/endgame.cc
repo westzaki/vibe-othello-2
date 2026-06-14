@@ -390,11 +390,20 @@ SearchNodeResult exact_score_3_empty(EndgameContext* context, Score alpha, Score
                                         original_alpha, original_beta);
 }
 
+SearchNodeResult exact_score_4_empty(EndgameContext* context, Score alpha, Score beta,
+                                     std::uint8_t empties, Ply ply,
+                                     SmallEndgamePolicy small_endgame_policy, Score original_alpha,
+                                     Score original_beta) {
+  require_invariant(empties == 4);
+  return exact_score_direct_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                        original_alpha, original_beta);
+}
+
 std::optional<SearchNodeResult>
 try_exact_score_small_empty(EndgameContext* context, Score alpha, Score beta, std::uint8_t empties,
                             Ply ply, SmallEndgamePolicy small_endgame_policy, Score original_alpha,
                             Score original_beta) {
-  if (small_endgame_policy == SmallEndgamePolicy::generic_only || empties > 3) {
+  if (small_endgame_policy == SmallEndgamePolicy::generic_only || empties > 4) {
     return std::nullopt;
   }
 
@@ -410,6 +419,9 @@ try_exact_score_small_empty(EndgameContext* context, Score alpha, Score beta, st
                                original_alpha, original_beta);
   case 3:
     return exact_score_3_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                               original_alpha, original_beta);
+  case 4:
+    return exact_score_4_empty(context, alpha, beta, empties, ply, small_endgame_policy,
                                original_alpha, original_beta);
   default:
     return std::nullopt;
@@ -593,11 +605,11 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
     }
   } else {
     std::optional<board_core::Move> root_tt_best_move;
-    if (!(small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 3)) {
+    if (!(small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 4)) {
       root_tt_best_move = probe_exact_endgame_root_tt_best_move(&context, completed_depth);
     }
     root_frame.moves =
-        small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 3
+        small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 4
             ? small_empty_move_list(context.position)
             : order_endgame_moves(
                   context.position,
