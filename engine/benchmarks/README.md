@@ -65,6 +65,9 @@ id	category	position	expected_empties	notes
 
 `position` uses the board-core serialized position format.
 
+Use `--corpus engine/testdata/endgame/positions.tsv` to run the checked-in
+endgame corpus used by deterministic golden checks.
+
 ## Layout
 
 | Path | Role |
@@ -73,6 +76,7 @@ id	category	position	expected_empties	notes
 | `endgame_bench.cc` | Exact endgame benchmark executable with built-in corpus. |
 | `search_bench.cc` | Search benchmark executable with configurable fixed depths. |
 | `../testdata/search/positions.tsv` | Search benchmark corpus for repeatable local and future golden checks. |
+| `../testdata/endgame/positions.tsv` | Exact endgame benchmark corpus for repeatable local and future golden checks. |
 | `baselines/` | Optional checked-in reference measurements and their documentation. |
 | `results/` | Local scratch space for benchmark outputs. Contents are ignored by Git. |
 
@@ -99,7 +103,8 @@ For endgame benchmarks, report the max-empty cap and the emitted columns:
 `pass_nodes`, `beta_cutoffs`, `alpha_updates`, `root_moves_searched`,
 `elapsed_ms`, and `nps`.
 
-JSONL output emits one JSON object per position/mode/depth result. The schema is:
+Search JSONL output emits one JSON object per position/mode/depth result. The
+schema is:
 
 - `position_id`, `category`
 - `mode`, `tt_mode`, `depth`, `evaluator`
@@ -108,6 +113,20 @@ JSONL output emits one JSON object per position/mode/depth result. The schema is
 - `nodes`, `eval_calls`, `beta_cutoffs`, `alpha_updates`
 - `tt_probes`, `tt_hits`, `tt_stores`, `tt_cutoffs`
 - `elapsed_ns`, `nps`
+
+Endgame JSONL output emits one JSON object per position/repeat result. The
+schema is:
+
+- `position_id`, `category`, `position`
+- `mode`, currently `exact_score`
+- `empties`, `repeat`
+- `score`, `best_move`, `exact`, `stopped`, `completed_depth`
+- `nodes`, `endgame_nodes`, `terminal_nodes`, `pass_nodes`
+- `beta_cutoffs`, `alpha_updates`, `root_moves_searched`
+- `elapsed_ms`, `nps`
+- `pv`
+- `root_moves`, with `move`, `score`, `bound`, `depth`, `exact`, `selective`
+- `notes`
 
 ## Search Golden Checks
 
@@ -156,3 +175,44 @@ Timing values are environment-dependent and should be treated as local compariso
 data, not universal truth. Timing and NPS values are not intended to be CI gates;
 golden checks compare deterministic fields such as score, best move, PV, and
 root move scores separately from timing and search statistics.
+
+## Endgame Golden Checks
+
+The checked-in deterministic exact endgame golden is:
+
+```text
+engine/testdata/endgame/golden/exact_score.jsonl
+```
+
+It is generated from the checked-in endgame corpus with exact endgame search,
+repeat count 1, a 12-empty cap, and JSONL output:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --repeat 1 \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv > /tmp/endgame_actual.jsonl
+tools/endgame/check_golden.py \
+  /tmp/endgame_actual.jsonl \
+  engine/testdata/endgame/golden/exact_score.jsonl
+```
+
+`tools/endgame/check_golden.py` normalizes both actual and golden JSONL before
+comparing deterministic result fields only: position metadata, mode, empty
+count, score, best move, exact/stopped flags, completed depth, PV, and root move
+score/bound/depth/exact/selective values keyed by move. It intentionally does
+not gate `repeat`, node counts, search statistics, `elapsed_ms`, or `nps`.
+Those values are expected to move when exact endgame TT, parity ordering, or
+small-empty routines are introduced.
+
+Golden updates are manual. Regenerate with:
+
+```sh
+tools/endgame/generate_golden.sh
+```
+
+Review the JSONL diff before committing it. Do not auto-update golden files in
+CI. The checked-in golden file is deterministic-only normalized JSONL, so it
+does not contain timing, node count, or search statistics even though the raw
+`endgame_bench --jsonl` output includes them.

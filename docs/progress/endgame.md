@@ -78,7 +78,6 @@ The current implementation does not yet have:
 * endgame TT probing or storing
 * parity-region ordering
 * small-empty specialized routines
-* exact endgame golden corpus
 * checked-in endgame benchmark baselines
 * tuned native or WASM thresholds
 
@@ -104,6 +103,7 @@ Status values:
 | Add generic exact-score solver using board core | done | Root-only generic exact-score solver uses board-core move deltas and pass handling |
 | Add `engine/tests/search/endgame_test.cc` | done | Covers root exact score, pass, terminal, threshold, flags, legality, and PV replay |
 | Add reference endgame solver in test support | done | Slow and clear, no TT or heuristic evaluation |
+| Add exact endgame golden corpus | done | `engine/testdata/endgame/positions.tsv` plus deterministic `exact_score.jsonl` |
 | Add small-empty golden tests | not started | Generate from trusted reference solver and inspect a subset |
 | Integrate root threshold through `SearchOptions::exact_endgame` | done | Root-only integration before normal iterative deepening |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
