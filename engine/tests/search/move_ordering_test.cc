@@ -139,6 +139,26 @@ TEST_CASE("move ordering applies root best before TT best", "[search][move_order
   REQUIRE(moves.moves[1] == move(0, 0));
 }
 
+TEST_CASE("midgame IID hint is weaker than TT and stronger than static ordering",
+          "[search][move_ordering]") {
+  const board_core::Position position{
+      .player = board_core::bit(square(3, 0)) | board_core::bit(square(3, 3)),
+      .opponent = board_core::bit(square(2, 0)) | board_core::bit(square(4, 0)) |
+                  board_core::bit(square(2, 2)),
+      .side_to_move = board_core::Color::black,
+  };
+
+  const MoveList moves = ordered_moves(position, MoveOrderingHints{
+                                                     .tt_best_move = move(5, 0),
+                                                     .iid_best_move = move(1, 1),
+                                                 });
+
+  require_ordered_moves_match_legal_set(position, moves);
+  REQUIRE(moves.size >= 3);
+  REQUIRE(moves.moves[0] == move(5, 0));
+  REQUIRE(moves.moves[1] == move(1, 1));
+}
+
 TEST_CASE("move ordering breaks equal scores by square index", "[search][move_ordering]") {
   const board_core::Position position{
       .player = board_core::bit(square(3, 3)) | board_core::bit(square(5, 5)),

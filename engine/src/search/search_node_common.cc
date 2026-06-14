@@ -6,6 +6,41 @@ namespace {
 
 constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 4;
 constexpr int kHistoryScoreLimit = 1'000'000;
+constexpr Depth kIidMinDepth = 4;
+constexpr Depth kIidDepthReduction = 2;
+
+bool is_legal_normal_move(board_core::Bitboard legal_moves, board_core::Move move) noexcept {
+  return move.kind == board_core::MoveKind::normal &&
+         (legal_moves & board_core::bit(move.square)) != 0;
+}
+
+std::optional<board_core::Move>
+legal_midgame_tt_best_move(board_core::Position position,
+                           const std::optional<TTEntry>& tt_entry) noexcept {
+  if (!tt_entry.has_value() || tt_entry->kind != TTEntryKind::midgame || !tt_entry->has_best_move) {
+    return std::nullopt;
+  }
+
+  const board_core::Bitboard legal_moves = board_core::legal_moves(position);
+  if (!is_legal_normal_move(legal_moves, tt_entry->best_move)) {
+    return std::nullopt;
+  }
+  return tt_entry->best_move;
+}
+
+struct ScopedIidFlag {
+  explicit ScopedIidFlag(SearchContext* search_context) noexcept
+      : context(search_context), previous(search_context->in_iid) {
+    context->in_iid = true;
+  }
+
+  ~ScopedIidFlag() noexcept {
+    context->in_iid = previous;
+  }
+
+  SearchContext* context;
+  bool previous;
+};
 
 SearchNodeResult dispatch_search(SearchContext* context, SearchDispatch dispatch, Score alpha,
                                  Score beta, Depth depth, Ply ply) {
@@ -220,12 +255,13 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
 
 MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
                                                const std::optional<TTEntry>& tt_entry,
+                                               std::optional<board_core::Move> iid_best_move,
                                                Ply ply) noexcept {
   MoveOrderingHints hints{
-      .tt_best_move = context.options.use_tt_best_move_ordering && tt_entry.has_value() &&
-                              tt_entry->kind == TTEntryKind::midgame && tt_entry->has_best_move
-                          ? std::optional<board_core::Move>{tt_entry->best_move}
+      .tt_best_move = context.options.use_tt_best_move_ordering
+                          ? legal_midgame_tt_best_move(context.position, tt_entry)
                           : std::nullopt,
+      .iid_best_move = iid_best_move,
   };
 
   if (context.ordering_state != nullptr && context.options.use_killers) {
@@ -235,6 +271,47 @@ MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
     hints.history = &context.ordering_state->history;
   }
   return hints;
+}
+
+std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context, Score alpha,
+                                                         Score beta, Depth depth, Ply ply,
+                                                         const std::optional<TTEntry>& tt_entry,
+                                                         bool* stopped) {
+  *stopped = false;
+  if (!context->options.use_iid || context->in_iid || depth < kIidMinDepth || alpha + 1 >= beta ||
+      ply >= kMaxPly) {
+    return std::nullopt;
+  }
+
+  const board_core::Bitboard legal_moves = board_core::legal_moves(context->position);
+  if (legal_moves == 0 || legal_midgame_tt_best_move(context->position, tt_entry).has_value()) {
+    return std::nullopt;
+  }
+
+  if (should_stop_search(context)) {
+    *stopped = true;
+    return std::nullopt;
+  }
+
+  ++context->stats.iid_searches;
+  const Depth shallow_depth = static_cast<Depth>(depth - kIidDepthReduction);
+  SearchNodeResult shallow;
+  {
+    const ScopedIidFlag guard{context};
+    shallow = full_window_search(context, alpha, beta, shallow_depth, ply);
+  }
+  context->stack[ply] = StackFrame{};
+
+  if (shallow.is_stopped()) {
+    *stopped = true;
+    return std::nullopt;
+  }
+
+  const Line& shallow_pv = shallow.value().pv;
+  if (shallow_pv.size == 0 || !is_legal_normal_move(legal_moves, shallow_pv.moves[0])) {
+    return std::nullopt;
+  }
+  return shallow_pv.moves[0];
 }
 
 SearchNodeResult search_full_window_child(SearchContext* context, board_core::Move move,
