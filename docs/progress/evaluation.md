@@ -61,6 +61,7 @@ Existing evaluation tests cover:
 * hand-computed ternary pattern index
 * phase boundary behavior
 * search sentinel score range
+* artifact loader success and rejection paths
 
 The current repository already documents that:
 
@@ -75,9 +76,7 @@ The current implementation does not yet have:
 
 * production baseline evaluator
 * production learned pattern evaluator
-* pattern weight artifact loader
 * schema validation for artifact-backed pattern definitions
-* checked-in tiny evaluation artifact fixture
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
@@ -111,8 +110,8 @@ Status values:
 | Add tiny fixed edge and corner pattern instances | done | In-code runtime fixture only |
 | Add tiny pattern-only evaluator | done | Implements `search::Evaluator` |
 | Add evaluator unit coverage | done | Determinism, sign convention, index, phase, and range |
-| Add artifact manifest and binary loader | not started | Validate version, bit order, phase count, checksums, and schema length against square count |
-| Add tiny hand-authored artifact fixture | not started | Enables deterministic loader and evaluator tests |
+| Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
+| Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | not started | Should implement `search::Evaluator` |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
