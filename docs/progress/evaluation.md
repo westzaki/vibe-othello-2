@@ -50,18 +50,12 @@ The current repository already documents that:
 
 The current implementation does not yet have:
 
-* `engine/include/vibe_othello/evaluation/`
-* `engine/src/evaluation/`
 * production baseline evaluator
 * pattern evaluator
-* pattern schema types
 * pattern index encoder
-* pattern weight artifact loader
-* checked-in tiny evaluation artifact fixture
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
-* evaluation-specific tests
 * evaluation benchmarks
 * evaluation data or artifact README
 
@@ -82,12 +76,12 @@ Status values:
 | Add evaluation progress document | done | this file |
 | Add docs index rows | done | `docs/README.md` |
 | Keep search-facing evaluator interface stable | done | `engine/include/vibe_othello/search/evaluator.h` |
-| Add evaluation namespace and public runtime headers | not started | Expected under `engine/include/vibe_othello/evaluation/` |
+| Add evaluation namespace and public runtime headers | done | First runtime header is `engine/include/vibe_othello/evaluation/pattern_weights.h` |
 | Add simple baseline evaluator | not started | Useful before learned artifacts are available |
-| Add pattern schema types | not started | Must match training schema |
+| Add pattern schema types | not started | Only minimal loader manifest and pattern definition structs exist |
 | Add pattern index encoder | not started | Include symmetry and phase boundary tests |
-| Add artifact manifest and binary loader | not started | Validate version, bit order, phase count, and checksums |
-| Add tiny hand-authored artifact fixture | not started | Enables deterministic loader and evaluator tests |
+| Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
+| Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | not started | Should implement `search::Evaluator` |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
