@@ -75,8 +75,13 @@ struct Config {
   TTMode tt_mode = TTMode::off;
   RootMode root_mode = RootMode::all;
   std::uint32_t repeat = 1;
+  std::uint8_t min_empties = 0;
   std::uint8_t max_empties = 12;
   char delimiter = '\t';
+  bool list_positions = false;
+  bool max_empties_was_set = false;
+  std::vector<std::string> position_ids;
+  std::vector<std::string> categories;
 };
 
 struct PositionCase {
@@ -221,7 +226,8 @@ std::vector<PositionCase> built_in_fallback_positions() {
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--tt off|on|both]"
-            " [--root-mode all|best] [--repeat N] [--max-empties N] [--corpus PATH]\n\n"
+            " [--root-mode all|best] [--repeat N] [--min-empties N] [--max-empties N]"
+            " [--position-id ID] [--category NAME] [--list-positions] [--corpus PATH]\n\n"
          << "External TSV schema: id<TAB>category<TAB>position<TAB>expected_empties<TAB>notes\n";
 }
 
@@ -249,6 +255,15 @@ std::optional<int> parse_int(std::string_view value) noexcept {
     return std::nullopt;
   }
   return result;
+}
+
+bool contains_value(const std::vector<std::string>& values, std::string_view needle) noexcept {
+  for (const std::string& value : values) {
+    if (value == needle) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::vector<std::string_view> split_tabs(std::string_view line) {
@@ -422,6 +437,21 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--min-empties") {
+      require_condition(index + 1 < argc, "--min-empties requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--min-empties", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> min_empties = parse_int(value);
+      require_condition(min_empties.has_value() && *min_empties >= 0 &&
+                            *min_empties <= vibe_othello::board_core::kSquareCount,
+                        "invalid min empties");
+      config.min_empties = static_cast<std::uint8_t>(*min_empties);
+      continue;
+    }
+
     if (argument == "--max-empties") {
       require_condition(index + 1 < argc, "--max-empties requires a value");
       value = argv[++index];
@@ -434,6 +464,36 @@ std::optional<Config> parse_config(int argc, char** argv) {
                             *max_empties <= vibe_othello::board_core::kSquareCount,
                         "invalid max empties");
       config.max_empties = static_cast<std::uint8_t>(*max_empties);
+      config.max_empties_was_set = true;
+      continue;
+    }
+
+    if (argument == "--position-id") {
+      require_condition(index + 1 < argc, "--position-id requires a value");
+      config.position_ids.push_back(argv[++index]);
+      require_condition(!config.position_ids.back().empty(), "--position-id requires a value");
+      continue;
+    }
+    if (parse_argument_with_value(argument, "--position-id", &value)) {
+      require_condition(!value.empty(), "--position-id requires a value");
+      config.position_ids.push_back(std::string(value));
+      continue;
+    }
+
+    if (argument == "--category") {
+      require_condition(index + 1 < argc, "--category requires a value");
+      config.categories.push_back(argv[++index]);
+      require_condition(!config.categories.back().empty(), "--category requires a value");
+      continue;
+    }
+    if (parse_argument_with_value(argument, "--category", &value)) {
+      require_condition(!value.empty(), "--category requires a value");
+      config.categories.push_back(std::string(value));
+      continue;
+    }
+
+    if (argument == "--list-positions") {
+      config.list_positions = true;
       continue;
     }
 
@@ -453,6 +513,8 @@ std::optional<Config> parse_config(int argc, char** argv) {
     std::exit(2);
   }
 
+  require_condition(config.min_empties <= config.max_empties,
+                    "--min-empties must be less than or equal to --max-empties");
   return config;
 }
 
@@ -765,6 +827,46 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << "}\n";
 }
 
+bool position_matches_filters(const Config& config, const PositionCase& position_case,
+                              std::uint8_t actual_empties) {
+  if (actual_empties < config.min_empties) {
+    return false;
+  }
+  if (actual_empties > config.max_empties &&
+      (config.max_empties_was_set || config.position_ids.empty())) {
+    return false;
+  }
+  if (!config.position_ids.empty() && !contains_value(config.position_ids, position_case.id)) {
+    return false;
+  }
+  if (!config.categories.empty() && !contains_value(config.categories, position_case.category)) {
+    return false;
+  }
+  return true;
+}
+
+std::vector<const PositionCase*> filter_positions(const Config& config,
+                                                  const std::vector<PositionCase>& positions) {
+  std::vector<const PositionCase*> filtered;
+  for (const PositionCase& position_case : positions) {
+    const std::uint8_t actual_empties = empty_count(position_case.position);
+    if (position_matches_filters(config, position_case, actual_empties)) {
+      filtered.push_back(&position_case);
+    }
+  }
+  return filtered;
+}
+
+void print_position_list(const std::vector<const PositionCase*>& positions, char delimiter) {
+  std::cout << "id" << delimiter << "category" << delimiter << "empties" << delimiter << "notes"
+            << '\n';
+  for (const PositionCase* position_case : positions) {
+    std::cout << position_case->id << delimiter << position_case->category << delimiter
+              << static_cast<int>(empty_count(position_case->position)) << delimiter
+              << position_case->notes << '\n';
+  }
+}
+
 std::array<bool, 2> parity_runs(ParityMode mode, std::uint8_t* size) noexcept {
   switch (mode) {
   case ParityMode::on:
@@ -809,15 +911,20 @@ int main(int argc, char** argv) {
 
   const std::vector<PositionCase> positions =
       config->corpus_path.empty() ? default_positions() : load_corpus(config->corpus_path);
+  const std::vector<const PositionCase*> filtered_positions = filter_positions(*config, positions);
+  require_condition(!filtered_positions.empty(), "no endgame positions matched filters");
+
+  if (config->list_positions) {
+    print_position_list(filtered_positions, config->delimiter);
+    return 0;
+  }
 
   if (config->output_format != OutputFormat::jsonl) {
     print_delimited_header(config->delimiter);
   }
-  for (const PositionCase& position_case : positions) {
+  for (const PositionCase* filtered_position : filtered_positions) {
+    const PositionCase& position_case = *filtered_position;
     const std::uint8_t actual_empties = empty_count(position_case.position);
-    if (actual_empties > config->max_empties) {
-      continue;
-    }
 
     std::uint8_t parity_run_count = 0;
     const std::array<bool, 2> parity_values = parity_runs(config->parity_mode, &parity_run_count);
