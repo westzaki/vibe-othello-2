@@ -150,6 +150,28 @@ void mark_stopped_non_exact(SearchResult* result) noexcept {
   result->score = kScoreLoss;
 }
 
+bool use_best_only_root_reporting(SearchOptions options) noexcept {
+  return options.multi_pv == 1;
+}
+
+Score best_only_root_alpha(board_core::Move move, Score best_score,
+                           std::optional<board_core::Move> best_move) noexcept {
+  if (!best_move.has_value()) {
+    return kScoreLoss;
+  }
+  if (move.kind == board_core::MoveKind::normal &&
+      best_move->kind == board_core::MoveKind::normal &&
+      move.square.index < best_move->square.index && best_score > kScoreLoss) {
+    return static_cast<Score>(best_score - 1);
+  }
+  return best_score;
+}
+
+void publish_best_only_root_move(SearchResult* result, RootMoveInfo root_move) {
+  result->root_moves.clear();
+  result->root_moves.push_back(root_move);
+}
+
 MoveList small_empty_move_list(board_core::Position position) noexcept {
   MoveList list{};
   const board_core::Bitboard legal_moves = board_core::legal_moves(position);
@@ -625,6 +647,8 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
 
   Score best_score = kScoreLoss;
   Line best_line{};
+  std::optional<RootMoveInfo> best_root_move;
+  const bool best_only_reporting = use_best_only_root_reporting(context.options);
   for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
     if (should_stop_endgame(&context)) {
       mark_stopped_non_exact(&result);
@@ -633,7 +657,9 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
 
     const board_core::Move move = root_moves.moves[move_index];
     const NodeCount before_nodes = context.stats.nodes;
-    const SearchNodeResult child = search_endgame_child(&context, move, kScoreLoss, kScoreWin,
+    const Score root_alpha =
+        best_only_reporting ? best_only_root_alpha(move, best_score, result.best_move) : kScoreLoss;
+    const SearchNodeResult child = search_endgame_child(&context, move, root_alpha, kScoreWin,
                                                         root_empties, Ply{0}, small_endgame_policy);
     if (child.is_stopped()) {
       mark_stopped_non_exact(&result);
@@ -641,12 +667,15 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
     }
     const SearchValue& child_value = child.value();
 
-    result.root_moves.push_back(make_exact_root_move(move, child_value.score, completed_depth,
-                                                     context.stats.nodes - before_nodes,
-                                                     child_value.pv));
+    RootMoveInfo root_move =
+        make_exact_root_move(move, child_value.score, completed_depth,
+                             context.stats.nodes - before_nodes, child_value.pv);
     ++context.stats.root_moves_searched;
     const bool improves_root =
         is_better_root_move(child_value.score, move, best_score, result.best_move);
+    if (!best_only_reporting) {
+      result.root_moves.push_back(root_move);
+    }
     if (improves_root) {
       if (child_value.score > best_score) {
         ++context.stats.alpha_updates;
@@ -654,6 +683,10 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
       result.best_move = move;
       best_score = child_value.score;
       best_line = child_value.pv;
+      best_root_move = root_move;
+      if (best_only_reporting) {
+        publish_best_only_root_move(&result, root_move);
+      }
     }
   }
 
@@ -669,6 +702,9 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
       result.completed_depth = completed_depth;
       result.score = best_score;
       result.pv = best_line;
+      if (best_only_reporting && best_root_move.has_value()) {
+        publish_best_only_root_move(&result, *best_root_move);
+      }
     }
     return result;
   }

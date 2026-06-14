@@ -67,6 +67,9 @@ The current search implementation includes:
   integration
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
   statistics
+* exact endgame root reporting selection through `SearchOptions::multi_pv`,
+  where `0` keeps all-root exact reporting and `1` enables best-only exact
+  reporting
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
   when `SearchOptions::use_endgame_tt` is enabled, including ordering-only legal
   TT best-move hints when a probed entry cannot cut off
@@ -103,7 +106,7 @@ The current implementation does not yet have:
 * killer heuristic
 * history heuristic
 * dedicated PV table
-* Multi-PV limiting
+* top-N Multi-PV limiting for `multi_pv > 1`
 * ProbCut or calibrated selective pruning
 * parallel search
 * analysis and review-specific result adapters
@@ -116,7 +119,10 @@ midgame search before heuristic evaluation when `exact_endgame` is enabled and
 the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
 not publish root exact move reports or mark the whole root result exact. Exact
 endgame does not yet provide WLD. Parity ordering is available as an
-ordering-only hint and must not change exact results.
+ordering-only hint and must not change exact results. Exact endgame root
+reporting uses `multi_pv == 0` for the default all-root exact report,
+`multi_pv == 1` for best-only exact reporting, and treats `multi_pv > 1` as a
+safe all-root no-op until top-N reporting is implemented.
 
 Current time limits are cooperative and checked periodically inside recursive
 midgame and endgame search. This keeps the hot path smaller, but it is not a
@@ -157,7 +163,8 @@ Status values:
 | Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add specialized small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |
 | Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
-| Add Multi-PV root search | not started | `multi_pv` currently safe no-op |
+| Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |
+| Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |

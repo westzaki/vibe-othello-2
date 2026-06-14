@@ -52,10 +52,12 @@ Endgame benchmark output is TSV by default and measures the root-only exact
 endgame solver through `search_iterative` with `exact_endgame = true`. Use
 `--csv` for comma-separated output, `--jsonl` for JSON Lines output,
 `--parity on|off|both` to choose exact endgame parity ordering,
-`--tt off|on|both` to choose exact endgame transposition-table use, `--repeat N`
-to repeat each position, and `--max-empties N` to cap the default or external
-corpus by empty count. Defaults are `--parity on` and `--tt off`, which preserve
-the original non-TT benchmark shape except for newly emitted columns.
+`--tt off|on|both` to choose exact endgame transposition-table use,
+`--root-mode all|best` to choose root reporting behavior, `--repeat N` to repeat
+each position, and `--max-empties N` to cap the default or external corpus by
+empty count. Defaults are `--parity on`, `--tt off`, and `--root-mode all`,
+which preserve the original non-TT all-root benchmark shape except for newly
+emitted columns.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
 `--corpus` is omitted, the executable first uses the checked-in
@@ -116,6 +118,23 @@ and `elapsed_ms`:
   --corpus engine/testdata/endgame/positions.tsv
 ```
 
+For exact endgame root reporting changes, keep parity and TT fixed and compare
+`root_mode`, `score`, `best_move`, `nodes`, `elapsed_ms`, and
+`root_moves_searched`:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --root-mode all \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --root-mode best \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv
+```
+
 For interaction checks before changing root mode, small-empty paths, WLD, or TT
 behavior, run the full parity/TT matrix. The deterministic run order is
 `parity_ordering=off,tt_mode=off`, `off,on`, `on,off`, then `on,on` for each
@@ -167,7 +186,7 @@ For search benchmarks, report the depth argument and the emitted columns:
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
 `position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `tt_mode`,
-`score`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
+`root_mode`, `score`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
 `endgame_nodes`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
 `alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
 `tt_stores`, `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
@@ -192,6 +211,7 @@ schema is:
 - `empties`, `repeat`
 - `parity_ordering`, currently `on` or `off`
 - `tt_mode`, currently `off` or `on`
+- `root_mode`, currently `all` or `best`
 - `score`, `best_move`, `exact`, `stopped`, `completed_depth`
 - `nodes`, `endgame_nodes`, `terminal_nodes`, `pass_nodes`
 - `beta_cutoffs`, `alpha_updates`, `root_moves_searched`

@@ -67,11 +67,17 @@ enum class TTMode {
   both,
 };
 
+enum class RootMode {
+  all,
+  best,
+};
+
 struct Config {
   std::string corpus_path;
   OutputFormat output_format = OutputFormat::tsv;
   ParityMode parity_mode = ParityMode::on;
   TTMode tt_mode = TTMode::off;
+  RootMode root_mode = RootMode::all;
   std::uint32_t repeat = 1;
   std::uint8_t max_empties = 12;
   char delimiter = '\t';
@@ -229,7 +235,7 @@ std::vector<PositionCase> built_in_fallback_positions() {
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--tt off|on|both]"
-            " [--repeat N] [--max-empties N] [--corpus PATH]\n\n"
+            " [--root-mode all|best] [--repeat N] [--max-empties N] [--corpus PATH]\n\n"
          << "External TSV schema: id<TAB>category<TAB>position<TAB>expected_empties<TAB>notes\n";
 }
 
@@ -400,6 +406,23 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--root-mode") {
+      require_condition(index + 1 < argc, "--root-mode requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--root-mode", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      if (value == "all") {
+        config.root_mode = RootMode::all;
+      } else if (value == "best") {
+        config.root_mode = RootMode::best;
+      } else {
+        require_condition(false, "invalid root mode");
+      }
+      continue;
+    }
+
     if (argument == "--repeat") {
       require_condition(index + 1 < argc, "--repeat requires a value");
       value = argv[++index];
@@ -477,6 +500,28 @@ std::string_view parity_mode_name(bool enabled) noexcept {
 
 std::string_view tt_mode_name(bool enabled) noexcept {
   return enabled ? "on" : "off";
+}
+
+std::string_view root_mode_name(RootMode mode) noexcept {
+  switch (mode) {
+  case RootMode::all:
+    return "all";
+  case RootMode::best:
+    return "best";
+  }
+
+  return "unknown";
+}
+
+std::uint8_t multi_pv_for_root_mode(RootMode mode) noexcept {
+  switch (mode) {
+  case RootMode::all:
+    return 0;
+  case RootMode::best:
+    return 1;
+  }
+
+  return 0;
 }
 
 std::string_view bound_name(BoundType bound) noexcept {
@@ -616,12 +661,13 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
 }
 
 TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
-                              bool use_tt) {
+                              bool use_tt, RootMode root_mode) {
   DummyEvaluator evaluator;
   const SearchOptions options{
       .use_endgame_tt = use_tt,
       .exact_endgame = true,
       .use_endgame_parity_ordering = use_parity_ordering,
+      .multi_pv = multi_pv_for_root_mode(root_mode),
       .endgame_exact_empties = empties,
   };
   const auto start = std::chrono::steady_clock::now();
@@ -648,27 +694,28 @@ double nodes_per_second(const TimedResult& timed_result) {
 void print_delimited_header(char delimiter) {
   std::cout << "position_id" << delimiter << "category" << delimiter << "empties" << delimiter
             << "repeat" << delimiter << "parity_ordering" << delimiter << "tt_mode" << delimiter
-            << "score" << delimiter << "best_move" << delimiter << "exact" << delimiter << "stopped"
-            << delimiter << "completed_depth" << delimiter << "nodes" << delimiter
-            << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter << "pass_nodes"
-            << delimiter << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter
-            << "root_moves_searched" << delimiter << "tt_probes" << delimiter << "tt_hits"
-            << delimiter << "tt_cutoffs" << delimiter << "tt_stores" << delimiter << "tt_overwrites"
-            << delimiter << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
-            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
-            << '\n';
+            << "root_mode" << delimiter << "score" << delimiter << "best_move" << delimiter
+            << "exact" << delimiter << "stopped" << delimiter << "completed_depth" << delimiter
+            << "nodes" << delimiter << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter
+            << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter << "alpha_updates"
+            << delimiter << "root_moves_searched" << delimiter << "tt_probes" << delimiter
+            << "tt_hits" << delimiter << "tt_cutoffs" << delimiter << "tt_stores" << delimiter
+            << "tt_overwrites" << delimiter << "tt_collisions" << delimiter << "tt_rejected_stores"
+            << delimiter << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter
+            << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
                             std::uint8_t empties, bool use_parity_ordering, bool use_tt,
-                            const TimedResult& timed_result, char delimiter) {
+                            RootMode root_mode, const TimedResult& timed_result, char delimiter) {
   const SearchResult& result = timed_result.result;
   std::cout << position_case.id << delimiter << position_case.category << delimiter
             << static_cast<int>(empties) << delimiter << repeat << delimiter
             << parity_mode_name(use_parity_ordering) << delimiter << tt_mode_name(use_tt)
-            << delimiter << result.score << delimiter << best_move_to_string(result) << delimiter
-            << (result.exact ? "true" : "false") << delimiter << (result.stopped ? "true" : "false")
-            << delimiter << result.completed_depth << delimiter << result.nodes << delimiter
+            << delimiter << root_mode_name(root_mode) << delimiter << result.score << delimiter
+            << best_move_to_string(result) << delimiter << (result.exact ? "true" : "false")
+            << delimiter << (result.stopped ? "true" : "false") << delimiter
+            << result.completed_depth << delimiter << result.nodes << delimiter
             << result.stats.endgame_nodes << delimiter << result.stats.terminal_nodes << delimiter
             << result.stats.pass_nodes << delimiter << result.stats.beta_cutoffs << delimiter
             << result.stats.alpha_updates << delimiter << result.stats.root_moves_searched
@@ -683,7 +730,7 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
 
 void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
                         std::uint8_t empties, bool use_parity_ordering, bool use_tt,
-                        const TimedResult& timed_result) {
+                        RootMode root_mode, const TimedResult& timed_result) {
   const SearchResult& result = timed_result.result;
   std::cout << '{';
   std::cout << "\"position_id\":";
@@ -699,6 +746,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   print_json_string(std::cout, parity_mode_name(use_parity_ordering));
   std::cout << ",\"tt_mode\":";
   print_json_string(std::cout, tt_mode_name(use_tt));
+  std::cout << ",\"root_mode\":";
+  print_json_string(std::cout, root_mode_name(root_mode));
   std::cout << ",\"score\":" << result.score;
   std::cout << ",\"best_move\":";
   print_json_string(std::cout, best_move_to_string(result));
@@ -794,15 +843,16 @@ int main(int argc, char** argv) {
       for (std::uint8_t tt_index = 0; tt_index < tt_run_count; ++tt_index) {
         const bool use_tt = tt_values[tt_index];
         for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
-          const TimedResult timed_result = run_exact_endgame(position_case.position, actual_empties,
-                                                             use_parity_ordering, use_tt);
+          const TimedResult timed_result =
+              run_exact_endgame(position_case.position, actual_empties, use_parity_ordering, use_tt,
+                                config->root_mode);
           validate_result(position_case, timed_result, actual_empties, use_tt);
           if (config->output_format == OutputFormat::jsonl) {
             print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering, use_tt,
-                               timed_result);
+                               config->root_mode, timed_result);
           } else {
             print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
-                                   use_tt, timed_result, config->delimiter);
+                                   use_tt, config->root_mode, timed_result, config->delimiter);
           }
         }
       }

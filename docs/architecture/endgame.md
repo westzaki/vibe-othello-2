@@ -795,6 +795,16 @@ All root moves must be legal.
 
 Root PVs must be replayable.
 
+Exact root reporting has two initial modes:
+
+* all-root exact reporting returns every legal root move with an exact score
+* best-only reporting returns only the exact best root move in `root_moves`
+
+All-root exact reporting is the default because it is useful for analysis,
+review, and backward-compatible consumers. Best-only reporting is intended for
+play paths that only need the exact decision and principal variation. Terminal
+roots still report no root moves. Forced-pass roots report the pass move.
+
 If multiple moves have the same exact score, tie-break by lower square index
 unless a higher-level root ordering policy says otherwise.
 
@@ -818,7 +828,15 @@ The first implementation may return all root moves with exact scores.
 
 That is often useful for UI and review.
 
-Later, `SearchOptions::multi_pv` may restrict how many lines are reported.
+For exact endgame root search, `SearchOptions::multi_pv` is interpreted as:
+
+* `0`: default all-root exact reporting
+* `1`: best-only exact reporting
+* `>1`: top-N reporting is not implemented yet and behaves like `0`
+
+The `multi_pv == 1` path may use root alpha-beta windows to avoid producing
+unneeded exact root move reports. The published best move, score, and PV must
+still be exact when the result is not stopped.
 
 ## Statistics
 
