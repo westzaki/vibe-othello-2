@@ -66,6 +66,23 @@ enum class TTMode {
   both,
 };
 
+enum class BoolSelection {
+  off,
+  on,
+  both,
+};
+
+enum class EvalSelection {
+  disc,
+  simple,
+  all,
+};
+
+enum class EvalMode {
+  disc,
+  simple,
+};
+
 enum class OutputFormat {
   tsv,
   csv,
@@ -77,6 +94,15 @@ struct Config {
   std::string corpus_path;
   ModeFilter mode_filter = ModeFilter::all;
   TTMode tt_mode = TTMode::off;
+  BoolSelection pvs = BoolSelection::off;
+  BoolSelection aspiration = BoolSelection::off;
+  BoolSelection history = BoolSelection::off;
+  BoolSelection killers = BoolSelection::off;
+  BoolSelection iid = BoolSelection::off;
+  EvalSelection eval = EvalSelection::disc;
+  std::uint8_t exact_endgame_empties = 0;
+  BoolSelection endgame_tt = BoolSelection::off;
+  BoolSelection endgame_parity = BoolSelection::on;
   OutputFormat output_format = OutputFormat::tsv;
   bool depths_overridden = false;
   char delimiter = '\t';
@@ -95,11 +121,51 @@ struct TimedResult {
   std::chrono::nanoseconds elapsed;
 };
 
+struct BenchmarkVariant {
+  EvalMode eval_mode = EvalMode::disc;
+  TTMode tt_mode = TTMode::off;
+  bool use_pvs = false;
+  bool use_aspiration = false;
+  bool use_history = false;
+  bool use_killers = false;
+  bool use_iid = false;
+  std::uint8_t exact_endgame_empties = 0;
+  bool use_endgame_tt = false;
+  bool use_endgame_parity = true;
+};
+
 class DiscDifferenceEvaluator final : public Evaluator {
 public:
   Score evaluate(const Position& position) const noexcept override {
     return static_cast<Score>(std::popcount(position.player)) -
            static_cast<Score>(std::popcount(position.opponent));
+  }
+};
+
+class SimpleEvaluator final : public Evaluator {
+public:
+  Score evaluate(const Position& position) const noexcept override {
+    return disc_difference(position) + corner_difference(position) * Score{4};
+  }
+
+private:
+  static Score disc_difference(const Position& position) noexcept {
+    return static_cast<Score>(std::popcount(position.player)) -
+           static_cast<Score>(std::popcount(position.opponent));
+  }
+
+  static Score corner_difference(const Position& position) noexcept {
+    Score score = 0;
+    for (const Square corner : {square_from_file_rank(0, 0), square_from_file_rank(7, 0),
+                                square_from_file_rank(0, 7), square_from_file_rank(7, 7)}) {
+      const Bitboard corner_bit = bit(corner);
+      if ((position.player & corner_bit) != 0) {
+        ++score;
+      } else if ((position.opponent & corner_bit) != 0) {
+        --score;
+      }
+    }
+    return score;
   }
 };
 
@@ -278,25 +344,186 @@ std::optional<TTMode> parse_tt_mode(std::string_view value) noexcept {
   return std::nullopt;
 }
 
-SearchOptions search_options_for_tt_mode(TTMode mode) noexcept {
+std::string_view bool_mode_name(bool enabled) noexcept {
+  return enabled ? "on" : "off";
+}
+
+std::string_view eval_mode_name(EvalMode mode) noexcept {
   switch (mode) {
-  case TTMode::off:
-    return SearchOptions{};
-  case TTMode::ordering:
-    return SearchOptions{.use_tt_best_move_ordering = true};
-  case TTMode::midgame:
-    return SearchOptions{.use_midgame_tt = true};
-  case TTMode::both:
-    return SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true};
+  case EvalMode::disc:
+    return "disc_difference";
+  case EvalMode::simple:
+    return "simple";
   }
 
-  return SearchOptions{};
+  return "unknown";
+}
+
+std::optional<BoolSelection> parse_bool_selection(std::string_view value) noexcept {
+  if (value == "off") {
+    return BoolSelection::off;
+  }
+  if (value == "on") {
+    return BoolSelection::on;
+  }
+  if (value == "both") {
+    return BoolSelection::both;
+  }
+  return std::nullopt;
+}
+
+std::optional<EvalSelection> parse_eval_selection(std::string_view value) noexcept {
+  if (value == "disc") {
+    return EvalSelection::disc;
+  }
+  if (value == "simple") {
+    return EvalSelection::simple;
+  }
+  if (value == "all") {
+    return EvalSelection::all;
+  }
+  return std::nullopt;
+}
+
+std::vector<bool> bool_values(BoolSelection selection) {
+  switch (selection) {
+  case BoolSelection::off:
+    return {false};
+  case BoolSelection::on:
+    return {true};
+  case BoolSelection::both:
+    return {false, true};
+  }
+
+  return {};
+}
+
+std::vector<EvalMode> eval_values(EvalSelection selection) {
+  switch (selection) {
+  case EvalSelection::disc:
+    return {EvalMode::disc};
+  case EvalSelection::simple:
+    return {EvalMode::simple};
+  case EvalSelection::all:
+    return {EvalMode::disc, EvalMode::simple};
+  }
+
+  return {};
+}
+
+SearchOptions search_options_for_variant(BenchmarkVariant variant) noexcept {
+  SearchOptions options{};
+  switch (variant.tt_mode) {
+  case TTMode::off:
+    break;
+  case TTMode::ordering:
+    options.use_tt_best_move_ordering = true;
+    break;
+  case TTMode::midgame:
+    options.use_midgame_tt = true;
+    break;
+  case TTMode::both:
+    options.use_midgame_tt = true;
+    options.use_tt_best_move_ordering = true;
+    break;
+  }
+
+  options.use_pvs = variant.use_pvs;
+  options.use_aspiration = variant.use_aspiration;
+  options.use_history = variant.use_history;
+  options.use_killers = variant.use_killers;
+  options.use_iid = variant.use_iid;
+  options.use_endgame_tt = variant.use_endgame_tt;
+  options.use_endgame_parity_ordering = variant.use_endgame_parity;
+  options.exact_endgame = variant.exact_endgame_empties > 0;
+  options.endgame_exact_empties = variant.exact_endgame_empties;
+  return options;
+}
+
+std::string variant_id(BenchmarkVariant variant) {
+  std::string id = "eval=";
+  id += eval_mode_name(variant.eval_mode);
+  id += ";tt=";
+  id += tt_mode_name(variant.tt_mode);
+  id += ";pvs=";
+  id += bool_mode_name(variant.use_pvs);
+  id += ";aspiration=";
+  id += bool_mode_name(variant.use_aspiration);
+  id += ";history=";
+  id += bool_mode_name(variant.use_history);
+  id += ";killers=";
+  id += bool_mode_name(variant.use_killers);
+  id += ";iid=";
+  id += bool_mode_name(variant.use_iid);
+  id += ";exact_endgame=";
+  id += std::to_string(variant.exact_endgame_empties);
+  id += ";endgame_tt=";
+  id += bool_mode_name(variant.use_endgame_tt);
+  id += ";endgame_parity=";
+  id += bool_mode_name(variant.use_endgame_parity);
+  return id;
+}
+
+std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config& config) {
+  std::vector<BenchmarkVariant> variants;
+  const std::vector<EvalMode> eval_modes = eval_values(config.eval);
+  const std::vector<bool> pvs_values =
+      mode == BenchmarkMode::iterative ? bool_values(config.pvs) : std::vector<bool>{false};
+  const std::vector<bool> aspiration_values =
+      mode == BenchmarkMode::iterative ? bool_values(config.aspiration) : std::vector<bool>{false};
+  const std::vector<bool> history_values =
+      mode == BenchmarkMode::iterative ? bool_values(config.history) : std::vector<bool>{false};
+  const std::vector<bool> killer_values =
+      mode == BenchmarkMode::iterative ? bool_values(config.killers) : std::vector<bool>{false};
+  const std::vector<bool> iid_values =
+      mode == BenchmarkMode::iterative ? bool_values(config.iid) : std::vector<bool>{false};
+  const std::vector<bool> endgame_tt_values =
+      mode == BenchmarkMode::iterative ? bool_values(config.endgame_tt) : std::vector<bool>{false};
+  const std::vector<bool> endgame_parity_values = mode == BenchmarkMode::iterative
+                                                      ? bool_values(config.endgame_parity)
+                                                      : std::vector<bool>{true};
+
+  for (const EvalMode eval_mode : eval_modes) {
+    for (const bool use_pvs : pvs_values) {
+      for (const bool use_aspiration : aspiration_values) {
+        for (const bool use_history : history_values) {
+          for (const bool use_killers : killer_values) {
+            for (const bool use_iid : iid_values) {
+              for (const bool use_endgame_tt : endgame_tt_values) {
+                for (const bool use_endgame_parity : endgame_parity_values) {
+                  variants.push_back(BenchmarkVariant{
+                      .eval_mode = eval_mode,
+                      .tt_mode = mode == BenchmarkMode::iterative ? config.tt_mode : TTMode::off,
+                      .use_pvs = use_pvs,
+                      .use_aspiration = use_aspiration,
+                      .use_history = use_history,
+                      .use_killers = use_killers,
+                      .use_iid = use_iid,
+                      .exact_endgame_empties = mode == BenchmarkMode::iterative
+                                                   ? config.exact_endgame_empties
+                                                   : std::uint8_t{0},
+                      .use_endgame_tt = use_endgame_tt,
+                      .use_endgame_parity = use_endgame_parity,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return variants;
 }
 
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--depth N|START..END|START-END]"
             " [--mode all|fixed|iterative] [--tt off|ordering|midgame|both]"
+            " [--pvs off|on|both] [--aspiration off|on|both]"
+            " [--history off|on|both] [--killers off|on|both] [--iid off|on|both]"
+            " [--eval disc|simple|all] [--exact-endgame N]"
+            " [--endgame-tt off|on|both] [--endgame-parity off|on|both]"
             " [--corpus PATH] [--tsv|--csv|--jsonl]\n\n"
          << "Default depth range is 6..8.\n";
 }
@@ -491,6 +718,125 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--pvs") {
+      require_condition(index + 1 < argc, "--pvs requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--pvs", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown PVS mode");
+      config.pvs = *selection;
+      continue;
+    }
+
+    if (argument == "--aspiration") {
+      require_condition(index + 1 < argc, "--aspiration requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--aspiration", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown aspiration mode");
+      config.aspiration = *selection;
+      continue;
+    }
+
+    if (argument == "--history") {
+      require_condition(index + 1 < argc, "--history requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--history", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown history mode");
+      config.history = *selection;
+      continue;
+    }
+
+    if (argument == "--killers") {
+      require_condition(index + 1 < argc, "--killers requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--killers", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown killers mode");
+      config.killers = *selection;
+      continue;
+    }
+
+    if (argument == "--iid") {
+      require_condition(index + 1 < argc, "--iid requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--iid", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown IID mode");
+      config.iid = *selection;
+      continue;
+    }
+
+    if (argument == "--eval") {
+      require_condition(index + 1 < argc, "--eval requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--eval", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<EvalSelection> selection = parse_eval_selection(value);
+      require_condition(selection.has_value(), "unknown evaluator");
+      config.eval = *selection;
+      continue;
+    }
+
+    if (argument == "--exact-endgame") {
+      require_condition(index + 1 < argc, "--exact-endgame requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--exact-endgame", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> empties = parse_int(value);
+      require_condition(empties.has_value() && *empties >= 0 &&
+                            *empties <= vibe_othello::board_core::kSquareCount,
+                        "invalid exact endgame threshold");
+      config.exact_endgame_empties = static_cast<std::uint8_t>(*empties);
+      continue;
+    }
+
+    if (argument == "--endgame-tt") {
+      require_condition(index + 1 < argc, "--endgame-tt requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--endgame-tt", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown endgame TT mode");
+      config.endgame_tt = *selection;
+      continue;
+    }
+
+    if (argument == "--endgame-parity") {
+      require_condition(index + 1 < argc, "--endgame-parity requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--endgame-parity", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown endgame parity mode");
+      config.endgame_parity = *selection;
+      continue;
+    }
+
     std::cerr << "search_bench: unknown argument: " << argument << '\n';
     print_usage(std::cerr, argv[0]);
     std::exit(2);
@@ -607,15 +953,20 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
   output << ']';
 }
 
-TimedResult run_search(BenchmarkMode mode, TTMode tt_mode, Position position, Depth depth) {
+TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position position,
+                       Depth depth) {
   DiscDifferenceEvaluator evaluator;
+  SimpleEvaluator simple_evaluator;
+  const Evaluator& selected_evaluator = variant.eval_mode == EvalMode::simple
+                                            ? static_cast<const Evaluator&>(simple_evaluator)
+                                            : static_cast<const Evaluator&>(evaluator);
   const auto start = std::chrono::steady_clock::now();
 
   SearchResult result =
       mode == BenchmarkMode::fixed
-          ? search_fixed_depth(position, evaluator, depth)
-          : search_iterative(position, evaluator, SearchLimits{.max_depth = depth},
-                             search_options_for_tt_mode(tt_mode));
+          ? search_fixed_depth(position, selected_evaluator, depth)
+          : search_iterative(position, selected_evaluator, SearchLimits{.max_depth = depth},
+                             search_options_for_variant(variant));
 
   return TimedResult{
       .result = result,
@@ -625,30 +976,55 @@ TimedResult run_search(BenchmarkMode mode, TTMode tt_mode, Position position, De
 }
 
 void print_delimited_header(char delimiter) {
-  std::cout << "position_name" << delimiter << "mode" << delimiter << "tt_mode" << delimiter
-            << "depth" << delimiter << "score" << delimiter << "best_move" << delimiter << "nodes"
-            << delimiter << "eval_calls" << delimiter << "beta_cutoffs" << delimiter
-            << "alpha_updates" << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter
+  std::cout << "position_name" << delimiter << "mode" << delimiter << "variant_id" << delimiter
+            << "tt_mode" << delimiter << "evaluator" << delimiter << "pvs" << delimiter
+            << "aspiration" << delimiter << "history" << delimiter << "killers" << delimiter
+            << "iid" << delimiter << "exact_endgame" << delimiter << "endgame_exact_empties"
+            << delimiter << "endgame_tt" << delimiter << "endgame_parity" << delimiter << "depth"
+            << delimiter << "score" << delimiter << "best_move" << delimiter << "nodes" << delimiter
+            << "eval_calls" << delimiter << "terminal_nodes" << delimiter << "pass_nodes"
+            << delimiter << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter
+            << "pvs_researches" << delimiter << "aspiration_fail_lows" << delimiter
+            << "aspiration_fail_highs" << delimiter << "iid_searches" << delimiter
+            << "endgame_nodes" << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter
             << "tt_stores" << delimiter << "tt_cutoffs" << delimiter << "tt_overwrites" << delimiter
             << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
             << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
             << '\n';
 }
 
-void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode, TTMode tt_mode,
-                            Depth depth, TimedResult timed_result, char delimiter) {
+void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode,
+                            BenchmarkVariant variant, Depth depth, TimedResult timed_result,
+                            char delimiter) {
   const double elapsed_ms = std::chrono::duration<double, std::milli>(timed_result.elapsed).count();
   const double elapsed_seconds = std::chrono::duration<double>(timed_result.elapsed).count();
   const double nps = elapsed_seconds > 0.0
                          ? static_cast<double>(timed_result.result.nodes) / elapsed_seconds
                          : 0.0;
+  const std::string id = variant_id(variant);
 
-  std::cout << position_case.id << delimiter << mode_name(mode) << delimiter
-            << tt_mode_name(tt_mode) << delimiter << depth << delimiter << timed_result.result.score
-            << delimiter << best_move_to_string(timed_result.result) << delimiter
-            << timed_result.result.nodes << delimiter << timed_result.result.stats.eval_calls
-            << delimiter << timed_result.result.stats.beta_cutoffs << delimiter
+  std::cout << position_case.id << delimiter << mode_name(mode) << delimiter << id << delimiter
+            << tt_mode_name(variant.tt_mode) << delimiter << eval_mode_name(variant.eval_mode)
+            << delimiter << bool_mode_name(variant.use_pvs) << delimiter
+            << bool_mode_name(variant.use_aspiration) << delimiter
+            << bool_mode_name(variant.use_history) << delimiter
+            << bool_mode_name(variant.use_killers) << delimiter << bool_mode_name(variant.use_iid)
+            << delimiter << bool_mode_name(variant.exact_endgame_empties > 0) << delimiter
+            << static_cast<int>(variant.exact_endgame_empties) << delimiter
+            << bool_mode_name(variant.use_endgame_tt) << delimiter
+            << bool_mode_name(variant.use_endgame_parity) << delimiter << depth << delimiter
+            << timed_result.result.score << delimiter << best_move_to_string(timed_result.result)
+            << delimiter << timed_result.result.nodes << delimiter
+            << timed_result.result.stats.eval_calls << delimiter
+            << timed_result.result.stats.terminal_nodes << delimiter
+            << timed_result.result.stats.pass_nodes << delimiter
+            << timed_result.result.stats.beta_cutoffs << delimiter
             << timed_result.result.stats.alpha_updates << delimiter
+            << timed_result.result.stats.pvs_researches << delimiter
+            << timed_result.result.stats.aspiration_fail_lows << delimiter
+            << timed_result.result.stats.aspiration_fail_highs << delimiter
+            << timed_result.result.stats.iid_searches << delimiter
+            << timed_result.result.stats.endgame_nodes << delimiter
             << timed_result.result.stats.tt_probes << delimiter << timed_result.result.stats.tt_hits
             << delimiter << timed_result.result.stats.tt_stores << delimiter
             << timed_result.result.stats.tt_cutoffs << delimiter
@@ -660,8 +1036,8 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << nps << '\n';
 }
 
-void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode, TTMode tt_mode,
-                        Depth depth, TimedResult timed_result) {
+void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
+                        BenchmarkVariant variant, Depth depth, TimedResult timed_result) {
   const double elapsed_seconds = std::chrono::duration<double>(timed_result.elapsed).count();
   const double nps = elapsed_seconds > 0.0
                          ? static_cast<double>(timed_result.result.nodes) / elapsed_seconds
@@ -674,10 +1050,29 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode, T
   print_json_string(std::cout, position_case.category);
   std::cout << ",\"mode\":";
   print_json_string(std::cout, mode_name(mode));
+  std::cout << ",\"variant_id\":";
+  print_json_string(std::cout, variant_id(variant));
   std::cout << ",\"tt_mode\":";
-  print_json_string(std::cout, tt_mode_name(tt_mode));
+  print_json_string(std::cout, tt_mode_name(variant.tt_mode));
   std::cout << ",\"depth\":" << depth;
-  std::cout << ",\"evaluator\":\"disc_difference\"";
+  std::cout << ",\"evaluator\":";
+  print_json_string(std::cout, eval_mode_name(variant.eval_mode));
+  std::cout << ",\"pvs\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_pvs));
+  std::cout << ",\"aspiration\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_aspiration));
+  std::cout << ",\"history\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_history));
+  std::cout << ",\"killers\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_killers));
+  std::cout << ",\"iid\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_iid));
+  std::cout << ",\"exact_endgame\":" << (variant.exact_endgame_empties > 0 ? "true" : "false");
+  std::cout << ",\"endgame_exact_empties\":" << static_cast<int>(variant.exact_endgame_empties);
+  std::cout << ",\"endgame_tt\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_endgame_tt));
+  std::cout << ",\"endgame_parity\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_endgame_parity));
   std::cout << ",\"score\":" << timed_result.result.score;
   std::cout << ",\"best_move\":";
   print_json_string(std::cout, best_move_to_string(timed_result.result));
@@ -687,8 +1082,15 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode, T
   print_json_root_moves(std::cout, timed_result.result.root_moves);
   std::cout << ",\"nodes\":" << timed_result.result.nodes;
   std::cout << ",\"eval_calls\":" << timed_result.result.stats.eval_calls;
+  std::cout << ",\"terminal_nodes\":" << timed_result.result.stats.terminal_nodes;
+  std::cout << ",\"pass_nodes\":" << timed_result.result.stats.pass_nodes;
   std::cout << ",\"beta_cutoffs\":" << timed_result.result.stats.beta_cutoffs;
   std::cout << ",\"alpha_updates\":" << timed_result.result.stats.alpha_updates;
+  std::cout << ",\"pvs_researches\":" << timed_result.result.stats.pvs_researches;
+  std::cout << ",\"aspiration_fail_lows\":" << timed_result.result.stats.aspiration_fail_lows;
+  std::cout << ",\"aspiration_fail_highs\":" << timed_result.result.stats.aspiration_fail_highs;
+  std::cout << ",\"iid_searches\":" << timed_result.result.stats.iid_searches;
+  std::cout << ",\"endgame_nodes\":" << timed_result.result.stats.endgame_nodes;
   std::cout << ",\"tt_probes\":" << timed_result.result.stats.tt_probes;
   std::cout << ",\"tt_hits\":" << timed_result.result.stats.tt_hits;
   std::cout << ",\"tt_stores\":" << timed_result.result.stats.tt_stores;
@@ -722,14 +1124,16 @@ int main(int argc, char** argv) {
     const std::vector<Depth>& depths =
         config->depths_overridden ? config->depths : position_case.depths;
     for (BenchmarkMode mode : modes) {
+      const std::vector<BenchmarkVariant> variants = variants_for_mode(mode, *config);
       for (Depth depth : depths) {
-        const TTMode tt_mode = mode == BenchmarkMode::iterative ? config->tt_mode : TTMode::off;
-        TimedResult timed_result = run_search(mode, tt_mode, position_case.position, depth);
-        if (config->output_format == OutputFormat::jsonl) {
-          print_jsonl_result(position_case, mode, tt_mode, depth, timed_result);
-        } else {
-          print_delimited_result(position_case, mode, tt_mode, depth, timed_result,
-                                 config->delimiter);
+        for (const BenchmarkVariant variant : variants) {
+          TimedResult timed_result = run_search(mode, variant, position_case.position, depth);
+          if (config->output_format == OutputFormat::jsonl) {
+            print_jsonl_result(position_case, mode, variant, depth, timed_result);
+          } else {
+            print_delimited_result(position_case, mode, variant, depth, timed_result,
+                                   config->delimiter);
+          }
         }
       }
     }
