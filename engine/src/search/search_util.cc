@@ -89,12 +89,11 @@ SearchLimitState initialize_limit_state(SearchLimits limits) {
   };
 }
 
-bool should_stop_search(SearchContext* context) {
-  if (context == nullptr || context->limit_state == nullptr) {
+bool should_stop(SearchLimitState* state) {
+  if (state == nullptr) {
     return false;
   }
 
-  SearchLimitState* state = context->limit_state;
   if (state->stopped) {
     return true;
   }
@@ -104,12 +103,12 @@ bool should_stop_search(SearchContext* context) {
   return state->stopped;
 }
 
-bool note_node_visited(SearchContext* context) {
-  if (context == nullptr) {
+bool note_node_visited(SearchLimitState* state, SearchStats* stats,
+                       SearchNodeAccounting accounting) {
+  if (stats == nullptr) {
     return false;
   }
 
-  SearchLimitState* state = context->limit_state;
   if (state != nullptr) {
     if (state->stopped || external_stop_requested(*state)) {
       state->stopped = true;
@@ -121,7 +120,10 @@ bool note_node_visited(SearchContext* context) {
     }
   }
 
-  ++context->stats.nodes;
+  ++stats->nodes;
+  if (accounting == SearchNodeAccounting::endgame) {
+    ++stats->endgame_nodes;
+  }
 
   if (state == nullptr) {
     return false;
@@ -143,6 +145,29 @@ bool note_node_visited(SearchContext* context) {
   }
 
   return state->stopped;
+}
+
+bool should_stop_search(SearchContext* context) {
+  return context != nullptr && should_stop(context->limit_state);
+}
+
+bool note_node_visited(SearchContext* context) {
+  if (context == nullptr) {
+    return false;
+  }
+  return note_node_visited(context->limit_state, &context->stats, SearchNodeAccounting::normal);
+}
+
+bool is_better_root_move(Score score, board_core::Move move, Score best_score,
+                         std::optional<board_core::Move> best_move) noexcept {
+  if (!best_move.has_value() || score > best_score) {
+    return true;
+  }
+  if (score < best_score || move.kind != board_core::MoveKind::normal ||
+      best_move->kind != board_core::MoveKind::normal) {
+    return false;
+  }
+  return move.square.index < best_move->square.index;
 }
 
 } // namespace vibe_othello::search::internal

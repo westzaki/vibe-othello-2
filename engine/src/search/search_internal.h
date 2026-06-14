@@ -125,6 +125,11 @@ struct SearchLimitState {
   bool stopped = false;
 };
 
+enum class SearchNodeAccounting : std::uint8_t {
+  normal,
+  endgame,
+};
+
 struct SearchContext {
   board_core::Position position;
   const Evaluator& evaluator;
@@ -152,8 +157,13 @@ void require_invariant(bool condition) noexcept;
 void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept;
 void add_stats(SearchStats* total, SearchStats delta) noexcept;
 SearchLimitState initialize_limit_state(SearchLimits limits);
+bool should_stop(SearchLimitState* state);
+bool note_node_visited(SearchLimitState* state, SearchStats* stats,
+                       SearchNodeAccounting accounting);
 bool should_stop_search(SearchContext* context);
 bool note_node_visited(SearchContext* context);
+bool is_better_root_move(Score score, board_core::Move move, Score best_score,
+                         std::optional<board_core::Move> best_move) noexcept;
 
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
 BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
