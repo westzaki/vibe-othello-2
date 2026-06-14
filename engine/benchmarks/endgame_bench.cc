@@ -22,6 +22,7 @@ namespace {
 using vibe_othello::board_core::apply_move;
 using vibe_othello::board_core::bit;
 using vibe_othello::board_core::Bitboard;
+using vibe_othello::board_core::format_position;
 using vibe_othello::board_core::initial_position;
 using vibe_othello::board_core::is_terminal;
 using vibe_othello::board_core::legal_moves;
@@ -571,6 +572,9 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   print_json_string(std::cout, position_case.id);
   std::cout << ",\"category\":";
   print_json_string(std::cout, position_case.category);
+  std::cout << ",\"position\":";
+  print_json_string(std::cout, format_position(position_case.position));
+  std::cout << ",\"mode\":\"exact_score\"";
   std::cout << ",\"empties\":" << static_cast<int>(empties);
   std::cout << ",\"repeat\":" << repeat;
   std::cout << ",\"score\":" << result.score;

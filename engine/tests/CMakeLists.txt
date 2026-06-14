@@ -47,6 +47,7 @@ add_executable(
   board_core/serialization_test.cc
   search/alphabeta_test.cc
   search/endgame_reference_test.cc
+  search/endgame_corpus_test.cc
   search/endgame_test.cc
   search/iterative_search_test.cc
   search/move_ordering_test.cc
@@ -59,6 +60,9 @@ add_executable(
 target_link_libraries(
   vibe_othello_engine_tests PRIVATE vibe_othello_engine_test_support
                                     Catch2::Catch2WithMain)
+
+target_compile_definitions(vibe_othello_engine_tests
+                           PRIVATE VIBE_OTHELLO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 target_compile_features(vibe_othello_engine_tests PRIVATE cxx_std_20)
 
