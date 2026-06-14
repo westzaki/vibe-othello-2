@@ -139,16 +139,17 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   const NodeCount before_nodes = context->stats.nodes;
   const Score child_alpha = static_cast<Score>(-move_window.beta);
   const Score child_beta = static_cast<Score>(-move_window.alpha);
-  const SearchValue child =
+  const SearchNodeResult child =
       full_window_search(context, child_alpha, child_beta, static_cast<Depth>(depth - 1), Ply{1});
   board_core::undo_move(&context->position, frame.delta);
-  if (child.stopped) {
+  if (child.is_stopped()) {
     return std::nullopt;
   }
+  const SearchValue& child_value = child.value();
 
-  const Score score = static_cast<Score>(-child.score);
+  const Score score = static_cast<Score>(-child_value.score);
   Line line{};
-  prepend_move(move, child.pv, &line);
+  prepend_move(move, child_value.pv, &line);
   frame.pv = line;
 
   return RootMoveInfo{
@@ -318,12 +319,13 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   if (board_core::is_terminal(context.position) || completed_depth == 0) {
     const Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
     const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
-    const SearchValue root = full_window_search(&context, alpha, beta, completed_depth, Ply{0});
-    if (root.stopped) {
+    const SearchNodeResult root =
+        full_window_search(&context, alpha, beta, completed_depth, Ply{0});
+    if (root.is_stopped()) {
       mark_stopped_and_finalize(&result, context, start);
       return result;
     }
-    finish_depth_zero_or_terminal_result(&result, context, root, root_window, start);
+    finish_depth_zero_or_terminal_result(&result, context, root.value(), root_window, start);
     return result;
   }
 
@@ -359,19 +361,20 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     const NodeCount before_nodes = context.stats.nodes;
     const Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
     const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
-    const SearchValue child =
+    const SearchNodeResult child =
         full_window_search(&context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                            static_cast<Depth>(completed_depth - 1), Ply{1});
     board_core::undo_move(&context.position, root_frame.delta);
-    if (child.stopped) {
+    if (child.is_stopped()) {
       mark_stopped_and_finalize(&result, context, start);
       return result;
     }
+    const SearchValue& child_value = child.value();
 
     result.best_move = board_core::make_pass();
-    result.score = static_cast<Score>(-child.score);
+    result.score = static_cast<Score>(-child_value.score);
     result.bound = bound_for_score(result.score, root_window);
-    prepend_move(board_core::make_pass(), child.pv, &result.pv);
+    prepend_move(board_core::make_pass(), child_value.pv, &result.pv);
     root_frame.pv = result.pv;
     result.root_moves.push_back(RootMoveInfo{
         .move = board_core::make_pass(),

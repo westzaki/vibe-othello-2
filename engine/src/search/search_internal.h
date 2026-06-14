@@ -16,9 +16,26 @@ namespace vibe_othello::search::internal {
 struct SearchValue {
   Score score = 0;
   Line pv{};
-  // When stopped is true, score and pv are incomplete and must not be published
-  // or stored as semantic search results.
-  bool stopped = false;
+};
+
+enum class SearchNodeStatus : std::uint8_t {
+  complete,
+  stopped,
+};
+
+class SearchNodeResult {
+public:
+  static SearchNodeResult completed(SearchValue value) noexcept;
+  static SearchNodeResult stopped() noexcept;
+
+  bool is_complete() const noexcept;
+  bool is_stopped() const noexcept;
+
+  const SearchValue& value() const noexcept;
+
+private:
+  SearchNodeStatus status_ = SearchNodeStatus::stopped;
+  SearchValue value_{};
 };
 
 struct MoveList {
@@ -142,17 +159,18 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
 BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
 std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
                                      Score beta) noexcept;
-std::optional<SearchValue> prepare_search_node(SearchContext* context, Score alpha, Score beta,
-                                               Depth depth, Ply ply,
-                                               std::optional<TTEntry>* tt_entry);
+std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Score alpha, Score beta,
+                                                    Depth depth, Ply ply,
+                                                    std::optional<TTEntry>* tt_entry);
 MoveOrderingHints build_ordering_hints_from_tt(const SearchContext& context,
                                                const std::optional<TTEntry>& tt_entry) noexcept;
-SearchValue search_pass_child(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
-                              SearchDispatch dispatch);
-SearchValue search_full_window_child(SearchContext* context, board_core::Move move, Score alpha,
-                                     Score beta, Depth depth, Ply ply, SearchDispatch dispatch);
-SearchValue search_null_window_child(SearchContext* context, board_core::Move move, Score beta,
-                                     Depth depth, Ply ply);
+SearchNodeResult search_pass_child(SearchContext* context, Score alpha, Score beta, Depth depth,
+                                   Ply ply, SearchDispatch dispatch);
+SearchNodeResult search_full_window_child(SearchContext* context, board_core::Move move,
+                                          Score alpha, Score beta, Depth depth, Ply ply,
+                                          SearchDispatch dispatch);
+SearchNodeResult search_null_window_child(SearchContext* context, board_core::Move move, Score beta,
+                                          Depth depth, Ply ply);
 void update_best_line_and_move(const SearchValue& child, board_core::Move move, SearchValue* best,
                                std::optional<board_core::Move>* best_move, StackFrame* frame);
 bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* alpha,
@@ -160,15 +178,15 @@ bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* a
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
                             std::optional<board_core::Move> best_move) noexcept;
 
-SearchValue alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
-SearchValue null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply);
-SearchValue pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
-SearchValue full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
-                               Ply ply);
+SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
+SearchNodeResult null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply);
+SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
+SearchNodeResult full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
+                                    Ply ply);
 std::uint8_t empty_count(board_core::Position position) noexcept;
 bool should_use_exact_endgame(board_core::Position position, SearchOptions options) noexcept;
-SearchValue exact_score_search(EndgameContext* context, Score alpha, Score beta,
-                               std::uint8_t empties, Ply ply);
+SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,
+                                    std::uint8_t empties, Ply ply);
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
                                  SearchOptions options, TranspositionTable* tt,
                                  SearchLimitState* limit_state = nullptr);

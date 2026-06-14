@@ -64,7 +64,8 @@ board_core::Position position_after_fixed_choices(std::initializer_list<std::siz
   return position;
 }
 
-SearchValue run_alphabeta(board_core::Position position, const Evaluator& evaluator, Depth depth) {
+SearchNodeResult run_alphabeta(board_core::Position position, const Evaluator& evaluator,
+                               Depth depth) {
   SearchContext context{
       .position = position,
       .evaluator = evaluator,
@@ -73,8 +74,8 @@ SearchValue run_alphabeta(board_core::Position position, const Evaluator& evalua
   return alphabeta(&context, kScoreLoss, kScoreWin, depth, Ply{0});
 }
 
-SearchValue run_null_window(board_core::Position position, const Evaluator& evaluator, Score beta,
-                            Depth depth) {
+SearchNodeResult run_null_window(board_core::Position position, const Evaluator& evaluator,
+                                 Score beta, Depth depth) {
   SearchContext context{
       .position = position,
       .evaluator = evaluator,
@@ -85,17 +86,24 @@ SearchValue run_null_window(board_core::Position position, const Evaluator& eval
 
 void require_null_window_bounds(board_core::Position position, Depth depth) {
   DiscDifferenceEvaluator exact_evaluator;
-  const SearchValue exact = run_alphabeta(position, exact_evaluator, depth);
+  const SearchNodeResult exact_result = run_alphabeta(position, exact_evaluator, depth);
+  REQUIRE(exact_result.is_complete());
+  const SearchValue& exact = exact_result.value();
   REQUIRE(exact.score > kScoreLoss);
   REQUIRE(exact.score < kScoreWin);
 
   DiscDifferenceEvaluator fail_high_evaluator;
-  const SearchValue fail_high = run_null_window(position, fail_high_evaluator, exact.score, depth);
+  const SearchNodeResult fail_high_result =
+      run_null_window(position, fail_high_evaluator, exact.score, depth);
+  REQUIRE(fail_high_result.is_complete());
+  const SearchValue& fail_high = fail_high_result.value();
   REQUIRE(fail_high.score >= exact.score);
 
   DiscDifferenceEvaluator fail_low_evaluator;
-  const SearchValue fail_low =
+  const SearchNodeResult fail_low_result =
       run_null_window(position, fail_low_evaluator, static_cast<Score>(exact.score + 1), depth);
+  REQUIRE(fail_low_result.is_complete());
+  const SearchValue& fail_low = fail_low_result.value();
   REQUIRE(fail_low.score < static_cast<Score>(exact.score + 1));
 }
 
@@ -120,18 +128,24 @@ TEST_CASE("null-window search reports fail-high and fail-low bounds", "[search][
 
 TEST_CASE("null-window search handles depth zero", "[search][null_window]") {
   ConstantEvaluator exact_evaluator{13};
-  const SearchValue exact =
+  const SearchNodeResult exact_result =
       run_alphabeta(board_core::initial_position(), exact_evaluator, Depth{0});
+  REQUIRE(exact_result.is_complete());
+  const SearchValue& exact = exact_result.value();
   REQUIRE(exact.score == 13);
 
   ConstantEvaluator fail_high_evaluator{13};
-  const SearchValue fail_high =
+  const SearchNodeResult fail_high_result =
       run_null_window(board_core::initial_position(), fail_high_evaluator, Score{13}, Depth{0});
+  REQUIRE(fail_high_result.is_complete());
+  const SearchValue& fail_high = fail_high_result.value();
   REQUIRE(fail_high.score >= 13);
 
   ConstantEvaluator fail_low_evaluator{13};
-  const SearchValue fail_low =
+  const SearchNodeResult fail_low_result =
       run_null_window(board_core::initial_position(), fail_low_evaluator, Score{14}, Depth{0});
+  REQUIRE(fail_low_result.is_complete());
+  const SearchValue& fail_low = fail_low_result.value();
   REQUIRE(fail_low.score < 14);
 }
 
