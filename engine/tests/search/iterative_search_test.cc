@@ -569,13 +569,95 @@ TEST_CASE("iterative killer and history ordering is deterministic", "[search][it
   REQUIRE(first.stats == second.stats);
 }
 
+TEST_CASE("iterative IID preserves search decisions across midgame TT modes",
+          "[search][iterative][iid]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  const std::array<SearchOptions, 8> option_cases{
+      SearchOptions{},
+      SearchOptions{.use_midgame_tt = true},
+      SearchOptions{.use_tt_best_move_ordering = true},
+      SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true},
+      SearchOptions{.use_pvs = true},
+      SearchOptions{.use_pvs = true, .use_midgame_tt = true},
+      SearchOptions{.use_pvs = true, .use_tt_best_move_ordering = true},
+      SearchOptions{.use_pvs = true, .use_midgame_tt = true, .use_tt_best_move_ordering = true},
+  };
+
+  for (const SearchOptions baseline_options : option_cases) {
+    SearchOptions iid_options = baseline_options;
+    iid_options.use_iid = true;
+
+    DiscDifferenceEvaluator baseline_evaluator;
+    DiscDifferenceEvaluator iid_evaluator;
+    const SearchResult baseline = search_iterative(
+        position, baseline_evaluator, SearchLimits{.max_depth = Depth{5}}, baseline_options);
+    const SearchResult with_iid =
+        search_iterative(position, iid_evaluator, SearchLimits{.max_depth = Depth{5}}, iid_options);
+
+    require_same_decision(with_iid, baseline);
+    require_basic_stats_invariants(with_iid);
+    require_root_move_scores_match(with_iid, baseline);
+    require_replayable_pv(position, with_iid.pv);
+    require_replayable_root_pvs(position, with_iid);
+    REQUIRE(baseline.stats.iid_searches == 0);
+  }
+}
+
+TEST_CASE("iterative IID starts shallow searches when no TT best move is available",
+          "[search][iterative][iid]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  DiscDifferenceEvaluator evaluator;
+
+  const SearchResult result = search_iterative(
+      position, evaluator, SearchLimits{.max_depth = Depth{5}}, SearchOptions{.use_iid = true});
+
+  require_basic_stats_invariants(result);
+  require_replayable_pv(position, result.pv);
+  require_replayable_root_pvs(position, result);
+  REQUIRE(result.stats.iid_searches > 0);
+}
+
+TEST_CASE("iterative IID is deterministic", "[search][iterative][iid]") {
+  const board_core::Position position = position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1});
+  const SearchOptions options{
+      .use_pvs = true,
+      .use_iid = true,
+      .use_history = true,
+      .use_killers = true,
+      .use_midgame_tt = true,
+      .use_tt_best_move_ordering = true,
+  };
+  DiscDifferenceEvaluator first_evaluator;
+  DiscDifferenceEvaluator second_evaluator;
+
+  const SearchResult first =
+      search_iterative(position, first_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
+  const SearchResult second =
+      search_iterative(position, second_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
+
+  require_same_final_result(first, second);
+  require_root_move_set_matches(first, second);
+  REQUIRE(first.stats == second.stats);
+}
+
+TEST_CASE("iterative IID respects max node cancellation", "[search][iterative][iid]") {
+  DiscDifferenceEvaluator evaluator;
+
+  const SearchResult result = search_iterative(board_core::initial_position(), evaluator,
+                                               SearchLimits{.max_depth = Depth{5}, .max_nodes = 8},
+                                               SearchOptions{.use_iid = true});
+
+  require_basic_stats_invariants(result);
+  REQUIRE(result.stopped);
+  REQUIRE(result.nodes <= 8);
+}
+
 TEST_CASE("iterative safely ignores unimplemented search options", "[search][iterative]") {
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
   DiscDifferenceEvaluator actual_evaluator;
   DiscDifferenceEvaluator expected_evaluator;
 
   const SearchOptions options{
-      .use_iid = true,
       .use_endgame_tt = true,
       .exact_endgame = true,
       .probcut = true,

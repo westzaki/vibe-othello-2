@@ -56,6 +56,8 @@ The current search implementation includes:
 * transposition-table best-move ordering
 * Othello-specific move ordering
 * killer and history midgame move ordering heuristics
+* real internal iterative deepening for deep full-window midgame nodes without
+  legal midgame TT best-move hints
 * separate midgame and endgame move-ordering entry points sharing legal-move
   expansion and insertion-sort mechanics
 * `max_nodes`, `max_time`, `infinite`, and `stop_requested` enforcement
@@ -103,7 +105,6 @@ The current implementation does not yet have:
 * WLD search path
 * WLD endgame TT probing or storing
 * public direct endgame solve API
-* real internal iterative deepening
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
 * ProbCut or calibrated selective pruning
@@ -130,8 +131,9 @@ hard real-time deadline.
 Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 
 Remaining unimplemented search options are expected to remain safe no-ops until
-each option is implemented. `exact_endgame` is no longer a no-op when the root
-threshold is met.
+each option is implemented. `use_iid` now enables ordering-only shallow midgame
+searches, and `exact_endgame` is no longer a no-op when the root threshold is
+met.
 
 ## Implementation Plan
 
@@ -158,6 +160,7 @@ Status values:
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
 | Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
 | Add killer and history heuristics | done | Ordering-only midgame heuristics controlled by `use_killers` and `use_history` |
+| Add real internal iterative deepening | done | Ordering-only shallow midgame search controlled by `use_iid` |
 | Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add specialized small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |

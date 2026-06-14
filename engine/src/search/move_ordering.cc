@@ -261,6 +261,9 @@ int midgame_order_score(board_core::Position position, board_core::Move move,
   if (is_move(move, hints.tt_best_move.value_or(board_core::make_pass()))) {
     score += 1'000'000;
   }
+  if (is_move(move, hints.iid_best_move.value_or(board_core::make_pass()))) {
+    score += 500'000;
+  }
 
   score += static_othello_order_score(position, move);
 

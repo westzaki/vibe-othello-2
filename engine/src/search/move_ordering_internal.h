@@ -16,6 +16,7 @@ struct MoveList {
 struct MidgameOrderingHints {
   std::optional<board_core::Move> root_best_move;
   std::optional<board_core::Move> tt_best_move;
+  std::optional<board_core::Move> iid_best_move;
   std::array<board_core::Move, 2> killer_moves{board_core::make_pass(), board_core::make_pass()};
   const std::array<int, board_core::kSquareCount>* history = nullptr;
   bool use_opponent_mobility = false;

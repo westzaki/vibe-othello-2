@@ -68,6 +68,7 @@ struct SearchContext {
   TranspositionTable* transposition_table = nullptr;
   MidgameOrderingState* ordering_state = nullptr;
   SearchLimitState* limit_state = nullptr;
+  bool in_iid = false;
   std::array<StackFrame, kMaxPly> stack{};
 };
 

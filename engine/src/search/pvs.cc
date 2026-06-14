@@ -13,7 +13,15 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
   }
 
   StackFrame& frame = context->stack[ply];
-  const MoveOrderingHints hints = build_midgame_ordering_hints(*context, tt_entry, ply);
+  bool iid_stopped = false;
+  const std::optional<board_core::Move> iid_best_move =
+      maybe_find_iid_best_move(context, alpha, beta, depth, ply, tt_entry, &iid_stopped);
+  if (iid_stopped) {
+    return SearchNodeResult::stopped();
+  }
+
+  const MoveOrderingHints hints =
+      build_midgame_ordering_hints(*context, tt_entry, iid_best_move, ply);
   frame.moves = order_midgame_moves(context->position, hints);
   if (frame.moves.size == 0) {
     return search_pass_child(context, alpha, beta, depth, ply, SearchDispatch::pvs);
