@@ -43,12 +43,21 @@ struct MoveList {
   std::uint8_t size = 0;
 };
 
-struct MoveOrderingHints {
+struct MidgameOrderingHints {
   std::optional<board_core::Move> root_best_move;
   std::optional<board_core::Move> tt_best_move;
   std::array<board_core::Move, 2> killer_moves{board_core::make_pass(), board_core::make_pass()};
   const std::array<int, board_core::kSquareCount>* history = nullptr;
   bool use_opponent_mobility = false;
+};
+
+// Compatibility name for existing call sites. New policy-specific code should
+// choose MidgameOrderingHints or EndgameOrderingHints explicitly.
+using MoveOrderingHints = MidgameOrderingHints;
+
+struct EndgameOrderingHints {
+  std::optional<board_core::Move> tt_best_move;
+  std::optional<board_core::Move> root_best_move;
 };
 
 enum class SearchDispatch : std::uint8_t {
@@ -165,7 +174,9 @@ bool note_node_visited(SearchContext* context);
 bool is_better_root_move(Score score, board_core::Move move, Score best_score,
                          std::optional<board_core::Move> best_move) noexcept;
 
+MoveList order_midgame_moves(board_core::Position position, MidgameOrderingHints hints) noexcept;
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
+MoveList order_endgame_moves(board_core::Position position, EndgameOrderingHints hints) noexcept;
 BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
 std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
                                      Score beta) noexcept;

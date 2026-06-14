@@ -14,7 +14,7 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
 
   StackFrame& frame = context->stack[ply];
   const MoveOrderingHints hints = build_ordering_hints_from_tt(*context, tt_entry);
-  frame.moves = ordered_moves(context->position, hints);
+  frame.moves = order_midgame_moves(context->position, hints);
   if (frame.moves.size == 0) {
     return search_pass_child(context, alpha, beta, depth, ply, SearchDispatch::pvs);
   }

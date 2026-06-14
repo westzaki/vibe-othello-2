@@ -55,6 +55,8 @@ The current search implementation includes:
 * midgame transposition-table cutoffs
 * transposition-table best-move ordering
 * Othello-specific move ordering
+* separate midgame and endgame move-ordering entry points sharing legal-move
+  expansion and insertion-sort mechanics
 * `max_nodes`, `max_time`, `infinite`, and `stop_requested` enforcement
 * best-completed-depth publication when iterative search is interrupted
 * search statistics aggregation

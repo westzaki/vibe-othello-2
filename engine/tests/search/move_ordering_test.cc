@@ -37,6 +37,13 @@ void require_ordered_moves_match_legal_set(board_core::Position position, MoveLi
   }
 }
 
+void require_same_move_order(MoveList left, MoveList right) {
+  REQUIRE(left.size == right.size);
+  for (std::uint8_t index = 0; index < left.size; ++index) {
+    REQUIRE(left.moves[index] == right.moves[index]);
+  }
+}
+
 TEST_CASE("move ordering keeps the legal move set complete", "[search][move_ordering]") {
   const board_core::Position position{
       .player = board_core::bit(square(3, 0)) | board_core::bit(square(3, 3)),
@@ -48,6 +55,35 @@ TEST_CASE("move ordering keeps the legal move set complete", "[search][move_orde
   const MoveList moves = ordered_moves(position, MoveOrderingHints{});
 
   require_ordered_moves_match_legal_set(position, moves);
+}
+
+TEST_CASE("ordered_moves remains the midgame ordering compatibility entry",
+          "[search][move_ordering]") {
+  const board_core::Position position{
+      .player = board_core::bit(square(3, 0)) | board_core::bit(square(3, 3)),
+      .opponent = board_core::bit(square(1, 0)) | board_core::bit(square(2, 0)) |
+                  board_core::bit(square(4, 0)) | board_core::bit(square(2, 2)),
+      .side_to_move = board_core::Color::black,
+  };
+  const MoveOrderingHints hints{
+      .root_best_move = move(1, 1),
+      .tt_best_move = move(0, 0),
+  };
+
+  require_same_move_order(ordered_moves(position, hints), order_midgame_moves(position, hints));
+}
+
+TEST_CASE("default endgame ordering matches the existing empty-hint ordering",
+          "[search][move_ordering][endgame]") {
+  const board_core::Position position{
+      .player = board_core::bit(square(3, 0)) | board_core::bit(square(3, 3)),
+      .opponent = board_core::bit(square(2, 0)) | board_core::bit(square(4, 0)) |
+                  board_core::bit(square(2, 2)),
+      .side_to_move = board_core::Color::black,
+  };
+
+  require_same_move_order(order_endgame_moves(position, EndgameOrderingHints{}),
+                          ordered_moves(position, MoveOrderingHints{}));
 }
 
 TEST_CASE("move ordering prefers legal corners", "[search][move_ordering]") {
