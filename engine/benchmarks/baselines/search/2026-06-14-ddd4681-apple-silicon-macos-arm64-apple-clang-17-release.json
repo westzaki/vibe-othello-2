@@ -1,0 +1,928 @@
+{
+  "schema_version": 1,
+  "benchmark": "search_iterative_discdiff",
+  "measured_commit": "ddd4681ae540d2747143cb6c921831e2f0dcca29",
+  "measured_revision": "ddd4681",
+  "measured_at": "2026-06-14",
+  "machine": "apple-silicon-macos-arm64",
+  "os": "Darwin 24.6.0 arm64",
+  "compiler": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+  "build_type": "Release",
+  "command": "./build-bench/engine/benchmarks/vibe_othello_search_bench --mode iterative --depth 5 --tt both --corpus engine/testdata/search/positions.tsv --jsonl",
+  "corpus": "engine/testdata/search/positions.tsv",
+  "mode": "iterative",
+  "depth": 5,
+  "tt_mode": "both",
+  "selection_policy": "single search benchmark invocation",
+  "results": [
+    {
+      "position_id": "initial",
+      "category": "opening",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 3,
+      "best_move": "d3",
+      "pv": [
+        "d3",
+        "c3",
+        "b3",
+        "b2",
+        "c4"
+      ],
+      "root_moves": [
+        {
+          "move": "d3",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c4",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f5",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e6",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 505,
+      "eval_calls": 309,
+      "beta_cutoffs": 115,
+      "alpha_updates": 177,
+      "tt_probes": 196,
+      "tt_hits": 69,
+      "tt_stores": 195,
+      "tt_cutoffs": 1,
+      "tt_overwrites": 0,
+      "tt_collisions": 7,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 219916,
+      "nps": 2296331.3265064843
+    },
+    {
+      "position_id": "early_balanced",
+      "category": "early",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 7,
+      "best_move": "d3",
+      "pv": [
+        "d3",
+        "a2",
+        "a4",
+        "d2",
+        "c2"
+      ],
+      "root_moves": [
+        {
+          "move": "d3",
+          "score": 7,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a4",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c2",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c5",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e6",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e3",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "b5",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "b2",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 4909,
+      "eval_calls": 3576,
+      "beta_cutoffs": 972,
+      "alpha_updates": 1451,
+      "tt_probes": 1333,
+      "tt_hits": 310,
+      "tt_stores": 1315,
+      "tt_cutoffs": 18,
+      "tt_overwrites": 6,
+      "tt_collisions": 380,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 1112125,
+      "nps": 4414072.159154771
+    },
+    {
+      "position_id": "early_high_mobility",
+      "category": "early",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 3,
+      "best_move": "g2",
+      "pv": [
+        "g2",
+        "d2",
+        "b4",
+        "h2",
+        "d1"
+      ],
+      "root_moves": [
+        {
+          "move": "h2",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c6",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d2",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f3",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "b4",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "b5",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e2",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f2",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c5",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d6",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d7",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f6",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e7",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "g2",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 9615,
+      "eval_calls": 7046,
+      "beta_cutoffs": 1876,
+      "alpha_updates": 2664,
+      "tt_probes": 2569,
+      "tt_hits": 545,
+      "tt_stores": 2536,
+      "tt_cutoffs": 33,
+      "tt_overwrites": 77,
+      "tt_collisions": 1133,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 2172834,
+      "nps": 4425096.44086939
+    },
+    {
+      "position_id": "midgame_balanced",
+      "category": "midgame",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 9,
+      "best_move": "e7",
+      "pv": [
+        "e7",
+        "d1",
+        "f1",
+        "g1",
+        "h3"
+      ],
+      "root_moves": [
+        {
+          "move": "g1",
+          "score": 7,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h3",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h4",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d6",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f2",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f6",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e7",
+          "score": 9,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f7",
+          "score": 7,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c5",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h2",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 13948,
+      "eval_calls": 10689,
+      "beta_cutoffs": 2462,
+      "alpha_updates": 3722,
+      "tt_probes": 3259,
+      "tt_hits": 537,
+      "tt_stores": 3185,
+      "tt_cutoffs": 74,
+      "tt_overwrites": 233,
+      "tt_collisions": 1767,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 3127167,
+      "nps": 4460267.072401314
+    },
+    {
+      "position_id": "midgame_high_mobility",
+      "category": "midgame",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 1,
+      "best_move": "a1",
+      "pv": [
+        "a1",
+        "f1",
+        "a3",
+        "a4",
+        "e6"
+      ],
+      "root_moves": [
+        {
+          "move": "a7",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a1",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h1",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a8",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c1",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d1",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e1",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f1",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a3",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a6",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h6",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f5",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "b4",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "g4",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "g3",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d6",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e6",
+          "score": -5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f6",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c7",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h2",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 16408,
+      "eval_calls": 13400,
+      "beta_cutoffs": 1982,
+      "alpha_updates": 3565,
+      "tt_probes": 3008,
+      "tt_hits": 776,
+      "tt_stores": 2927,
+      "tt_cutoffs": 80,
+      "tt_overwrites": 164,
+      "tt_collisions": 1333,
+      "tt_rejected_stores": 1,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 3319625,
+      "nps": 4942726.964642091
+    },
+    {
+      "position_id": "corner_available",
+      "category": "tactical",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 5,
+      "best_move": "h1",
+      "pv": [
+        "h1",
+        "e2",
+        "a1",
+        "c4",
+        "h3"
+      ],
+      "root_moves": [
+        {
+          "move": "h1",
+          "score": 5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a1",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h4",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h6",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h3",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h5",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c7",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f2",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c6",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d7",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "e3",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c4",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "d3",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h7",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 9747,
+      "eval_calls": 7315,
+      "beta_cutoffs": 1664,
+      "alpha_updates": 2236,
+      "tt_probes": 2432,
+      "tt_hits": 589,
+      "tt_stores": 2344,
+      "tt_cutoffs": 88,
+      "tt_overwrites": 76,
+      "tt_collisions": 986,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 2201167,
+      "nps": 4428105.63669181
+    },
+    {
+      "position_id": "pass_position",
+      "category": "edge_case",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": -3,
+      "best_move": "pass",
+      "pv": [
+        "pass",
+        "c1"
+      ],
+      "root_moves": [
+        {
+          "move": "pass",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 14,
+      "eval_calls": 1,
+      "beta_cutoffs": 0,
+      "alpha_updates": 4,
+      "tt_probes": 9,
+      "tt_hits": 3,
+      "tt_stores": 4,
+      "tt_cutoffs": 0,
+      "tt_overwrites": 0,
+      "tt_collisions": 0,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 28708,
+      "nps": 487668.9424550648
+    },
+    {
+      "position_id": "late_midgame",
+      "category": "late_midgame",
+      "mode": "iterative",
+      "tt_mode": "both",
+      "depth": 5,
+      "evaluator": "disc_difference",
+      "score": 3,
+      "best_move": "a2",
+      "pv": [
+        "a2",
+        "f3",
+        "c1",
+        "f5",
+        "h5"
+      ],
+      "root_moves": [
+        {
+          "move": "h4",
+          "score": 1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a2",
+          "score": 3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "a7",
+          "score": -7,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "c1",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h2",
+          "score": -1,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "h6",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "f5",
+          "score": -5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "g6",
+          "score": -5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "g8",
+          "score": -3,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        },
+        {
+          "move": "g7",
+          "score": -5,
+          "bound": "exact",
+          "depth": 5,
+          "exact": false,
+          "selective": false
+        }
+      ],
+      "nodes": 4326,
+      "eval_calls": 2994,
+      "beta_cutoffs": 871,
+      "alpha_updates": 1479,
+      "tt_probes": 1332,
+      "tt_hits": 390,
+      "tt_stores": 1279,
+      "tt_cutoffs": 53,
+      "tt_overwrites": 0,
+      "tt_collisions": 330,
+      "tt_rejected_stores": 0,
+      "tt_invalid_best_move_stores": 0,
+      "elapsed_ns": 1104583,
+      "nps": 3916410.08416751
+    }
+  ]
+}

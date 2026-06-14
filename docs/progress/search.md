@@ -93,6 +93,7 @@ Existing search tests include:
 * exact endgame tests
 * exact endgame reference differential tests
 * deterministic search golden-check tooling
+* checked-in search benchmark aggregate baseline data for local comparison
 
 ## Current Gaps
 
@@ -101,7 +102,6 @@ The current implementation does not yet have:
 * WLD search path
 * WLD endgame TT probing or storing
 * public direct endgame solve API
-* checked-in search performance baselines
 * real internal iterative deepening
 * killer heuristic
 * history heuristic

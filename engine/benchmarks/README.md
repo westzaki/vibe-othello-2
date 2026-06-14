@@ -271,6 +271,58 @@ data, not universal truth. Timing and NPS values are not intended to be CI gates
 golden checks compare deterministic fields such as score, best move, PV, and
 root move scores separately from timing and search statistics.
 
+## Search Baselines
+
+The checked-in search benchmark aggregate baseline is:
+
+```text
+engine/benchmarks/baselines/search/2026-06-14-<short-sha>-<machine>-<compiler>-release.json
+```
+
+It is generated from the checked-in search corpus with iterative search,
+disc-difference evaluation, depth 5, TT mode `both`, and raw JSONL output:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_search_bench \
+  --mode iterative \
+  --depth 5 \
+  --tt both \
+  --corpus engine/testdata/search/positions.tsv \
+  --jsonl \
+  > engine/benchmarks/results/search-iterative-discdiff-depth5-raw.jsonl
+```
+
+Regenerate the aggregate baseline with:
+
+```sh
+tools/search/generate_baseline.sh
+```
+
+The `--jsonl` output is raw benchmark output: one JSON object per
+position/mode/depth result. The checked-in baseline is an aggregate JSON
+document built from that raw output. It stores environment metadata,
+`measured_commit` and `measured_revision` for the measured engine commit,
+deterministic result fields, PV and root move summaries, search statistics, TT
+statistics, and local timing summaries. It is comparison data only, not a
+performance gate. Prefer comparing runs from the same machine, compiler, build
+type, command, and corpus.
+
+Sanity-check the checked-in aggregate baseline JSON with:
+
+```sh
+tools/search/check_baseline.py \
+  engine/benchmarks/baselines/search/2026-06-14-<short-sha>-<machine>-<compiler>-release.json
+```
+
+Search golden checks and search baselines have different purposes. Golden
+checks compare deterministic behavior and intentionally omit nodes, search
+statistics, TT statistics, timing, and NPS. Search baselines keep those
+aggregate measurement fields available for local review, but timing and NPS are
+not CI gates.
+
+See `engine/benchmarks/baselines/search/README.md` for the aggregate JSON shape
+and regeneration checklist.
+
 ## Endgame Baselines
 
 The checked-in exact endgame benchmark baseline is:
