@@ -18,6 +18,13 @@ description, compiler, and build type:
 YYYY-MM-DD-<short-sha>-<machine>-<compiler>-<build>.json
 ```
 
+Keep the common top-level metadata envelope consistent across benchmark
+families. Use benchmark-specific `benchmark`, option, and `results[]` fields,
+because board-core, search, and endgame measure different things. The `machine`
+field should match the stable machine token used in the filename, such as
+`apple-silicon-macos-arm64`; use `os` for fuller OS, release, and architecture
+details when useful.
+
 Suggested JSON shape:
 
 ```json
@@ -27,7 +34,8 @@ Suggested JSON shape:
   "commit": "<git-sha>",
   "revision": "<short-sha>",
   "measured_at": "YYYY-MM-DD",
-  "machine": "<machine-name>",
+  "machine": "<machine-token-from-filename>",
+  "os": "<os-release-and-architecture>",
   "compiler": "<compiler-id-and-version>",
   "build_type": "Release",
   "command": "./build-bench/engine/benchmarks/vibe_othello_board_core_bench",
