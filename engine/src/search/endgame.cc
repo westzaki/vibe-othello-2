@@ -82,9 +82,6 @@ void publish_elapsed(SearchResult* result, std::chrono::steady_clock::time_point
 void mark_stopped_non_exact(SearchResult* result) noexcept {
   result->stopped = true;
   result->exact = false;
-  for (RootMoveInfo& root_move : result->root_moves) {
-    root_move.exact = false;
-  }
 }
 
 } // namespace
@@ -277,6 +274,10 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
   result.stats = context.stats;
   publish_elapsed(&result, start);
   if (result.stopped) {
+    if (result.best_move.has_value()) {
+      result.score = best_score;
+      result.pv = best_line;
+    }
     return result;
   }
 

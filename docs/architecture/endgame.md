@@ -741,6 +741,7 @@ If interrupted:
 * `SearchResult::exact = false`
 * best move may be the best completed root move
 * no illegal move may be returned
+* completed root move entries may remain exact even when the whole result is not exact
 * partial TT entries must not be stored as exact
 
 A stopped search may store safe lower or upper bounds only if the bound
