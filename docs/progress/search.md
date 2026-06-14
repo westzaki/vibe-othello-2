@@ -68,6 +68,7 @@ The current search implementation includes:
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
   statistics
 * endgame benchmark coverage through `vibe_othello_endgame_bench`
+* checked-in exact endgame benchmark baseline data for local comparison
 
 Existing search tests include:
 
@@ -92,7 +93,7 @@ The current implementation does not yet have:
 * parity-region endgame ordering
 * specialized endgame routines
 * public direct endgame solve API
-* checked-in search or endgame performance baselines
+* checked-in search performance baselines
 * real internal iterative deepening
 * killer heuristic
 * history heuristic
