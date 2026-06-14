@@ -335,6 +335,11 @@ may be enabled without TT cutoffs.
 Disabling one table must not silently disable or weaken the semantics of another
 table.
 
+`multi_pv` controls root line reporting only where implemented. For exact
+endgame root search, `0` keeps backward-compatible all-root exact reporting, `1`
+selects best-only exact reporting, and values greater than one are currently a
+safe no-op that behave like `0` until top-N reporting is implemented.
+
 ## Search Result
 
 Search result is the stable public output.

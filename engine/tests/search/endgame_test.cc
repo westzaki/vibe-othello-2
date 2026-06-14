@@ -44,29 +44,33 @@ board_core::Position parse_position_or_fail(std::string_view text) {
 }
 
 SearchOptions exact_options(std::uint8_t threshold, bool use_endgame_tt = false,
-                            bool use_endgame_parity_ordering = true) noexcept {
+                            bool use_endgame_parity_ordering = true,
+                            std::uint8_t multi_pv = 0) noexcept {
   return SearchOptions{
       .use_endgame_tt = use_endgame_tt,
       .exact_endgame = true,
       .use_endgame_parity_ordering = use_endgame_parity_ordering,
+      .multi_pv = multi_pv,
       .endgame_exact_empties = threshold,
   };
 }
 
 SearchResult search_exact(board_core::Position position, std::uint8_t threshold,
-                          bool use_endgame_tt = false, bool use_endgame_parity_ordering = true) {
+                          bool use_endgame_tt = false, bool use_endgame_parity_ordering = true,
+                          std::uint8_t multi_pv = 0) {
   CountingEvaluator evaluator{123};
-  SearchResult result =
-      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                       exact_options(threshold, use_endgame_tt, use_endgame_parity_ordering));
+  SearchResult result = search_iterative(
+      position, evaluator, SearchLimits{.max_depth = Depth{0}},
+      exact_options(threshold, use_endgame_tt, use_endgame_parity_ordering, multi_pv));
   REQUIRE(evaluator.calls == 0);
   return result;
 }
 
 SearchResult search_exact_with_limits(board_core::Position position, std::uint8_t threshold,
-                                      SearchLimits limits) {
+                                      SearchLimits limits, std::uint8_t multi_pv = 0) {
   CountingEvaluator evaluator{123};
-  SearchResult result = search_iterative(position, evaluator, limits, exact_options(threshold));
+  SearchResult result = search_iterative(position, evaluator, limits,
+                                         exact_options(threshold, false, true, multi_pv));
   REQUIRE(evaluator.calls == 0);
   return result;
 }
@@ -353,6 +357,77 @@ TEST_CASE("exact endgame reports exact root flags and legal best move", "[search
   require_exact_result_invariants(position, result);
 }
 
+TEST_CASE("exact endgame default and multi pv zero report all root moves", "[search][endgame]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult default_result = search_exact(position, 4);
+  const SearchResult multi_pv_zero = search_exact(position, 4, false, true, 0);
+
+  require_exact_result_invariants(position, default_result);
+  require_exact_result_invariants(position, multi_pv_zero);
+  REQUIRE(default_result.root_moves.size() > 1);
+  REQUIRE(multi_pv_zero.best_move == default_result.best_move);
+  REQUIRE(multi_pv_zero.score == default_result.score);
+  REQUIRE(multi_pv_zero.pv == default_result.pv);
+  REQUIRE(multi_pv_zero.root_moves == default_result.root_moves);
+}
+
+TEST_CASE("exact endgame multi pv one reports only the exact best root move", "[search][endgame]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult all_roots = search_exact(position, 4);
+  const SearchResult best_only = search_exact(position, 4, false, true, 1);
+
+  require_exact_result_invariants(position, all_roots);
+  require_exact_result_invariants(position, best_only);
+  REQUIRE(all_roots.root_moves.size() > 1);
+  REQUIRE(best_only.score == all_roots.score);
+  REQUIRE(best_only.best_move == all_roots.best_move);
+  REQUIRE(best_only.pv == all_roots.pv);
+  REQUIRE(best_only.completed_depth == all_roots.completed_depth);
+  REQUIRE(best_only.root_moves.size() == 1);
+  REQUIRE(best_only.root_moves[0].move == *best_only.best_move);
+  REQUIRE(best_only.root_moves[0].score == best_only.score);
+  REQUIRE(best_only.root_moves[0].pv == best_only.pv);
+  REQUIRE(best_only.root_moves[0].exact);
+  REQUIRE_FALSE(best_only.root_moves[0].selective);
+  REQUIRE(best_only.stats.root_moves_searched == all_roots.root_moves.size());
+}
+
+TEST_CASE("exact endgame multi pv greater than one is a safe all-root no-op", "[search][endgame]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult all_roots = search_exact(position, 4);
+  const SearchResult top_n_unimplemented = search_exact(position, 4, false, true, 2);
+
+  require_exact_result_invariants(position, all_roots);
+  require_exact_result_invariants(position, top_n_unimplemented);
+  REQUIRE(top_n_unimplemented.best_move == all_roots.best_move);
+  REQUIRE(top_n_unimplemented.score == all_roots.score);
+  REQUIRE(top_n_unimplemented.pv == all_roots.pv);
+  REQUIRE(top_n_unimplemented.root_moves == all_roots.root_moves);
+}
+
+TEST_CASE("exact endgame best-only keeps terminal and forced pass root reports stable",
+          "[search][endgame]") {
+  const board_core::Position terminal = parse_position_or_fail(
+      "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b");
+  const board_core::Position forced_pass = parse_position_or_fail(
+      "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+
+  const SearchResult terminal_result = search_exact(terminal, 0, false, true, 1);
+  const SearchResult forced_pass_result = search_exact(forced_pass, 1, false, true, 1);
+
+  require_exact_result_invariants(terminal, terminal_result);
+  require_exact_result_invariants(forced_pass, forced_pass_result);
+  REQUIRE_FALSE(terminal_result.best_move.has_value());
+  REQUIRE(terminal_result.root_moves.empty());
+  REQUIRE(forced_pass_result.best_move == board_core::make_pass());
+  REQUIRE(forced_pass_result.root_moves.size() == 1);
+  REQUIRE(forced_pass_result.root_moves[0].move == board_core::make_pass());
+  REQUIRE(forced_pass_result.root_moves[0].score == forced_pass_result.score);
+}
+
 TEST_CASE("exact endgame TT preserves exact scores for representative positions",
           "[search][endgame][tt]") {
   const std::array<board_core::Position, 6> positions{
@@ -475,6 +550,26 @@ TEST_CASE("exact endgame max nodes can stop before any root move completes",
   REQUIRE(result.stats.endgame_nodes == 1);
 }
 
+TEST_CASE("best-only exact endgame max nodes can stop before any root move completes",
+          "[search][endgame][limits]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult result =
+      search_exact_with_limits(position, 4, SearchLimits{.max_nodes = 1}, 1);
+
+  REQUIRE(result.stopped);
+  REQUIRE_FALSE(result.exact);
+  REQUIRE(result.bound == BoundType::lower);
+  REQUIRE(result.completed_depth == Depth{0});
+  REQUIRE(result.score == kScoreLoss);
+  REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.pv.size == 0);
+  REQUIRE(result.root_moves.empty());
+  REQUIRE(result.nodes == 1);
+  REQUIRE(result.stats.nodes == 1);
+  REQUIRE(result.stats.endgame_nodes == 1);
+}
+
 TEST_CASE("interrupted exact endgame publishes only completed exact root moves",
           "[search][endgame][limits]") {
   const board_core::Position position = corpus_position("four_empty_simple");
@@ -495,6 +590,37 @@ TEST_CASE("interrupted exact endgame publishes only completed exact root moves",
   REQUIRE(limited.pv == complete.root_moves[0].pv);
   REQUIRE(limited.root_moves.size() == 1);
   REQUIRE(limited.root_moves[0] == complete.root_moves[0]);
+  REQUIRE(limited.root_moves[0].exact);
+  REQUIRE_FALSE(limited.root_moves[0].selective);
+  REQUIRE(limited.stats.root_moves_searched == 1);
+  REQUIRE(limited.nodes == nodes_after_first_root);
+  REQUIRE(limited.stats.endgame_nodes == limited.nodes);
+  REQUIRE(is_legal_root_move(position, *limited.best_move));
+  require_replayable_pv(position, limited.pv);
+  require_replayable_root_pvs(position, limited);
+}
+
+TEST_CASE("interrupted best-only exact endgame publishes the completed best root move",
+          "[search][endgame][limits]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const SearchResult complete = search_exact(position, 4);
+  REQUIRE(complete.root_moves.size() > 1);
+  REQUIRE(complete.root_moves[0].nodes > 0);
+
+  const NodeCount nodes_after_first_root = static_cast<NodeCount>(2 + complete.root_moves[0].nodes);
+  const SearchResult limited =
+      search_exact_with_limits(position, 4, SearchLimits{.max_nodes = nodes_after_first_root}, 1);
+
+  REQUIRE(limited.stopped);
+  REQUIRE_FALSE(limited.exact);
+  REQUIRE(limited.bound == BoundType::lower);
+  REQUIRE(limited.completed_depth == complete.completed_depth);
+  REQUIRE(limited.best_move.has_value());
+  REQUIRE(limited.score == complete.root_moves[0].score);
+  REQUIRE(limited.pv == complete.root_moves[0].pv);
+  REQUIRE(limited.root_moves.size() == 1);
+  REQUIRE(limited.root_moves[0] == complete.root_moves[0]);
+  REQUIRE(limited.root_moves[0].move == *limited.best_move);
   REQUIRE(limited.root_moves[0].exact);
   REQUIRE_FALSE(limited.root_moves[0].selective);
   REQUIRE(limited.stats.root_moves_searched == 1);

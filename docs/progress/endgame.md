@@ -67,6 +67,8 @@ The current exact endgame implementation includes:
 * returns terminal disc difference exactly
 * avoids evaluator calls in exact endgame mode
 * supports root move reporting for root-triggered exact search
+* supports all-root exact reporting by default and best-only exact reporting
+  when `SearchOptions::multi_pv == 1`
 * avoids root move reporting for internal leaf cutover
 * publishes replayable PVs
 * marks result and root moves exact when completed
@@ -79,8 +81,8 @@ The current exact endgame implementation includes:
 * uses legal `exact_endgame_score` TT best moves as ordering-only hints when an
   exact endgame TT entry cannot cut off the current alpha-beta window
 * provides an endgame benchmark executable with a checked-in corpus default,
-  deterministic built-in fallback, parity/TT comparison modes, and TT statistics
-  in raw output
+  deterministic built-in fallback, parity/TT/root-mode comparison options, and
+  TT statistics in raw output
 * has checked-in exact endgame benchmark baseline data for local comparison
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
@@ -103,7 +105,9 @@ separate from midgame TT semantics by using `TTEntryKind::exact_endgame_score`
 and treating TT depth as remaining empty squares. `endgame_wld_empties` remains a
 safe no-op until WLD search is implemented. `exact_endgame` is implemented when
 the root threshold is met and as a conservative internal leaf cutover at four
-empties or fewer.
+empties or fewer. `multi_pv == 1` selects best-only exact root reporting;
+`multi_pv > 1` remains a safe all-root no-op until top-N exact reporting is
+implemented.
 
 ## Implementation Plan
 
@@ -128,6 +132,7 @@ Status values:
 | Integrate root threshold through `SearchOptions::exact_endgame` | done | Root integration before normal iterative deepening |
 | Integrate internal leaf threshold through `SearchOptions::exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
+| Add best-only exact root reporting | done | `SearchOptions::multi_pv == 1` returns only the exact best root move; default and `multi_pv > 1` keep all-root exact reports |
 | Add WLD mode | not started | May be deferred after exact score |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score` for cutoffs and legal best-move ordering hints; WLD remains not started |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
