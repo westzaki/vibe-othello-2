@@ -4,8 +4,8 @@
 #include "vibe_othello/search/search.h"
 
 #include <bit>
-#include <charconv>
 #include <catch2/catch_test_macros.hpp>
+#include <charconv>
 #include <cstdint>
 #include <fstream>
 #include <optional>
@@ -156,8 +156,7 @@ void require_matches_reference(const EndgameCorpusCase& corpus_case) {
   }
 }
 
-TEST_CASE("checked-in exact endgame corpus matches reference solver",
-          "[search][endgame][corpus]") {
+TEST_CASE("checked-in exact endgame corpus matches reference solver", "[search][endgame][corpus]") {
   for (const EndgameCorpusCase& corpus_case : load_endgame_corpus()) {
     require_matches_reference(corpus_case);
   }
