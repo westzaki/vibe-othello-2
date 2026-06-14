@@ -161,17 +161,6 @@ evaluate_instances(const PatternWeights& weights, std::size_t table_index, std::
 
 } // namespace
 
-std::uint32_t ternary_pattern_index(board_core::Position position,
-                                    std::span<const board_core::Square> squares) noexcept {
-  std::uint32_t index = 0;
-  std::uint32_t place = 1;
-  for (board_core::Square square : squares) {
-    index += static_cast<std::uint32_t>(cell_at(position, square)) * place;
-    place *= 3;
-  }
-  return index;
-}
-
 TinyPatternEvaluator::TinyPatternEvaluator(PatternWeights weights) : weights_(std::move(weights)) {
   validate_tiny_pattern_weights(weights_);
 }

@@ -32,6 +32,7 @@ Existing foundations include:
 * exact endgame search for small positions
 * deterministic search and endgame golden-check tooling
 * benchmark infrastructure for board core, search, and endgame
+* runtime-owned fixed pattern schema fixture with validation coverage
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -47,7 +48,6 @@ The current implementation does not yet have:
 * data importer tools
 * pattern dataset builder
 * pattern feature extractor
-* pattern schema tests shared with runtime evaluation
 * deterministic train/validation/test splitter
 * trainer
 * calibration tool
@@ -77,7 +77,7 @@ Status values:
 | Add tiny synthetic fixture records | not started | Tests must not require external corpora |
 | Add importer for one simple text format | not started | Should reject illegal or malformed records |
 | Add dataset builder and deterministic splitter | not started | Should record duplicate handling and split ids |
-| Add pattern schema fixtures | not started | Must match runtime evaluation schema |
+| Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
 | Add feature extractor | not started | Should call board-core helpers for parsing and replay |
 | Add tiny deterministic trainer smoke test | not started | Reproducibility before throughput |
 | Add calibration tool | not started | Optional score-to-probability mapping |

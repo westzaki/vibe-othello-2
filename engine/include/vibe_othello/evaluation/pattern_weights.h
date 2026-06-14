@@ -2,6 +2,7 @@
 #define VIBE_OTHELLO_EVALUATION_PATTERN_WEIGHTS_H_
 
 #include "vibe_othello/board_core/types.h"
+#include "vibe_othello/evaluation/pattern.h"
 #include "vibe_othello/search/score.h"
 
 #include <array>
@@ -23,11 +24,6 @@ enum class PatternBitOrder : std::uint16_t {
 
 enum class PatternScoreUnit : std::uint16_t {
   disc_diff = 1,
-};
-
-struct PatternDefinition {
-  std::string id;
-  std::vector<board_core::Square> squares;
 };
 
 struct PatternManifest {

@@ -1,6 +1,6 @@
 #include "vibe_othello/evaluation/pattern_weights.h"
 
-#include "vibe_othello/board_core/coordinates.h"
+#include "vibe_othello/evaluation/pattern.h"
 
 #include <algorithm>
 #include <array>
@@ -137,22 +137,6 @@ struct Reader {
   return true;
 }
 
-[[nodiscard]] std::optional<std::uint64_t>
-pattern_table_size(const PatternDefinition& pattern) noexcept {
-  if (pattern.squares.empty() || pattern.squares.size() > board_core::kSquareCount) {
-    return std::nullopt;
-  }
-
-  std::uint64_t size = 1;
-  for (std::size_t index = 0; index < pattern.squares.size(); ++index) {
-    if (size > std::numeric_limits<std::uint64_t>::max() / 3U) {
-      return std::nullopt;
-    }
-    size *= 3U;
-  }
-  return size;
-}
-
 [[nodiscard]] std::optional<PhaseLayout> expected_phase_layout(const PatternManifest& manifest) {
   std::uint64_t stride = kPatternPhaseBiasWeightCount;
   std::vector<std::uint32_t> pattern_table_offsets;
@@ -163,7 +147,7 @@ pattern_table_size(const PatternDefinition& pattern) noexcept {
     }
     pattern_table_offsets.push_back(static_cast<std::uint32_t>(stride));
 
-    const std::optional<std::uint64_t> table_size = pattern_table_size(pattern);
+    const std::optional<std::uint32_t> table_size = checked_pattern_size(pattern.length);
     if (!table_size.has_value()) {
       return std::nullopt;
     }
@@ -199,13 +183,18 @@ pattern_table_size(const PatternDefinition& pattern) noexcept {
     return PatternWeightsLoadError::phase_count_mismatch;
   }
   for (const PatternDefinition& pattern : manifest.patterns) {
-    if (pattern.squares.empty() || pattern.squares.size() > board_core::kSquareCount) {
+    const PatternSchemaValidationResult schema_result = validate_pattern_definition(pattern);
+    if (schema_result.error == PatternSchemaValidationError::invalid_pattern_length ||
+        schema_result.error == PatternSchemaValidationError::pattern_length_mismatch ||
+        schema_result.error == PatternSchemaValidationError::pattern_size_overflow ||
+        schema_result.error == PatternSchemaValidationError::duplicate_pattern_square) {
       return PatternWeightsLoadError::invalid_pattern_length;
     }
-    for (const board_core::Square square : pattern.squares) {
-      if (!board_core::is_valid(square)) {
-        return PatternWeightsLoadError::invalid_pattern_square;
-      }
+    if (schema_result.error == PatternSchemaValidationError::invalid_pattern_square) {
+      return PatternWeightsLoadError::invalid_pattern_square;
+    }
+    if (!schema_result.ok()) {
+      return PatternWeightsLoadError::invalid_pattern_length;
     }
   }
 
@@ -384,8 +373,8 @@ std::optional<PatternWeights> make_pattern_weights(
   for (std::size_t pattern_index = 0; pattern_index < loaded.manifest.patterns.size();
        ++pattern_index) {
     const PatternDefinition& pattern = loaded.manifest.patterns[pattern_index];
-    const std::optional<std::uint64_t> table_size = pattern_table_size(pattern);
-    if (!table_size.has_value() || *table_size > std::numeric_limits<std::uint32_t>::max()) {
+    const std::optional<std::uint32_t> table_size = checked_pattern_size(pattern.length);
+    if (!table_size.has_value()) {
       return std::nullopt;
     }
 
@@ -396,7 +385,7 @@ std::optional<PatternWeights> make_pattern_weights(
 
     PatternWeightTable table{
         .pattern_id = pattern.id,
-        .pattern_length = static_cast<std::uint8_t>(pattern.squares.size()),
+        .pattern_length = pattern.length,
     };
     table.weights.reserve(static_cast<std::size_t>(loaded.manifest.phase_count) *
                           static_cast<std::size_t>(*table_size));
