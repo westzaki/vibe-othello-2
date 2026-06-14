@@ -105,8 +105,8 @@ data/
 
 Raw third-party corpora, derived datasets, learned binary weights, and large
 generated artifacts stay out of normal git history. Checked-in manifests and
-tiny manifest-only samples are allowed when they contain no restricted payload
-data and no personal local paths.
+tiny synthetic samples are allowed when they contain no restricted payload data
+and no personal local paths.
 
 ## Tools Layout
 
@@ -117,6 +117,7 @@ human-run development CLIs rather than benchmark suite management scripts.
 ```text
 tools/
 ├─ data-policy/
+├─ data-import/
 ├─ arena/
 │  ├─ openings/
 │  └─ README.md
