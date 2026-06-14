@@ -282,6 +282,9 @@ Rules:
 * artifact loading validates magic, version, bit order, phase count, and
   checksum
 * runtime does not infer pattern layout from file size alone
+* each phase starts with one explicit bias weight slot before pattern tables
+* pattern tables are stored in manifest pattern order; `pattern_set` identifies
+  the whole ordered schema, and changing that order requires a new pattern set id
 * large artifacts should live in releases, Git LFS, or local download cache, not
   normal git history
 * raw training corpora must not be committed to the repository

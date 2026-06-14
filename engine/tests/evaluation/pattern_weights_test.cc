@@ -123,7 +123,45 @@ TEST_CASE("pattern weight artifact loader accepts tiny hand-authored artifact") 
   REQUIRE(result.weights->manifest.pattern_set_id == "tiny-pattern-v1");
   REQUIRE(result.weights->manifest.phase_count == 2);
   REQUIRE(result.weights->phase_stride == 10);
+  REQUIRE(result.weights->pattern_table_offsets == std::vector<std::uint32_t>{1});
   REQUIRE(result.weights->weights == tiny_weights());
+}
+
+TEST_CASE("pattern weight artifact layout exposes bias slot and ordered pattern offsets") {
+  const PatternManifest manifest{
+      .format_version = kPatternWeightFormatVersion,
+      .bit_order = PatternBitOrder::a1_lsb,
+      .score_unit = PatternScoreUnit::disc_diff,
+      .score_scale = 1,
+      .phase_count = 1,
+      .pattern_set_id = "tiny-pattern-v1",
+      .patterns =
+          {
+              PatternDefinition{
+                  .id = "first-single-square",
+                  .squares = {square_from_file_rank(0, 0)},
+              },
+              PatternDefinition{
+                  .id = "second-corner-pair",
+                  .squares =
+                      {
+                          square_from_file_rank(0, 0),
+                          square_from_file_rank(1, 0),
+                      },
+              },
+          },
+  };
+
+  const PatternWeightsLoadResult result =
+      load_pattern_weights(manifest, tiny_artifact(ArtifactOptions{
+                                         .phase_count = 1,
+                                         .pattern_count = 2,
+                                         .weight_count = 13,
+                                     }));
+
+  REQUIRE(result.ok());
+  REQUIRE(result.weights->phase_stride == 13);
+  REQUIRE(result.weights->pattern_table_offsets == std::vector<std::uint32_t>{1, 4});
 }
 
 TEST_CASE("pattern weight artifact loader validates format version") {

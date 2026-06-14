@@ -28,6 +28,11 @@ struct Header {
   std::uint32_t weight_count = 0;
 };
 
+struct PhaseLayout {
+  std::uint32_t phase_stride = 0;
+  std::vector<std::uint32_t> pattern_table_offsets;
+};
+
 struct Reader {
   std::span<const std::uint8_t> bytes;
   std::size_t offset = 0;
@@ -147,10 +152,16 @@ pattern_table_size(const PatternDefinition& pattern) noexcept {
   return size;
 }
 
-[[nodiscard]] std::optional<std::uint32_t>
-expected_phase_stride(const PatternManifest& manifest) noexcept {
-  std::uint64_t stride = 1;
+[[nodiscard]] std::optional<PhaseLayout> expected_phase_layout(const PatternManifest& manifest) {
+  std::uint64_t stride = kPatternPhaseBiasWeightCount;
+  std::vector<std::uint32_t> pattern_table_offsets;
+  pattern_table_offsets.reserve(manifest.patterns.size());
   for (const PatternDefinition& pattern : manifest.patterns) {
+    if (stride > std::numeric_limits<std::uint32_t>::max()) {
+      return std::nullopt;
+    }
+    pattern_table_offsets.push_back(static_cast<std::uint32_t>(stride));
+
     const std::optional<std::uint64_t> table_size = pattern_table_size(pattern);
     if (!table_size.has_value()) {
       return std::nullopt;
@@ -162,12 +173,15 @@ expected_phase_stride(const PatternManifest& manifest) noexcept {
   if (stride > std::numeric_limits<std::uint32_t>::max()) {
     return std::nullopt;
   }
-  return static_cast<std::uint32_t>(stride);
+  return PhaseLayout{
+      .phase_stride = static_cast<std::uint32_t>(stride),
+      .pattern_table_offsets = std::move(pattern_table_offsets),
+  };
 }
 
-[[nodiscard]] PatternWeightsLoadError
-validate_manifest(const PatternManifest& manifest, std::uint32_t* phase_stride,
-                  std::uint32_t* expected_weight_count) noexcept {
+[[nodiscard]] PatternWeightsLoadError validate_manifest(const PatternManifest& manifest,
+                                                        PhaseLayout* phase_layout,
+                                                        std::uint32_t* expected_weight_count) {
   if (manifest.format_version != kPatternWeightFormatVersion) {
     return PatternWeightsLoadError::unsupported_format_version;
   }
@@ -194,17 +208,17 @@ validate_manifest(const PatternManifest& manifest, std::uint32_t* phase_stride,
     }
   }
 
-  const std::optional<std::uint32_t> stride = expected_phase_stride(manifest);
-  if (!stride.has_value()) {
+  const std::optional<PhaseLayout> layout = expected_phase_layout(manifest);
+  if (!layout.has_value()) {
     return PatternWeightsLoadError::invalid_weight_count;
   }
-  const std::uint64_t weight_count =
-      static_cast<std::uint64_t>(*stride) * static_cast<std::uint64_t>(manifest.phase_count);
+  const std::uint64_t weight_count = static_cast<std::uint64_t>(layout->phase_stride) *
+                                     static_cast<std::uint64_t>(manifest.phase_count);
   if (weight_count > std::numeric_limits<std::uint32_t>::max()) {
     return PatternWeightsLoadError::invalid_weight_count;
   }
 
-  *phase_stride = *stride;
+  *phase_layout = std::move(*layout);
   *expected_weight_count = static_cast<std::uint32_t>(weight_count);
   return PatternWeightsLoadError::none;
 }
@@ -251,11 +265,11 @@ validate_header(const Header& header, const PatternManifest& manifest,
 } // namespace
 
 PatternWeightsLoadResult load_pattern_weights(const PatternManifest& manifest,
-                                              std::span<const std::uint8_t> artifact) noexcept {
-  std::uint32_t phase_stride = 0;
+                                              std::span<const std::uint8_t> artifact) {
+  PhaseLayout phase_layout;
   std::uint32_t expected_weight_count = 0;
   const PatternWeightsLoadError manifest_error =
-      validate_manifest(manifest, &phase_stride, &expected_weight_count);
+      validate_manifest(manifest, &phase_layout, &expected_weight_count);
   if (manifest_error != PatternWeightsLoadError::none) {
     return fail(manifest_error);
   }
@@ -315,7 +329,8 @@ PatternWeightsLoadResult load_pattern_weights(const PatternManifest& manifest,
           PatternWeights{
               .manifest = manifest,
               .weights = std::move(weights),
-              .phase_stride = phase_stride,
+              .phase_stride = phase_layout.phase_stride,
+              .pattern_table_offsets = std::move(phase_layout.pattern_table_offsets),
           },
       .error = PatternWeightsLoadError::none,
   };
