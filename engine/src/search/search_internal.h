@@ -166,6 +166,11 @@ struct EndgameContext {
   std::array<StackFrame, kMaxPly> stack{};
 };
 
+enum class SmallEndgamePolicy : std::uint8_t {
+  enabled,
+  generic_only,
+};
+
 Score terminal_score(board_core::Position position) noexcept;
 bool is_valid_evaluator_score(Score score) noexcept;
 void require_invariant(bool condition) noexcept;
@@ -220,6 +225,12 @@ SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score 
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
                                  SearchOptions options, TranspositionTable* tt,
                                  SearchLimitState* limit_state = nullptr);
+SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position position,
+                                                           SearchLimits limits,
+                                                           SearchOptions options,
+                                                           TranspositionTable* tt,
+                                                           SmallEndgamePolicy small_endgame_policy,
+                                                           SearchLimitState* limit_state = nullptr);
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,

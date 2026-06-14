@@ -70,6 +70,20 @@ id	category	position	expected_empties	notes
 Use `--corpus engine/testdata/endgame/positions.tsv` to run the checked-in
 endgame corpus used by deterministic golden checks.
 
+For small-empty exact-score changes, use a low cap to isolate the shared
+0/1/2/3-empty path:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --repeat 10 \
+  --max-empties 3 \
+  --corpus engine/testdata/endgame/positions.tsv
+```
+
+Compare the existing `nodes`, `endgame_nodes`, `elapsed_ms`, and `nps` fields
+against the previous baseline or a same-machine before run.
+
 ## Layout
 
 | Path | Role |
@@ -244,7 +258,7 @@ count, score, best move, exact/stopped flags, completed depth, PV, and root move
 score/bound/depth/exact/selective values keyed by move. It intentionally does
 not gate `repeat`, node counts, search statistics, `elapsed_ms`, or `nps`.
 Those values are expected to move when exact endgame TT, parity ordering, or
-small-empty routines are introduced.
+small-empty paths are introduced.
 
 Golden updates are manual. Regenerate with:
 
