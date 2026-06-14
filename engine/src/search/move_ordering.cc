@@ -295,6 +295,7 @@ int endgame_order_score(board_core::Position position, board_core::Move move,
   }
 
   score += static_othello_order_score(position, move);
+  score += (board_core::kSquareCount - opponent_mobility_after(position, move)) * 10;
   if (hints.use_parity_ordering && regions != nullptr) {
     score += parity_region_order_score(move, *regions);
   }
