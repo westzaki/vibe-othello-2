@@ -139,17 +139,33 @@ Score root_score_for_move(const SearchResult& result, board_core::Move move) {
   return 0;
 }
 
-void require_same_exact_scores(const SearchResult& with_tt, const SearchResult& without_tt) {
+const RootMoveInfo& root_info_for_move(const SearchResult& result, board_core::Move move) {
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    if (root_move.move == move) {
+      return root_move;
+    }
+  }
+  FAIL("root move was missing from comparison result");
+  return result.root_moves.front();
+}
+
+void require_same_exact_scores(board_core::Position position, const SearchResult& with_tt,
+                               const SearchResult& without_tt) {
   REQUIRE(with_tt.score == without_tt.score);
   REQUIRE(with_tt.completed_depth == without_tt.completed_depth);
   REQUIRE(with_tt.best_move == without_tt.best_move);
   REQUIRE(with_tt.best_move.has_value() == without_tt.best_move.has_value());
   REQUIRE(with_tt.root_moves.size() == without_tt.root_moves.size());
   if (with_tt.best_move.has_value()) {
+    REQUIRE(is_legal_root_move(position, *with_tt.best_move));
     REQUIRE(root_score_for_move(without_tt, *with_tt.best_move) == without_tt.score);
   }
   for (const RootMoveInfo& root_move : with_tt.root_moves) {
-    REQUIRE(root_score_for_move(without_tt, root_move.move) == root_move.score);
+    const RootMoveInfo& without_tt_root_move = root_info_for_move(without_tt, root_move.move);
+    REQUIRE(without_tt_root_move.score == root_move.score);
+    REQUIRE(without_tt_root_move.bound == root_move.bound);
+    REQUIRE(without_tt_root_move.exact == root_move.exact);
+    REQUIRE(without_tt_root_move.selective == root_move.selective);
   }
 }
 
@@ -362,7 +378,7 @@ TEST_CASE("exact endgame TT preserves exact scores for representative positions"
 
     require_exact_result_invariants(position, without_tt);
     require_exact_result_invariants(position, with_tt);
-    require_same_exact_scores(with_tt, without_tt);
+    require_same_exact_scores(position, with_tt, without_tt);
 
     saw_tt_probe = saw_tt_probe || with_tt.stats.tt_probes > 0;
     saw_tt_store = saw_tt_store || with_tt.stats.tt_stores > 0;
@@ -388,7 +404,7 @@ TEST_CASE("exact endgame parity ordering preserves corpus scores and best move t
 
     require_exact_result_invariants(position_case.position, without_parity);
     require_exact_result_invariants(position_case.position, with_parity);
-    require_same_exact_scores(with_parity, without_parity);
+    require_same_exact_scores(position_case.position, with_parity, without_parity);
     saw_generic_parity_position = saw_generic_parity_position || empties > 3;
   }
 

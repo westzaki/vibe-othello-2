@@ -40,8 +40,28 @@ bool should_use_endgame_tt(const EndgameContext& context) noexcept {
   return context.options.use_endgame_tt && context.transposition_table != nullptr;
 }
 
-std::optional<Score> probe_exact_endgame_tt(EndgameContext* context, Depth remaining_empties,
-                                            Score alpha, Score beta) {
+ExactEndgameTtProbe probe_exact_endgame_tt(EndgameContext* context, Depth remaining_empties,
+                                           Score alpha, Score beta) {
+  if (!should_use_endgame_tt(*context)) {
+    return {};
+  }
+
+  const std::optional<TTEntry> entry =
+      context->transposition_table->probe(context->position, &context->stats);
+  if (!entry.has_value()) {
+    return {};
+  }
+
+  ExactEndgameTtProbe probe =
+      exact_endgame_score_tt_probe(*entry, context->position, remaining_empties, alpha, beta);
+  if (probe.cutoff_score.has_value()) {
+    ++context->stats.tt_cutoffs;
+  }
+  return probe;
+}
+
+std::optional<board_core::Move> probe_exact_endgame_root_tt_best_move(EndgameContext* context,
+                                                                      Depth remaining_empties) {
   if (!should_use_endgame_tt(*context)) {
     return std::nullopt;
   }
@@ -52,12 +72,9 @@ std::optional<Score> probe_exact_endgame_tt(EndgameContext* context, Depth remai
     return std::nullopt;
   }
 
-  const std::optional<Score> cutoff =
-      exact_endgame_score_tt_cutoff_score(*entry, remaining_empties, alpha, beta);
-  if (cutoff.has_value()) {
-    ++context->stats.tt_cutoffs;
-  }
-  return cutoff;
+  return exact_endgame_score_tt_probe(*entry, context->position, remaining_empties, kScoreLoss,
+                                      kScoreWin)
+      .best_move;
 }
 
 void store_exact_endgame_tt(EndgameContext* context, Depth remaining_empties, Score score,
@@ -393,11 +410,11 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
     return SearchNodeResult::stopped();
   }
 
-  const std::optional<Score> tt_score =
+  const ExactEndgameTtProbe tt_probe =
       probe_exact_endgame_tt(context, remaining_empties, alpha, beta);
-  if (tt_score.has_value()) {
+  if (tt_probe.cutoff_score.has_value()) {
     return SearchNodeResult::completed(SearchValue{
-        .score = *tt_score,
+        .score = *tt_probe.cutoff_score,
         .pv = {},
     });
   }
@@ -417,8 +434,10 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
   }
 
   frame.moves = order_endgame_moves(
-      context->position,
-      EndgameOrderingHints{.use_parity_ordering = context->options.use_endgame_parity_ordering});
+      context->position, EndgameOrderingHints{
+                             .tt_best_move = tt_probe.best_move,
+                             .use_parity_ordering = context->options.use_endgame_parity_ordering,
+                         });
   if (frame.moves.size == 0) {
     ++context->stats.pass_nodes;
     const SearchNodeResult pass = search_endgame_child(context, board_core::make_pass(), alpha,
@@ -551,12 +570,17 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
       root_frame.moves.size = 1;
     }
   } else {
+    std::optional<board_core::Move> root_tt_best_move;
+    if (!(small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 3)) {
+      root_tt_best_move = probe_exact_endgame_root_tt_best_move(&context, completed_depth);
+    }
     root_frame.moves =
         small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 3
             ? small_empty_move_list(context.position)
             : order_endgame_moves(
                   context.position,
-                  EndgameOrderingHints{.use_parity_ordering =
+                  EndgameOrderingHints{.tt_best_move = root_tt_best_move,
+                                       .use_parity_ordering =
                                            context.options.use_endgame_parity_ordering});
   }
   const MoveList root_moves = root_frame.moves;

@@ -76,6 +76,8 @@ The current exact endgame implementation includes:
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
 * uses `TTEntryKind::exact_endgame_score` for optional exact-score endgame TT
   probe/store/cutoff when `SearchOptions::use_endgame_tt` is enabled
+* uses legal `exact_endgame_score` TT best moves as ordering-only hints when an
+  exact endgame TT entry cannot cut off the current alpha-beta window
 * provides an endgame benchmark executable with a checked-in corpus default,
   deterministic built-in fallback, parity/TT comparison modes, and TT statistics
   in raw output
@@ -127,7 +129,7 @@ Status values:
 | Integrate internal leaf threshold through `SearchOptions::exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add WLD mode | not started | May be deferred after exact score |
-| Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
+| Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score` for cutoffs and legal best-move ordering hints; WLD remains not started |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
 | Add specialized zero/one/two/three-empty path | done | 0/1 return through terminal or forced single-move/pass handling; 2/3 use direct legal-bit enumeration with board-core deltas; tested against generic solver through an internal generic-only policy |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count, parity-ordering mode, and exact endgame TT mode |

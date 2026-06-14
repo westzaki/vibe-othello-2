@@ -68,7 +68,8 @@ The current search implementation includes:
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
   statistics
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
-  when `SearchOptions::use_endgame_tt` is enabled
+  when `SearchOptions::use_endgame_tt` is enabled, including ordering-only legal
+  TT best-move hints when a probed entry cannot cut off
 * specialized small-empty exact-score paths for 0, 1, 2, and 3 empty squares
 * ordering-only exact endgame parity hints through
   `SearchOptions::use_endgame_parity_ordering`
