@@ -69,3 +69,37 @@ micro-optimizing per-node cost.
 
 Use `--root-mode best` for practical high-empty measurement unless all-root
 candidate reporting is the explicit question.
+
+## Parity Region Shootout
+
+Local shootout on 2026-06-15 JST after the opponent-mobility endgame ordering
+hint landed on `origin/main` at `fa17bec`. The goal was to test whether the
+parity/region hint could still reduce exact endgame nodes after the mobility
+hint. These exploratory results used a Release benchmark build, `repeat 1`,
+`--root-mode best`, `--parity on`, and `--tt on`. Raw JSONL output stayed in
+local scratch space under `/tmp/vibe-endgame-parity-shootout`.
+
+| candidate | position | status | elapsed_ms_p50 | nodes_p50 | nps_p50 | note |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| baseline, odd region bonus 10k | `eighteen_empty_simple` | completed | 1853.810 | 4491953 | 2423092.442 | current main after mobility hint |
+| odd region bonus 5k | `eighteen_empty_simple` | completed | n/a | 4491953 | n/a | same node count as baseline |
+| odd region bonus 15k | `eighteen_empty_simple` | completed | n/a | 4491953 | n/a | same node count as baseline |
+| odd region bonus 18k | `eighteen_empty_simple` | completed | 1785.781 | 4487504 | 2512908.358 | improves baseline, worse than 20k |
+| odd region bonus 19k | `eighteen_empty_simple` | completed | 1806.374 | 4500987 | 2491724.802 | worse than baseline |
+| odd region bonus 20k | `eighteen_empty_simple` | completed | 1787.369 | 4470360 | 2501083.996 | best 18-empty candidate |
+| odd region bonus 21k | `eighteen_empty_simple` | completed | 1836.177 | 4600056 | 2505235.947 | worse than baseline |
+| odd region bonus 22k | `eighteen_empty_simple` | completed | 1847.135 | 4627474 | 2505216.998 | worse than baseline |
+| odd region bonus 25k | `eighteen_empty_simple` | completed | n/a | 4627474 | n/a | worse than baseline |
+| odd region bonus 50k | `eighteen_empty_simple` | completed | 1849.867 | 4637292 | n/a | worse than baseline |
+| odd 20k, even region penalty -5k | `eighteen_empty_simple` | completed | n/a | 4627474 | n/a | worse than plain 20k |
+| odd 20k, smaller odd region tiebreak | `eighteen_empty_simple` | completed | n/a | 4905821 | n/a | worse than plain 20k |
+| odd 20k, larger odd region tiebreak | `eighteen_empty_simple` | completed | n/a | 8683723 | n/a | much worse |
+| 8-neighbor regions, odd 20k | `eighteen_empty_simple` | completed | 2099.788 | 5274797 | n/a | worse than 4-neighbor regions |
+| baseline, odd region bonus 10k | `twenty_empty_simple` | completed | 40027.835 | 100224252 | 2503863.918 | current main after mobility hint |
+| odd region bonus 20k | `twenty_empty_simple` | completed | 39695.366 | 99527583 | 2507284.663 | reduced 696669 nodes from baseline |
+
+The best candidate in this focused pass was keeping the existing 4-neighbor
+region definition and raising the odd-region ordering bonus from 10k to 20k.
+The larger structural variants were negative on the 18-empty probe, so they
+should not be promoted without a broader position set showing a compensating
+win elsewhere.

@@ -214,7 +214,7 @@ int parity_region_order_score(board_core::Move move, const EmptyRegionMap& regio
 
   // First policy: with fixed 4-neighbor regions, odd empty regions are treated
   // as favorable ordering hints and even regions receive no bonus.
-  return (regions.region_sizes[region_id] % 2) == 1 ? 10'000 : 0;
+  return (regions.region_sizes[region_id] % 2) == 1 ? 20'000 : 0;
 }
 
 int opponent_mobility_after(board_core::Position position, board_core::Move move) noexcept {
