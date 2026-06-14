@@ -126,7 +126,10 @@ void validate_instance_squares(const PatternFeatureTable& feature_table) {
 }
 
 void validate_score_range(const PatternWeights& weights, const PatternFeatureSet& feature_set) {
-  std::int64_t max_score = 0;
+  std::int64_t max_score = max_abs_weight(weights.phase_biases());
+  if (max_score >= search::kScoreWin) {
+    throw std::invalid_argument("pattern evaluator weights can produce search sentinel scores");
+  }
   for (std::size_t table_index = 0; table_index < feature_set.tables.size(); ++table_index) {
     const std::int64_t table_max_weight = max_abs_weight(weights.tables()[table_index].weights);
     if (table_max_weight == 0 || feature_set.tables[table_index].instances.empty()) {
@@ -153,6 +156,9 @@ void validate_pattern_evaluator_inputs(const PatternWeights& weights,
                                        const PatternFeatureSet& feature_set) {
   if (weights.tables().size() != feature_set.tables.size()) {
     throw std::invalid_argument("pattern evaluator table count does not match weights");
+  }
+  if (weights.phase_biases().size() != weights.phase_count()) {
+    throw std::invalid_argument("pattern evaluator bias count does not match phase count");
   }
 
   for (std::uint8_t disc_count = 0; disc_count < PatternWeights::kDiscCountEntries; ++disc_count) {
@@ -227,7 +233,7 @@ search::Score PatternEvaluator::evaluate(const board_core::Position& position) c
   const int discs = std::popcount(board_core::occupied(position));
   const std::uint8_t phase = weights_.phase_for_disc_count(discs);
 
-  search::Score score = 0;
+  search::Score score = weights_.phase_bias(phase);
   for (std::size_t table_index = 0; table_index < feature_set_.tables.size(); ++table_index) {
     for (const std::vector<board_core::Square>& squares :
          feature_set_.tables[table_index].instances) {

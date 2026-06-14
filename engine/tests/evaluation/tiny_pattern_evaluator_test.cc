@@ -42,6 +42,10 @@ std::array<std::uint8_t, PatternWeights::kDiscCountEntries> fixture_phase_by_dis
   return phases;
 }
 
+std::vector<search::Score> fixture_phase_biases() {
+  return {0, 0};
+}
+
 search::Score fixture_weight(std::uint32_t index, std::uint8_t length,
                              std::uint8_t phase) noexcept {
   search::Score score = 0;
@@ -77,6 +81,7 @@ PatternWeights make_tiny_pattern_fixture_weights() {
   return PatternWeights{
       kFixturePhaseCount,
       fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
       {
           make_fixture_table("edge-8", 8),
           make_fixture_table("corner-3x3", 9),
@@ -98,6 +103,7 @@ PatternWeights make_uniform_weights(search::Score edge_weight, search::Score cor
   return PatternWeights{
       kFixturePhaseCount,
       fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
       {
           make_uniform_table("edge-8", 8, edge_weight),
           make_uniform_table("corner-3x3", 9, corner_weight),
@@ -207,6 +213,7 @@ TEST_CASE("tiny pattern evaluator rejects corrupted weights", "[evaluation][tiny
   PatternWeights weights{
       kFixturePhaseCount,
       fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
       {
           std::move(edge_table),
           make_fixture_table("corner-3x3", 9),
@@ -222,6 +229,7 @@ TEST_CASE("tiny pattern evaluator rejects incompatible weights", "[evaluation][t
   PatternWeights wrong_schema{
       kFixturePhaseCount,
       fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
       {
           std::move(edge_table),
           make_fixture_table("corner-3x3", 9),
@@ -236,6 +244,7 @@ TEST_CASE("tiny pattern evaluator rejects incompatible weights", "[evaluation][t
   PatternWeights wrong_phase_map{
       kFixturePhaseCount,
       invalid_phases,
+      fixture_phase_biases(),
       {
           make_fixture_table("edge-8", 8),
           make_fixture_table("corner-3x3", 9),

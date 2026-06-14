@@ -328,9 +328,10 @@ PatternWeightsLoadResult load_pattern_weights(const PatternManifest& manifest,
 
 PatternWeights::PatternWeights(std::uint8_t phase_count,
                                std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count,
+                               std::vector<search::Score> phase_biases,
                                std::vector<PatternWeightTable> tables)
     : phase_count_(phase_count), phase_by_disc_count_(phase_by_disc_count),
-      tables_(std::move(tables)) {}
+      phase_biases_(std::move(phase_biases)), tables_(std::move(tables)) {}
 
 std::uint8_t PatternWeights::phase_for_disc_count(int disc_count) const noexcept {
   if (disc_count < 0) {
@@ -340,6 +341,12 @@ std::uint8_t PatternWeights::phase_for_disc_count(int disc_count) const noexcept
     return phase_by_disc_count_.back();
   }
   return phase_by_disc_count_[static_cast<std::size_t>(disc_count)];
+}
+
+search::Score PatternWeights::phase_bias(std::uint8_t phase) const noexcept {
+  assert(phase < phase_count_);
+  assert(phase < phase_biases_.size());
+  return phase_biases_[phase];
 }
 
 search::Score PatternWeights::weight(std::size_t table_index, std::uint8_t phase,
@@ -367,6 +374,24 @@ std::optional<PatternWeights> make_pattern_weights(
       return std::nullopt;
     }
   }
+  if (loaded.phase_stride < kPatternPhaseBiasWeightCount) {
+    return std::nullopt;
+  }
+
+  const std::uint64_t expected_weight_count =
+      static_cast<std::uint64_t>(loaded.manifest.phase_count) *
+      static_cast<std::uint64_t>(loaded.phase_stride);
+  if (expected_weight_count > std::numeric_limits<std::size_t>::max() ||
+      loaded.weights.size() != static_cast<std::size_t>(expected_weight_count)) {
+    return std::nullopt;
+  }
+
+  std::vector<search::Score> phase_biases;
+  phase_biases.reserve(loaded.manifest.phase_count);
+  for (std::uint16_t phase = 0; phase < loaded.manifest.phase_count; ++phase) {
+    const std::size_t offset = static_cast<std::size_t>(phase) * loaded.phase_stride;
+    phase_biases.push_back(loaded.weights[offset]);
+  }
 
   std::vector<PatternWeightTable> tables;
   tables.reserve(loaded.manifest.patterns.size());
@@ -379,7 +404,8 @@ std::optional<PatternWeights> make_pattern_weights(
     }
 
     const std::uint32_t table_offset = loaded.pattern_table_offsets[pattern_index];
-    if (table_offset > loaded.phase_stride || *table_size > loaded.phase_stride - table_offset) {
+    if (table_offset < kPatternPhaseBiasWeightCount || table_offset > loaded.phase_stride ||
+        *table_size > loaded.phase_stride - table_offset) {
       return std::nullopt;
     }
 
@@ -405,6 +431,7 @@ std::optional<PatternWeights> make_pattern_weights(
   return PatternWeights{
       static_cast<std::uint8_t>(loaded.manifest.phase_count),
       phase_by_disc_count,
+      std::move(phase_biases),
       std::move(tables),
   };
 }

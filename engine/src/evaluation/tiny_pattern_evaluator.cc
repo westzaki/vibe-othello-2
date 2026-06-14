@@ -129,6 +129,9 @@ void validate_tiny_pattern_weights(const PatternWeights& weights) {
   if (weights.phase_count() != kTinyPatternPhaseCount || weights.tables().size() != 2) {
     throw std::invalid_argument("tiny pattern weights use an incompatible phase or table count");
   }
+  if (weights.phase_biases().size() != weights.phase_count()) {
+    throw std::invalid_argument("tiny pattern weights use an incompatible bias count");
+  }
 
   for (std::uint8_t disc_count = 0; disc_count < PatternWeights::kDiscCountEntries; ++disc_count) {
     if (weights.phase_for_disc_count(disc_count) >= weights.phase_count()) {
@@ -139,7 +142,8 @@ void validate_tiny_pattern_weights(const PatternWeights& weights) {
   validate_table(weights.tables()[kEdgeTableIndex], kEdge8, weights.phase_count());
   validate_table(weights.tables()[kCornerTableIndex], kCorner3x3, weights.phase_count());
 
-  const std::int64_t max_score = static_cast<std::int64_t>(kEdgeInstances.size()) *
+  const std::int64_t max_score = max_abs_weight(weights.phase_biases()) +
+                                 static_cast<std::int64_t>(kEdgeInstances.size()) *
                                      max_abs_weight(weights.tables()[kEdgeTableIndex].weights) +
                                  static_cast<std::int64_t>(kCornerInstances.size()) *
                                      max_abs_weight(weights.tables()[kCornerTableIndex].weights);
@@ -169,7 +173,7 @@ search::Score TinyPatternEvaluator::evaluate(const board_core::Position& positio
   const int discs = std::popcount(board_core::occupied(position));
   const std::uint8_t phase = weights_.phase_for_disc_count(discs);
 
-  search::Score score = 0;
+  search::Score score = weights_.phase_bias(phase);
   score += evaluate_instances(weights_, kEdgeTableIndex, phase, position,
                               std::span<const std::span<const board_core::Square>>{kEdgeInstances});
   score +=

@@ -181,6 +181,11 @@ TEST_CASE("loaded pattern weights convert to evaluator runtime tables") {
 
   REQUIRE(runtime_weights.has_value());
   REQUIRE(runtime_weights->phase_count() == 2);
+  REQUIRE(runtime_weights->phase_bias(0) == 10);
+  REQUIRE(runtime_weights->phase_bias(1) == 20);
+  REQUIRE(std::vector<search::Score>(runtime_weights->phase_biases().begin(),
+                                     runtime_weights->phase_biases().end()) ==
+          std::vector<search::Score>{10, 20});
   REQUIRE(runtime_weights->tables().size() == 1);
   REQUIRE(runtime_weights->tables()[0].pattern_id == "tiny-corner-pair");
   REQUIRE(runtime_weights->tables()[0].pattern_length == 2);
