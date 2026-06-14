@@ -76,8 +76,9 @@ The current exact endgame implementation includes:
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
 * uses `TTEntryKind::exact_endgame_score` for optional exact-score endgame TT
   probe/store/cutoff when `SearchOptions::use_endgame_tt` is enabled
-* provides an endgame benchmark executable with a checked-in corpus default and
-  deterministic built-in fallback
+* provides an endgame benchmark executable with a checked-in corpus default,
+  deterministic built-in fallback, parity/TT comparison modes, and TT statistics
+  in raw output
 * has checked-in exact endgame benchmark baseline data for local comparison
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
@@ -127,7 +128,7 @@ Status values:
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
 | Add shared zero/one/two/three-empty path | done | Tested against generic solver through an internal generic-only policy |
-| Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |
+| Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count, parity-ordering mode, and exact endgame TT mode |
 | Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/2/3/4/6/8/10/12 empty positions and a forced pass case |
 | Add checked-in endgame benchmark baseline | done | `engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json` |
 | Tune thresholds for native builds | deferred | Requires repeated same-machine comparisons after baseline collection |
