@@ -4,6 +4,8 @@ namespace vibe_othello::search::internal {
 
 namespace {
 
+constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 4;
+
 SearchNodeResult dispatch_search(SearchContext* context, SearchDispatch dispatch, Score alpha,
                                  Score beta, Depth depth, Ply ply) {
   switch (dispatch) {
@@ -28,6 +30,32 @@ SearchNodeResult child_result(board_core::Move move, const SearchNodeResult& chi
   };
   prepend_move(move, child_value.pv, &result.pv);
   return SearchNodeResult::completed(result);
+}
+
+std::uint8_t internal_exact_endgame_threshold(SearchOptions options) noexcept {
+  return options.endgame_exact_empties < kInternalExactEndgameMaxEmpties
+             ? options.endgame_exact_empties
+             : kInternalExactEndgameMaxEmpties;
+}
+
+bool should_use_internal_exact_endgame(board_core::Position position,
+                                       SearchOptions options) noexcept {
+  return options.exact_endgame &&
+         empty_count(position) <= internal_exact_endgame_threshold(options);
+}
+
+SearchNodeResult search_internal_exact_endgame(SearchContext* context) {
+  EndgameContext endgame_context{
+      .position = context->position,
+      .limits = context->limits,
+      .options = context->options,
+      .transposition_table = context->transposition_table,
+      .limit_state = context->limit_state,
+  };
+  const SearchNodeResult result = exact_score_search(&endgame_context, kScoreLoss, kScoreWin,
+                                                     empty_count(endgame_context.position), Ply{0});
+  add_stats(&context->stats, endgame_context.stats);
+  return result;
 }
 
 } // namespace
@@ -109,16 +137,26 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
 
-  if (note_node_visited(context)) {
-    return SearchNodeResult::stopped();
-  }
-
   if (board_core::is_terminal(context->position)) {
+    if (note_node_visited(context)) {
+      return SearchNodeResult::stopped();
+    }
     ++context->stats.terminal_nodes;
     return SearchNodeResult::completed(SearchValue{
         .score = terminal_score(context->position),
         .pv = {},
     });
+  }
+
+  if (depth <= 0 && should_use_internal_exact_endgame(context->position, context->options)) {
+    if (should_stop_search(context)) {
+      return SearchNodeResult::stopped();
+    }
+    return search_internal_exact_endgame(context);
+  }
+
+  if (note_node_visited(context)) {
+    return SearchNodeResult::stopped();
   }
 
   if (depth <= 0) {

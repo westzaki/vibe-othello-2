@@ -54,6 +54,9 @@ The current exact endgame implementation includes:
 
 * `engine/src/search/endgame.cc`
 * root-triggered integration through `search_iterative`
+* internal leaf-triggered integration before heuristic evaluation when
+  `exact_endgame` is enabled and the leaf has at most
+  `min(endgame_exact_empties, 4)` empty squares
 * `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold checks
 * dedicated endgame move-ordering entry points that currently preserve the
   existing static Othello ordering
@@ -62,7 +65,8 @@ The current exact endgame implementation includes:
 * handles pass through board-core move deltas
 * returns terminal disc difference exactly
 * avoids evaluator calls in exact endgame mode
-* supports root move reporting
+* supports root move reporting for root-triggered exact search
+* avoids root move reporting for internal leaf cutover
 * publishes replayable PVs
 * marks result and root moves exact when completed
 * counts exact endgame nodes through `SearchStats::endgame_nodes`
@@ -90,7 +94,8 @@ The current implementation does not yet have:
 separate from midgame TT semantics by using `TTEntryKind::exact_endgame_score`
 and treating TT depth as remaining empty squares. `endgame_wld_empties` remains a
 safe no-op until WLD search is implemented. `exact_endgame` is implemented when
-the root threshold is met.
+the root threshold is met and as a conservative internal leaf cutover at four
+empties or fewer.
 
 ## Implementation Plan
 
@@ -112,7 +117,8 @@ Status values:
 | Add reference endgame solver in test support | done | Slow and clear, no TT or heuristic evaluation |
 | Add exact endgame golden corpus | done | `engine/testdata/endgame/positions.tsv` plus deterministic `exact_score.jsonl` |
 | Add small-empty golden tests | not started | Generate from trusted reference solver and inspect a subset |
-| Integrate root threshold through `SearchOptions::exact_endgame` | done | Root-only integration before normal iterative deepening |
+| Integrate root threshold through `SearchOptions::exact_endgame` | done | Root integration before normal iterative deepening |
+| Integrate internal leaf threshold through `SearchOptions::exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add WLD mode | not started | May be deferred after exact score |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |

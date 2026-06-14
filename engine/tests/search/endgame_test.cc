@@ -120,6 +120,12 @@ bool is_legal_root_move(board_core::Position position, board_core::Move move) {
   return board_core::make_move_delta(position, move, &delta);
 }
 
+board_core::Position child_after_move(board_core::Position position, board_core::Move move) {
+  board_core::MoveDelta delta{};
+  REQUIRE(board_core::apply_move(&position, move, &delta));
+  return position;
+}
+
 Score root_score_for_move(const SearchResult& result, board_core::Move move) {
   for (const RootMoveInfo& root_move : result.root_moves) {
     if (root_move.move == move) {
@@ -217,6 +223,84 @@ TEST_CASE("exact endgame option triggers only at or below threshold", "[search][
   REQUIRE(at_threshold.exact);
   REQUIRE(at_threshold.score == 64);
   REQUIRE(at_threshold_evaluator.calls == 0);
+}
+
+TEST_CASE("midgame leaf cutover solves small exact endgames without evaluator",
+          "[search][endgame][internal]") {
+  const board_core::Position position = test_support::generated_endgame_position(5);
+  REQUIRE(test_support::endgame_empty_count(position) == 5);
+  CountingEvaluator evaluator{77};
+
+  const SearchResult result =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{1}},
+                       SearchOptions{.exact_endgame = true, .endgame_exact_empties = 4});
+
+  REQUIRE_FALSE(result.stopped);
+  REQUIRE_FALSE(result.exact);
+  REQUIRE(result.completed_depth == Depth{1});
+  REQUIRE(result.nodes == result.stats.nodes);
+  REQUIRE(result.stats.eval_calls == 0);
+  REQUIRE(result.stats.leaf_nodes == 0);
+  REQUIRE(result.stats.endgame_nodes > 0);
+  REQUIRE(evaluator.calls == 0);
+  REQUIRE_FALSE(result.root_moves.empty());
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    REQUIRE_FALSE(root_move.exact);
+    REQUIRE(root_move.move.kind == board_core::MoveKind::normal);
+
+    const board_core::Position child = child_after_move(position, root_move.move);
+    REQUIRE(test_support::endgame_empty_count(child) == 4);
+    const SearchResult direct = search_exact(child, 4);
+    REQUIRE(root_move.score == static_cast<Score>(-direct.score));
+  }
+}
+
+TEST_CASE("disabled internal leaf cutover preserves evaluator behavior",
+          "[search][endgame][internal]") {
+  const board_core::Position position = test_support::generated_endgame_position(5);
+  CountingEvaluator evaluator{31};
+
+  const SearchResult result =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{1}},
+                       SearchOptions{.exact_endgame = false, .endgame_exact_empties = 4});
+
+  REQUIRE_FALSE(result.stopped);
+  REQUIRE_FALSE(result.exact);
+  REQUIRE(result.completed_depth == Depth{1});
+  REQUIRE(result.stats.eval_calls > 0);
+  REQUIRE(result.stats.leaf_nodes == result.stats.eval_calls);
+  REQUIRE(result.stats.endgame_nodes == 0);
+  REQUIRE(evaluator.calls == result.stats.eval_calls);
+}
+
+TEST_CASE("internal leaf cutover respects stopped limits safely",
+          "[search][endgame][internal][limits]") {
+  const board_core::Position position = test_support::generated_endgame_position(5);
+  CountingEvaluator max_nodes_evaluator{77};
+
+  const SearchResult max_nodes_result = search_iterative(
+      position, max_nodes_evaluator, SearchLimits{.max_depth = Depth{1}, .max_nodes = 2},
+      SearchOptions{.exact_endgame = true, .endgame_exact_empties = 4});
+
+  REQUIRE(max_nodes_result.stopped);
+  REQUIRE_FALSE(max_nodes_result.exact);
+  REQUIRE(max_nodes_result.nodes == max_nodes_result.stats.nodes);
+  REQUIRE(max_nodes_result.stats.eval_calls == 0);
+  REQUIRE(max_nodes_evaluator.calls == 0);
+
+  std::atomic_bool stop_requested{true};
+  CountingEvaluator stop_evaluator{77};
+  const SearchResult stop_result =
+      search_iterative(position, stop_evaluator,
+                       SearchLimits{.max_depth = Depth{1}, .stop_requested = &stop_requested},
+                       SearchOptions{.exact_endgame = true, .endgame_exact_empties = 4});
+
+  REQUIRE(stop_result.stopped);
+  REQUIRE_FALSE(stop_result.exact);
+  REQUIRE(stop_result.nodes == 0);
+  REQUIRE(stop_result.stats.endgame_nodes == 0);
+  REQUIRE(stop_result.stats.eval_calls == 0);
+  REQUIRE(stop_evaluator.calls == 0);
 }
 
 TEST_CASE("disabled exact endgame preserves existing depth-zero behavior", "[search][endgame]") {

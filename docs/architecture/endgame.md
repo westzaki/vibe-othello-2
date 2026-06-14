@@ -653,17 +653,21 @@ Root integration:
 
 Internal integration:
 
-* if midgame search reaches an endgame threshold and exact endgame is enabled,
-  call exact endgame search instead of heuristic evaluation
+* when a midgame leaf reaches depth zero and exact endgame is enabled, call
+  exact endgame search instead of heuristic evaluation if the position is under
+  the conservative internal threshold
+* the initial internal exact-score threshold is capped at four empties, even
+  when `endgame_exact_empties` is larger
+* internal endgame calls do not publish root move reports
 * negate returned score according to normal negamax rules
 * keep exact entries separate from midgame TT entries
+* do not mark the whole root `SearchResult` exact unless root integration solved
+  the root itself exactly
 
-Initial implementation should prefer root-only integration.
-
-Root-only integration is easier to test.
-
-Internal threshold integration can come after exact endgame solver correctness is
-well covered.
+Root integration and internal integration are distinct. Root integration
+publishes exact root moves and may mark the `SearchResult` exact. Internal
+integration only replaces heuristic leaf evaluation with an exact side-to-move
+disc-difference score for that internal position.
 
 ## Interaction with PVS
 

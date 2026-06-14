@@ -103,10 +103,15 @@ The current implementation does not yet have:
 * parallel search
 * analysis and review-specific result adapters
 
-The exact endgame path is currently a root-triggered generic exact-score solver.
-It is entered before normal iterative deepening when the root position is at or
-below `endgame_exact_empties`. It does not yet provide WLD, endgame TT, parity
-ordering, or small-empty specialized routines.
+The exact endgame path currently has root-triggered and internal leaf-triggered
+generic exact-score solving. Root exact search is entered before normal
+iterative deepening when the root position is at or below
+`endgame_exact_empties`. Internal leaf cutover is entered from depth-limited
+midgame search before heuristic evaluation when `exact_endgame` is enabled and
+the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
+not publish root exact move reports or mark the whole root result exact. Exact
+endgame does not yet provide WLD, parity ordering, or small-empty specialized
+routines.
 
 Current time limits are cooperative and checked periodically inside recursive
 midgame and endgame search. This keeps the hot path smaller, but it is not a
@@ -143,7 +148,7 @@ Status values:
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
 | Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
 | Add killer and history heuristics | not started | Options currently safe no-ops |
-| Add exact endgame solver | done | Root-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
+| Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | not started | `use_endgame_tt` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add specialized endgame routines | not started | Tracked in `docs/progress/endgame.md` |
 | Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
