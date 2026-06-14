@@ -12,6 +12,7 @@ cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHM
 cmake --build build-bench --config Release
 ./build-bench/engine/benchmarks/vibe_othello_board_core_bench
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench --tsv --max-empties 12
+./build-bench/engine/benchmarks/vibe_othello_evaluation_bench
 ./build-bench/engine/benchmarks/vibe_othello_search_bench
 ```
 
@@ -75,6 +76,31 @@ The search fixture corpus currently covers:
 - `corner_available`
 - `pass_position`
 - `late_midgame`
+
+Evaluation benchmark output is TSV and measures direct evaluator calls outside
+recursive search. It loads the checked-in search corpus once, constructs the
+evaluators once, then times repeated calls to each evaluator for each fixed
+position. File I/O, TSV parsing, weight construction, and allocation happen
+before the timed loop.
+
+Use the default checked-in corpus and iteration count for a small local
+baseline:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_evaluation_bench
+```
+
+Use `--corpus path/to/positions.tsv` to run another corpus with the search
+fixture row shape:
+
+```text
+id	category	position	depths	notes
+```
+
+Use `--iterations N` to change the repeated evaluation count per
+evaluator/position. The emitted `checksum` column folds the evaluated scores
+with the fixed position identity so local before/after runs can notice
+deterministic scoring changes. It is comparison data, not a CI gate.
 
 Endgame benchmark output is TSV by default and measures the root-only exact
 endgame solver through `solve_exact_endgame`. Use
@@ -216,6 +242,7 @@ emit zero TT counters.
 | --- | --- |
 | `board_core_bench.cc` | Board-core hot-path benchmark executable. |
 | `endgame_bench.cc` | Exact endgame benchmark executable with checked-in corpus default and built-in fallback. |
+| `evaluation_bench.cc` | Pattern evaluator benchmark executable using the checked-in search corpus by default. |
 | `search_bench.cc` | Search benchmark executable with configurable fixed depths. |
 | `../fixtures/search/positions.tsv` | Search benchmark corpus for repeatable local and future golden checks. |
 | `../fixtures/endgame/positions.tsv` | Exact endgame benchmark corpus for repeatable local and future golden checks. |
@@ -260,6 +287,9 @@ For endgame benchmarks, report the max-empty cap and the emitted columns:
 `alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
 `tt_stores`, `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
 `tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
+
+For evaluation benchmarks, report the corpus and emitted columns: `evaluator`,
+`position_id`, `iterations`, `elapsed_ns`, `ns_per_eval`, and `checksum`.
 
 Search JSONL output emits one JSON object per position/mode/depth result. The
 schema is:
