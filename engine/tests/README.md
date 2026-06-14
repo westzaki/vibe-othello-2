@@ -20,6 +20,12 @@ Engine tests use Catch2 and run through CTest.
 | `board_core/property_test.cc` | Invariants that must hold for representative and random reachable positions. |
 | `board_core/perft_test.cc` | Move-tree validation including pass and terminal behavior. |
 
+## Evaluation Tests
+
+| File | Role |
+| --- | --- |
+| `evaluation/tiny_pattern_evaluator_test.cc` | Tiny pattern evaluator indexing, phase, sign convention, determinism, and score range. |
+
 ## Search Tests
 
 | File | Role |

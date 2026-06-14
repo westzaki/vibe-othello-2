@@ -6,6 +6,7 @@ target_sources(
   PRIVATE src/board_core/board.cc
           src/board_core/hash.cc
           src/board_core/serialization.cc
+          src/evaluation/tiny_pattern_evaluator.cc
           src/search/alphabeta.cc
           src/search/endgame.cc
           src/search/move_ordering.cc
