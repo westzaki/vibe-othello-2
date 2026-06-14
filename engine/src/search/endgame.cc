@@ -118,7 +118,7 @@ SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score 
     return SearchNodeResult::stopped();
   }
 
-  frame.moves = ordered_moves(context->position, MoveOrderingHints{});
+  frame.moves = order_endgame_moves(context->position, EndgameOrderingHints{});
   if (frame.moves.size == 0) {
     ++context->stats.pass_nodes;
     const SearchNodeResult pass =
@@ -205,7 +205,7 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
 
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
-  root_frame.moves = ordered_moves(context.position, MoveOrderingHints{});
+  root_frame.moves = order_endgame_moves(context.position, EndgameOrderingHints{});
   const MoveList root_moves = root_frame.moves;
 
   if (root_moves.size == 0) {

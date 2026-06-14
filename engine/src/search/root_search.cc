@@ -332,7 +332,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   root_hints.use_opponent_mobility = true;
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
-  root_frame.moves = ordered_moves(context.position, root_hints);
+  root_frame.moves = order_midgame_moves(context.position, root_hints);
   const MoveList root_moves = root_frame.moves;
   if (root_moves.size == 0) {
     if (should_stop_search(&context)) {

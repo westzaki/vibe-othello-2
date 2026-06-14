@@ -146,16 +146,8 @@ int opponent_mobility_after(board_core::Position position, board_core::Move move
   return std::popcount(board_core::legal_moves(position));
 }
 
-int move_order_score(board_core::Position position, board_core::Move move,
-                     MoveOrderingHints hints) noexcept {
+int static_othello_order_score(board_core::Position position, board_core::Move move) noexcept {
   int score = 0;
-
-  if (is_move(move, hints.root_best_move.value_or(board_core::make_pass()))) {
-    score += 2'000'000;
-  }
-  if (is_move(move, hints.tt_best_move.value_or(board_core::make_pass()))) {
-    score += 1'000'000;
-  }
 
   if (is_corner(move.square)) {
     score += 100'000;
@@ -175,6 +167,22 @@ int move_order_score(board_core::Position position, board_core::Move move,
     score += 1'000;
   }
 
+  return score;
+}
+
+int midgame_order_score(board_core::Position position, board_core::Move move,
+                        MidgameOrderingHints hints) noexcept {
+  int score = 0;
+
+  if (is_move(move, hints.root_best_move.value_or(board_core::make_pass()))) {
+    score += 2'000'000;
+  }
+  if (is_move(move, hints.tt_best_move.value_or(board_core::make_pass()))) {
+    score += 1'000'000;
+  }
+
+  score += static_othello_order_score(position, move);
+
   if (hints.use_opponent_mobility) {
     score += (board_core::kSquareCount - opponent_mobility_after(position, move)) * 10;
   }
@@ -187,6 +195,22 @@ int move_order_score(board_core::Position position, board_core::Move move,
   if (hints.history != nullptr) {
     score += std::clamp((*hints.history)[move.square.index], -99, 99);
   }
+
+  return score;
+}
+
+int endgame_order_score(board_core::Position position, board_core::Move move,
+                        EndgameOrderingHints hints) noexcept {
+  int score = 0;
+
+  if (is_move(move, hints.tt_best_move.value_or(board_core::make_pass()))) {
+    score += 2'000'000;
+  }
+  if (is_move(move, hints.root_best_move.value_or(board_core::make_pass()))) {
+    score += 1'000'000;
+  }
+
+  score += static_othello_order_score(position, move);
 
   return score;
 }
@@ -211,15 +235,14 @@ void insertion_sort_scored_moves(std::array<ScoredMove, board_core::kSquareCount
   }
 }
 
-} // namespace
-
-MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept {
+template <typename ScoreMove>
+MoveList order_moves_by_policy(board_core::Position position, ScoreMove score_move) noexcept {
   MoveList list = move_list_from_legal_mask(board_core::legal_moves(position));
   std::array<ScoredMove, board_core::kSquareCount> scored_moves{};
   for (std::uint8_t index = 0; index < list.size; ++index) {
     scored_moves[index] = ScoredMove{
         .move = list.moves[index],
-        .score = move_order_score(position, list.moves[index], hints),
+        .score = score_move(position, list.moves[index]),
     };
   }
 
@@ -229,6 +252,26 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
     list.moves[index] = scored_moves[index].move;
   }
   return list;
+}
+
+} // namespace
+
+MoveList order_midgame_moves(board_core::Position position, MidgameOrderingHints hints) noexcept {
+  return order_moves_by_policy(
+      position, [hints](board_core::Position current_position, board_core::Move move) noexcept {
+        return midgame_order_score(current_position, move, hints);
+      });
+}
+
+MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept {
+  return order_midgame_moves(position, hints);
+}
+
+MoveList order_endgame_moves(board_core::Position position, EndgameOrderingHints hints) noexcept {
+  return order_moves_by_policy(
+      position, [hints](board_core::Position current_position, board_core::Move move) noexcept {
+        return endgame_order_score(current_position, move, hints);
+      });
 }
 
 } // namespace vibe_othello::search::internal

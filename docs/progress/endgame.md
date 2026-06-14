@@ -55,6 +55,8 @@ The current exact endgame implementation includes:
 * `engine/src/search/endgame.cc`
 * root-triggered integration through `search_iterative`
 * `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold checks
+* dedicated endgame move-ordering entry points that currently preserve the
+  existing static Othello ordering
 * generic exact final-disc-difference negamax with alpha-beta pruning
 * uses board-core positions and moves
 * handles pass through board-core move deltas
