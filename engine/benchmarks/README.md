@@ -51,13 +51,15 @@ The search fixture corpus currently covers:
 Endgame benchmark output is TSV by default and measures the root-only exact
 endgame solver through `search_iterative` with `exact_endgame = true`. Use
 `--csv` for comma-separated output, `--jsonl` for JSON Lines output,
-`--repeat N` to repeat each position, and `--max-empties N` to cap the built-in
+`--repeat N` to repeat each position, and `--max-empties N` to cap the default
 or external corpus by empty count.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
-`--corpus` is omitted, the executable uses a deterministic built-in corpus with
-0/1/4/6/8/10/12-empty positions, including a forced-pass case. External corpus
-rows are TSV with:
+`--corpus` is omitted, the executable first uses the checked-in
+`engine/testdata/endgame/positions.tsv` corpus when run from the repository
+root. If that file is unavailable, it falls back to a deterministic built-in
+corpus with the same 0/1/4/6/8/10/12-empty positions, including a forced-pass
+case. External corpus rows are TSV with:
 
 ```text
 id	category	position	expected_empties	notes
@@ -73,7 +75,7 @@ endgame corpus used by deterministic golden checks.
 | Path | Role |
 | --- | --- |
 | `board_core_bench.cc` | Board-core hot-path benchmark executable. |
-| `endgame_bench.cc` | Exact endgame benchmark executable with built-in corpus. |
+| `endgame_bench.cc` | Exact endgame benchmark executable with checked-in corpus default and built-in fallback. |
 | `search_bench.cc` | Search benchmark executable with configurable fixed depths. |
 | `../testdata/search/positions.tsv` | Search benchmark corpus for repeatable local and future golden checks. |
 | `../testdata/endgame/positions.tsv` | Exact endgame benchmark corpus for repeatable local and future golden checks. |

@@ -130,7 +130,7 @@ Move select_legal_move(Position position, std::size_t choice) {
   return moves[choice % move_count];
 }
 
-Position generated_position(std::uint8_t target_empties) {
+Position fallback_generated_position(std::uint8_t target_empties) {
   static constexpr std::array<std::size_t, 64> kChoices{
       12, 11, 6, 6, 7,  11, 13, 13, 0, 15, 9, 12, 5,  7,  13, 15, 15, 13, 12, 8, 14, 5,
       3,  4,  2, 1, 12, 14, 5,  14, 4, 0,  9, 11, 13, 15, 12, 13, 2,  7,  5,  5, 7,  6,
@@ -154,7 +154,7 @@ Position generated_position(std::uint8_t target_empties) {
   return position;
 }
 
-std::vector<PositionCase> benchmark_positions() {
+std::vector<PositionCase> built_in_fallback_positions() {
   return {
       PositionCase{.id = "zero_empty_terminal",
                    .category = "zero_empty",
@@ -176,27 +176,27 @@ std::vector<PositionCase> benchmark_positions() {
                    .notes = "One empty square where root must pass"},
       PositionCase{.id = "four_empty_simple",
                    .category = "generated",
-                   .position = generated_position(4),
+                   .position = fallback_generated_position(4),
                    .expected_empties = 4,
                    .notes = "Deterministically generated from initial position"},
       PositionCase{.id = "six_empty_simple",
                    .category = "generated",
-                   .position = generated_position(6),
+                   .position = fallback_generated_position(6),
                    .expected_empties = 6,
                    .notes = "Deterministically generated from initial position"},
       PositionCase{.id = "eight_empty_simple",
                    .category = "generated",
-                   .position = generated_position(8),
+                   .position = fallback_generated_position(8),
                    .expected_empties = 8,
                    .notes = "Deterministically generated from initial position"},
       PositionCase{.id = "ten_empty_simple",
                    .category = "generated",
-                   .position = generated_position(10),
+                   .position = fallback_generated_position(10),
                    .expected_empties = 10,
                    .notes = "Deterministically generated from initial position"},
       PositionCase{.id = "twelve_empty_simple",
                    .category = "generated",
-                   .position = generated_position(12),
+                   .position = fallback_generated_position(12),
                    .expected_empties = 12,
                    .notes = "Deterministically generated from initial position"},
   };
@@ -290,6 +290,25 @@ std::vector<PositionCase> load_corpus(std::string_view path) {
   require_condition(saw_header, "missing corpus header");
   require_condition(!positions.empty(), "empty corpus");
   return positions;
+}
+
+std::optional<std::vector<PositionCase>> try_load_corpus(std::string_view path) {
+  std::ifstream input{std::string(path)};
+  if (!input.is_open()) {
+    return std::nullopt;
+  }
+
+  input.close();
+  return load_corpus(path);
+}
+
+std::vector<PositionCase> default_positions() {
+  static constexpr std::string_view kCheckedInCorpus = "engine/testdata/endgame/positions.tsv";
+  if (std::optional<std::vector<PositionCase>> positions = try_load_corpus(kCheckedInCorpus)) {
+    return *positions;
+  }
+
+  return built_in_fallback_positions();
 }
 
 std::optional<Config> parse_config(int argc, char** argv) {
@@ -610,7 +629,7 @@ int main(int argc, char** argv) {
   }
 
   const std::vector<PositionCase> positions =
-      config->corpus_path.empty() ? benchmark_positions() : load_corpus(config->corpus_path);
+      config->corpus_path.empty() ? default_positions() : load_corpus(config->corpus_path);
 
   if (config->output_format != OutputFormat::jsonl) {
     print_delimited_header(config->delimiter);

@@ -67,7 +67,8 @@ The current exact endgame implementation includes:
 * marks result and root moves exact when completed
 * counts exact endgame nodes through `SearchStats::endgame_nodes`
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
-* provides an endgame benchmark executable with a deterministic built-in corpus
+* provides an endgame benchmark executable with a checked-in corpus default and
+  deterministic built-in fallback
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
 
