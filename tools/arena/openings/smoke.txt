@@ -1,0 +1,11 @@
+# one opening per line, moves from the initial position
+# empty lines are ignored
+start:
+f5:
+d3:
+c4:
+e6:
+f5 d6:
+d3 c3:
+c4 c3:
+e6 f4:

@@ -77,6 +77,11 @@ development, smoke checks, and validation.
 
 ```text
 tools/
+├─ arena/
+│  ├─ openings/
+│  └─ README.md
+├─ engine-cli/
+│  └─ main.cc
 ├─ engine-smoke/
 │  └─ main.cc
 ├─ endgame/
