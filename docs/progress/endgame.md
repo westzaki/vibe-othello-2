@@ -18,7 +18,8 @@ Relevant design documents:
 
 ## Current Foundation
 
-The current repository already has the foundations needed for endgame search.
+The current repository already has the first production exact-score endgame
+path.
 
 Existing search public types include:
 
@@ -49,36 +50,41 @@ Existing internal transposition-table entry kinds include:
 * `TTEntryKind::exact_endgame_score`
 * `TTEntryKind::exact_endgame_wld`
 
-The current recursive search already:
+The current exact endgame implementation includes:
 
+* `engine/src/search/endgame.cc`
+* root-triggered integration through `search_iterative`
+* `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold checks
+* generic exact final-disc-difference negamax with alpha-beta pruning
 * uses board-core positions and moves
 * handles pass through board-core move deltas
 * returns terminal disc difference exactly
-* supports alpha-beta
-* supports PVS
-* supports iterative deepening
+* avoids evaluator calls in exact endgame mode
 * supports root move reporting
-* supports midgame TT cutoffs
-* supports TT best-move ordering
+* publishes replayable PVs
+* marks result and root moves exact when completed
+* counts exact endgame nodes through `SearchStats::endgame_nodes`
+* checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
+* provides an endgame benchmark executable with a deterministic built-in corpus
+* has production-vs-reference tests for terminal, one-empty, forced-pass, and
+  deterministic small-empty positions
 
 ## Current Gaps
 
 The current implementation does not yet have:
 
-* `engine/src/search/endgame.cc`
 * public direct endgame solve API
-* exact endgame search path
 * WLD search path
 * endgame TT probing or storing
 * parity-region ordering
 * small-empty specialized routines
-* endgame benchmark executable
 * exact endgame golden corpus
+* checked-in endgame benchmark baselines
+* tuned native or WASM thresholds
 
-Unimplemented endgame options are currently expected to be safe no-ops.
-
-Adding endgame search must preserve that safety property until each option is
-implemented.
+`use_endgame_tt` and `endgame_wld_empties` are currently expected to remain safe
+no-ops until their corresponding paths are implemented. `exact_endgame` is
+implemented when the root threshold is met.
 
 ## Implementation Plan
 
