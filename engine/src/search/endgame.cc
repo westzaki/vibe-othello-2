@@ -1,6 +1,5 @@
 #include "search_internal.h"
 
-#include <atomic>
 #include <bit>
 #include <chrono>
 #include <optional>
@@ -8,29 +7,8 @@
 namespace vibe_othello::search::internal {
 namespace {
 
-constexpr NodeCount kEndgameTimeCheckNodeInterval = 256;
-
-bool external_stop_requested(const SearchLimitState& state) noexcept {
-  return state.stop_requested != nullptr && state.stop_requested->load(std::memory_order_acquire);
-}
-
-bool time_limit_reached(const SearchLimitState& state) {
-  return state.has_deadline && std::chrono::steady_clock::now() >= state.deadline;
-}
-
 bool should_stop_endgame(EndgameContext* context) {
-  if (context == nullptr || context->limit_state == nullptr) {
-    return false;
-  }
-
-  SearchLimitState* state = context->limit_state;
-  if (state->stopped) {
-    return true;
-  }
-  if (external_stop_requested(*state) || time_limit_reached(*state)) {
-    state->stopped = true;
-  }
-  return state->stopped;
+  return context != nullptr && should_stop(context->limit_state);
 }
 
 bool note_endgame_node_visited(EndgameContext* context) {
@@ -38,53 +16,7 @@ bool note_endgame_node_visited(EndgameContext* context) {
     return false;
   }
 
-  SearchLimitState* state = context->limit_state;
-  if (state != nullptr) {
-    if (state->stopped || external_stop_requested(*state)) {
-      state->stopped = true;
-      return true;
-    }
-    if (state->max_nodes != 0 && state->nodes >= state->max_nodes) {
-      state->stopped = true;
-      return true;
-    }
-  }
-
-  ++context->stats.nodes;
-  ++context->stats.endgame_nodes;
-
-  if (state == nullptr) {
-    return false;
-  }
-
-  ++state->nodes;
-  if (state->max_nodes != 0 && state->nodes >= state->max_nodes) {
-    state->stopped = true;
-    return false;
-  }
-
-  if (state->nodes_until_next_time_check == 0) {
-    state->nodes_until_next_time_check = kEndgameTimeCheckNodeInterval;
-    if (time_limit_reached(*state)) {
-      state->stopped = true;
-    }
-  } else {
-    --state->nodes_until_next_time_check;
-  }
-
-  return state->stopped;
-}
-
-bool is_better_root_move(Score score, board_core::Move move, Score best_score,
-                         std::optional<board_core::Move> best_move) noexcept {
-  if (!best_move.has_value() || score > best_score) {
-    return true;
-  }
-  if (score < best_score || move.kind != board_core::MoveKind::normal ||
-      best_move->kind != board_core::MoveKind::normal) {
-    return false;
-  }
-  return move.square.index < best_move->square.index;
+  return note_node_visited(context->limit_state, &context->stats, SearchNodeAccounting::endgame);
 }
 
 bool update_endgame_alpha_and_check_cutoff(EndgameContext* context, Score score, Score* alpha,

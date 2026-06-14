@@ -11,18 +11,6 @@ namespace {
 constexpr Score kAspirationInitialWindow = 4;
 constexpr Score kFullScoreRange = kScoreWin - kScoreLoss;
 
-bool is_better_root_move(Score score, board_core::Move move, Score best_score,
-                         std::optional<board_core::Move> best_move) noexcept {
-  if (!best_move.has_value() || score > best_score) {
-    return true;
-  }
-  if (score < best_score || move.kind != board_core::MoveKind::normal ||
-      best_move->kind != board_core::MoveKind::normal) {
-    return false;
-  }
-  return move.square.index < best_move->square.index;
-}
-
 Score clamp_score(Score score) noexcept {
   if (score < kScoreLoss) {
     return kScoreLoss;
