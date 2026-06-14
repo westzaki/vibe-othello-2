@@ -13,7 +13,7 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
   }
 
   StackFrame& frame = context->stack[ply];
-  const MoveOrderingHints hints = build_ordering_hints_from_tt(*context, tt_entry);
+  const MoveOrderingHints hints = build_midgame_ordering_hints(*context, tt_entry, ply);
   frame.moves = order_midgame_moves(context->position, hints);
   if (frame.moves.size == 0) {
     return search_pass_child(context, alpha, beta, depth, ply, SearchDispatch::pvs);
@@ -50,6 +50,7 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
     update_best_line_and_move(child_value, move, &best, &best_move, &frame);
 
     if (update_alpha_and_check_cutoff(context, child_value.score, &alpha, beta)) {
+      update_midgame_ordering_on_beta_cutoff(context, move, depth, ply);
       break;
     }
   }

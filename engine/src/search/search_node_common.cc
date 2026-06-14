@@ -5,6 +5,7 @@ namespace vibe_othello::search::internal {
 namespace {
 
 constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 4;
+constexpr int kHistoryScoreLimit = 1'000'000;
 
 SearchNodeResult dispatch_search(SearchContext* context, SearchDispatch dispatch, Score alpha,
                                  Score beta, Depth depth, Ply ply) {
@@ -217,14 +218,23 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   return std::nullopt;
 }
 
-MoveOrderingHints build_ordering_hints_from_tt(const SearchContext& context,
-                                               const std::optional<TTEntry>& tt_entry) noexcept {
-  return MoveOrderingHints{
+MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
+                                               const std::optional<TTEntry>& tt_entry,
+                                               Ply ply) noexcept {
+  MoveOrderingHints hints{
       .tt_best_move = context.options.use_tt_best_move_ordering && tt_entry.has_value() &&
                               tt_entry->kind == TTEntryKind::midgame && tt_entry->has_best_move
                           ? std::optional<board_core::Move>{tt_entry->best_move}
                           : std::nullopt,
   };
+
+  if (context.ordering_state != nullptr && context.options.use_killers) {
+    hints.killer_moves = context.ordering_state->killer_moves[ply];
+  }
+  if (context.ordering_state != nullptr && context.options.use_history) {
+    hints.history = &context.ordering_state->history;
+  }
+  return hints;
 }
 
 SearchNodeResult search_full_window_child(SearchContext* context, board_core::Move move,
@@ -291,6 +301,28 @@ bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* a
     return true;
   }
   return false;
+}
+
+void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::Move move,
+                                            Depth depth, Ply ply) noexcept {
+  if (context->ordering_state == nullptr || move.kind != board_core::MoveKind::normal) {
+    return;
+  }
+
+  if (context->options.use_history) {
+    int& history_score = context->ordering_state->history[move.square.index];
+    const int bonus = static_cast<int>(depth * depth);
+    history_score =
+        history_score > kHistoryScoreLimit - bonus ? kHistoryScoreLimit : history_score + bonus;
+  }
+
+  if (context->options.use_killers) {
+    std::array<board_core::Move, 2>& killers = context->ordering_state->killer_moves[ply];
+    if (killers[0] != move) {
+      killers[1] = killers[0];
+      killers[0] = move;
+    }
+  }
 }
 
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,

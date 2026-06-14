@@ -55,6 +55,7 @@ The current search implementation includes:
 * midgame transposition-table cutoffs
 * transposition-table best-move ordering
 * Othello-specific move ordering
+* killer and history midgame move ordering heuristics
 * separate midgame and endgame move-ordering entry points sharing legal-move
   expansion and insertion-sort mechanics
 * `max_nodes`, `max_time`, `infinite`, and `stop_requested` enforcement
@@ -103,8 +104,6 @@ The current implementation does not yet have:
 * WLD endgame TT probing or storing
 * public direct endgame solve API
 * real internal iterative deepening
-* killer heuristic
-* history heuristic
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
 * ProbCut or calibrated selective pruning
@@ -158,7 +157,7 @@ Status values:
 | Add TT best-move ordering | done | Controlled by `use_tt_best_move_ordering` |
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
 | Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
-| Add killer and history heuristics | not started | Options currently safe no-ops |
+| Add killer and history heuristics | done | Ordering-only midgame heuristics controlled by `use_killers` and `use_history` |
 | Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add specialized small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |

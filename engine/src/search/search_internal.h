@@ -37,8 +37,9 @@ ExactEndgameTtProbe exact_endgame_score_tt_probe(const TTEntry& entry,
 std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Score alpha, Score beta,
                                                     Depth depth, Ply ply,
                                                     std::optional<TTEntry>* tt_entry);
-MoveOrderingHints build_ordering_hints_from_tt(const SearchContext& context,
-                                               const std::optional<TTEntry>& tt_entry) noexcept;
+MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
+                                               const std::optional<TTEntry>& tt_entry,
+                                               Ply ply) noexcept;
 SearchNodeResult search_pass_child(SearchContext* context, Score alpha, Score beta, Depth depth,
                                    Ply ply, SearchDispatch dispatch);
 SearchNodeResult search_full_window_child(SearchContext* context, board_core::Move move,
@@ -50,6 +51,8 @@ void update_best_line_and_move(const SearchValue& child, board_core::Move move, 
                                std::optional<board_core::Move>* best_move, StackFrame* frame);
 bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* alpha,
                                    Score beta) noexcept;
+void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::Move move,
+                                            Depth depth, Ply ply) noexcept;
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
                             std::optional<board_core::Move> best_move) noexcept;
 
@@ -76,6 +79,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           Depth depth, MoveOrderingHints root_hints,
                                           SearchOptions options, TranspositionTable* tt,
                                           RootSearchWindow root_window = {},
+                                          MidgameOrderingState* ordering_state = nullptr,
                                           SearchLimitState* limit_state = nullptr);
 
 } // namespace vibe_othello::search::internal
