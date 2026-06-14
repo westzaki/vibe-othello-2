@@ -60,46 +60,46 @@ void require_exact_result(board_core::Position position, const SearchResult& res
   }
 }
 
-void require_specialized_matches_generic(board_core::Position position) {
-  const SearchResult specialized = solve_with_policy(position, SmallEndgamePolicy::enabled);
+void require_small_empty_path_matches_generic(board_core::Position position) {
+  const SearchResult small_empty = solve_with_policy(position, SmallEndgamePolicy::enabled);
   const SearchResult generic = solve_with_policy(position, SmallEndgamePolicy::generic_only);
 
-  require_exact_result(position, specialized);
+  require_exact_result(position, small_empty);
   require_exact_result(position, generic);
 
-  REQUIRE(specialized.score == generic.score);
-  REQUIRE(specialized.completed_depth == generic.completed_depth);
-  REQUIRE(specialized.best_move.has_value() == generic.best_move.has_value());
-  if (specialized.best_move.has_value()) {
-    REQUIRE(root_score_for_move(generic, *specialized.best_move) == generic.score);
+  REQUIRE(small_empty.score == generic.score);
+  REQUIRE(small_empty.completed_depth == generic.completed_depth);
+  REQUIRE(small_empty.best_move.has_value() == generic.best_move.has_value());
+  if (small_empty.best_move.has_value()) {
+    REQUIRE(root_score_for_move(generic, *small_empty.best_move) == generic.score);
   }
-  REQUIRE(specialized.root_moves.size() == generic.root_moves.size());
-  for (const RootMoveInfo& specialized_root_move : specialized.root_moves) {
-    REQUIRE(root_score_for_move(generic, specialized_root_move.move) ==
-            specialized_root_move.score);
+  REQUIRE(small_empty.root_moves.size() == generic.root_moves.size());
+  for (const RootMoveInfo& small_empty_root_move : small_empty.root_moves) {
+    REQUIRE(root_score_for_move(generic, small_empty_root_move.move) ==
+            small_empty_root_move.score);
   }
 }
 
-TEST_CASE("small-empty exact routines match generic terminal positions",
+TEST_CASE("small-empty exact path matches generic terminal positions",
           "[search][endgame][small_empty]") {
-  require_specialized_matches_generic(parse_position_or_fail(
+  require_small_empty_path_matches_generic(parse_position_or_fail(
       "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b"));
-  require_specialized_matches_generic(parse_position_or_fail(
+  require_small_empty_path_matches_generic(parse_position_or_fail(
       "BBBBBBB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"));
 }
 
-TEST_CASE("small-empty exact routines match generic one-empty forced move and pass",
+TEST_CASE("small-empty exact path matches generic one-empty forced move and pass",
           "[search][endgame][small_empty]") {
-  require_specialized_matches_generic(parse_position_or_fail(
+  require_small_empty_path_matches_generic(parse_position_or_fail(
       "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"));
-  require_specialized_matches_generic(parse_position_or_fail(
+  require_small_empty_path_matches_generic(parse_position_or_fail(
       "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"));
 }
 
-TEST_CASE("small-empty exact routines match generic generated positions",
+TEST_CASE("small-empty exact path matches generic generated positions",
           "[search][endgame][small_empty]") {
-  require_specialized_matches_generic(test_support::generated_endgame_position(2));
-  require_specialized_matches_generic(test_support::generated_endgame_position(3));
+  require_small_empty_path_matches_generic(test_support::generated_endgame_position(2));
+  require_small_empty_path_matches_generic(test_support::generated_endgame_position(3));
 }
 
 } // namespace

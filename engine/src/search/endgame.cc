@@ -36,6 +36,48 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
                                                 std::uint8_t empties, Ply ply,
                                                 SmallEndgamePolicy small_endgame_policy);
 
+bool should_use_endgame_tt(const EndgameContext& context) noexcept {
+  return context.options.use_endgame_tt && context.transposition_table != nullptr;
+}
+
+std::optional<Score> probe_exact_endgame_tt(EndgameContext* context, Depth remaining_empties,
+                                            Score alpha, Score beta) {
+  if (!should_use_endgame_tt(*context)) {
+    return std::nullopt;
+  }
+
+  const std::optional<TTEntry> entry =
+      context->transposition_table->probe(context->position, &context->stats);
+  if (!entry.has_value()) {
+    return std::nullopt;
+  }
+
+  const std::optional<Score> cutoff =
+      exact_endgame_score_tt_cutoff_score(*entry, remaining_empties, alpha, beta);
+  if (cutoff.has_value()) {
+    ++context->stats.tt_cutoffs;
+  }
+  return cutoff;
+}
+
+void store_exact_endgame_tt(EndgameContext* context, Depth remaining_empties, Score score,
+                            BoundType bound,
+                            std::optional<board_core::Move> best_move = std::nullopt) noexcept {
+  if (!should_use_endgame_tt(*context)) {
+    return;
+  }
+
+  if (best_move.has_value()) {
+    context->transposition_table->store(context->position, remaining_empties, score, bound,
+                                        *best_move, TTEntryKind::exact_endgame_score,
+                                        &context->stats);
+    return;
+  }
+
+  context->transposition_table->store_value(context->position, remaining_empties, score, bound,
+                                            TTEntryKind::exact_endgame_score, &context->stats);
+}
+
 SearchNodeResult search_endgame_child(EndgameContext* context, board_core::Move move, Score alpha,
                                       Score beta, std::uint8_t empties, Ply ply,
                                       SmallEndgamePolicy small_endgame_policy) {
@@ -106,12 +148,16 @@ MoveList small_empty_move_list(board_core::Position position) noexcept {
 
 SearchNodeResult exact_score_small_empty(EndgameContext* context, Score alpha, Score beta,
                                          std::uint8_t empties, Ply ply,
-                                         SmallEndgamePolicy small_endgame_policy) {
+                                         SmallEndgamePolicy small_endgame_policy,
+                                         Score original_alpha, Score original_beta) {
   StackFrame& frame = context->stack[ply];
+  const Depth remaining_empties = static_cast<Depth>(empties);
   if (board_core::is_terminal(context->position)) {
     ++context->stats.terminal_nodes;
+    const Score score = terminal_score(context->position);
+    store_exact_endgame_tt(context, remaining_empties, score, BoundType::exact);
     return SearchNodeResult::completed(SearchValue{
-        .score = terminal_score(context->position),
+        .score = score,
         .pv = {},
     });
   }
@@ -127,6 +173,8 @@ SearchNodeResult exact_score_small_empty(EndgameContext* context, Score alpha, S
                                                        beta, empties, ply, small_endgame_policy);
     if (pass.is_complete()) {
       frame.pv = pass.value().pv;
+      store_exact_endgame_tt(context, remaining_empties, pass.value().score,
+                             classify_bound(pass.value().score, original_alpha, original_beta));
     }
     return pass;
   }
@@ -156,49 +204,64 @@ SearchNodeResult exact_score_small_empty(EndgameContext* context, Score alpha, S
     }
   }
 
+  store_exact_endgame_tt(context, remaining_empties, best.score,
+                         classify_bound(best.score, original_alpha, original_beta), best_move);
   return SearchNodeResult::completed(best);
 }
 
 SearchNodeResult exact_score_0_empty(EndgameContext* context, Score alpha, Score beta,
                                      std::uint8_t empties, Ply ply,
-                                     SmallEndgamePolicy small_endgame_policy) {
-  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+                                     SmallEndgamePolicy small_endgame_policy, Score original_alpha,
+                                     Score original_beta) {
+  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                 original_alpha, original_beta);
 }
 
 SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score beta,
                                      std::uint8_t empties, Ply ply,
-                                     SmallEndgamePolicy small_endgame_policy) {
-  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+                                     SmallEndgamePolicy small_endgame_policy, Score original_alpha,
+                                     Score original_beta) {
+  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                 original_alpha, original_beta);
 }
 
 SearchNodeResult exact_score_2_empty(EndgameContext* context, Score alpha, Score beta,
                                      std::uint8_t empties, Ply ply,
-                                     SmallEndgamePolicy small_endgame_policy) {
-  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+                                     SmallEndgamePolicy small_endgame_policy, Score original_alpha,
+                                     Score original_beta) {
+  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                 original_alpha, original_beta);
 }
 
 SearchNodeResult exact_score_3_empty(EndgameContext* context, Score alpha, Score beta,
                                      std::uint8_t empties, Ply ply,
-                                     SmallEndgamePolicy small_endgame_policy) {
-  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+                                     SmallEndgamePolicy small_endgame_policy, Score original_alpha,
+                                     Score original_beta) {
+  return exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                 original_alpha, original_beta);
 }
 
 std::optional<SearchNodeResult>
 try_exact_score_small_empty(EndgameContext* context, Score alpha, Score beta, std::uint8_t empties,
-                            Ply ply, SmallEndgamePolicy small_endgame_policy) {
+                            Ply ply, SmallEndgamePolicy small_endgame_policy, Score original_alpha,
+                            Score original_beta) {
   if (small_endgame_policy == SmallEndgamePolicy::generic_only || empties > 3) {
     return std::nullopt;
   }
 
   switch (empties) {
   case 0:
-    return exact_score_0_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+    return exact_score_0_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                               original_alpha, original_beta);
   case 1:
-    return exact_score_1_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+    return exact_score_1_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                               original_alpha, original_beta);
   case 2:
-    return exact_score_2_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+    return exact_score_2_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                               original_alpha, original_beta);
   case 3:
-    return exact_score_3_empty(context, alpha, beta, empties, ply, small_endgame_policy);
+    return exact_score_3_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                               original_alpha, original_beta);
   default:
     return std::nullopt;
   }
@@ -209,6 +272,9 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
                                                 SmallEndgamePolicy small_endgame_policy) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
+  const Score original_alpha = alpha;
+  const Score original_beta = beta;
+  const Depth remaining_empties = static_cast<Depth>(empties);
 
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
@@ -217,15 +283,27 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
     return SearchNodeResult::stopped();
   }
 
+  const std::optional<Score> tt_score =
+      probe_exact_endgame_tt(context, remaining_empties, alpha, beta);
+  if (tt_score.has_value()) {
+    return SearchNodeResult::completed(SearchValue{
+        .score = *tt_score,
+        .pv = {},
+    });
+  }
+
   if (std::optional<SearchNodeResult> small_empty =
-          try_exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy)) {
+          try_exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                      original_alpha, original_beta)) {
     return *small_empty;
   }
 
   if (board_core::is_terminal(context->position)) {
     ++context->stats.terminal_nodes;
+    const Score score = terminal_score(context->position);
+    store_exact_endgame_tt(context, remaining_empties, score, BoundType::exact);
     return SearchNodeResult::completed(SearchValue{
-        .score = terminal_score(context->position),
+        .score = score,
         .pv = {},
     });
   }
@@ -241,6 +319,8 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
                                                        beta, empties, ply, small_endgame_policy);
     if (pass.is_complete()) {
       frame.pv = pass.value().pv;
+      store_exact_endgame_tt(context, remaining_empties, pass.value().score,
+                             classify_bound(pass.value().score, original_alpha, original_beta));
     }
     return pass;
   }
@@ -269,6 +349,9 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
       break;
     }
   }
+
+  store_exact_endgame_tt(context, remaining_empties, best.score,
+                         classify_bound(best.score, original_alpha, original_beta), best_move);
 
   return SearchNodeResult::completed(best);
 }

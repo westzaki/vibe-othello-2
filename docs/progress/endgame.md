@@ -54,6 +54,9 @@ The current exact endgame implementation includes:
 
 * `engine/src/search/endgame.cc`
 * root-triggered integration through `search_iterative`
+* internal leaf-triggered integration before heuristic evaluation when
+  `exact_endgame` is enabled and the leaf has at most
+  `min(endgame_exact_empties, 4)` empty squares
 * `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold checks
 * dedicated endgame move-ordering entry points that currently preserve the
   existing static Othello ordering
@@ -62,18 +65,21 @@ The current exact endgame implementation includes:
 * handles pass through board-core move deltas
 * returns terminal disc difference exactly
 * avoids evaluator calls in exact endgame mode
-* supports root move reporting
+* supports root move reporting for root-triggered exact search
+* avoids root move reporting for internal leaf cutover
 * publishes replayable PVs
 * marks result and root moves exact when completed
 * counts exact endgame nodes through `SearchStats::endgame_nodes`
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
+* uses `TTEntryKind::exact_endgame_score` for optional exact-score endgame TT
+  probe/store/cutoff when `SearchOptions::use_endgame_tt` is enabled
 * provides an endgame benchmark executable with a checked-in corpus default and
   deterministic built-in fallback
 * has checked-in exact endgame benchmark baseline data for local comparison
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
-* has specialized exact-score routines for 0, 1, 2, and 3 empty squares,
-  guarded by generic-vs-specialized differential tests
+* has a shared small-empty exact-score path for 0, 1, 2, and 3 empty squares,
+  guarded by generic-vs-small-empty differential tests
 
 ## Current Gaps
 
@@ -81,13 +87,16 @@ The current implementation does not yet have:
 
 * public direct endgame solve API
 * WLD search path
-* endgame TT probing or storing
+* WLD endgame TT probing or storing
 * parity-region ordering
 * tuned native or WASM thresholds
 
-`use_endgame_tt` and `endgame_wld_empties` are currently expected to remain safe
-no-ops until their corresponding paths are implemented. `exact_endgame` is
-implemented when the root threshold is met.
+`use_endgame_tt` is implemented for exact-score endgame search. It remains
+separate from midgame TT semantics by using `TTEntryKind::exact_endgame_score`
+and treating TT depth as remaining empty squares. `endgame_wld_empties` remains a
+safe no-op until WLD search is implemented. `exact_endgame` is implemented when
+the root threshold is met and as a conservative internal leaf cutover at four
+empties or fewer.
 
 ## Implementation Plan
 
@@ -109,12 +118,13 @@ Status values:
 | Add reference endgame solver in test support | done | Slow and clear, no TT or heuristic evaluation |
 | Add exact endgame golden corpus | done | `engine/testdata/endgame/positions.tsv` plus deterministic `exact_score.jsonl` |
 | Add small-empty golden tests | not started | Generate from trusted reference solver and inspect a subset |
-| Integrate root threshold through `SearchOptions::exact_endgame` | done | Root-only integration before normal iterative deepening |
+| Integrate root threshold through `SearchOptions::exact_endgame` | done | Root integration before normal iterative deepening |
+| Integrate internal leaf threshold through `SearchOptions::exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add WLD mode | not started | May be deferred after exact score |
-| Add endgame TT probe/store with separate entry kinds | not started | Test enabled/disabled equality |
+| Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add parity ordering as ordering only | not started | Test enabled/disabled equality |
-| Add specialized zero/one/two/three-empty routines | done | Tested against generic solver through an internal generic-only policy |
+| Add shared zero/one/two/three-empty path | done | Tested against generic solver through an internal generic-only policy |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |
 | Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/2/3/4/6/8/10/12 empty positions and a forced pass case |
 | Add checked-in endgame benchmark baseline | done | `engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json` |
@@ -138,7 +148,7 @@ Endgame search is strong enough to build on when:
 * WLD sign matches exact score
 * TT enabled and disabled produce the same exact results
 * parity ordering enabled and disabled produce the same exact results
-* specialized small-empty routines match generic search
+* small-empty exact-score path matches generic search
 * root integration sets exact flags correctly
 * interrupted search is not incorrectly marked exact
 * search stats include endgame node counts

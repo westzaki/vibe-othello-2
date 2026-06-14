@@ -67,6 +67,9 @@ The current search implementation includes:
   integration
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
   statistics
+* exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
+  when `SearchOptions::use_endgame_tt` is enabled
+* shared small-empty exact-score path for 0, 1, 2, and 3 empty squares
 * endgame benchmark coverage through `vibe_othello_endgame_bench`
 * checked-in exact endgame benchmark baseline data for local comparison
 
@@ -89,9 +92,8 @@ Existing search tests include:
 The current implementation does not yet have:
 
 * WLD search path
-* endgame TT probing or storing
+* WLD endgame TT probing or storing
 * parity-region endgame ordering
-* specialized endgame routines
 * public direct endgame solve API
 * checked-in search performance baselines
 * real internal iterative deepening
@@ -103,10 +105,14 @@ The current implementation does not yet have:
 * parallel search
 * analysis and review-specific result adapters
 
-The exact endgame path is currently a root-triggered generic exact-score solver.
-It is entered before normal iterative deepening when the root position is at or
-below `endgame_exact_empties`. It does not yet provide WLD, endgame TT, parity
-ordering, or small-empty specialized routines.
+The exact endgame path currently has root-triggered and internal leaf-triggered
+generic exact-score solving. Root exact search is entered before normal
+iterative deepening when the root position is at or below
+`endgame_exact_empties`. Internal leaf cutover is entered from depth-limited
+midgame search before heuristic evaluation when `exact_endgame` is enabled and
+the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
+not publish root exact move reports or mark the whole root result exact. Exact
+endgame does not yet provide WLD or parity ordering.
 
 Current time limits are cooperative and checked periodically inside recursive
 midgame and endgame search. This keeps the hot path smaller, but it is not a
@@ -143,9 +149,9 @@ Status values:
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
 | Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
 | Add killer and history heuristics | not started | Options currently safe no-ops |
-| Add exact endgame solver | done | Root-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
-| Add exact endgame TT semantics | not started | `use_endgame_tt` currently safe no-op; tracked in `docs/progress/endgame.md` |
-| Add specialized endgame routines | not started | Tracked in `docs/progress/endgame.md` |
+| Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
+| Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
+| Add shared small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |
 | Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add Multi-PV root search | not started | `multi_pv` currently safe no-op |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
@@ -167,7 +173,7 @@ Search is strong enough to build on when:
 * returned PVs are replayable
 * pass positions are tested
 * exact endgame solver has known-position tests
-* specialized endgame routines match generic endgame search
+* small-empty exact-score path matches generic endgame search
 * time-limited search returns best completed results
 * search stats are available
 * benchmark baselines exist
