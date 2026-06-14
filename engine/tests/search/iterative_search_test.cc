@@ -519,6 +519,56 @@ TEST_CASE("iterative disables TT best-move ordering by default", "[search][itera
   REQUIRE(result.stats.tt_stores == 0);
 }
 
+TEST_CASE("iterative killer and history ordering preserves search decisions",
+          "[search][iterative]") {
+  const std::array<board_core::Position, 3> positions{
+      board_core::initial_position(),
+      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1}),
+      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}),
+  };
+  const std::array<SearchOptions, 4> option_cases{
+      SearchOptions{.use_history = true},
+      SearchOptions{.use_killers = true},
+      SearchOptions{.use_history = true, .use_killers = true},
+      SearchOptions{.use_pvs = true, .use_history = true, .use_killers = true},
+  };
+
+  for (const board_core::Position position : positions) {
+    for (const SearchOptions options : option_cases) {
+      DiscDifferenceEvaluator ordering_evaluator;
+      DiscDifferenceEvaluator baseline_evaluator;
+
+      const SearchResult with_ordering = search_iterative(
+          position, ordering_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
+      const SearchResult without_ordering =
+          search_iterative(position, baseline_evaluator, SearchLimits{.max_depth = Depth{5}},
+                           SearchOptions{.use_pvs = options.use_pvs});
+
+      require_same_decision(with_ordering, without_ordering);
+      require_basic_stats_invariants(with_ordering);
+      require_root_move_scores_match(with_ordering, without_ordering);
+      require_replayable_pv(position, with_ordering.pv);
+      require_replayable_root_pvs(position, with_ordering);
+    }
+  }
+}
+
+TEST_CASE("iterative killer and history ordering is deterministic", "[search][iterative]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  DiscDifferenceEvaluator first_evaluator;
+  DiscDifferenceEvaluator second_evaluator;
+  const SearchOptions options{.use_pvs = true, .use_history = true, .use_killers = true};
+
+  const SearchResult first =
+      search_iterative(position, first_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
+  const SearchResult second =
+      search_iterative(position, second_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
+
+  require_same_final_result(first, second);
+  require_root_move_set_matches(first, second);
+  REQUIRE(first.stats == second.stats);
+}
+
 TEST_CASE("iterative safely ignores unimplemented search options", "[search][iterative]") {
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
   DiscDifferenceEvaluator actual_evaluator;
@@ -526,8 +576,6 @@ TEST_CASE("iterative safely ignores unimplemented search options", "[search][ite
 
   const SearchOptions options{
       .use_iid = true,
-      .use_history = true,
-      .use_killers = true,
       .use_endgame_tt = true,
       .exact_endgame = true,
       .probcut = true,

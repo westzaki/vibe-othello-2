@@ -228,7 +228,9 @@ void finalize_completed_root_result(SearchResult* result, const SearchContext& c
 SearchResult search_depth_with_aspiration(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
                                           SearchOptions options, TranspositionTable* tt,
-                                          Score previous_score, SearchLimitState* limit_state) {
+                                          Score previous_score,
+                                          MidgameOrderingState* ordering_state,
+                                          SearchLimitState* limit_state) {
   SearchStats depth_stats{};
   Score low_margin = kAspirationInitialWindow;
   Score high_margin = kAspirationInitialWindow;
@@ -237,7 +239,7 @@ SearchResult search_depth_with_aspiration(board_core::Position position, const E
   SearchResult current{};
   for (;;) {
     current = search_fixed_depth_with_hint(position, evaluator, depth, root_hints, options, tt,
-                                           window, limit_state);
+                                           window, ordering_state, limit_state);
     add_stats(&depth_stats, current.stats);
     if (current.stopped) {
       current.nodes = depth_stats.nodes;
@@ -287,16 +289,19 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           Depth depth, MoveOrderingHints root_hints,
                                           SearchOptions options, TranspositionTable* tt,
                                           RootSearchWindow root_window,
+                                          MidgameOrderingState* ordering_state,
                                           SearchLimitState* limit_state) {
   require_invariant(!root_window.enabled || root_window.alpha < root_window.beta);
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
+  MidgameOrderingState local_ordering_state{};
   SearchContext context{
       .position = position,
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = completed_depth},
       .options = options,
       .transposition_table = tt,
+      .ordering_state = ordering_state == nullptr ? &local_ordering_state : ordering_state,
       .limit_state = limit_state,
   };
 
@@ -331,6 +336,12 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     }
   }
   root_hints.use_opponent_mobility = true;
+  if (context.ordering_state != nullptr && context.options.use_killers) {
+    root_hints.killer_moves = context.ordering_state->killer_moves[0];
+  }
+  if (context.ordering_state != nullptr && context.options.use_history) {
+    root_hints.history = &context.ordering_state->history;
+  }
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
   root_frame.moves = order_midgame_moves(context.position, root_hints);
@@ -405,6 +416,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     }
     if (root_window.enabled && alpha >= root_window.beta) {
       ++context.stats.beta_cutoffs;
+      update_midgame_ordering_on_beta_cutoff(&context, move, completed_depth, Ply{0});
       break;
     }
   }
@@ -459,7 +471,7 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   if (!limits.infinite && max_depth == 0) {
     SearchResult result = internal::search_fixed_depth_with_hint(
         position, evaluator, Depth{0}, internal::MoveOrderingHints{}, options, nullptr,
-        internal::RootSearchWindow{}, &limit_state);
+        internal::RootSearchWindow{}, nullptr, &limit_state);
     result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
     return result;
@@ -475,6 +487,7 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   internal::TranspositionTable tt_storage{};
   internal::TranspositionTable* tt =
       (options.use_tt_best_move_ordering || options.use_midgame_tt) ? &tt_storage : nullptr;
+  internal::MidgameOrderingState ordering_state{};
   std::optional<board_core::Move> previous_best_move;
   std::optional<Score> previous_score;
 
@@ -506,10 +519,11 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
     SearchResult current =
         options.use_aspiration && depth >= 2 && previous_score.has_value()
             ? internal::search_depth_with_aspiration(position, evaluator, depth, root_hints,
-                                                     options, tt, *previous_score, &limit_state)
+                                                     options, tt, *previous_score, &ordering_state,
+                                                     &limit_state)
             : internal::search_fixed_depth_with_hint(position, evaluator, depth, root_hints,
                                                      options, tt, internal::RootSearchWindow{},
-                                                     &limit_state);
+                                                     &ordering_state, &limit_state);
     internal::add_stats(&total_stats, current.stats);
     if (current.stopped) {
       if (best_completed.completed_depth == 0 && !best_completed.exact) {

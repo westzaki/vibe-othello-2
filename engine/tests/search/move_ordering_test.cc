@@ -154,6 +154,52 @@ TEST_CASE("move ordering breaks equal scores by square index", "[search][move_or
   REQUIRE(moves.moves[1] == move(5, 3));
 }
 
+TEST_CASE("midgame killer and history hints reorder only legal move membership",
+          "[search][move_ordering]") {
+  const board_core::Position position{
+      .player = board_core::bit(square(3, 3)) | board_core::bit(square(5, 5)),
+      .opponent = board_core::bit(square(3, 2)) | board_core::bit(square(5, 4)),
+      .side_to_move = board_core::Color::black,
+  };
+  std::array<int, board_core::kSquareCount> history{};
+  history[move(3, 1).square.index] = 10'000;
+
+  const MoveList moves =
+      ordered_moves(position, MoveOrderingHints{
+                                  .killer_moves = {move(5, 3), board_core::make_pass()},
+                                  .history = &history,
+                              });
+
+  require_ordered_moves_match_legal_set(position, moves);
+  REQUIRE(moves.size == 2);
+  REQUIRE(moves.moves[0] == move(5, 3));
+  REQUIRE(moves.moves[1] == move(3, 1));
+}
+
+TEST_CASE("midgame Othello-specific ordering outranks killer and history hints",
+          "[search][move_ordering]") {
+  const board_core::Position position{
+      .player = board_core::bit(square(3, 0)) | board_core::bit(square(3, 3)),
+      .opponent = board_core::bit(square(2, 0)) | board_core::bit(square(4, 0)) |
+                  board_core::bit(square(2, 2)),
+      .side_to_move = board_core::Color::black,
+  };
+  std::array<int, board_core::kSquareCount> history{};
+  history[move(1, 1).square.index] = 10'000;
+
+  const MoveList moves =
+      ordered_moves(position, MoveOrderingHints{
+                                  .killer_moves = {move(1, 1), board_core::make_pass()},
+                                  .history = &history,
+                              });
+
+  require_ordered_moves_match_legal_set(position, moves);
+  REQUIRE(moves.size >= 3);
+  REQUIRE(moves.moves[0] == move(5, 0));
+  REQUIRE(moves.moves[moves.size - 2] == move(1, 0));
+  REQUIRE(moves.moves[moves.size - 1] == move(1, 1));
+}
+
 TEST_CASE("endgame parity ordering prefers odd 4-neighbor empty regions deterministically",
           "[search][move_ordering][endgame]") {
   const board_core::Position position{

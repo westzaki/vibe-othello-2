@@ -32,6 +32,17 @@ struct StackFrame {
   board_core::PositionHash key = 0;
 };
 
+struct MidgameOrderingState {
+  MidgameOrderingState() noexcept {
+    for (std::array<board_core::Move, 2>& killers : killer_moves) {
+      killers = {board_core::make_pass(), board_core::make_pass()};
+    }
+  }
+
+  std::array<std::array<board_core::Move, 2>, kMaxPly> killer_moves{};
+  std::array<int, board_core::kSquareCount> history{};
+};
+
 struct SearchLimitState {
   std::chrono::steady_clock::time_point start{};
   std::chrono::steady_clock::time_point deadline{};
@@ -55,6 +66,7 @@ struct SearchContext {
   SearchLimits limits{};
   SearchOptions options{};
   TranspositionTable* transposition_table = nullptr;
+  MidgameOrderingState* ordering_state = nullptr;
   SearchLimitState* limit_state = nullptr;
   std::array<StackFrame, kMaxPly> stack{};
 };
