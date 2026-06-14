@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Any
+
+TOOLS_BENCHMARKS = Path(__file__).resolve().parents[1] / "benchmarks"
+sys.path.insert(0, str(TOOLS_BENCHMARKS))
+
+import baseline_common
 
 
 TOP_LEVEL_FIELDS = (
@@ -29,44 +33,13 @@ RESULT_FIELDS = (
 )
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    try:
-        with path.open("r", encoding="utf-8") as input_file:
-            data = json.load(input_file)
-    except json.JSONDecodeError as error:
-        raise SystemExit(f"{path}: invalid JSON: {error}") from error
-
-    if not isinstance(data, dict):
-        raise SystemExit(f"{path}: expected a JSON object")
-    return data
-
-
-def require_string(record: dict[str, Any], field: str, label: str, errors: list[str]) -> None:
-    value = record.get(field)
-    if not isinstance(value, str) or not value:
-        errors.append(f"{label}.{field}: expected non-empty string")
-
-
-def require_int(record: dict[str, Any], field: str, label: str, errors: list[str]) -> None:
-    value = record.get(field)
-    if not isinstance(value, int):
-        errors.append(f"{label}.{field}: expected integer")
-
-
 def check_baseline(data: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-
-    for field in TOP_LEVEL_FIELDS:
-        if field not in data:
-            errors.append(f"{field}: missing required field")
-
-    if data.get("schema_version") != 1:
-        errors.append("schema_version: expected 1")
-    require_string(data, "benchmark", "baseline", errors)
-    require_string(data, "measured_commit", "baseline", errors)
-    require_string(data, "measured_revision", "baseline", errors)
-    require_string(data, "command", "baseline", errors)
-    require_string(data, "corpus", "baseline", errors)
+    errors = baseline_common.check_common_envelope(data, required_fields=TOP_LEVEL_FIELDS)
+    baseline_common.require_string(data, "benchmark", "baseline", errors)
+    baseline_common.require_string(data, "measured_commit", "baseline", errors)
+    baseline_common.require_string(data, "measured_revision", "baseline", errors)
+    baseline_common.require_string(data, "command", "baseline", errors)
+    baseline_common.require_string(data, "corpus", "baseline", errors)
 
     results = data.get("results")
     if not isinstance(results, list) or not results:
@@ -84,11 +57,11 @@ def check_baseline(data: dict[str, Any]) -> list[str]:
             if field not in result:
                 errors.append(f"{label}.{field}: missing required field")
 
-        require_string(result, "position_id", label, errors)
-        require_string(result, "best_move", label, errors)
-        require_int(result, "score", label, errors)
-        require_int(result, "nodes", label, errors)
-        require_int(result, "endgame_nodes", label, errors)
+        baseline_common.require_string(result, "position_id", label, errors)
+        baseline_common.require_string(result, "best_move", label, errors)
+        baseline_common.require_int(result, "score", label, errors)
+        baseline_common.require_int(result, "nodes", label, errors)
+        baseline_common.require_int(result, "endgame_nodes", label, errors)
 
         position_id = result.get("position_id")
         if isinstance(position_id, str):
@@ -109,7 +82,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    errors = check_baseline(load_json(args.baseline_json))
+    errors = check_baseline(baseline_common.load_json(args.baseline_json))
     if errors:
         print("endgame baseline schema check failed:", file=sys.stderr)
         for error in errors:
