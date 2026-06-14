@@ -1,6 +1,6 @@
 {
   "dataset_id": "tiny-local-synthetic-manifest-v1",
-  "source_name": "Vibe Othello local synthetic manifest sample",
+  "source_name": "Vibe Othello local synthetic replay records",
   "source_url": "local://vibe-othello/data/corpora/samples/tiny-local-synthetic",
   "retrieved_at": "2026-06-14",
   "license_or_terms": "MIT",
@@ -8,7 +8,7 @@
   "commercial_use_allowed": true,
   "derived_weights_allowed": true,
   "required_attribution": "Vibe Othello 2 project",
-  "local_path": "not-applicable",
-  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "notes": "Manifest-only synthetic sample for schema smoke tests. No raw records or external corpus payload are included."
+  "local_path": "data/corpora/samples/tiny-local-synthetic.records.tsv",
+  "sha256": "4cdc70ebaf9051be5bdc3ab51f89c4a2efe2cd919701b23e1169d42155a90bae",
+  "notes": "Repository-local synthetic TSV records for importer replay smoke tests. No raw external corpus payload is included."
 }

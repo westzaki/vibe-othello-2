@@ -1,0 +1,7 @@
+id	expected_status	moves	expected_final_disc_diff	notes
+tiny-legal-prefix	accept	d3 c3 c4	3	short legal prefix
+tiny-alt-prefix	accept	c4 c3 d3	3	alternate legal prefix
+tiny-bad-coordinate	reject	z9	0	invalid coordinate token
+tiny-bad-illegal-move	reject	a1	0	no-flip move from initial position
+tiny-bad-pass	reject	pass	0	pass while legal moves exist
+tiny-bad-malformed-label	reject	d3	not-an-int	malformed numeric label

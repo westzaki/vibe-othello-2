@@ -17,7 +17,8 @@ The current manifest schema is:
 * `data/corpora/dataset-manifest.schema.json`
 
 Tiny checked-in examples may live under `data/corpora/samples/` when they do
-not include raw external corpus content.
+not include raw external corpus content. Repository-local synthetic records in
+that directory are allowed for importer and replay smoke tests.
 
 Minimum manifest fields are:
 
@@ -54,7 +55,8 @@ Manifests must record enough provenance to answer:
 * which exact payload checksum was used
 
 Do not commit personal absolute paths in `local_path`. Prefer a relative
-local-only path or `not-applicable` for manifest-only synthetic samples.
+repository path for checked-in synthetic samples, or `not-applicable` for
+manifest-only synthetic samples.
 
 ## GPL Boundary
 
@@ -77,3 +79,8 @@ python3 tools/data-policy/validate_dataset_manifest.py \
 ```
 
 CTest also runs this check when testing is enabled.
+
+The checked-in tiny synthetic records are replayed by the data-import smoke
+tool through board-core move application. They are intended only to verify that
+known-good rows are accepted and malformed, illegal, or bad-pass rows are
+rejected before any external corpus is considered.

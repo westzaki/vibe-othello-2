@@ -34,8 +34,9 @@ Existing foundations include:
 * benchmark infrastructure for board core, search, and endgame
 * runtime-owned fixed pattern schema fixture with validation coverage
 * repository data policy READMEs for corpus manifests and evaluation artifacts
-* dataset manifest JSON schema with a manifest-only sample
+* dataset manifest JSON schema with a tiny synthetic sample
 * CTest-backed dataset manifest smoke validation
+* CTest-backed board-core replay smoke validation for tiny synthetic TSV records
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -45,7 +46,6 @@ evaluation checks, and strength comparisons.
 The current implementation does not yet have:
 
 * local-only corpus download scripts
-* data importer tools
 * pattern dataset builder
 * pattern feature extractor
 * deterministic train/validation/test splitter
@@ -56,7 +56,8 @@ The current implementation does not yet have:
 * publication gate for license and provenance status
 
 No raw external corpora, derived datasets, or learned weights are currently
-tracked in the repository.
+tracked in the repository. The checked-in TSV records are repository-local
+synthetic smoke fixtures only.
 
 ## Implementation Plan
 
@@ -74,8 +75,8 @@ Status values:
 | Add corpus data policy README | done | `data/corpora/README.md` |
 | Add evaluation artifact README | done | `data/eval/README.md` |
 | Add dataset manifest schema | done | `data/corpora/dataset-manifest.schema.json` plus CTest smoke validation |
-| Add tiny synthetic fixture records | not started | Manifest-only sample exists; no raw records are committed |
-| Add importer for one simple text format | not started | Should reject illegal or malformed records |
+| Add tiny synthetic fixture records | done | `data/corpora/samples/tiny-local-synthetic.records.tsv` contains checked-in synthetic good and bad replay smoke records |
+| Add importer for one simple text format | done | Minimal `tools/data-import` replay smoke accepts expected-good rows and rejects malformed, illegal, or bad-pass rows through board-core move application |
 | Add dataset builder and deterministic splitter | not started | Should record duplicate handling and split ids |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
 | Add feature extractor | not started | Should call board-core helpers for parsing and replay |
