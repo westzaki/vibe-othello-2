@@ -13,5 +13,9 @@ Read only the document needed for the current task.
 | Search design | `architecture/search.md` |
 | Search implementation status | `progress/search.md` |
 | Endgame architecture | `architecture/endgame.md` |
-| Progress documentation rules | `progress/README.md` |
 | Endgame implementation status | `progress/endgame.md` |
+| Evaluation architecture | `architecture/evaluation.md` |
+| Evaluation implementation status | `progress/evaluation.md` |
+| Pattern learning architecture | `architecture/pattern-learning.md` |
+| Pattern learning implementation status | `progress/pattern-learning.md` |
+| Progress documentation rules | `progress/README.md` |
