@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Any
+
+TOOLS_BENCHMARKS = Path(__file__).resolve().parents[1] / "benchmarks"
+sys.path.insert(0, str(TOOLS_BENCHMARKS))
+
+import baseline_common
 
 
 TOP_LEVEL_FIELDS = (
@@ -56,53 +60,6 @@ OPTIONAL_INT_RESULT_FIELDS = (
 ROOT_MOVE_FIELDS = ("move", "score", "bound", "depth", "exact", "selective")
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    try:
-        with path.open("r", encoding="utf-8") as input_file:
-            data = json.load(input_file)
-    except json.JSONDecodeError as error:
-        raise SystemExit(f"{path}: invalid JSON: {error}") from error
-
-    if not isinstance(data, dict):
-        raise SystemExit(f"{path}: expected a JSON object")
-    return data
-
-
-def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as input_file:
-        for line_number, line in enumerate(input_file, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                record = json.loads(stripped)
-            except json.JSONDecodeError as error:
-                raise SystemExit(f"{path}:{line_number}: invalid JSON: {error}") from error
-            if not isinstance(record, dict):
-                raise SystemExit(f"{path}:{line_number}: expected a JSON object")
-            records.append(record)
-    return records
-
-
-def require_string(record: dict[str, Any], field: str, label: str, errors: list[str]) -> None:
-    value = record.get(field)
-    if not isinstance(value, str) or not value:
-        errors.append(f"{label}.{field}: expected non-empty string")
-
-
-def require_int(record: dict[str, Any], field: str, label: str, errors: list[str]) -> None:
-    value = record.get(field)
-    if not isinstance(value, int):
-        errors.append(f"{label}.{field}: expected integer")
-
-
-def require_number(record: dict[str, Any], field: str, label: str, errors: list[str]) -> None:
-    value = record.get(field)
-    if not isinstance(value, int | float):
-        errors.append(f"{label}.{field}: expected number")
-
-
 def require_string_list(record: dict[str, Any], field: str, label: str, errors: list[str]) -> None:
     value = record.get(field)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
@@ -125,14 +82,12 @@ def check_root_moves(value: Any, label: str, errors: list[str]) -> None:
             if field not in root_move:
                 errors.append(f"{root_label}.{field}: missing required field")
 
-        require_string(root_move, "move", root_label, errors)
-        require_string(root_move, "bound", root_label, errors)
-        require_int(root_move, "score", root_label, errors)
-        require_int(root_move, "depth", root_label, errors)
-        if not isinstance(root_move.get("exact"), bool):
-            errors.append(f"{root_label}.exact: expected boolean")
-        if not isinstance(root_move.get("selective"), bool):
-            errors.append(f"{root_label}.selective: expected boolean")
+        baseline_common.require_string(root_move, "move", root_label, errors)
+        baseline_common.require_string(root_move, "bound", root_label, errors)
+        baseline_common.require_int(root_move, "score", root_label, errors)
+        baseline_common.require_int(root_move, "depth", root_label, errors)
+        baseline_common.require_bool(root_move, "exact", root_label, errors)
+        baseline_common.require_bool(root_move, "selective", root_label, errors)
 
         move = root_move.get("move")
         if isinstance(move, str):
@@ -146,12 +101,12 @@ def check_result(result: dict[str, Any], label: str, errors: list[str]) -> None:
         if field not in result:
             errors.append(f"{label}.{field}: missing required field")
 
-    require_string(result, "position_id", label, errors)
-    require_string(result, "category", label, errors)
-    require_string(result, "mode", label, errors)
-    require_string(result, "tt_mode", label, errors)
-    require_string(result, "evaluator", label, errors)
-    require_string(result, "best_move", label, errors)
+    baseline_common.require_string(result, "position_id", label, errors)
+    baseline_common.require_string(result, "category", label, errors)
+    baseline_common.require_string(result, "mode", label, errors)
+    baseline_common.require_string(result, "tt_mode", label, errors)
+    baseline_common.require_string(result, "evaluator", label, errors)
+    baseline_common.require_string(result, "best_move", label, errors)
     require_string_list(result, "pv", label, errors)
     check_root_moves(result.get("root_moves"), f"{label}.root_moves", errors)
 
@@ -168,31 +123,24 @@ def check_result(result: dict[str, Any], label: str, errors: list[str]) -> None:
         "tt_cutoffs",
         "elapsed_ns",
     ):
-        require_int(result, field, label, errors)
+        baseline_common.require_int(result, field, label, errors)
     for field in OPTIONAL_INT_RESULT_FIELDS:
         if field in result:
-            require_int(result, field, label, errors)
-    require_number(result, "nps", label, errors)
+            baseline_common.require_int(result, field, label, errors)
+    baseline_common.require_number(result, "nps", label, errors)
 
 
 def check_baseline(data: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-
-    for field in TOP_LEVEL_FIELDS:
-        if field not in data:
-            errors.append(f"{field}: missing required field")
-
-    if data.get("schema_version") != 1:
-        errors.append("schema_version: expected 1")
-    if data.get("benchmark") != "search_iterative_discdiff":
-        errors.append("benchmark: expected 'search_iterative_discdiff'")
-    require_string(data, "measured_commit", "baseline", errors)
-    require_string(data, "measured_revision", "baseline", errors)
-    require_string(data, "command", "baseline", errors)
-    require_string(data, "corpus", "baseline", errors)
-    require_string(data, "mode", "baseline", errors)
-    require_string(data, "tt_mode", "baseline", errors)
-    require_int(data, "depth", "baseline", errors)
+    errors = baseline_common.check_common_envelope(
+        data, required_fields=TOP_LEVEL_FIELDS, benchmark="search_iterative_discdiff"
+    )
+    baseline_common.require_string(data, "measured_commit", "baseline", errors)
+    baseline_common.require_string(data, "measured_revision", "baseline", errors)
+    baseline_common.require_string(data, "command", "baseline", errors)
+    baseline_common.require_string(data, "corpus", "baseline", errors)
+    baseline_common.require_string(data, "mode", "baseline", errors)
+    baseline_common.require_string(data, "tt_mode", "baseline", errors)
+    baseline_common.require_int(data, "depth", "baseline", errors)
 
     results = data.get("results")
     if not isinstance(results, list) or not results:
@@ -226,7 +174,7 @@ def check_baseline(data: dict[str, Any]) -> list[str]:
 
 
 def write_aggregate(args: argparse.Namespace) -> None:
-    records = load_jsonl(args.raw_jsonl)
+    records = baseline_common.load_jsonl(args.raw_jsonl)
     aggregate = {
         "schema_version": 1,
         "benchmark": "search_iterative_discdiff",
@@ -252,10 +200,7 @@ def write_aggregate(args: argparse.Namespace) -> None:
             print(f"  {error}", file=sys.stderr)
         raise SystemExit(1)
 
-    args.write_aggregate.parent.mkdir(parents=True, exist_ok=True)
-    with args.write_aggregate.open("w", encoding="utf-8") as output_file:
-        json.dump(aggregate, output_file, ensure_ascii=False, indent=2)
-        output_file.write("\n")
+    baseline_common.write_pretty_json(args.write_aggregate, aggregate)
     print(f"wrote search aggregate baseline: {args.write_aggregate}")
 
 
@@ -292,7 +237,7 @@ def main() -> int:
         write_aggregate(args)
         return 0
 
-    errors = check_baseline(load_json(args.baseline_json))
+    errors = check_baseline(baseline_common.load_json(args.baseline_json))
     if errors:
         print("search aggregate baseline schema check failed:", file=sys.stderr)
         for error in errors:

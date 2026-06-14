@@ -25,6 +25,11 @@ field should match the stable machine token used in the filename, such as
 `apple-silicon-macos-arm64`; use `os` for fuller OS, release, and architecture
 details when useful.
 
+Shared baseline scripts may use `tools/benchmarks/baseline_common.py` for the
+common metadata envelope, JSON loading/writing, and low-level type checks.
+Benchmark-specific `results[]` validation should stay in benchmark-specific
+scripts.
+
 Suggested JSON shape:
 
 ```json
