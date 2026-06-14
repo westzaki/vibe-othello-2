@@ -69,7 +69,7 @@ The current search implementation includes:
   statistics
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
   when `SearchOptions::use_endgame_tt` is enabled
-* shared small-empty exact-score path for 0, 1, 2, and 3 empty squares
+* specialized small-empty exact-score paths for 0, 1, 2, and 3 empty squares
 * ordering-only exact endgame parity hints through
   `SearchOptions::use_endgame_parity_ordering`
 * endgame benchmark coverage through `vibe_othello_endgame_bench`, including
@@ -153,7 +153,7 @@ Status values:
 | Add killer and history heuristics | not started | Options currently safe no-ops |
 | Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
-| Add shared small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |
+| Add specialized small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |
 | Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add Multi-PV root search | not started | `multi_pv` currently safe no-op |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
