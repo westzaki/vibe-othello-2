@@ -115,7 +115,8 @@ iterative deepening when the root position is at or below
 midgame search before heuristic evaluation when `exact_endgame` is enabled and
 the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
 not publish root exact move reports or mark the whole root result exact. Exact
-endgame does not yet provide WLD.
+endgame does not yet provide WLD. Parity ordering is available as an
+ordering-only hint and must not change exact results.
 
 Current time limits are cooperative and checked periodically inside recursive
 midgame and endgame search. This keeps the hot path smaller, but it is not a
