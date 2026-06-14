@@ -739,9 +739,15 @@ If interrupted:
 
 * `SearchResult::stopped = true`
 * `SearchResult::exact = false`
-* best move may be the best completed root move
-* no illegal move may be returned
 * completed root move entries may remain exact even when the whole result is not exact
+* if at least one root move completed, top-level best move, score, and PV may be
+  published from the best completed root move only
+* when publishing only completed root moves, top-level `bound` must be
+  `BoundType::lower`
+* if no root move completed, do not publish top-level best move, PV, or score
+* if the public result type still carries a score when no root move completed,
+  set it to the most conservative lower bound sentinel
+* no illegal move may be returned
 * partial TT entries must not be stored as exact
 
 A stopped search may store safe lower or upper bounds only if the bound
@@ -765,6 +771,16 @@ Root output should include:
 * PV
 * exact flag
 * stopped flag
+
+For exact endgame, `SearchResult::completed_depth` is the root empty count that
+has been solved to terminal leaves for the published top-level result. Completed
+exact results set it to the root empty count. Interrupted results that publish
+one or more completed root moves also set it to the root empty count, because
+the published candidate scores are solved to terminal leaves. Interrupted
+results with no completed root move set it to zero.
+
+`RootMoveInfo::depth` for exact endgame is the root empty count solved for that
+root move.
 
 All root moves must be legal.
 
