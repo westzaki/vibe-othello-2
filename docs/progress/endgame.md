@@ -97,7 +97,7 @@ Status values:
 | Add `engine/src/search/endgame.cc` | done | First production solver file |
 | Add generic exact-score solver using board core | done | Root-only generic exact-score solver uses board-core move deltas and pass handling |
 | Add `engine/tests/search/endgame_test.cc` | done | Covers root exact score, pass, terminal, threshold, flags, legality, and PV replay |
-| Add reference endgame solver in test support | not started | Slow and clear, no TT or heuristic evaluation |
+| Add reference endgame solver in test support | done | Slow and clear, no TT or heuristic evaluation |
 | Add small-empty golden tests | not started | Generate from trusted reference solver and inspect a subset |
 | Integrate root threshold through `SearchOptions::exact_endgame` | done | Root-only integration before normal iterative deepening |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
