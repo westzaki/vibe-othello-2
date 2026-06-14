@@ -105,7 +105,6 @@ The current implementation does not yet have:
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
-* evaluation benchmarks
 * evaluation data or artifact README
 * trained weights
 * trainer tooling
@@ -143,7 +142,7 @@ Status values:
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
-| Add evaluation benchmarks | not started | Track latency and native/WASM parity |
+| Add evaluation benchmarks | done | `engine/benchmarks/evaluation_bench.cc` measures `PatternEvaluator` and `TinyPatternEvaluator` direct-call latency over the checked-in search corpus |
 | Add native/WASM parity coverage | not started | Requires WASM target and fixed fixtures |
 | Add trainer | not started | Tracked under pattern learning |
 
