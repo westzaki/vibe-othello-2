@@ -39,15 +39,11 @@ using vibe_othello::board_core::Square;
 using vibe_othello::board_core::square_from_file_rank;
 using vibe_othello::board_core::square_from_index;
 using vibe_othello::search::BoundType;
-using vibe_othello::search::Depth;
-using vibe_othello::search::Evaluator;
 using vibe_othello::search::Line;
 using vibe_othello::search::RootMoveInfo;
-using vibe_othello::search::Score;
-using vibe_othello::search::search_iterative;
-using vibe_othello::search::SearchLimits;
 using vibe_othello::search::SearchOptions;
 using vibe_othello::search::SearchResult;
+using vibe_othello::search::solve_exact_endgame;
 
 enum class OutputFormat {
   tsv,
@@ -94,16 +90,6 @@ struct PositionCase {
 struct TimedResult {
   SearchResult result;
   std::chrono::nanoseconds elapsed;
-};
-
-class DummyEvaluator final : public Evaluator {
-public:
-  Score evaluate(const Position&) const noexcept override {
-    ++calls;
-    return 0;
-  }
-
-  mutable int calls = 0;
 };
 
 constexpr Square square(int file, int rank) noexcept {
@@ -662,19 +648,18 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
 
 TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
                               bool use_tt, RootMode root_mode) {
-  DummyEvaluator evaluator;
   const SearchOptions options{
       .use_endgame_tt = use_tt,
-      .exact_endgame = true,
+      .exact_endgame = false,
       .use_endgame_parity_ordering = use_parity_ordering,
       .multi_pv = multi_pv_for_root_mode(root_mode),
-      .endgame_exact_empties = empties,
+      .endgame_exact_empties = 0,
   };
   const auto start = std::chrono::steady_clock::now();
-  SearchResult result =
-      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}}, options);
+  SearchResult result = solve_exact_endgame(position, {}, options);
   const auto end = std::chrono::steady_clock::now();
-  require_condition(evaluator.calls == 0, "dummy evaluator was called");
+  require_condition(result.completed_depth == static_cast<vibe_othello::search::Depth>(empties),
+                    "direct exact endgame did not solve the root empty count");
   return TimedResult{
       .result = result,
       .elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start),

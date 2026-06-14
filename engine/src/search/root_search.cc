@@ -545,4 +545,13 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   return best_completed;
 }
 
+SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
+                                 SearchOptions options) {
+  internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
+  internal::TranspositionTable tt_storage{};
+  internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
+  options.exact_endgame = true;
+  return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
+}
+
 } // namespace vibe_othello::search

@@ -55,6 +55,7 @@ The current exact endgame implementation includes:
 
 * `engine/src/search/endgame.cc`
 * root-triggered integration through `search_iterative`
+* evaluator-free public direct exact-score solving through `solve_exact_endgame`
 * internal leaf-triggered integration before heuristic evaluation when
   `exact_endgame` is enabled and the leaf has at most
   `min(endgame_exact_empties, 4)` empty squares
@@ -95,7 +96,6 @@ The current exact endgame implementation includes:
 
 The current implementation does not yet have:
 
-* public direct endgame solve API
 * WLD search path
 * WLD endgame TT probing or storing
 * tuned native or WASM thresholds
@@ -133,10 +133,11 @@ Status values:
 | Integrate internal leaf threshold through `SearchOptions::exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add best-only exact root reporting | done | `SearchOptions::multi_pv == 1` returns only the exact best root move; default and `multi_pv > 1` keep all-root exact reports |
-| Add WLD mode | not started | May be deferred after exact score |
+| Add WLD mode | not started | May be deferred after exact score; no WLD public API exists yet |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score` for cutoffs and legal best-move ordering hints; WLD remains not started |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
 | Add specialized zero/one/two/three-empty path | done | 0/1 return through terminal or forced single-move/pass handling; 2/3 use direct legal-bit enumeration with board-core deltas; tested against generic solver through an internal generic-only policy |
+| Add public direct exact-score API | done | `solve_exact_endgame` bypasses the root threshold gate and respects endgame limits/options without requiring an evaluator |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count, parity-ordering mode, and exact endgame TT mode |
 | Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/2/3/4/6/8/10/12 empty positions and a forced pass case |
 | Add checked-in endgame benchmark baseline | done | `engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json` |
