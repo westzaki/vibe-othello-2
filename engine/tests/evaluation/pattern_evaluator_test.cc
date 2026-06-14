@@ -43,6 +43,10 @@ std::array<std::uint8_t, PatternWeights::kDiscCountEntries> fixture_phase_by_dis
   return phases;
 }
 
+std::vector<search::Score> fixture_phase_biases(search::Score early = 0, search::Score late = 0) {
+  return {early, late};
+}
+
 search::Score fixture_weight(std::uint32_t index, std::uint8_t length,
                              std::uint8_t phase) noexcept {
   search::Score score = 0;
@@ -78,6 +82,7 @@ PatternWeights make_tiny_pattern_fixture_weights() {
   return PatternWeights{
       kFixturePhaseCount,
       fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
       {
           make_fixture_table("edge-8", 8),
           make_fixture_table("corner-3x3", 9),
@@ -99,10 +104,44 @@ PatternWeights make_uniform_weights(search::Score edge_weight, search::Score cor
   return PatternWeights{
       kFixturePhaseCount,
       fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
       {
           make_uniform_table("edge-8", 8, edge_weight),
           make_uniform_table("corner-3x3", 9, corner_weight),
       },
+  };
+}
+
+PatternWeights make_single_square_bias_weights(search::Score early_bias, search::Score late_bias) {
+  return PatternWeights{
+      kFixturePhaseCount,
+      fixture_phase_by_disc_count(),
+      fixture_phase_biases(early_bias, late_bias),
+      {
+          PatternWeightTable{
+              .pattern_id = "single-square",
+              .pattern_length = 1,
+              .weights = std::vector<search::Score>(
+                  static_cast<std::size_t>(kFixturePhaseCount) * pattern_size(1), 0),
+          },
+      },
+  };
+}
+
+PatternFeatureSet single_square_feature_set() {
+  return PatternFeatureSet{
+      .id = "single-square-fixture-v1",
+      .tables =
+          {
+              PatternFeatureTable{
+                  .pattern_id = "single-square",
+                  .pattern_length = 1,
+                  .instances =
+                      {
+                          std::vector<board_core::Square>{square(0, 0)},
+                      },
+              },
+          },
   };
 }
 
@@ -155,6 +194,24 @@ TEST_CASE("pattern evaluator phase boundary changes weights", "[evaluation][patt
 
   REQUIRE(evaluator.evaluate(early) == 3);
   REQUIRE(evaluator.evaluate(late) == 6);
+}
+
+TEST_CASE("pattern evaluator adds phase bias to pattern score", "[evaluation][pattern]") {
+  const PatternEvaluator evaluator{make_single_square_bias_weights(7, -11),
+                                   single_square_feature_set()};
+  constexpr Position early{
+      .player = 0,
+      .opponent = 0,
+      .side_to_move = Color::black,
+  };
+  constexpr Position late{
+      .player = bit(square(0, 0)) | center_filler(),
+      .opponent = 0,
+      .side_to_move = Color::black,
+  };
+
+  REQUIRE(evaluator.evaluate(early) == 7);
+  REQUIRE(evaluator.evaluate(late) == -11);
 }
 
 TEST_CASE("pattern evaluator matches existing tiny fixture scores", "[evaluation][pattern]") {
@@ -227,6 +284,7 @@ TEST_CASE("pattern evaluator rejects invalid phase mapping", "[evaluation][patte
   PatternWeights weights{
       kFixturePhaseCount,
       invalid_phases,
+      fixture_phase_biases(),
       {
           make_fixture_table("edge-8", 8),
           make_fixture_table("corner-3x3", 9),

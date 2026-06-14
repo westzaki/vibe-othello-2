@@ -61,21 +61,26 @@ public:
 
   PatternWeights(std::uint8_t phase_count,
                  std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count,
-                 std::vector<PatternWeightTable> tables);
+                 std::vector<search::Score> phase_biases, std::vector<PatternWeightTable> tables);
 
   [[nodiscard]] std::uint8_t phase_count() const noexcept {
     return phase_count_;
+  }
+  [[nodiscard]] std::span<const search::Score> phase_biases() const noexcept {
+    return phase_biases_;
   }
   [[nodiscard]] std::span<const PatternWeightTable> tables() const noexcept {
     return tables_;
   }
   [[nodiscard]] std::uint8_t phase_for_disc_count(int disc_count) const noexcept;
+  [[nodiscard]] search::Score phase_bias(std::uint8_t phase) const noexcept;
   [[nodiscard]] search::Score weight(std::size_t table_index, std::uint8_t phase,
                                      std::uint32_t pattern_index) const noexcept;
 
 private:
   std::uint8_t phase_count_ = 0;
   std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count_{};
+  std::vector<search::Score> phase_biases_;
   std::vector<PatternWeightTable> tables_;
 };
 
