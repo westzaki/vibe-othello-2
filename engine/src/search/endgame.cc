@@ -100,14 +100,8 @@ bool update_endgame_alpha_and_check_cutoff(EndgameContext* context, Score score,
   return false;
 }
 
-SearchValue stopped_search_value() noexcept {
-  return SearchValue{
-      .stopped = true,
-  };
-}
-
-SearchValue search_endgame_child(EndgameContext* context, board_core::Move move, Score alpha,
-                                 Score beta, std::uint8_t empties, Ply ply) {
+SearchNodeResult search_endgame_child(EndgameContext* context, board_core::Move move, Score alpha,
+                                      Score beta, std::uint8_t empties, Ply ply) {
   StackFrame& frame = context->stack[ply];
   frame.current_move = move;
   const bool made_delta = board_core::make_move_delta(context->position, move, &frame.delta);
@@ -116,21 +110,22 @@ SearchValue search_endgame_child(EndgameContext* context, board_core::Move move,
 
   const std::uint8_t child_empties =
       move.kind == board_core::MoveKind::pass ? empties : static_cast<std::uint8_t>(empties - 1);
-  const SearchValue child =
+  const SearchNodeResult child =
       exact_score_search(context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                          child_empties, static_cast<Ply>(ply + 1));
   board_core::undo_move(&context->position, frame.delta);
 
-  if (child.stopped) {
-    return stopped_search_value();
+  if (child.is_stopped()) {
+    return SearchNodeResult::stopped();
   }
 
+  const SearchValue& child_value = child.value();
   SearchValue result{
-      .score = static_cast<Score>(-child.score),
+      .score = static_cast<Score>(-child_value.score),
       .pv = {},
   };
-  prepend_move(move, child.pv, &result.pv);
-  return result;
+  prepend_move(move, child_value.pv, &result.pv);
+  return SearchNodeResult::completed(result);
 }
 
 RootMoveInfo make_exact_root_move(board_core::Move move, Score score, Depth depth, NodeCount nodes,
@@ -170,8 +165,8 @@ bool should_use_exact_endgame(board_core::Position position, SearchOptions optio
   return options.exact_endgame && empty_count(position) <= options.endgame_exact_empties;
 }
 
-SearchValue exact_score_search(EndgameContext* context, Score alpha, Score beta,
-                               std::uint8_t empties, Ply ply) {
+SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,
+                                    std::uint8_t empties, Ply ply) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
 
@@ -179,27 +174,29 @@ SearchValue exact_score_search(EndgameContext* context, Score alpha, Score beta,
   frame = StackFrame{};
 
   if (note_endgame_node_visited(context)) {
-    return stopped_search_value();
+    return SearchNodeResult::stopped();
   }
 
   if (board_core::is_terminal(context->position)) {
     ++context->stats.terminal_nodes;
-    return SearchValue{
+    return SearchNodeResult::completed(SearchValue{
         .score = terminal_score(context->position),
         .pv = {},
-    };
+    });
   }
 
   if (should_stop_endgame(context)) {
-    return stopped_search_value();
+    return SearchNodeResult::stopped();
   }
 
   frame.moves = ordered_moves(context->position, MoveOrderingHints{});
   if (frame.moves.size == 0) {
     ++context->stats.pass_nodes;
-    const SearchValue pass =
+    const SearchNodeResult pass =
         search_endgame_child(context, board_core::make_pass(), alpha, beta, empties, ply);
-    frame.pv = pass.pv;
+    if (pass.is_complete()) {
+      frame.pv = pass.value().pv;
+    }
     return pass;
   }
 
@@ -211,22 +208,23 @@ SearchValue exact_score_search(EndgameContext* context, Score alpha, Score beta,
 
   for (std::uint8_t move_index = 0; move_index < frame.moves.size; ++move_index) {
     if (should_stop_endgame(context)) {
-      return stopped_search_value();
+      return SearchNodeResult::stopped();
     }
 
     const board_core::Move move = frame.moves.moves[move_index];
-    const SearchValue child = search_endgame_child(context, move, alpha, beta, empties, ply);
-    if (child.stopped) {
-      return stopped_search_value();
+    const SearchNodeResult child = search_endgame_child(context, move, alpha, beta, empties, ply);
+    if (child.is_stopped()) {
+      return SearchNodeResult::stopped();
     }
 
-    update_best_line_and_move(child, move, &best, &best_move, &frame);
-    if (update_endgame_alpha_and_check_cutoff(context, child.score, &alpha, beta)) {
+    const SearchValue& child_value = child.value();
+    update_best_line_and_move(child_value, move, &best, &best_move, &frame);
+    if (update_endgame_alpha_and_check_cutoff(context, child_value.score, &alpha, beta)) {
       break;
     }
   }
 
-  return best;
+  return SearchNodeResult::completed(best);
 }
 
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
@@ -284,22 +282,23 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
   if (root_moves.size == 0) {
     ++context.stats.pass_nodes;
     const NodeCount before_nodes = context.stats.nodes;
-    const SearchValue pass = search_endgame_child(&context, board_core::make_pass(), kScoreLoss,
-                                                  kScoreWin, root_empties, Ply{0});
-    if (pass.stopped) {
+    const SearchNodeResult pass = search_endgame_child(&context, board_core::make_pass(),
+                                                       kScoreLoss, kScoreWin, root_empties, Ply{0});
+    if (pass.is_stopped()) {
       mark_stopped_non_exact(&result);
       result.nodes = context.stats.nodes;
       result.stats = context.stats;
       publish_elapsed(&result, start);
       return result;
     }
+    const SearchValue& pass_value = pass.value();
 
     result.best_move = board_core::make_pass();
-    result.score = pass.score;
-    result.pv = pass.pv;
-    result.root_moves.push_back(make_exact_root_move(board_core::make_pass(), pass.score,
-                                                     completed_depth,
-                                                     context.stats.nodes - before_nodes, pass.pv));
+    result.score = pass_value.score;
+    result.pv = pass_value.pv;
+    result.root_moves.push_back(
+        make_exact_root_move(board_core::make_pass(), pass_value.score, completed_depth,
+                             context.stats.nodes - before_nodes, pass_value.pv));
     context.stats.root_moves_searched = 1;
     result.nodes = context.stats.nodes;
     result.stats = context.stats;
@@ -318,24 +317,27 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
 
     const board_core::Move move = root_moves.moves[move_index];
     const NodeCount before_nodes = context.stats.nodes;
-    const SearchValue child =
+    const SearchNodeResult child =
         search_endgame_child(&context, move, kScoreLoss, kScoreWin, root_empties, Ply{0});
-    if (child.stopped) {
+    if (child.is_stopped()) {
       mark_stopped_non_exact(&result);
       break;
     }
+    const SearchValue& child_value = child.value();
 
-    result.root_moves.push_back(make_exact_root_move(move, child.score, completed_depth,
-                                                     context.stats.nodes - before_nodes, child.pv));
+    result.root_moves.push_back(make_exact_root_move(move, child_value.score, completed_depth,
+                                                     context.stats.nodes - before_nodes,
+                                                     child_value.pv));
     ++context.stats.root_moves_searched;
-    const bool improves_root = is_better_root_move(child.score, move, best_score, result.best_move);
+    const bool improves_root =
+        is_better_root_move(child_value.score, move, best_score, result.best_move);
     if (improves_root) {
-      if (child.score > best_score) {
+      if (child_value.score > best_score) {
         ++context.stats.alpha_updates;
       }
       result.best_move = move;
-      best_score = child.score;
-      best_line = child.pv;
+      best_score = child_value.score;
+      best_line = child_value.pv;
     }
   }
 
