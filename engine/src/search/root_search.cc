@@ -451,7 +451,9 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   SearchStats total_stats{};
 
   if (internal::should_use_exact_endgame(position, options)) {
-    return internal::solve_exact_endgame(position, limits, options, nullptr, &limit_state);
+    internal::TranspositionTable tt_storage{};
+    internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
+    return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
   }
 
   if (!limits.infinite && max_depth == 0) {

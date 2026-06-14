@@ -3,6 +3,7 @@
 #include "vibe_othello/board_core/serialization.h"
 #include "vibe_othello/search/search.h"
 
+#include <array>
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <optional>
@@ -42,17 +43,19 @@ board_core::Position parse_position_or_fail(std::string_view text) {
   return *position;
 }
 
-SearchOptions exact_options(std::uint8_t threshold) noexcept {
+SearchOptions exact_options(std::uint8_t threshold, bool use_endgame_tt = false) noexcept {
   return SearchOptions{
+      .use_endgame_tt = use_endgame_tt,
       .exact_endgame = true,
       .endgame_exact_empties = threshold,
   };
 }
 
-SearchResult search_exact(board_core::Position position, std::uint8_t threshold) {
+SearchResult search_exact(board_core::Position position, std::uint8_t threshold,
+                          bool use_endgame_tt = false) {
   CountingEvaluator evaluator{123};
   SearchResult result = search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                                         exact_options(threshold));
+                                         exact_options(threshold, use_endgame_tt));
   REQUIRE(evaluator.calls == 0);
   return result;
 }
@@ -115,6 +118,30 @@ void require_exact_result_invariants(board_core::Position position, const Search
 bool is_legal_root_move(board_core::Position position, board_core::Move move) {
   board_core::MoveDelta delta{};
   return board_core::make_move_delta(position, move, &delta);
+}
+
+Score root_score_for_move(const SearchResult& result, board_core::Move move) {
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    if (root_move.move == move) {
+      return root_move.score;
+    }
+  }
+  FAIL("root move was missing from comparison result");
+  return 0;
+}
+
+void require_same_exact_scores(const SearchResult& with_tt, const SearchResult& without_tt) {
+  REQUIRE(with_tt.score == without_tt.score);
+  REQUIRE(with_tt.completed_depth == without_tt.completed_depth);
+  REQUIRE(with_tt.best_move == without_tt.best_move);
+  REQUIRE(with_tt.best_move.has_value() == without_tt.best_move.has_value());
+  REQUIRE(with_tt.root_moves.size() == without_tt.root_moves.size());
+  if (with_tt.best_move.has_value()) {
+    REQUIRE(root_score_for_move(without_tt, *with_tt.best_move) == without_tt.score);
+  }
+  for (const RootMoveInfo& root_move : with_tt.root_moves) {
+    REQUIRE(root_score_for_move(without_tt, root_move.move) == root_move.score);
+  }
 }
 
 TEST_CASE("exact endgame terminal root returns disc difference without evaluator",
@@ -221,6 +248,43 @@ TEST_CASE("exact endgame reports exact root flags and legal best move", "[search
   REQUIRE(result.root_moves[0].exact);
   REQUIRE_FALSE(result.root_moves[0].selective);
   require_exact_result_invariants(position, result);
+}
+
+TEST_CASE("exact endgame TT preserves exact scores for representative positions",
+          "[search][endgame][tt]") {
+  const std::array<board_core::Position, 6> positions{
+      parse_position_or_fail(
+          "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b"),
+      parse_position_or_fail(
+          "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"),
+      parse_position_or_fail(
+          "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"),
+      test_support::generated_endgame_position(2),
+      test_support::generated_endgame_position(4),
+      test_support::generated_endgame_position(6),
+  };
+
+  bool saw_tt_probe = false;
+  bool saw_tt_store = false;
+  bool saw_tt_cutoff = false;
+
+  for (const board_core::Position position : positions) {
+    const std::uint8_t empties = test_support::endgame_empty_count(position);
+    const SearchResult without_tt = search_exact(position, empties, false);
+    const SearchResult with_tt = search_exact(position, empties, true);
+
+    require_exact_result_invariants(position, without_tt);
+    require_exact_result_invariants(position, with_tt);
+    require_same_exact_scores(with_tt, without_tt);
+
+    saw_tt_probe = saw_tt_probe || with_tt.stats.tt_probes > 0;
+    saw_tt_store = saw_tt_store || with_tt.stats.tt_stores > 0;
+    saw_tt_cutoff = saw_tt_cutoff || with_tt.stats.tt_cutoffs > 0;
+  }
+
+  REQUIRE(saw_tt_probe);
+  REQUIRE(saw_tt_store);
+  REQUIRE(saw_tt_cutoff);
 }
 
 TEST_CASE("exact endgame stop requested before search publishes no exact result",
