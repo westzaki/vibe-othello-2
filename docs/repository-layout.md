@@ -77,18 +77,25 @@ development, smoke checks, and validation.
 
 ```text
 tools/
-└─ engine-smoke/
-   └─ main.cc
+├─ engine-smoke/
+│  └─ main.cc
+├─ endgame/
+│  ├─ check_baseline.py
+│  ├─ check_golden.py
+│  └─ generate_golden.sh
+└─ search/
+   ├─ check_golden.py
+   └─ generate_golden.sh
 ```
 
 ## Apps Layout
 
 Applications live under apps/.
 
+The current repository has only the applications README. Add application
+subdirectories here as user-facing apps are introduced.
+
 ```text
 apps/
-└─ web/
-   ├─ README.md
-   ├─ src/
-   └─ tests/
+└─ README.md
 ```
