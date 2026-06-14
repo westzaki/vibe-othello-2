@@ -42,6 +42,9 @@ Existing foundations include:
   final-disc-difference labels
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
   records using runtime tiny pattern geometry and ternary encoding
+* CTest-backed tiny deterministic pattern trainer smoke that consumes the
+  pattern dataset TSV, fits a train-split-only phase-bias baseline, and fixes
+  summary counts, a representative learned value, and checksum
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -51,10 +54,10 @@ evaluation checks, and strength comparisons.
 The current implementation does not yet have:
 
 * local-only corpus download scripts
-* trainer
+* production trainer
 * calibration tool
 * artifact exporter
-* training reports
+* production training reports
 * publication gate for license and provenance status
 
 No raw external corpora, derived datasets, or learned weights are currently
@@ -82,7 +85,7 @@ Status values:
 | Add dataset builder and deterministic splitter | done | Minimal `tools/pattern-dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, and keeps duplicate input rows in deterministic input order |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
 | Add feature extractor | done | Minimal `tools/pattern-features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices |
-| Add tiny deterministic trainer smoke test | not started | Reproducibility before throughput |
+| Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern-train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
 | Add calibration tool | not started | Optional score-to-probability mapping |
 | Add artifact exporter | not started | Writes binary weights plus manifest |
 | Add runtime loader compatibility test | not started | Bridges learning output to evaluation runtime |
