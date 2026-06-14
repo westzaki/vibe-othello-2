@@ -34,6 +34,9 @@ ExactEndgameTtProbe exact_endgame_score_tt_probe(const TTEntry& entry,
                                                  board_core::Position position,
                                                  Depth remaining_empties, Score alpha,
                                                  Score beta) noexcept;
+ExactEndgameTtProbe exact_endgame_wld_tt_probe(const TTEntry& entry, board_core::Position position,
+                                               Depth remaining_empties, Score alpha,
+                                               Score beta) noexcept;
 std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Score alpha, Score beta,
                                                     Depth depth, Ply ply,
                                                     std::optional<TTEntry>* tt_entry);
@@ -70,9 +73,14 @@ std::uint8_t empty_count(board_core::Position position) noexcept;
 bool should_use_exact_endgame(board_core::Position position, SearchOptions options) noexcept;
 SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,
                                     std::uint8_t empties, Ply ply);
+SearchNodeResult wld_search(EndgameContext* context, Score alpha, Score beta, std::uint8_t empties,
+                            Ply ply);
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
                                  SearchOptions options, TranspositionTable* tt,
                                  SearchLimitState* limit_state = nullptr);
+SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits,
+                               SearchOptions options, TranspositionTable* tt,
+                               SearchLimitState* limit_state = nullptr);
 SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position position,
                                                            SearchLimits limits,
                                                            SearchOptions options,

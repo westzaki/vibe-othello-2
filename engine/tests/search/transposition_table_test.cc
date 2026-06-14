@@ -387,5 +387,87 @@ TEST_CASE("exact endgame score TT probe returns only compatible legal best move 
   REQUIRE_FALSE(probe.best_move.has_value());
 }
 
+TEST_CASE("exact endgame WLD TT probe respects kind depth bounds and legal hints", "[search][tt]") {
+  const board_core::Position position = board_core::initial_position();
+  const board_core::Move legal_best_move = select_legal_move(position, 0);
+  TTEntry entry{
+      .depth = Depth{4},
+      .score = Score{0},
+      .bound = BoundType::exact,
+      .best_move = legal_best_move,
+      .has_best_move = true,
+      .kind = TTEntryKind::exact_endgame_wld,
+      .occupied = true,
+  };
+
+  ExactEndgameTtProbe probe =
+      exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE(probe.cutoff_score == Score{0});
+  REQUIRE(probe.best_move == legal_best_move);
+
+  entry.depth = Depth{3};
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE(probe.best_move == legal_best_move);
+
+  entry.depth = Depth{4};
+  entry.bound = BoundType::lower;
+  entry.score = Score{1};
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE(probe.cutoff_score == Score{1});
+
+  entry.score = Score{0};
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+
+  entry.bound = BoundType::upper;
+  entry.score = Score{-1};
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE(probe.cutoff_score == Score{-1});
+
+  entry.score = Score{0};
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+
+  entry.bound = BoundType::exact;
+  entry.score = Score{1};
+  entry.best_move = board_core::make_pass();
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE(probe.cutoff_score == Score{1});
+  REQUIRE_FALSE(probe.best_move.has_value());
+
+  entry.best_move = legal_best_move;
+  entry.has_best_move = false;
+  probe = exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE(probe.cutoff_score == Score{1});
+  REQUIRE_FALSE(probe.best_move.has_value());
+}
+
+TEST_CASE("exact score and WLD TT probes do not satisfy each other", "[search][tt]") {
+  const board_core::Position position = board_core::initial_position();
+  const board_core::Move legal_best_move = select_legal_move(position, 0);
+  TTEntry entry{
+      .depth = Depth{4},
+      .score = Score{1},
+      .bound = BoundType::exact,
+      .best_move = legal_best_move,
+      .has_best_move = true,
+      .kind = TTEntryKind::exact_endgame_wld,
+      .occupied = true,
+  };
+
+  ExactEndgameTtProbe score_probe =
+      exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(score_probe.cutoff_score.has_value());
+  REQUIRE_FALSE(score_probe.best_move.has_value());
+
+  entry.kind = TTEntryKind::exact_endgame_score;
+  entry.score = Score{12};
+  ExactEndgameTtProbe wld_probe =
+      exact_endgame_wld_tt_probe(entry, position, Depth{4}, Score{-1}, Score{1});
+  REQUIRE_FALSE(wld_probe.cutoff_score.has_value());
+  REQUIRE_FALSE(wld_probe.best_move.has_value());
+}
+
 } // namespace
 } // namespace vibe_othello::search::internal

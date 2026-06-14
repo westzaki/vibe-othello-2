@@ -265,13 +265,17 @@ SearchResult search_iterative(board_core::Position position,
 When `options.exact_endgame` is enabled and the empty threshold is met,
 `search_iterative` may route to endgame search.
 
-Tools and callers that need evaluator-free exact score solving may call the
-direct public API.
+Tools and callers that need evaluator-free exact score or WLD solving may call
+the direct public APIs.
 
 ```cpp
 SearchResult solve_exact_endgame(board_core::Position position,
                                  SearchLimits limits = {},
                                  SearchOptions options = {});
+
+SearchResult solve_wld_endgame(board_core::Position position,
+                               SearchLimits limits = {},
+                               SearchOptions options = {});
 ```
 
 Direct exact solving starts exact final-disc-difference search regardless of the
@@ -281,12 +285,13 @@ not fall back to midgame search. `max_nodes`, `max_time`, and `stop_requested`
 are respected. `max_depth` is ignored because exact endgame depth is the root
 empty count.
 
-`use_endgame_tt`, `use_endgame_parity_ordering`, and exact root reporting options
-such as `multi_pv` are honored. Midgame-only options must not change direct
-exact-score semantics.
+Direct WLD solving starts exact win/loss/draw search regardless of the root empty
+count. It returns only `loss`, `draw`, or `win` as `-1`, `0`, or `1`; it does
+not return final disc margins.
 
-WLD remains a separate unimplemented mode. Exact-score direct API results may be
-converted to WLD by sign, but no public WLD solver exists yet.
+`use_endgame_tt`, `use_endgame_parity_ordering`, and root reporting options such
+as `multi_pv` are honored. Midgame-only options must not change direct
+exact-score or WLD semantics.
 
 Reusable endgame logic should live in `engine/src/search/`.
 
@@ -324,6 +329,11 @@ SearchResult solve_exact_endgame(board_core::Position position,
                                  SearchLimits limits,
                                  SearchOptions options,
                                  TranspositionTable* tt);
+
+SearchResult solve_wld_endgame(board_core::Position position,
+                               SearchLimits limits,
+                               SearchOptions options,
+                               TranspositionTable* tt);
 
 }
 ```

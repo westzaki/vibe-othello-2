@@ -93,6 +93,21 @@ SearchResult solve_direct_exact(board_core::Position position, bool use_endgame_
                     .endgame_exact_empties = 0});
 }
 
+SearchResult solve_direct_wld(board_core::Position position, SearchLimits limits = {},
+                              SearchOptions options = {}) {
+  return solve_wld_endgame(position, limits, options);
+}
+
+SearchResult solve_direct_wld(board_core::Position position, bool use_endgame_tt,
+                              bool use_endgame_parity_ordering, std::uint8_t multi_pv = 0) {
+  return solve_wld_endgame(position, SearchLimits{},
+                           SearchOptions{.use_endgame_tt = use_endgame_tt,
+                                         .exact_endgame = false,
+                                         .use_endgame_parity_ordering = use_endgame_parity_ordering,
+                                         .multi_pv = multi_pv,
+                                         .endgame_exact_empties = 0});
+}
+
 std::string endgame_corpus_path() {
   return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/fixtures/endgame/positions.tsv";
 }
@@ -134,6 +149,41 @@ void require_exact_result_invariants(board_core::Position position, const Search
   require_replayable_pv(position, result.pv);
   require_replayable_root_pvs(position, result);
   for (const RootMoveInfo& root_move : result.root_moves) {
+    REQUIRE(root_move.bound == BoundType::exact);
+    REQUIRE(root_move.exact);
+    REQUIRE_FALSE(root_move.selective);
+  }
+}
+
+Score wld_from_exact_score(Score score) noexcept {
+  if (score > 0) {
+    return static_cast<Score>(WldResult::win);
+  }
+  if (score < 0) {
+    return static_cast<Score>(WldResult::loss);
+  }
+  return static_cast<Score>(WldResult::draw);
+}
+
+void require_wld_score(Score score) {
+  REQUIRE((score == static_cast<Score>(WldResult::loss) ||
+           score == static_cast<Score>(WldResult::draw) ||
+           score == static_cast<Score>(WldResult::win)));
+}
+
+void require_wld_result_invariants(board_core::Position position, const SearchResult& result) {
+  REQUIRE_FALSE(result.stopped);
+  REQUIRE(result.exact);
+  REQUIRE(result.bound == BoundType::exact);
+  REQUIRE(result.nodes == result.stats.nodes);
+  REQUIRE(result.stats.endgame_nodes == result.stats.nodes);
+  REQUIRE(result.stats.eval_calls == 0);
+  REQUIRE(result.stats.leaf_nodes == 0);
+  require_wld_score(result.score);
+  require_replayable_pv(position, result.pv);
+  require_replayable_root_pvs(position, result);
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    require_wld_score(root_move.score);
     REQUIRE(root_move.bound == BoundType::exact);
     REQUIRE(root_move.exact);
     REQUIRE_FALSE(root_move.selective);
@@ -338,6 +388,162 @@ TEST_CASE("public direct exact endgame reports forced pass replayably",
   REQUIRE(result.pv.moves[0] == board_core::make_pass());
   REQUIRE(result.pv.moves[1] == board_core::make_move(square(7, 7)));
   require_exact_result_invariants(position, result);
+}
+
+TEST_CASE("public direct WLD endgame solves terminal root by exact score sign",
+          "[search][endgame][wld][public]") {
+  const board_core::Position terminal = parse_position_or_fail(
+      "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b");
+  REQUIRE(board_core::is_terminal(terminal));
+
+  const SearchResult exact = solve_direct_exact(terminal);
+  const SearchResult wld = solve_direct_wld(terminal);
+
+  REQUIRE_FALSE(wld.best_move.has_value());
+  REQUIRE(wld.score == wld_from_exact_score(exact.score));
+  REQUIRE(wld.completed_depth == exact.completed_depth);
+  REQUIRE(wld.root_moves.empty());
+  REQUIRE(wld.stats.terminal_nodes == 1);
+  require_wld_result_invariants(terminal, wld);
+}
+
+TEST_CASE("public direct WLD endgame solves one-empty root without final margin",
+          "[search][endgame][wld][public]") {
+  const board_core::Position position = parse_position_or_fail(
+      "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+
+  const SearchResult exact = solve_direct_exact(position);
+  const SearchResult wld = solve_direct_wld(position);
+
+  REQUIRE(wld.best_move == exact.best_move);
+  REQUIRE(wld.score == wld_from_exact_score(exact.score));
+  REQUIRE(wld.score == static_cast<Score>(WldResult::win));
+  REQUIRE(wld.completed_depth == Depth{1});
+  REQUIRE(wld.root_moves.size() == 1);
+  REQUIRE(wld.root_moves[0].score == wld.score);
+  require_wld_result_invariants(position, wld);
+}
+
+TEST_CASE("public direct WLD endgame represents forced pass replayably",
+          "[search][endgame][wld][public]") {
+  const board_core::Position position = parse_position_or_fail(
+      "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+  REQUIRE_FALSE(board_core::has_legal_move(position));
+  REQUIRE_FALSE(board_core::is_terminal(position));
+
+  const SearchResult exact = solve_direct_exact(position);
+  const SearchResult wld = solve_direct_wld(position);
+
+  REQUIRE(wld.best_move == board_core::make_pass());
+  REQUIRE(wld.score == wld_from_exact_score(exact.score));
+  REQUIRE(wld.root_moves.size() == 1);
+  REQUIRE(wld.root_moves[0].move == board_core::make_pass());
+  REQUIRE(wld.pv.size == exact.pv.size);
+  REQUIRE(wld.pv.moves[0] == board_core::make_pass());
+  REQUIRE(wld.stats.pass_nodes >= 1);
+  require_wld_result_invariants(position, wld);
+}
+
+TEST_CASE("public direct WLD endgame sign matches exact corpus results",
+          "[search][endgame][wld][corpus]") {
+  const std::vector<test_support::EndgamePositionCase> cases =
+      test_support::load_endgame_position_corpus(endgame_corpus_path());
+
+  bool saw_generic_wld_position = false;
+  for (const test_support::EndgamePositionCase& position_case : cases) {
+    INFO("position_id: " << position_case.id);
+    if (position_case.expected_empties > kFastCorpusMaxEmpties) {
+      continue;
+    }
+
+    const SearchResult exact = solve_direct_exact(position_case.position);
+    const SearchResult wld = solve_direct_wld(position_case.position);
+
+    require_exact_result_invariants(position_case.position, exact);
+    require_wld_result_invariants(position_case.position, wld);
+    REQUIRE(wld.score == wld_from_exact_score(exact.score));
+    REQUIRE(wld.completed_depth == exact.completed_depth);
+    REQUIRE(wld.best_move.has_value() == exact.best_move.has_value());
+    if (wld.best_move.has_value()) {
+      REQUIRE(is_legal_root_move(position_case.position, *wld.best_move));
+    }
+    for (const RootMoveInfo& wld_root_move : wld.root_moves) {
+      REQUIRE(wld_root_move.score ==
+              wld_from_exact_score(root_score_for_move(exact, wld_root_move.move)));
+    }
+    saw_generic_wld_position = saw_generic_wld_position || position_case.expected_empties > 4;
+  }
+
+  REQUIRE(saw_generic_wld_position);
+}
+
+TEST_CASE("public direct WLD endgame TT and parity options preserve outcome",
+          "[search][endgame][wld][tt][parity]") {
+  const board_core::Position position = test_support::generated_endgame_position(6);
+
+  const SearchResult baseline = solve_direct_wld(position, false, false);
+  const SearchResult with_parity = solve_direct_wld(position, false, true);
+  const SearchResult with_tt = solve_direct_wld(position, true, false);
+  const SearchResult with_both = solve_direct_wld(position, true, true);
+
+  require_wld_result_invariants(position, baseline);
+  require_wld_result_invariants(position, with_parity);
+  require_wld_result_invariants(position, with_tt);
+  require_wld_result_invariants(position, with_both);
+  REQUIRE(with_parity.score == baseline.score);
+  REQUIRE(with_tt.score == baseline.score);
+  REQUIRE(with_both.score == baseline.score);
+  REQUIRE(with_parity.best_move == baseline.best_move);
+  REQUIRE(with_tt.best_move == baseline.best_move);
+  REQUIRE(with_both.best_move == baseline.best_move);
+  REQUIRE(with_tt.stats.tt_probes > 0);
+  REQUIRE(with_both.stats.tt_probes > 0);
+}
+
+TEST_CASE("public direct WLD endgame best-only reports only the exact best root move",
+          "[search][endgame][wld][public]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult all_roots = solve_direct_wld(position, false, true, 0);
+  const SearchResult best_only = solve_direct_wld(position, false, true, 1);
+
+  require_wld_result_invariants(position, all_roots);
+  require_wld_result_invariants(position, best_only);
+  REQUIRE(all_roots.root_moves.size() > 1);
+  REQUIRE(best_only.score == all_roots.score);
+  REQUIRE(best_only.best_move == all_roots.best_move);
+  REQUIRE(best_only.pv == all_roots.pv);
+  REQUIRE(best_only.root_moves.size() == 1);
+  REQUIRE(best_only.root_moves[0].move == *best_only.best_move);
+  REQUIRE(best_only.root_moves[0].score == best_only.score);
+}
+
+TEST_CASE("public direct WLD endgame respects max node and stop limits",
+          "[search][endgame][wld][public][limits]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult max_nodes_result = solve_direct_wld(position, SearchLimits{.max_nodes = 1});
+
+  REQUIRE(max_nodes_result.stopped);
+  REQUIRE_FALSE(max_nodes_result.exact);
+  REQUIRE(max_nodes_result.bound == BoundType::lower);
+  REQUIRE(max_nodes_result.completed_depth == Depth{0});
+  REQUIRE_FALSE(max_nodes_result.best_move.has_value());
+  REQUIRE(max_nodes_result.nodes == 1);
+  REQUIRE(max_nodes_result.stats.nodes == 1);
+  REQUIRE(max_nodes_result.stats.endgame_nodes == 1);
+
+  std::atomic_bool stop_requested{true};
+  const SearchResult stop_result =
+      solve_direct_wld(position, SearchLimits{.stop_requested = &stop_requested});
+
+  REQUIRE(stop_result.stopped);
+  REQUIRE_FALSE(stop_result.exact);
+  REQUIRE(stop_result.bound == BoundType::lower);
+  REQUIRE(stop_result.completed_depth == Depth{0});
+  REQUIRE_FALSE(stop_result.best_move.has_value());
+  REQUIRE(stop_result.nodes == 0);
+  REQUIRE(stop_result.stats.endgame_nodes == 0);
 }
 
 TEST_CASE("public direct exact endgame respects max node and stop limits",

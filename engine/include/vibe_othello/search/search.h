@@ -56,6 +56,14 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits = {},
                                  SearchOptions options = {});
 
+// Directly solve a root position to an exact win/loss/draw outcome.
+//
+// The returned score is the WLD value from the side-to-move perspective:
+// WldResult::win maps to 1, draw maps to 0, and loss maps to -1. This does not
+// compute or return the final disc-difference margin.
+SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits = {},
+                               SearchOptions options = {});
+
 } // namespace vibe_othello::search
 
 #endif // VIBE_OTHELLO_SEARCH_SEARCH_H_
