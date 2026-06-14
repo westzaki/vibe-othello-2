@@ -309,11 +309,14 @@ stored entries.
 
 `use_endgame_tt` controls exact endgame score and WLD entries.
 
-`use_endgame_tt` has no effect when `exact_endgame` is disabled.
+`use_endgame_tt` has no effect in iterative midgame search when `exact_endgame`
+is disabled. Direct endgame solver APIs honor it independently of the root
+threshold gate.
 
 `use_endgame_tt` enables exact-score endgame transposition-table probe, store,
-and cutoff behavior when exact endgame search is active. WLD endgame TT behavior
-remains unavailable until WLD search is implemented.
+and cutoff behavior when exact endgame search is active. It also enables WLD
+endgame transposition-table probe, store, and cutoff behavior when direct WLD
+search is active.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
@@ -364,6 +367,26 @@ solving and is ignored.
 reporting options such as `multi_pv` keep their exact endgame meanings. Midgame
 options such as PVS, IID, history, killers, midgame TT, and selective pruning do
 not change direct exact result semantics.
+
+## Direct WLD Endgame API
+
+Search exposes an evaluator-free direct WLD endgame entry point:
+
+```cpp
+SearchResult solve_wld_endgame(board_core::Position position,
+                               SearchLimits limits = {},
+                               SearchOptions options = {});
+```
+
+This API starts exact win/loss/draw search directly. It does not use the
+`SearchOptions::exact_endgame`, `endgame_exact_empties`, or
+`endgame_wld_empties` root threshold gates and does not fall back to
+evaluator-based midgame search.
+
+The returned `SearchResult::score` and root move scores are WLD values from the
+side-to-move perspective: `-1` for loss, `0` for draw, and `1` for win. They are
+not final disc-difference margins. `use_endgame_tt`, `use_endgame_parity_ordering`,
+and root reporting options such as `multi_pv` keep their endgame meanings.
 
 ## Search Result
 
@@ -961,6 +984,9 @@ requested solve mode or can safely answer it.
 
 `exact_endgame_score` entries may answer WLD queries by converting final disc
 difference to win, draw, or loss.
+
+The first direct WLD implementation keeps exact-score and WLD probes fully
+separate and does not perform this conversion at probe time.
 
 `exact_endgame_wld` entries must not answer exact score queries.
 

@@ -41,8 +41,8 @@ shared with benchmarks or golden generation scripts lives in `../fixtures/`.
 | `search/null_window_search_test.cc` | Internal null-window fail-high and fail-low bound semantics. |
 | `search/pvs_test.cc` | PVS correctness neutrality against alpha-beta when enabled. |
 | `search/search_limits_test.cc` | Cooperative node, time, infinite, and external-stop limit behavior. |
-| `search/transposition_table_test.cc` | Midgame and exact-endgame transposition-table storage, probing, and cutoff semantics. |
-| `search/endgame_test.cc` | Root exact endgame integration, pass handling, flags, legality, and PV replay. |
+| `search/transposition_table_test.cc` | Midgame, exact-score endgame, and WLD endgame transposition-table storage, probing, cutoff, and kind-separation semantics. |
+| `search/endgame_test.cc` | Root exact/WLD endgame integration, pass handling, flags, legality, and PV replay. |
 | `search/endgame_reference_test.cc` | Production exact endgame results against the slow reference solver. |
 | `search/endgame_corpus_test.cc` | Exact endgame corpus coverage against the reference solver. |
 | `search/endgame_small_empty_test.cc` | Specialized 0/1/2/3/4-empty exact-score paths against the generic solver. |

@@ -67,6 +67,7 @@ The current search implementation includes:
 * deterministic search golden-check tooling
 * root-triggered generic exact-score endgame solving through `search_iterative`
 * public direct exact-score endgame solving through `solve_exact_endgame`
+* public direct WLD endgame solving through `solve_wld_endgame`
 * `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold
   integration
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
@@ -77,6 +78,8 @@ The current search implementation includes:
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
   when `SearchOptions::use_endgame_tt` is enabled, including ordering-only legal
   TT best-move hints when a probed entry cannot cut off
+* WLD endgame TT semantics through `TTEntryKind::exact_endgame_wld` when
+  `SearchOptions::use_endgame_tt` is enabled in direct WLD search
 * specialized small-empty exact-score paths for 0, 1, 2, 3, and 4 empty squares
 * ordering-only exact endgame parity hints through
   `SearchOptions::use_endgame_parity_ordering`
@@ -103,8 +106,7 @@ Existing search tests include:
 
 The current implementation does not yet have:
 
-* WLD search path
-* WLD endgame TT probing or storing
+* root-triggered WLD orchestration through `search_iterative`
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
 * ProbCut or calibrated selective pruning
@@ -117,10 +119,11 @@ iterative deepening when the root position is at or below
 `endgame_exact_empties`. Internal leaf cutover is entered from depth-limited
 midgame search before heuristic evaluation when `exact_endgame` is enabled and
 the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
-not publish root exact move reports or mark the whole root result exact. Exact
-endgame does not yet provide WLD. Parity ordering is available as an
-ordering-only hint and must not change exact results. Exact endgame root
-reporting uses `multi_pv == 0` for the default all-root exact report,
+not publish root exact move reports or mark the whole root result exact. Direct
+WLD solving is available through `solve_wld_endgame`; `search_iterative` does
+not yet trigger WLD through `endgame_wld_empties`. Parity ordering is available
+as an ordering-only hint and must not change exact results. Exact/WLD endgame
+root reporting uses `multi_pv == 0` for the default all-root exact report,
 `multi_pv == 1` for best-only exact reporting, and treats `multi_pv > 1` as a
 safe all-root no-op until top-N reporting is implemented.
 
@@ -162,10 +165,11 @@ Status values:
 | Add killer and history heuristics | done | Ordering-only midgame heuristics controlled by `use_killers` and `use_history` |
 | Add real internal iterative deepening | done | Ordering-only shallow midgame search controlled by `use_iid` |
 | Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
-| Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
+| Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; direct WLD uses `TTEntryKind::exact_endgame_wld` |
 | Add specialized small-empty exact-score path | done | 0/1/2/3/4 empty path is tested against generic exact endgame search |
 | Add public direct exact endgame solve API | done | `solve_exact_endgame` calls the exact-score solver without an evaluator or threshold gate |
-| Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
+| Add public direct WLD endgame solve API | done | `solve_wld_endgame` calls the WLD solver without an evaluator or threshold gate |
+| Add root-triggered WLD search path | not started | `endgame_wld_empties` currently safe no-op for `search_iterative`; tracked in `docs/progress/endgame.md` |
 | Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |

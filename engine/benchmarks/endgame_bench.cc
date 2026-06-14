@@ -44,6 +44,8 @@ using vibe_othello::search::RootMoveInfo;
 using vibe_othello::search::SearchOptions;
 using vibe_othello::search::SearchResult;
 using vibe_othello::search::solve_exact_endgame;
+using vibe_othello::search::solve_wld_endgame;
+using vibe_othello::search::WldResult;
 
 enum class OutputFormat {
   tsv,
@@ -68,12 +70,18 @@ enum class RootMode {
   best,
 };
 
+enum class SolveMode {
+  exact_score,
+  wld,
+};
+
 struct Config {
   std::string corpus_path;
   OutputFormat output_format = OutputFormat::tsv;
   ParityMode parity_mode = ParityMode::on;
   TTMode tt_mode = TTMode::off;
   RootMode root_mode = RootMode::all;
+  SolveMode solve_mode = SolveMode::exact_score;
   std::uint32_t repeat = 1;
   std::uint8_t min_empties = 0;
   std::uint8_t max_empties = 12;
@@ -226,8 +234,9 @@ std::vector<PositionCase> built_in_fallback_positions() {
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--tt off|on|both]"
-            " [--root-mode all|best] [--repeat N] [--min-empties N] [--max-empties N]"
-            " [--position-id ID] [--category NAME] [--list-positions] [--corpus PATH]\n\n"
+            " [--root-mode all|best] [--mode exact-score|wld] [--repeat N]"
+            " [--min-empties N] [--max-empties N] [--position-id ID] [--category NAME]"
+            " [--list-positions] [--corpus PATH]\n\n"
          << "External TSV schema: id<TAB>category<TAB>position<TAB>expected_empties<TAB>notes\n";
 }
 
@@ -424,6 +433,23 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--mode") {
+      require_condition(index + 1 < argc, "--mode requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--mode", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      if (value == "exact-score" || value == "exact_score") {
+        config.solve_mode = SolveMode::exact_score;
+      } else if (value == "wld") {
+        config.solve_mode = SolveMode::wld;
+      } else {
+        require_condition(false, "invalid solve mode");
+      }
+      continue;
+    }
+
     if (argument == "--repeat") {
       require_condition(index + 1 < argc, "--repeat requires a value");
       value = argv[++index];
@@ -561,6 +587,30 @@ std::string_view root_mode_name(RootMode mode) noexcept {
   return "unknown";
 }
 
+std::string_view solve_mode_name(SolveMode mode) noexcept {
+  switch (mode) {
+  case SolveMode::exact_score:
+    return "exact_score";
+  case SolveMode::wld:
+    return "wld";
+  }
+
+  return "unknown";
+}
+
+std::string_view wld_result_name(const SearchResult& result) noexcept {
+  if (result.score == static_cast<vibe_othello::search::Score>(WldResult::win)) {
+    return "win";
+  }
+  if (result.score == static_cast<vibe_othello::search::Score>(WldResult::loss)) {
+    return "loss";
+  }
+  if (result.score == static_cast<vibe_othello::search::Score>(WldResult::draw)) {
+    return "draw";
+  }
+  return "unknown";
+}
+
 std::uint8_t multi_pv_for_root_mode(RootMode mode) noexcept {
   switch (mode) {
   case RootMode::all:
@@ -673,7 +723,7 @@ void require_replayable_pv(Position position, Line pv, std::string_view id) {
 }
 
 void validate_result(const PositionCase& position_case, const TimedResult& timed_result,
-                     std::uint8_t actual_empties, bool use_tt) {
+                     std::uint8_t actual_empties, bool use_tt, SolveMode solve_mode) {
   const SearchResult& result = timed_result.result;
   if (actual_empties != position_case.expected_empties) {
     std::cerr << "endgame_bench: expected " << static_cast<int>(position_case.expected_empties)
@@ -684,6 +734,11 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
   require_condition(result.exact, "search result was not exact");
   require_condition(!result.stopped, "search result was stopped");
   require_condition(result.stats.eval_calls == 0, "exact endgame called evaluator");
+  if (solve_mode == SolveMode::wld) {
+    require_condition(result.score >= static_cast<vibe_othello::search::Score>(WldResult::loss) &&
+                          result.score <= static_cast<vibe_othello::search::Score>(WldResult::win),
+                      "WLD result score was outside the WLD range");
+  }
   require_condition(is_terminal(position_case.position) || result.stats.endgame_nodes != 0,
                     "non-terminal exact search visited zero endgame nodes");
   require_condition(result.nodes == result.stats.nodes, "nodes did not match stats.nodes");
@@ -708,8 +763,8 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
   require_replayable_pv(position_case.position, result.pv, position_case.id);
 }
 
-TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
-                              bool use_tt, RootMode root_mode) {
+TimedResult run_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
+                        bool use_tt, RootMode root_mode, SolveMode solve_mode) {
   const SearchOptions options{
       .use_endgame_tt = use_tt,
       .exact_endgame = false,
@@ -718,7 +773,8 @@ TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_
       .endgame_exact_empties = 0,
   };
   const auto start = std::chrono::steady_clock::now();
-  SearchResult result = solve_exact_endgame(position, {}, options);
+  SearchResult result = solve_mode == SolveMode::wld ? solve_wld_endgame(position, {}, options)
+                                                     : solve_exact_endgame(position, {}, options);
   const auto end = std::chrono::steady_clock::now();
   require_condition(result.completed_depth == static_cast<vibe_othello::search::Depth>(empties),
                     "direct exact endgame did not solve the root empty count");
@@ -741,25 +797,29 @@ double nodes_per_second(const TimedResult& timed_result) {
 void print_delimited_header(char delimiter) {
   std::cout << "position_id" << delimiter << "category" << delimiter << "empties" << delimiter
             << "repeat" << delimiter << "parity_ordering" << delimiter << "tt_mode" << delimiter
-            << "root_mode" << delimiter << "score" << delimiter << "best_move" << delimiter
-            << "exact" << delimiter << "stopped" << delimiter << "completed_depth" << delimiter
-            << "nodes" << delimiter << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter
-            << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter << "alpha_updates"
-            << delimiter << "root_moves_searched" << delimiter << "tt_probes" << delimiter
-            << "tt_hits" << delimiter << "tt_cutoffs" << delimiter << "tt_stores" << delimiter
-            << "tt_overwrites" << delimiter << "tt_collisions" << delimiter << "tt_rejected_stores"
-            << delimiter << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter
-            << "nps" << '\n';
+            << "root_mode" << delimiter << "mode" << delimiter << "score" << delimiter
+            << "wld_result" << delimiter << "best_move" << delimiter << "exact" << delimiter
+            << "stopped" << delimiter << "completed_depth" << delimiter << "nodes" << delimiter
+            << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter << "pass_nodes"
+            << delimiter << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter
+            << "root_moves_searched" << delimiter << "tt_probes" << delimiter << "tt_hits"
+            << delimiter << "tt_cutoffs" << delimiter << "tt_stores" << delimiter << "tt_overwrites"
+            << delimiter << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
+            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
+            << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
                             std::uint8_t empties, bool use_parity_ordering, bool use_tt,
-                            RootMode root_mode, const TimedResult& timed_result, char delimiter) {
+                            RootMode root_mode, SolveMode solve_mode,
+                            const TimedResult& timed_result, char delimiter) {
   const SearchResult& result = timed_result.result;
   std::cout << position_case.id << delimiter << position_case.category << delimiter
             << static_cast<int>(empties) << delimiter << repeat << delimiter
             << parity_mode_name(use_parity_ordering) << delimiter << tt_mode_name(use_tt)
-            << delimiter << root_mode_name(root_mode) << delimiter << result.score << delimiter
+            << delimiter << root_mode_name(root_mode) << delimiter << solve_mode_name(solve_mode)
+            << delimiter << result.score << delimiter
+            << (solve_mode == SolveMode::wld ? wld_result_name(result) : "n/a") << delimiter
             << best_move_to_string(result) << delimiter << (result.exact ? "true" : "false")
             << delimiter << (result.stopped ? "true" : "false") << delimiter
             << result.completed_depth << delimiter << result.nodes << delimiter
@@ -777,7 +837,7 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
 
 void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
                         std::uint8_t empties, bool use_parity_ordering, bool use_tt,
-                        RootMode root_mode, const TimedResult& timed_result) {
+                        RootMode root_mode, SolveMode solve_mode, const TimedResult& timed_result) {
   const SearchResult& result = timed_result.result;
   std::cout << '{';
   std::cout << "\"position_id\":";
@@ -786,7 +846,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   print_json_string(std::cout, position_case.category);
   std::cout << ",\"position\":";
   print_json_string(std::cout, format_position(position_case.position));
-  std::cout << ",\"mode\":\"exact_score\"";
+  std::cout << ",\"mode\":";
+  print_json_string(std::cout, solve_mode_name(solve_mode));
   std::cout << ",\"empties\":" << static_cast<int>(empties);
   std::cout << ",\"repeat\":" << repeat;
   std::cout << ",\"parity_ordering\":";
@@ -796,6 +857,10 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"root_mode\":";
   print_json_string(std::cout, root_mode_name(root_mode));
   std::cout << ",\"score\":" << result.score;
+  if (solve_mode == SolveMode::wld) {
+    std::cout << ",\"wld_result\":";
+    print_json_string(std::cout, wld_result_name(result));
+  }
   std::cout << ",\"best_move\":";
   print_json_string(std::cout, best_move_to_string(result));
   std::cout << ",\"exact\":" << (result.exact ? "true" : "false");
@@ -936,15 +1001,16 @@ int main(int argc, char** argv) {
         const bool use_tt = tt_values[tt_index];
         for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
           const TimedResult timed_result =
-              run_exact_endgame(position_case.position, actual_empties, use_parity_ordering, use_tt,
-                                config->root_mode);
-          validate_result(position_case, timed_result, actual_empties, use_tt);
+              run_endgame(position_case.position, actual_empties, use_parity_ordering, use_tt,
+                          config->root_mode, config->solve_mode);
+          validate_result(position_case, timed_result, actual_empties, use_tt, config->solve_mode);
           if (config->output_format == OutputFormat::jsonl) {
             print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering, use_tt,
-                               config->root_mode, timed_result);
+                               config->root_mode, config->solve_mode, timed_result);
           } else {
             print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
-                                   use_tt, config->root_mode, timed_result, config->delimiter);
+                                   use_tt, config->root_mode, config->solve_mode, timed_result,
+                                   config->delimiter);
           }
         }
       }

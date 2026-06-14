@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_GROUP_BY = ("empties", "parity_ordering", "tt_mode", "root_mode")
+DEFAULT_GROUP_BY = ("mode", "empties", "parity_ordering", "tt_mode", "root_mode")
 PERCENTILE_FIELDS = ("elapsed_ms", "nodes", "endgame_nodes", "nps")
 REQUIRED_FIELDS = (
     *DEFAULT_GROUP_BY,
