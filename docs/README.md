@@ -14,6 +14,7 @@ Read only the document needed for the current task.
 | Search implementation status | `progress/search.md` |
 | Endgame architecture | `architecture/endgame.md` |
 | Endgame implementation status | `progress/endgame.md` |
+| 20-empty endgame experiment notes | `experiments/endgame-high-empty-20.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
