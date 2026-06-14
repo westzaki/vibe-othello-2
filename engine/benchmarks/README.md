@@ -103,6 +103,33 @@ id	category	position	expected_empties	notes
 Use `--corpus engine/fixtures/endgame/positions.tsv` to run the checked-in
 endgame corpus used by deterministic golden checks.
 
+To measure the expanded checked-in corpus through 20 empty squares, raise the
+empty cap explicitly and write JSONL to local scratch space:
+
+```sh
+cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DVIBE_OTHELLO_BUILD_BENCHMARKS=ON
+cmake --build build-bench --config Release
+
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --parity both \
+  --tt both \
+  --root-mode all \
+  --repeat 3 \
+  --max-empties 20 \
+  --corpus engine/fixtures/endgame/positions.tsv \
+  > engine/benchmarks/results/endgame-20.jsonl
+
+python3 engine/benchmarks/scripts/endgame/aggregate_endgame_bench.py \
+  engine/benchmarks/results/endgame-20.jsonl
+```
+
+`engine/benchmarks/results` is local scratch space ignored by Git. Do not commit
+machine-specific benchmark results unless a dedicated baseline convention calls
+for that artifact. Before interpreting performance, compare correctness-neutral
+option rows on `score`, `best_move`, `pv`, `exact`, and `stopped`; only then
+review nodes, timing, NPS, and TT hit/cutoff rates.
+
 For small-empty exact-score changes, use a low cap to isolate the shared
 0/1/2/3-empty path:
 

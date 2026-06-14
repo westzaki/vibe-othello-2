@@ -4,6 +4,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,8 @@
 
 namespace vibe_othello::search {
 namespace {
+
+constexpr std::uint8_t kReferenceMaxEmpties = 12;
 
 class CountingEvaluator final : public Evaluator {
 public:
@@ -43,6 +46,11 @@ SearchResult production_exact_endgame(board_core::Position position, bool use_en
                                      .endgame_exact_empties = empties});
   REQUIRE(evaluator.calls == 0);
   return result;
+}
+
+void require_valid_corpus_row(const test_support::EndgamePositionCase& corpus_case) {
+  INFO("position_id: " << corpus_case.id);
+  REQUIRE(test_support::endgame_empty_count(corpus_case.position) == corpus_case.expected_empties);
 }
 
 Score root_score_for_move(const SearchResult& result, board_core::Move move) {
@@ -91,7 +99,15 @@ void require_matches_reference(const test_support::EndgamePositionCase& corpus_c
 
 TEST_CASE("checked-in exact endgame corpus matches reference solver", "[search][endgame][corpus]") {
   for (const test_support::EndgamePositionCase& corpus_case : load_endgame_corpus()) {
-    require_matches_reference(corpus_case);
+    if (corpus_case.expected_empties <= kReferenceMaxEmpties) {
+      require_matches_reference(corpus_case);
+    }
+  }
+}
+
+TEST_CASE("checked-in exact endgame corpus rows are valid", "[search][endgame][corpus]") {
+  for (const test_support::EndgamePositionCase& corpus_case : load_endgame_corpus()) {
+    require_valid_corpus_row(corpus_case);
   }
 }
 

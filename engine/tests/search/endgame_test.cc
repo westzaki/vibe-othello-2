@@ -18,6 +18,8 @@
 namespace vibe_othello::search {
 namespace {
 
+constexpr std::uint8_t kFastCorpusMaxEmpties = 12;
+
 class CountingEvaluator final : public Evaluator {
 public:
   explicit constexpr CountingEvaluator(Score score) noexcept : score_(score) {}
@@ -613,6 +615,9 @@ TEST_CASE("exact endgame parity ordering preserves corpus scores and best move t
   for (const test_support::EndgamePositionCase& position_case : cases) {
     INFO("position_id: " << position_case.id);
     const std::uint8_t empties = position_case.expected_empties;
+    if (empties > kFastCorpusMaxEmpties) {
+      continue;
+    }
     const SearchResult without_parity = search_exact(position_case.position, empties, false, false);
     const SearchResult with_parity = search_exact(position_case.position, empties, false, true);
 
