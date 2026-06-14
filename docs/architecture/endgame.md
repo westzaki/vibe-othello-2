@@ -459,6 +459,11 @@ Rules:
 
 The initial implementation should use one fixed connectivity policy.
 
+The initial fixed policy is 4-neighbor connectivity. A move whose destination
+belongs to an odd-sized empty region is treated as parity-favorable and ordered
+ahead of otherwise similar moves in even-sized regions. This is only an ordering
+hint.
+
 If 4-neighbor and 8-neighbor region policies are compared, they must be separate
 benchmark options.
 

@@ -33,6 +33,7 @@ struct SearchOptions {
   bool use_pv_table = false;
   bool use_parallel = false;
   bool use_tt_best_move_ordering = false;
+  bool use_endgame_parity_ordering = true;
   std::uint8_t multi_pv = 0;
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;

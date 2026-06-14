@@ -55,9 +55,16 @@ enum class OutputFormat {
   jsonl,
 };
 
+enum class ParityMode {
+  on,
+  off,
+  both,
+};
+
 struct Config {
   std::string corpus_path;
   OutputFormat output_format = OutputFormat::tsv;
+  ParityMode parity_mode = ParityMode::on;
   std::uint32_t repeat = 1;
   std::uint8_t max_empties = 12;
   char delimiter = '\t';
@@ -214,7 +221,8 @@ std::vector<PositionCase> built_in_fallback_positions() {
 
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
-         << " [--tsv|--csv|--jsonl] [--repeat N] [--max-empties N] [--corpus PATH]\n\n"
+         << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--repeat N] [--max-empties N]"
+            " [--corpus PATH]\n\n"
          << "External TSV schema: id<TAB>category<TAB>position<TAB>expected_empties<TAB>notes\n";
 }
 
@@ -347,6 +355,25 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--parity") {
+      require_condition(index + 1 < argc, "--parity requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--parity", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      if (value == "on") {
+        config.parity_mode = ParityMode::on;
+      } else if (value == "off") {
+        config.parity_mode = ParityMode::off;
+      } else if (value == "both") {
+        config.parity_mode = ParityMode::both;
+      } else {
+        require_condition(false, "invalid parity mode");
+      }
+      continue;
+    }
+
     if (argument == "--repeat") {
       require_condition(index + 1 < argc, "--repeat requires a value");
       value = argv[++index];
@@ -416,6 +443,10 @@ std::string best_move_to_string(const SearchResult& result) {
     return "none";
   }
   return move_to_string(*result.best_move);
+}
+
+std::string_view parity_mode_name(bool enabled) noexcept {
+  return enabled ? "on" : "off";
 }
 
 std::string_view bound_name(BoundType bound) noexcept {
@@ -540,10 +571,11 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
   require_replayable_pv(position_case.position, result.pv, position_case.id);
 }
 
-TimedResult run_exact_endgame(Position position, std::uint8_t empties) {
+TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_parity_ordering) {
   DummyEvaluator evaluator;
   const SearchOptions options{
       .exact_endgame = true,
+      .use_endgame_parity_ordering = use_parity_ordering,
       .endgame_exact_empties = empties,
   };
   const auto start = std::chrono::steady_clock::now();
@@ -569,22 +601,24 @@ double nodes_per_second(const TimedResult& timed_result) {
 
 void print_delimited_header(char delimiter) {
   std::cout << "position_id" << delimiter << "category" << delimiter << "empties" << delimiter
-            << "repeat" << delimiter << "score" << delimiter << "best_move" << delimiter << "exact"
-            << delimiter << "stopped" << delimiter << "completed_depth" << delimiter << "nodes"
-            << delimiter << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter
-            << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter << "alpha_updates"
-            << delimiter << "root_moves_searched" << delimiter << "elapsed_ms" << delimiter << "nps"
-            << '\n';
+            << "repeat" << delimiter << "parity_ordering" << delimiter << "score" << delimiter
+            << "best_move" << delimiter << "exact" << delimiter << "stopped" << delimiter
+            << "completed_depth" << delimiter << "nodes" << delimiter << "endgame_nodes"
+            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
+            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "root_moves_searched"
+            << delimiter << "elapsed_ms" << delimiter << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
-                            std::uint8_t empties, const TimedResult& timed_result, char delimiter) {
+                            std::uint8_t empties, bool use_parity_ordering,
+                            const TimedResult& timed_result, char delimiter) {
   const SearchResult& result = timed_result.result;
   std::cout << position_case.id << delimiter << position_case.category << delimiter
-            << static_cast<int>(empties) << delimiter << repeat << delimiter << result.score
-            << delimiter << best_move_to_string(result) << delimiter
-            << (result.exact ? "true" : "false") << delimiter << (result.stopped ? "true" : "false")
-            << delimiter << result.completed_depth << delimiter << result.nodes << delimiter
+            << static_cast<int>(empties) << delimiter << repeat << delimiter
+            << parity_mode_name(use_parity_ordering) << delimiter << result.score << delimiter
+            << best_move_to_string(result) << delimiter << (result.exact ? "true" : "false")
+            << delimiter << (result.stopped ? "true" : "false") << delimiter
+            << result.completed_depth << delimiter << result.nodes << delimiter
             << result.stats.endgame_nodes << delimiter << result.stats.terminal_nodes << delimiter
             << result.stats.pass_nodes << delimiter << result.stats.beta_cutoffs << delimiter
             << result.stats.alpha_updates << delimiter << result.stats.root_moves_searched
@@ -594,7 +628,8 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
 }
 
 void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
-                        std::uint8_t empties, const TimedResult& timed_result) {
+                        std::uint8_t empties, bool use_parity_ordering,
+                        const TimedResult& timed_result) {
   const SearchResult& result = timed_result.result;
   std::cout << '{';
   std::cout << "\"position_id\":";
@@ -606,6 +641,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"mode\":\"exact_score\"";
   std::cout << ",\"empties\":" << static_cast<int>(empties);
   std::cout << ",\"repeat\":" << repeat;
+  std::cout << ",\"parity_ordering\":";
+  print_json_string(std::cout, parity_mode_name(use_parity_ordering));
   std::cout << ",\"score\":" << result.score;
   std::cout << ",\"best_move\":";
   print_json_string(std::cout, best_move_to_string(result));
@@ -630,6 +667,23 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << "}\n";
 }
 
+std::array<bool, 2> parity_runs(ParityMode mode, std::uint8_t* size) noexcept {
+  switch (mode) {
+  case ParityMode::on:
+    *size = 1;
+    return {true, false};
+  case ParityMode::off:
+    *size = 1;
+    return {false, false};
+  case ParityMode::both:
+    *size = 2;
+    return {false, true};
+  }
+
+  *size = 1;
+  return {true, false};
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -650,14 +704,21 @@ int main(int argc, char** argv) {
       continue;
     }
 
-    for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
-      const TimedResult timed_result = run_exact_endgame(position_case.position, actual_empties);
-      validate_result(position_case, timed_result, actual_empties);
-      if (config->output_format == OutputFormat::jsonl) {
-        print_jsonl_result(position_case, repeat, actual_empties, timed_result);
-      } else {
-        print_delimited_result(position_case, repeat, actual_empties, timed_result,
-                               config->delimiter);
+    std::uint8_t parity_run_count = 0;
+    const std::array<bool, 2> parity_values = parity_runs(config->parity_mode, &parity_run_count);
+    for (std::uint8_t parity_index = 0; parity_index < parity_run_count; ++parity_index) {
+      const bool use_parity_ordering = parity_values[parity_index];
+      for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
+        const TimedResult timed_result =
+            run_exact_endgame(position_case.position, actual_empties, use_parity_ordering);
+        validate_result(position_case, timed_result, actual_empties);
+        if (config->output_format == OutputFormat::jsonl) {
+          print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering,
+                             timed_result);
+        } else {
+          print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
+                                 timed_result, config->delimiter);
+        }
       }
     }
   }

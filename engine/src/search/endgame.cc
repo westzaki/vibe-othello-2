@@ -312,7 +312,9 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
     return SearchNodeResult::stopped();
   }
 
-  frame.moves = order_endgame_moves(context->position, EndgameOrderingHints{});
+  frame.moves = order_endgame_moves(
+      context->position,
+      EndgameOrderingHints{.use_parity_ordering = context->options.use_endgame_parity_ordering});
   if (frame.moves.size == 0) {
     ++context->stats.pass_nodes;
     const SearchNodeResult pass = search_endgame_child(context, board_core::make_pass(), alpha,
@@ -432,9 +434,13 @@ SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position 
 
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
-  root_frame.moves = small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 3
-                         ? small_empty_move_list(context.position)
-                         : order_endgame_moves(context.position, EndgameOrderingHints{});
+  root_frame.moves =
+      small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 3
+          ? small_empty_move_list(context.position)
+          : order_endgame_moves(
+                context.position,
+                EndgameOrderingHints{.use_parity_ordering =
+                                         context.options.use_endgame_parity_ordering});
   const MoveList root_moves = root_frame.moves;
 
   if (root_moves.size == 0) {
