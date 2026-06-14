@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <limits>
 #include <utility>
 
@@ -326,13 +327,96 @@ PatternWeightsLoadResult load_pattern_weights(const PatternManifest& manifest,
 
   return PatternWeightsLoadResult{
       .weights =
-          PatternWeights{
+          LoadedPatternWeights{
               .manifest = manifest,
               .weights = std::move(weights),
               .phase_stride = phase_layout.phase_stride,
               .pattern_table_offsets = std::move(phase_layout.pattern_table_offsets),
           },
       .error = PatternWeightsLoadError::none,
+  };
+}
+
+PatternWeights::PatternWeights(std::uint8_t phase_count,
+                               std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count,
+                               std::vector<PatternWeightTable> tables)
+    : phase_count_(phase_count), phase_by_disc_count_(phase_by_disc_count),
+      tables_(std::move(tables)) {}
+
+std::uint8_t PatternWeights::phase_for_disc_count(int disc_count) const noexcept {
+  if (disc_count < 0) {
+    return phase_by_disc_count_.front();
+  }
+  if (disc_count >= static_cast<int>(phase_by_disc_count_.size())) {
+    return phase_by_disc_count_.back();
+  }
+  return phase_by_disc_count_[static_cast<std::size_t>(disc_count)];
+}
+
+search::Score PatternWeights::weight(std::size_t table_index, std::uint8_t phase,
+                                     std::uint32_t pattern_index) const noexcept {
+  assert(table_index < tables_.size());
+  assert(phase < phase_count_);
+  const PatternWeightTable& table = tables_[table_index];
+  const std::size_t phase_size = table.weights.size() / phase_count_;
+  const std::size_t offset =
+      static_cast<std::size_t>(phase) * phase_size + static_cast<std::size_t>(pattern_index);
+  assert(offset < table.weights.size());
+  return table.weights[offset];
+}
+
+std::optional<PatternWeights> make_pattern_weights(
+    const LoadedPatternWeights& loaded,
+    std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phase_by_disc_count) {
+  if (loaded.manifest.phase_count == 0 ||
+      loaded.manifest.phase_count > std::numeric_limits<std::uint8_t>::max() ||
+      loaded.pattern_table_offsets.size() != loaded.manifest.patterns.size()) {
+    return std::nullopt;
+  }
+  for (std::uint8_t phase : phase_by_disc_count) {
+    if (phase >= loaded.manifest.phase_count) {
+      return std::nullopt;
+    }
+  }
+
+  std::vector<PatternWeightTable> tables;
+  tables.reserve(loaded.manifest.patterns.size());
+  for (std::size_t pattern_index = 0; pattern_index < loaded.manifest.patterns.size();
+       ++pattern_index) {
+    const PatternDefinition& pattern = loaded.manifest.patterns[pattern_index];
+    const std::optional<std::uint64_t> table_size = pattern_table_size(pattern);
+    if (!table_size.has_value() || *table_size > std::numeric_limits<std::uint32_t>::max()) {
+      return std::nullopt;
+    }
+
+    const std::uint32_t table_offset = loaded.pattern_table_offsets[pattern_index];
+    if (table_offset > loaded.phase_stride || *table_size > loaded.phase_stride - table_offset) {
+      return std::nullopt;
+    }
+
+    PatternWeightTable table{
+        .pattern_id = pattern.id,
+        .pattern_length = static_cast<std::uint8_t>(pattern.squares.size()),
+    };
+    table.weights.reserve(static_cast<std::size_t>(loaded.manifest.phase_count) *
+                          static_cast<std::size_t>(*table_size));
+    for (std::uint16_t phase = 0; phase < loaded.manifest.phase_count; ++phase) {
+      const std::size_t offset =
+          static_cast<std::size_t>(phase) * loaded.phase_stride + table_offset;
+      const std::size_t end = offset + static_cast<std::size_t>(*table_size);
+      if (end > loaded.weights.size()) {
+        return std::nullopt;
+      }
+      table.weights.insert(table.weights.end(), loaded.weights.begin() + offset,
+                           loaded.weights.begin() + end);
+    }
+    tables.push_back(std::move(table));
+  }
+
+  return PatternWeights{
+      static_cast<std::uint8_t>(loaded.manifest.phase_count),
+      phase_by_disc_count,
+      std::move(tables),
   };
 }
 

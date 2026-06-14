@@ -4,6 +4,8 @@
 #include "vibe_othello/board_core/types.h"
 #include "vibe_othello/search/score.h"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -41,7 +43,7 @@ struct PatternManifest {
   std::vector<PatternDefinition> patterns;
 };
 
-struct PatternWeights {
+struct LoadedPatternWeights {
   PatternManifest manifest;
   std::vector<search::Score> weights;
   // Number of weights per phase, including the leading bias slot.
@@ -49,6 +51,36 @@ struct PatternWeights {
   // Per-phase offsets for each pattern table. The phase bias is always at
   // offset 0, and the first pattern table starts at kPatternPhaseBiasWeightCount.
   std::vector<std::uint32_t> pattern_table_offsets;
+};
+
+struct PatternWeightTable {
+  std::string pattern_id;
+  std::uint8_t pattern_length = 0;
+  std::vector<search::Score> weights;
+};
+
+class PatternWeights {
+public:
+  static constexpr std::uint8_t kDiscCountEntries = 65;
+
+  PatternWeights(std::uint8_t phase_count,
+                 std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count,
+                 std::vector<PatternWeightTable> tables);
+
+  [[nodiscard]] std::uint8_t phase_count() const noexcept {
+    return phase_count_;
+  }
+  [[nodiscard]] std::span<const PatternWeightTable> tables() const noexcept {
+    return tables_;
+  }
+  [[nodiscard]] std::uint8_t phase_for_disc_count(int disc_count) const noexcept;
+  [[nodiscard]] search::Score weight(std::size_t table_index, std::uint8_t phase,
+                                     std::uint32_t pattern_index) const noexcept;
+
+private:
+  std::uint8_t phase_count_ = 0;
+  std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count_{};
+  std::vector<PatternWeightTable> tables_;
 };
 
 enum class PatternWeightsLoadError : std::uint8_t {
@@ -71,7 +103,7 @@ enum class PatternWeightsLoadError : std::uint8_t {
 };
 
 struct PatternWeightsLoadResult {
-  std::optional<PatternWeights> weights;
+  std::optional<LoadedPatternWeights> weights;
   PatternWeightsLoadError error = PatternWeightsLoadError::none;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -81,6 +113,9 @@ struct PatternWeightsLoadResult {
 
 [[nodiscard]] PatternWeightsLoadResult load_pattern_weights(const PatternManifest& manifest,
                                                             std::span<const std::uint8_t> artifact);
+[[nodiscard]] std::optional<PatternWeights> make_pattern_weights(
+    const LoadedPatternWeights& loaded,
+    std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phase_by_disc_count);
 
 } // namespace vibe_othello::evaluation
 

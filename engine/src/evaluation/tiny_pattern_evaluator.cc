@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
+#include <utility>
 
 namespace vibe_othello::evaluation {
 namespace {
@@ -94,31 +96,65 @@ constexpr std::array<std::span<const board_core::Square>, 4> kCornerInstances{
     std::span<const board_core::Square>{kH8Corner},
 };
 
-constexpr int kEarlyPhaseDiscBoundary = 20;
-constexpr search::Score kScoreScale = 2;
+constexpr std::uint8_t kTinyPatternPhaseCount = 2;
+constexpr std::size_t kEdgeTableIndex = 0;
+constexpr std::size_t kCornerTableIndex = 1;
 
-search::Score tiny_weight(std::uint32_t index, std::uint8_t length, bool early_phase) noexcept {
-  search::Score score = 0;
-  for (std::uint8_t digit = 0; digit < length; ++digit) {
-    const std::uint32_t cell = index % 3;
-    index /= 3;
-    const search::Score positional_weight = static_cast<search::Score>(digit + 1);
-    if (cell == static_cast<std::uint32_t>(PatternCell::player)) {
-      score += positional_weight;
-    } else if (cell == static_cast<std::uint32_t>(PatternCell::opponent)) {
-      score -= positional_weight;
+std::int64_t max_abs_weight(std::span<const search::Score> weights) noexcept {
+  std::int64_t max_weight = 0;
+  for (search::Score weight : weights) {
+    const std::int64_t abs_weight =
+        weight < 0 ? -static_cast<std::int64_t>(weight) : static_cast<std::int64_t>(weight);
+    if (abs_weight > max_weight) {
+      max_weight = abs_weight;
+    }
+  }
+  return max_weight;
+}
+
+void validate_table(const PatternWeightTable& table, PatternSchema expected_schema,
+                    std::uint8_t phase_count) {
+  if (table.pattern_id != expected_schema.name || table.pattern_length != expected_schema.length) {
+    throw std::invalid_argument("tiny pattern weights use an incompatible pattern schema");
+  }
+
+  const std::size_t expected_size =
+      static_cast<std::size_t>(phase_count) * pattern_size(expected_schema.length);
+  if (table.weights.size() != expected_size) {
+    throw std::invalid_argument("tiny pattern weights have an incompatible table size");
+  }
+}
+
+void validate_tiny_pattern_weights(const PatternWeights& weights) {
+  if (weights.phase_count() != kTinyPatternPhaseCount || weights.tables().size() != 2) {
+    throw std::invalid_argument("tiny pattern weights use an incompatible phase or table count");
+  }
+
+  for (std::uint8_t disc_count = 0; disc_count < PatternWeights::kDiscCountEntries; ++disc_count) {
+    if (weights.phase_for_disc_count(disc_count) >= weights.phase_count()) {
+      throw std::invalid_argument("tiny pattern weights use an invalid phase mapping");
     }
   }
 
-  return early_phase ? score : static_cast<search::Score>(score * kScoreScale);
+  validate_table(weights.tables()[kEdgeTableIndex], kEdge8, weights.phase_count());
+  validate_table(weights.tables()[kCornerTableIndex], kCorner3x3, weights.phase_count());
+
+  const std::int64_t max_score = static_cast<std::int64_t>(kEdgeInstances.size()) *
+                                     max_abs_weight(weights.tables()[kEdgeTableIndex].weights) +
+                                 static_cast<std::int64_t>(kCornerInstances.size()) *
+                                     max_abs_weight(weights.tables()[kCornerTableIndex].weights);
+  if (max_score >= search::kScoreWin) {
+    throw std::invalid_argument("tiny pattern weights can produce search sentinel scores");
+  }
 }
 
-search::Score evaluate_instances(board_core::Position position,
-                                 std::span<const std::span<const board_core::Square>> instances,
-                                 std::uint8_t length, bool early_phase) noexcept {
+search::Score
+evaluate_instances(const PatternWeights& weights, std::size_t table_index, std::uint8_t phase,
+                   board_core::Position position,
+                   std::span<const std::span<const board_core::Square>> instances) noexcept {
   search::Score score = 0;
   for (std::span<const board_core::Square> squares : instances) {
-    score += tiny_weight(ternary_pattern_index(position, squares), length, early_phase);
+    score += weights.weight(table_index, phase, ternary_pattern_index(position, squares));
   }
   return score;
 }
@@ -136,17 +172,20 @@ std::uint32_t ternary_pattern_index(board_core::Position position,
   return index;
 }
 
+TinyPatternEvaluator::TinyPatternEvaluator(PatternWeights weights) : weights_(std::move(weights)) {
+  validate_tiny_pattern_weights(weights_);
+}
+
 search::Score TinyPatternEvaluator::evaluate(const board_core::Position& position) const noexcept {
   const int discs = std::popcount(board_core::occupied(position));
-  const bool early_phase = discs < kEarlyPhaseDiscBoundary;
+  const std::uint8_t phase = weights_.phase_for_disc_count(discs);
 
   search::Score score = 0;
-  score += evaluate_instances(position,
-                              std::span<const std::span<const board_core::Square>>{kEdgeInstances},
-                              kEdge8.length, early_phase);
-  score += evaluate_instances(
-      position, std::span<const std::span<const board_core::Square>>{kCornerInstances},
-      kCorner3x3.length, early_phase);
+  score += evaluate_instances(weights_, kEdgeTableIndex, phase, position,
+                              std::span<const std::span<const board_core::Square>>{kEdgeInstances});
+  score +=
+      evaluate_instances(weights_, kCornerTableIndex, phase, position,
+                         std::span<const std::span<const board_core::Square>>{kCornerInstances});
   return score;
 }
 

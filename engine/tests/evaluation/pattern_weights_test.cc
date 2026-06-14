@@ -1,6 +1,7 @@
 #include "vibe_othello/board_core/coordinates.h"
 #include "vibe_othello/evaluation/pattern_weights.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <string>
@@ -162,6 +163,28 @@ TEST_CASE("pattern weight artifact layout exposes bias slot and ordered pattern 
   REQUIRE(result.ok());
   REQUIRE(result.weights->phase_stride == 13);
   REQUIRE(result.weights->pattern_table_offsets == std::vector<std::uint32_t>{1, 4});
+}
+
+TEST_CASE("loaded pattern weights convert to evaluator runtime tables") {
+  const PatternWeightsLoadResult result = load_pattern_weights(tiny_manifest(), tiny_artifact());
+  REQUIRE(result.ok());
+
+  std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phases{};
+  phases.fill(0);
+  phases.back() = 1;
+
+  const std::optional<PatternWeights> runtime_weights =
+      make_pattern_weights(*result.weights, phases);
+
+  REQUIRE(runtime_weights.has_value());
+  REQUIRE(runtime_weights->phase_count() == 2);
+  REQUIRE(runtime_weights->tables().size() == 1);
+  REQUIRE(runtime_weights->tables()[0].pattern_id == "tiny-corner-pair");
+  REQUIRE(runtime_weights->tables()[0].pattern_length == 2);
+  REQUIRE(runtime_weights->weight(0, 0, 0) == -4);
+  REQUIRE(runtime_weights->weight(0, 0, 8) == 4);
+  REQUIRE(runtime_weights->weight(0, 1, 0) == 14);
+  REQUIRE(runtime_weights->phase_for_disc_count(64) == 1);
 }
 
 TEST_CASE("pattern weight artifact loader validates format version") {
