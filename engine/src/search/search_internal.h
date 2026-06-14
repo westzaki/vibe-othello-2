@@ -51,6 +51,8 @@ struct MidgameOrderingHints {
   bool use_opponent_mobility = false;
 };
 
+// Compatibility name for existing call sites. New policy-specific code should
+// choose MidgameOrderingHints or EndgameOrderingHints explicitly.
 using MoveOrderingHints = MidgameOrderingHints;
 
 struct EndgameOrderingHints {
