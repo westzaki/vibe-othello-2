@@ -42,6 +42,11 @@ TTEntry make_entry(board_core::PositionHash key, Depth depth, Score score, Bound
   };
 }
 
+bool is_legal_normal_best_move(board_core::Position position, board_core::Move best_move) noexcept {
+  return best_move.kind == board_core::MoveKind::normal &&
+         (board_core::legal_moves(position) & board_core::bit(best_move.square)) != 0;
+}
+
 } // namespace
 
 TranspositionTable::TranspositionTable(std::size_t requested_entries)
@@ -85,8 +90,7 @@ std::optional<TTEntry> TranspositionTable::probe(board_core::Position position,
 void TranspositionTable::store(board_core::Position position, Depth depth, Score score,
                                BoundType bound, board_core::Move best_move, TTEntryKind kind,
                                SearchStats* stats) noexcept {
-  if (best_move.kind != board_core::MoveKind::normal ||
-      (board_core::legal_moves(position) & board_core::bit(best_move.square)) == 0) {
+  if (!is_legal_normal_best_move(position, best_move)) {
     ++stats->tt_invalid_best_move_stores;
     return;
   }

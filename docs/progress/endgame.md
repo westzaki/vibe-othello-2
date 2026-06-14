@@ -67,6 +67,8 @@ The current exact endgame implementation includes:
 * marks result and root moves exact when completed
 * counts exact endgame nodes through `SearchStats::endgame_nodes`
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
+* uses `TTEntryKind::exact_endgame_score` for optional exact-score endgame TT
+  probe/store/cutoff when `SearchOptions::use_endgame_tt` is enabled
 * provides an endgame benchmark executable with a checked-in corpus default and
   deterministic built-in fallback
 * has checked-in exact endgame benchmark baseline data for local comparison
@@ -79,14 +81,16 @@ The current implementation does not yet have:
 
 * public direct endgame solve API
 * WLD search path
-* endgame TT probing or storing
+* WLD endgame TT probing or storing
 * parity-region ordering
 * small-empty specialized routines
 * tuned native or WASM thresholds
 
-`use_endgame_tt` and `endgame_wld_empties` are currently expected to remain safe
-no-ops until their corresponding paths are implemented. `exact_endgame` is
-implemented when the root threshold is met.
+`use_endgame_tt` is implemented for exact-score endgame search. It remains
+separate from midgame TT semantics by using `TTEntryKind::exact_endgame_score`
+and treating TT depth as remaining empty squares. `endgame_wld_empties` remains a
+safe no-op until WLD search is implemented. `exact_endgame` is implemented when
+the root threshold is met.
 
 ## Implementation Plan
 
@@ -111,7 +115,7 @@ Status values:
 | Integrate root threshold through `SearchOptions::exact_endgame` | done | Root-only integration before normal iterative deepening |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add WLD mode | not started | May be deferred after exact score |
-| Add endgame TT probe/store with separate entry kinds | not started | Test enabled/disabled equality |
+| Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add parity ordering as ordering only | not started | Test enabled/disabled equality |
 | Add specialized zero/one/two/three-empty routines | not started | Test against generic solver |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |

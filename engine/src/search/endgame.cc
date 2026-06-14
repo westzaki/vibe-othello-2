@@ -32,6 +32,48 @@ bool update_endgame_alpha_and_check_cutoff(EndgameContext* context, Score score,
   return false;
 }
 
+bool should_use_endgame_tt(const EndgameContext& context) noexcept {
+  return context.options.use_endgame_tt && context.transposition_table != nullptr;
+}
+
+std::optional<Score> probe_exact_endgame_tt(EndgameContext* context, Depth remaining_empties,
+                                            Score alpha, Score beta) {
+  if (!should_use_endgame_tt(*context)) {
+    return std::nullopt;
+  }
+
+  const std::optional<TTEntry> entry =
+      context->transposition_table->probe(context->position, &context->stats);
+  if (!entry.has_value()) {
+    return std::nullopt;
+  }
+
+  const std::optional<Score> cutoff =
+      exact_endgame_score_tt_cutoff_score(*entry, remaining_empties, alpha, beta);
+  if (cutoff.has_value()) {
+    ++context->stats.tt_cutoffs;
+  }
+  return cutoff;
+}
+
+void store_exact_endgame_tt(EndgameContext* context, Depth remaining_empties, Score score,
+                            BoundType bound,
+                            std::optional<board_core::Move> best_move = std::nullopt) noexcept {
+  if (!should_use_endgame_tt(*context)) {
+    return;
+  }
+
+  if (best_move.has_value()) {
+    context->transposition_table->store(context->position, remaining_empties, score, bound,
+                                        *best_move, TTEntryKind::exact_endgame_score,
+                                        &context->stats);
+    return;
+  }
+
+  context->transposition_table->store_value(context->position, remaining_empties, score, bound,
+                                            TTEntryKind::exact_endgame_score, &context->stats);
+}
+
 SearchNodeResult search_endgame_child(EndgameContext* context, board_core::Move move, Score alpha,
                                       Score beta, std::uint8_t empties, Ply ply) {
   StackFrame& frame = context->stack[ply];
@@ -100,6 +142,9 @@ SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score 
                                     std::uint8_t empties, Ply ply) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
+  const Score original_alpha = alpha;
+  const Score original_beta = beta;
+  const Depth remaining_empties = static_cast<Depth>(empties);
 
   StackFrame& frame = context->stack[ply];
   frame = StackFrame{};
@@ -108,10 +153,21 @@ SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score 
     return SearchNodeResult::stopped();
   }
 
+  const std::optional<Score> tt_score =
+      probe_exact_endgame_tt(context, remaining_empties, alpha, beta);
+  if (tt_score.has_value()) {
+    return SearchNodeResult::completed(SearchValue{
+        .score = *tt_score,
+        .pv = {},
+    });
+  }
+
   if (board_core::is_terminal(context->position)) {
     ++context->stats.terminal_nodes;
+    const Score score = terminal_score(context->position);
+    store_exact_endgame_tt(context, remaining_empties, score, BoundType::exact);
     return SearchNodeResult::completed(SearchValue{
-        .score = terminal_score(context->position),
+        .score = score,
         .pv = {},
     });
   }
@@ -127,6 +183,8 @@ SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score 
         search_endgame_child(context, board_core::make_pass(), alpha, beta, empties, ply);
     if (pass.is_complete()) {
       frame.pv = pass.value().pv;
+      store_exact_endgame_tt(context, remaining_empties, pass.value().score,
+                             classify_bound(pass.value().score, original_alpha, original_beta));
     }
     return pass;
   }
@@ -154,6 +212,9 @@ SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score 
       break;
     }
   }
+
+  store_exact_endgame_tt(context, remaining_empties, best.score,
+                         classify_bound(best.score, original_alpha, original_beta), best_move);
 
   return SearchNodeResult::completed(best);
 }
