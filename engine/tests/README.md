@@ -24,7 +24,8 @@ Engine tests use Catch2 and run through CTest.
 
 | File | Role |
 | --- | --- |
-| `evaluation/tiny_pattern_evaluator_test.cc` | Tiny pattern evaluator indexing, phase, sign convention, determinism, and score range. |
+| `evaluation/pattern_weights_test.cc` | Pattern weight artifact loader validation and loaded-to-runtime weight conversion. |
+| `evaluation/tiny_pattern_evaluator_test.cc` | Tiny pattern evaluator indexing, fixture-backed weights, validation failures, phase, sign convention, determinism, and score range. |
 
 ## Search Tests
 

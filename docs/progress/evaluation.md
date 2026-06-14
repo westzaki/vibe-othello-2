@@ -40,6 +40,8 @@ The current evaluation runtime includes:
 
 * public evaluation headers under `engine/include/vibe_othello/evaluation/`
 * minimal pattern schema types
+* `LoadedPatternWeights` for artifact-loader output
+* explicit runtime `PatternWeights` container for immutable evaluator tables
 * ternary pattern index encoding
 * fixed tiny pattern instances for edges and corners
 * `TinyPatternEvaluator`
@@ -51,17 +53,22 @@ Ternary pattern digits are:
 * opponent disc: `2`
 
 `TinyPatternEvaluator` implements `search::Evaluator`, returns side-to-move
-relative scores, performs no file I/O, and uses only in-code fixture weights.
-Scores are kept strictly inside the search sentinel range by construction.
+relative scores, performs no file I/O, and reads scores from explicit
+`PatternWeights`. Tiny fixture weights are now test-only helpers rather than
+the evaluator implementation. Scores are kept strictly inside the search
+sentinel range by construction.
 
 Existing evaluation tests cover:
 
 * deterministic scoring
 * side-to-move score convention
 * hand-computed ternary pattern index
+* fixture-backed score compatibility
+* rejection of corrupted or incompatible tiny weights
 * phase boundary behavior
 * search sentinel score range
 * artifact loader success and rejection paths
+* conversion from loaded artifact data to runtime `PatternWeights`
 
 The current repository already documents that:
 
@@ -106,10 +113,11 @@ Status values:
 | Add evaluation namespace and public runtime headers | done | `engine/include/vibe_othello/evaluation/` |
 | Add simple baseline evaluator | not started | Useful before learned artifacts are available |
 | Add minimal pattern schema types | done | `evaluation/pattern.h` |
+| Add explicit pattern weight container | done | `LoadedPatternWeights` stores loader output; runtime `PatternWeights` stores phase maps and immutable tables |
 | Add ternary pattern index encoding | done | Empty/player/opponent digits are `0/1/2` |
-| Add tiny fixed edge and corner pattern instances | done | In-code runtime fixture only |
-| Add tiny pattern-only evaluator | done | Implements `search::Evaluator` |
-| Add evaluator unit coverage | done | Determinism, sign convention, index, phase, and range |
+| Add tiny fixed edge and corner pattern instances | done | Runtime pattern geometry only |
+| Add tiny pattern-only evaluator | done | Implements `search::Evaluator` and consumes `PatternWeights` |
+| Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, range, artifact loader paths, and loaded-to-runtime conversion |
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | not started | Should implement `search::Evaluator` |
