@@ -25,6 +25,34 @@ and `--mode fixed|iterative|all` to restrict the search mode column. Use
 `--tt off|ordering|midgame|both` to choose iterative-search transposition-table
 options.
 
+Use the search benchmark matrix options to compare search features without
+changing code:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_search_bench \
+  --mode iterative \
+  --depth 6 \
+  --pvs both \
+  --aspiration both \
+  --history off \
+  --killers off \
+  --iid off \
+  --eval disc \
+  --exact-endgame 8 \
+  --endgame-tt both \
+  --endgame-parity both \
+  --corpus engine/testdata/search/positions.tsv \
+  --jsonl
+```
+
+`--pvs`, `--aspiration`, `--history`, `--killers`, `--iid`, `--endgame-tt`,
+and `--endgame-parity` accept `off|on|both`. `--eval` accepts
+`disc|simple|all`; `disc` emits the existing `disc_difference` evaluator name
+for output compatibility. `--exact-endgame N` enables exact endgame cutover when
+`N > 0`; `0` keeps it disabled. Search-option matrix values apply to iterative
+search rows. Fixed-depth rows use the public fixed-depth API, so only the
+evaluator choice applies there.
+
 Use `--corpus engine/testdata/search/positions.tsv` to run the checked-in search
 corpus. If `--corpus` is omitted, the executable uses the built-in corpus for
 backward-compatible local runs. Corpus rows are TSV with:
@@ -180,9 +208,14 @@ Report:
 - checksum values
 
 For search benchmarks, report the depth argument and the emitted columns:
-`position_name`, `mode`, `tt_mode`, `depth`, `score`, `best_move`, `nodes`,
-`eval_calls`, `beta_cutoffs`, `alpha_updates`, `tt_probes`, `tt_hits`,
-`tt_stores`, `tt_cutoffs`, `elapsed_ms`, and `nps`.
+`position_name`, `mode`, `variant_id`, `tt_mode`, `evaluator`, `pvs`,
+`aspiration`, `history`, `killers`, `iid`, `exact_endgame`,
+`endgame_exact_empties`, `endgame_tt`, `endgame_parity`, `depth`, `score`,
+`best_move`, `nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`,
+`beta_cutoffs`, `alpha_updates`, `pvs_researches`, `aspiration_fail_lows`,
+`aspiration_fail_highs`, `iid_searches`, `endgame_nodes`, `tt_probes`,
+`tt_hits`, `tt_stores`, `tt_cutoffs`, `tt_overwrites`, `tt_collisions`,
+`tt_rejected_stores`, `tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
 `position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `tt_mode`,
@@ -196,11 +229,18 @@ Search JSONL output emits one JSON object per position/mode/depth result. The
 schema is:
 
 - `position_id`, `category`
-- `mode`, `tt_mode`, `depth`, `evaluator`
+- `mode`, `variant_id`, `tt_mode`, `depth`, `evaluator`
+- `pvs`, `aspiration`, `history`, `killers`, `iid`
+- `exact_endgame`, `endgame_exact_empties`, `endgame_tt`, `endgame_parity`
 - `score`, `best_move`, `pv`
 - `root_moves`, with `move`, `score`, `bound`, `depth`, `exact`, `selective`
-- `nodes`, `eval_calls`, `beta_cutoffs`, `alpha_updates`
+- `nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`
+- `beta_cutoffs`, `alpha_updates`
+- `pvs_researches`, `aspiration_fail_lows`, `aspiration_fail_highs`,
+  `iid_searches`, `endgame_nodes`
 - `tt_probes`, `tt_hits`, `tt_stores`, `tt_cutoffs`
+- `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
+  `tt_invalid_best_move_stores`
 - `elapsed_ns`, `nps`
 
 Endgame JSONL output emits one JSON object per position/repeat result. The

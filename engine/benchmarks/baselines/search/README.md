@@ -48,7 +48,8 @@ The checked-in aggregate JSON must include:
 - the command, corpus, build type, compiler, and generic machine description
 - `mode`, `depth`, and `tt_mode`
 - `results[]` with score, best move, PV, root move summaries, nodes,
-  eval/search statistics, TT statistics, and elapsed timing summary fields
+  eval/search statistics, TT statistics, enabled benchmark option columns, and
+  elapsed timing summary fields
 
 Minimum aggregate shape:
 
@@ -68,9 +69,19 @@ Minimum aggregate shape:
       "position_id": "initial",
       "category": "opening",
       "mode": "iterative",
+      "variant_id": "eval=disc_difference;tt=both;pvs=off;aspiration=off;history=off;killers=off;iid=off;exact_endgame=0;endgame_tt=off;endgame_parity=on",
       "tt_mode": "both",
       "depth": 5,
       "evaluator": "disc_difference",
+      "pvs": "off",
+      "aspiration": "off",
+      "history": "off",
+      "killers": "off",
+      "iid": "off",
+      "exact_endgame": false,
+      "endgame_exact_empties": 0,
+      "endgame_tt": "off",
+      "endgame_parity": "on",
       "score": 3,
       "best_move": "f5",
       "pv": ["f5"],
@@ -86,8 +97,15 @@ Minimum aggregate shape:
       ],
       "nodes": 250,
       "eval_calls": 120,
+      "terminal_nodes": 0,
+      "pass_nodes": 0,
       "beta_cutoffs": 80,
       "alpha_updates": 40,
+      "pvs_researches": 0,
+      "aspiration_fail_lows": 0,
+      "aspiration_fail_highs": 0,
+      "iid_searches": 0,
+      "endgame_nodes": 0,
       "tt_probes": 20,
       "tt_hits": 5,
       "tt_stores": 10,

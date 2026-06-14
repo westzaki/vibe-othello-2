@@ -51,11 +51,32 @@ RESULT_FIELDS = (
 )
 
 OPTIONAL_INT_RESULT_FIELDS = (
+    "endgame_exact_empties",
+    "terminal_nodes",
+    "pass_nodes",
+    "pvs_researches",
+    "aspiration_fail_lows",
+    "aspiration_fail_highs",
+    "iid_searches",
+    "endgame_nodes",
     "tt_overwrites",
     "tt_collisions",
     "tt_rejected_stores",
     "tt_invalid_best_move_stores",
 )
+
+OPTIONAL_STRING_RESULT_FIELDS = (
+    "variant_id",
+    "pvs",
+    "aspiration",
+    "history",
+    "killers",
+    "iid",
+    "endgame_tt",
+    "endgame_parity",
+)
+
+OPTIONAL_BOOL_RESULT_FIELDS = ("exact_endgame",)
 
 ROOT_MOVE_FIELDS = ("move", "score", "bound", "depth", "exact", "selective")
 
@@ -107,6 +128,12 @@ def check_result(result: dict[str, Any], label: str, errors: list[str]) -> None:
     baseline_common.require_string(result, "tt_mode", label, errors)
     baseline_common.require_string(result, "evaluator", label, errors)
     baseline_common.require_string(result, "best_move", label, errors)
+    for field in OPTIONAL_STRING_RESULT_FIELDS:
+        if field in result:
+            baseline_common.require_string(result, field, label, errors)
+    for field in OPTIONAL_BOOL_RESULT_FIELDS:
+        if field in result:
+            baseline_common.require_bool(result, field, label, errors)
     require_string_list(result, "pv", label, errors)
     check_root_moves(result.get("root_moves"), f"{label}.root_moves", errors)
 
@@ -147,7 +174,7 @@ def check_baseline(data: dict[str, Any]) -> list[str]:
         errors.append("results: expected non-empty array")
         return errors
 
-    seen_keys: set[tuple[str, str, str, int]] = set()
+    seen_keys: set[tuple[str, str, str, str, str, int]] = set()
     for index, result in enumerate(results):
         label = f"results[{index}]"
         if not isinstance(result, dict):
@@ -158,16 +185,20 @@ def check_baseline(data: dict[str, Any]) -> list[str]:
         position_id = result.get("position_id")
         mode = result.get("mode")
         tt_mode = result.get("tt_mode")
+        evaluator = result.get("evaluator")
+        variant_id = result.get("variant_id", "")
         depth = result.get("depth")
         if (
             isinstance(position_id, str)
             and isinstance(mode, str)
             and isinstance(tt_mode, str)
+            and isinstance(evaluator, str)
+            and isinstance(variant_id, str)
             and isinstance(depth, int)
         ):
-            key = (position_id, mode, tt_mode, depth)
+            key = (position_id, mode, tt_mode, evaluator, variant_id, depth)
             if key in seen_keys:
-                errors.append(f"{label}: duplicate position/mode/tt/depth key {key!r}")
+                errors.append(f"{label}: duplicate position/mode/tt/evaluator/variant/depth key {key!r}")
             seen_keys.add(key)
 
     return errors
