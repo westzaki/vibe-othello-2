@@ -37,6 +37,8 @@ Existing foundations include:
 * dataset manifest JSON schema with a tiny synthetic sample
 * CTest-backed dataset manifest smoke validation
 * CTest-backed board-core replay smoke validation for tiny synthetic TSV records
+* CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
+  records using runtime tiny pattern geometry and ternary encoding
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -47,7 +49,6 @@ The current implementation does not yet have:
 
 * local-only corpus download scripts
 * pattern dataset builder
-* pattern feature extractor
 * deterministic train/validation/test splitter
 * trainer
 * calibration tool
@@ -79,7 +80,7 @@ Status values:
 | Add importer for one simple text format | done | Minimal `tools/data-import` replay smoke accepts expected-good rows and rejects malformed, illegal, or bad-pass rows through board-core move application |
 | Add dataset builder and deterministic splitter | not started | Should record duplicate handling and split ids |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
-| Add feature extractor | not started | Should call board-core helpers for parsing and replay |
+| Add feature extractor | done | Minimal `tools/pattern-features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices |
 | Add tiny deterministic trainer smoke test | not started | Reproducibility before throughput |
 | Add calibration tool | not started | Optional score-to-probability mapping |
 | Add artifact exporter | not started | Writes binary weights plus manifest |

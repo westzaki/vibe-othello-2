@@ -118,6 +118,7 @@ human-run development CLIs rather than benchmark suite management scripts.
 tools/
 ├─ data-policy/
 ├─ data-import/
+├─ pattern-features/
 ├─ arena/
 │  ├─ openings/
 │  └─ README.md
