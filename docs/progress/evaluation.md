@@ -22,8 +22,8 @@ Relevant design documents:
 
 ## Current Foundation
 
-The current repository has the search-facing evaluator interface but not a
-production evaluation module.
+The current repository has the first runtime evaluation module and a stable
+search-facing evaluator interface.
 
 Existing search public types include:
 
@@ -36,8 +36,32 @@ The current search-facing evaluator interface is:
 
 * `engine/include/vibe_othello/search/evaluator.h`
 
-Existing search and benchmark code uses small local evaluator implementations
-for tests and measurement, including constant and disc-difference evaluators.
+The current evaluation runtime includes:
+
+* public evaluation headers under `engine/include/vibe_othello/evaluation/`
+* minimal pattern schema types
+* ternary pattern index encoding
+* fixed tiny pattern instances for edges and corners
+* `TinyPatternEvaluator`
+
+Ternary pattern digits are:
+
+* empty square: `0`
+* side-to-move disc: `1`
+* opponent disc: `2`
+
+`TinyPatternEvaluator` implements `search::Evaluator`, returns side-to-move
+relative scores, performs no file I/O, and uses only in-code fixture weights.
+Scores are kept strictly inside the search sentinel range by construction.
+
+Existing evaluation tests cover:
+
+* deterministic scoring
+* side-to-move score convention
+* hand-computed ternary pattern index
+* phase boundary behavior
+* search sentinel score range
+* artifact loader success and rejection paths
 
 The current repository already documents that:
 
@@ -51,15 +75,18 @@ The current repository already documents that:
 The current implementation does not yet have:
 
 * production baseline evaluator
-* pattern evaluator
-* pattern index encoder
+* production learned pattern evaluator
+* schema validation for artifact-backed pattern definitions
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
 * evaluation benchmarks
 * evaluation data or artifact README
+* trained weights
+* trainer tooling
+* calibrated score scale
 
-The existing `search::Evaluator` interface is the only production boundary for
+The existing `search::Evaluator` interface is the production boundary for
 heuristic evaluation today.
 
 ## Implementation Plan
@@ -76,10 +103,13 @@ Status values:
 | Add evaluation progress document | done | this file |
 | Add docs index rows | done | `docs/README.md` |
 | Keep search-facing evaluator interface stable | done | `engine/include/vibe_othello/search/evaluator.h` |
-| Add evaluation namespace and public runtime headers | done | First runtime header is `engine/include/vibe_othello/evaluation/pattern_weights.h` |
+| Add evaluation namespace and public runtime headers | done | `engine/include/vibe_othello/evaluation/` |
 | Add simple baseline evaluator | not started | Useful before learned artifacts are available |
-| Add pattern schema types | not started | Only minimal loader manifest and pattern definition structs exist |
-| Add pattern index encoder | not started | Include symmetry and phase boundary tests |
+| Add minimal pattern schema types | done | `evaluation/pattern.h` |
+| Add ternary pattern index encoding | done | Empty/player/opponent digits are `0/1/2` |
+| Add tiny fixed edge and corner pattern instances | done | In-code runtime fixture only |
+| Add tiny pattern-only evaluator | done | Implements `search::Evaluator` |
+| Add evaluator unit coverage | done | Determinism, sign convention, index, phase, and range |
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | not started | Should implement `search::Evaluator` |
@@ -88,6 +118,7 @@ Status values:
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
 | Add evaluation benchmarks | not started | Track latency and native/WASM parity |
 | Add native/WASM parity coverage | not started | Requires WASM target and fixed fixtures |
+| Add trainer | not started | Tracked under pattern learning |
 
 ## Completion Bar
 
@@ -98,7 +129,9 @@ Evaluation is strong enough to build on when:
 * scores remain strictly inside search sentinels
 * side-to-move-relative score signs are tested
 * artifact loading rejects incompatible data
+* artifact-backed pattern schemas validate length against square count
 * pattern index encoding is tested against hand-computed fixtures
+* fixture-weight runtime evaluation is separated from future artifact loading
 * search can run with the evaluator enabled or replaced by a reference evaluator
 * exact endgame paths still avoid heuristic evaluation
 * evaluation benchmark baselines exist

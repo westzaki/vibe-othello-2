@@ -179,5 +179,27 @@ TEST_CASE("endgame parity ordering prefers odd 4-neighbor empty regions determin
   REQUIRE(parity_moves.moves[1] == move(1, 1));
 }
 
+TEST_CASE("endgame ordering prefers legal TT best move before other endgame hints",
+          "[search][move_ordering][endgame]") {
+  const board_core::Position position{
+      .player = ~board_core::Bitboard{0} &
+                ~(board_core::bit(square(1, 0)) | board_core::bit(square(1, 1)) |
+                  board_core::bit(square(5, 5)) | board_core::bit(square(1, 2)) |
+                  board_core::bit(square(5, 4))),
+      .opponent = board_core::bit(square(1, 2)) | board_core::bit(square(5, 4)),
+      .side_to_move = board_core::Color::black,
+  };
+
+  const MoveList moves = order_endgame_moves(position, EndgameOrderingHints{
+                                                           .tt_best_move = move(1, 1),
+                                                           .root_best_move = move(5, 5),
+                                                       });
+
+  require_ordered_moves_match_legal_set(position, moves);
+  REQUIRE(moves.size == 2);
+  REQUIRE(moves.moves[0] == move(1, 1));
+  REQUIRE(moves.moves[1] == move(5, 5));
+}
+
 } // namespace
 } // namespace vibe_othello::search::internal

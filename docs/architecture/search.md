@@ -192,9 +192,10 @@ using NodeCount = std::uint64_t;
 constexpr Score kScoreInf = 32'000;
 constexpr Score kScoreWin = 30'000;
 constexpr Score kScoreLoss = -kScoreWin;
+constexpr std::uint8_t kMaxPly = 128;
 
 struct Line {
-  std::array<board_core::Move, 64> moves;
+  std::array<board_core::Move, kMaxPly> moves;
   std::uint8_t size;
 };
 
@@ -281,6 +282,7 @@ struct SearchOptions {
   bool use_pv_table;
   bool use_parallel;
   bool use_tt_best_move_ordering;
+  bool use_endgame_parity_ordering;
   std::uint8_t multi_pv;
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
@@ -309,9 +311,14 @@ stored entries.
 
 `use_endgame_tt` has no effect when `exact_endgame` is disabled.
 
-`use_endgame_tt` is currently a no-op until exact endgame search is implemented.
+`use_endgame_tt` enables exact-score endgame transposition-table probe, store,
+and cutoff behavior when exact endgame search is active. WLD endgame TT behavior
+remains unavailable until WLD search is implemented.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
+
+`use_endgame_parity_ordering` controls ordering-only parity hints in exact
+endgame search. It must not prune legal moves or change exact results.
 
 `use_pv_table` controls a dedicated PV table, if one is used.
 
@@ -460,7 +467,9 @@ Search depends on an evaluator interface only for heuristic leaf scores.
 ```cpp
 class Evaluator {
  public:
-  Score evaluate(const board_core::Position& position) noexcept;
+  virtual ~Evaluator() = default;
+
+  virtual Score evaluate(const board_core::Position& position) const noexcept = 0;
 };
 ```
 
@@ -842,13 +851,13 @@ selective TT support may split it into separate `heuristic_midgame` and
 `selective_midgame` kinds if selective results need different compatibility
 rules.
 
-For `midgame` and `exact_endgame_score`, `score` is valid and `wld_result` must
-be ignored.
+For `midgame` and `exact_endgame_score`, `score` is valid.
 
-For `exact_endgame_wld`, `wld_result` is valid and `score` must be ignored
-except when explicitly encoded for internal bound comparison.
+For future `exact_endgame_wld` entries, WLD-specific result data must be kept
+distinct from exact disc-difference scores. WLD entries must never satisfy
+exact-score probes.
 
-Recommended entry shape:
+Current internal entry shape:
 
 ```cpp
 enum class TTEntryKind : std::uint8_t {
@@ -859,19 +868,21 @@ enum class TTEntryKind : std::uint8_t {
 
 struct TTEntry {
   board_core::PositionHash key;
-  std::uint32_t tag;
-  board_core::Move best_move;
-  Score score;
-  WldResult wld_result;
-  Score static_eval;
   Depth depth;
-  std::uint8_t empty_count;
-  std::uint8_t generation;
-  std::uint8_t selectivity;
+  Score score;
   BoundType bound;
+  board_core::Move best_move;
+  bool has_best_move;
+  std::uint8_t generation;
   TTEntryKind kind;
+  bool occupied;
 };
 ```
+
+Future selective search, WLD solving, or cache-layout tuning may add fields such
+as a short hash tag, WLD result payload, static evaluation, empty count, or
+selectivity marker. Adding those fields must preserve the mode-compatibility
+rules in this document.
 
 Recommended table layout:
 

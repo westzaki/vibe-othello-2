@@ -328,5 +328,64 @@ TEST_CASE("exact endgame score TT cutoff respects kind depth and bounds", "[sear
           std::nullopt);
 }
 
+TEST_CASE("exact endgame score TT probe returns only compatible legal best move hints",
+          "[search][tt]") {
+  const board_core::Position position = board_core::initial_position();
+  const board_core::Move legal_best_move = select_legal_move(position, 0);
+  TTEntry entry{
+      .depth = Depth{4},
+      .score = Score{4},
+      .bound = BoundType::lower,
+      .best_move = legal_best_move,
+      .has_best_move = true,
+      .kind = TTEntryKind::exact_endgame_score,
+      .occupied = true,
+  };
+
+  ExactEndgameTtProbe probe =
+      exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE(probe.best_move == legal_best_move);
+
+  entry.score = Score{5};
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE(probe.cutoff_score == Score{5});
+  REQUIRE(probe.best_move == legal_best_move);
+
+  entry.depth = Depth{3};
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE(probe.best_move == legal_best_move);
+
+  entry.depth = Depth{4};
+  entry.score = Score{4};
+  entry.best_move = board_core::make_pass();
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE_FALSE(probe.best_move.has_value());
+
+  entry.best_move = board_core::make_move(square(0, 0));
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE_FALSE(probe.best_move.has_value());
+
+  entry.best_move = legal_best_move;
+  entry.has_best_move = false;
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE_FALSE(probe.best_move.has_value());
+
+  entry.has_best_move = true;
+  entry.kind = TTEntryKind::midgame;
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE_FALSE(probe.best_move.has_value());
+
+  entry.kind = TTEntryKind::exact_endgame_wld;
+  probe = exact_endgame_score_tt_probe(entry, position, Depth{4}, Score{-5}, Score{5});
+  REQUIRE_FALSE(probe.cutoff_score.has_value());
+  REQUIRE_FALSE(probe.best_move.has_value());
+}
+
 } // namespace
 } // namespace vibe_othello::search::internal

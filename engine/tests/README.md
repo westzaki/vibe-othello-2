@@ -20,6 +20,12 @@ Engine tests use Catch2 and run through CTest.
 | `board_core/property_test.cc` | Invariants that must hold for representative and random reachable positions. |
 | `board_core/perft_test.cc` | Move-tree validation including pass and terminal behavior. |
 
+## Evaluation Tests
+
+| File | Role |
+| --- | --- |
+| `evaluation/tiny_pattern_evaluator_test.cc` | Tiny pattern evaluator indexing, phase, sign convention, determinism, and score range. |
+
 ## Search Tests
 
 | File | Role |
@@ -30,6 +36,12 @@ Engine tests use Catch2 and run through CTest.
 | `search/move_ordering_test.cc` | Move ordering legality preservation and priority feature coverage. |
 | `search/null_window_search_test.cc` | Internal null-window fail-high and fail-low bound semantics. |
 | `search/pvs_test.cc` | PVS correctness neutrality against alpha-beta when enabled. |
+| `search/search_limits_test.cc` | Cooperative node, time, infinite, and external-stop limit behavior. |
+| `search/transposition_table_test.cc` | Midgame and exact-endgame transposition-table storage, probing, and cutoff semantics. |
+| `search/endgame_test.cc` | Root exact endgame integration, pass handling, flags, legality, and PV replay. |
+| `search/endgame_reference_test.cc` | Production exact endgame results against the slow reference solver. |
+| `search/endgame_corpus_test.cc` | Exact endgame corpus coverage against the reference solver. |
+| `search/endgame_small_empty_test.cc` | Specialized 0/1/2/3-empty exact-score paths against the generic solver. |
 
 ## Test Support
 
@@ -39,3 +51,5 @@ Engine tests use Catch2 and run through CTest.
 | `../test_support/board_core/perft.*` | Shared perft implementation for board-core validation. |
 | `../test_support/board_core/corpus.h` | Shared representative positions, deterministic seeds, RNG, and move selection helpers. |
 | `../test_support/search/reference_search.*` | Shared reference search implementation for search validation. |
+| `../test_support/search/reference_endgame.*` | Slow readable exact endgame solver for differential tests. |
+| `../test_support/search/endgame_positions.*` | Shared deterministic endgame positions for tests and benchmarks. |

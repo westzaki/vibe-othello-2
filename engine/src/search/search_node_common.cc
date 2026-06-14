@@ -111,6 +111,32 @@ std::optional<Score> midgame_tt_cutoff_score(const TTEntry& entry, Depth depth, 
   return std::nullopt;
 }
 
+ExactEndgameTtProbe exact_endgame_score_tt_probe(const TTEntry& entry,
+                                                 board_core::Position position,
+                                                 Depth remaining_empties, Score alpha,
+                                                 Score beta) noexcept {
+  ExactEndgameTtProbe probe{};
+  if (entry.kind != TTEntryKind::exact_endgame_score) {
+    return probe;
+  }
+
+  if (entry.has_best_move && entry.best_move.kind == board_core::MoveKind::normal &&
+      (board_core::legal_moves(position) & board_core::bit(entry.best_move.square)) != 0) {
+    probe.best_move = entry.best_move;
+  }
+
+  if (entry.depth < remaining_empties) {
+    // Best-move hints are ordering-only: a shallow exact-endgame entry cannot
+    // cut off this node, but its legal normal best move may still order moves.
+    return probe;
+  }
+  if (entry.bound == BoundType::exact || (entry.bound == BoundType::lower && entry.score >= beta) ||
+      (entry.bound == BoundType::upper && entry.score <= alpha)) {
+    probe.cutoff_score = entry.score;
+  }
+  return probe;
+}
+
 std::optional<Score> exact_endgame_score_tt_cutoff_score(const TTEntry& entry,
                                                          Depth remaining_empties, Score alpha,
                                                          Score beta) noexcept {

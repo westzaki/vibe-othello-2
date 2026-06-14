@@ -33,12 +33,14 @@ std::vector<test_support::EndgamePositionCase> load_endgame_corpus() {
   return cases;
 }
 
-SearchResult production_exact_endgame(board_core::Position position) {
+SearchResult production_exact_endgame(board_core::Position position, bool use_endgame_tt = false) {
   CountingEvaluator evaluator;
   const std::uint8_t empties = test_support::endgame_empty_count(position);
   const SearchResult result =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                       SearchOptions{.exact_endgame = true, .endgame_exact_empties = empties});
+                       SearchOptions{.use_endgame_tt = use_endgame_tt,
+                                     .exact_endgame = true,
+                                     .endgame_exact_empties = empties});
   REQUIRE(evaluator.calls == 0);
   return result;
 }
@@ -60,16 +62,30 @@ void require_matches_reference(const test_support::EndgamePositionCase& corpus_c
 
   const SearchResult reference = test_support::reference_exact_endgame(position);
   const SearchResult production = production_exact_endgame(position);
+  const SearchResult production_with_tt = production_exact_endgame(position, true);
 
   REQUIRE(production.score == reference.score);
+  REQUIRE(production_with_tt.score == production.score);
   REQUIRE(production.completed_depth == reference.completed_depth);
+  REQUIRE(production_with_tt.completed_depth == production.completed_depth);
   REQUIRE(production.root_moves.size() == reference.root_moves.size());
+  REQUIRE(production_with_tt.root_moves.size() == production.root_moves.size());
   REQUIRE(production.best_move.has_value() == reference.best_move.has_value());
+  REQUIRE(production_with_tt.best_move.has_value() == production.best_move.has_value());
   if (production.best_move.has_value()) {
     REQUIRE(root_score_for_move(reference, *production.best_move) == reference.score);
   }
+  if (production_with_tt.best_move.has_value()) {
+    REQUIRE(root_score_for_move(production, *production_with_tt.best_move) == production.score);
+  }
   for (const RootMoveInfo& root_move : production.root_moves) {
     REQUIRE(root_score_for_move(reference, root_move.move) == root_move.score);
+  }
+  for (const RootMoveInfo& root_move : production_with_tt.root_moves) {
+    REQUIRE(root_score_for_move(production, root_move.move) == root_move.score);
+    REQUIRE(root_move.bound == BoundType::exact);
+    REQUIRE(root_move.exact);
+    REQUIRE_FALSE(root_move.selective);
   }
 }
 

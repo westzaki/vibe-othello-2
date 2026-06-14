@@ -61,6 +61,11 @@ struct EndgameOrderingHints {
   bool use_parity_ordering = true;
 };
 
+struct ExactEndgameTtProbe {
+  std::optional<Score> cutoff_score;
+  std::optional<board_core::Move> best_move;
+};
+
 enum class SearchDispatch : std::uint8_t {
   alphabeta,
   pvs,
@@ -192,6 +197,10 @@ MoveList order_endgame_moves(board_core::Position position, EndgameOrderingHints
 BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
 std::optional<Score> midgame_tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
                                              Score beta) noexcept;
+ExactEndgameTtProbe exact_endgame_score_tt_probe(const TTEntry& entry,
+                                                 board_core::Position position,
+                                                 Depth remaining_empties, Score alpha,
+                                                 Score beta) noexcept;
 std::optional<Score> exact_endgame_score_tt_cutoff_score(const TTEntry& entry,
                                                          Depth remaining_empties, Score alpha,
                                                          Score beta) noexcept;

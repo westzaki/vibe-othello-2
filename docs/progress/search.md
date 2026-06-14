@@ -68,7 +68,8 @@ The current search implementation includes:
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
   statistics
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
-  when `SearchOptions::use_endgame_tt` is enabled
+  when `SearchOptions::use_endgame_tt` is enabled, including ordering-only legal
+  TT best-move hints when a probed entry cannot cut off
 * specialized small-empty exact-score paths for 0, 1, 2, and 3 empty squares
 * ordering-only exact endgame parity hints through
   `SearchOptions::use_endgame_parity_ordering`
@@ -114,7 +115,8 @@ iterative deepening when the root position is at or below
 midgame search before heuristic evaluation when `exact_endgame` is enabled and
 the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
 not publish root exact move reports or mark the whole root result exact. Exact
-endgame does not yet provide WLD.
+endgame does not yet provide WLD. Parity ordering is available as an
+ordering-only hint and must not change exact results.
 
 Current time limits are cooperative and checked periodically inside recursive
 midgame and endgame search. This keeps the hot path smaller, but it is not a
