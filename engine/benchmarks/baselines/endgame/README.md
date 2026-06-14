@@ -12,7 +12,7 @@ The current baseline command uses the checked-in deterministic corpus:
   --jsonl \
   --repeat 3 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv \
+  --corpus engine/fixtures/endgame/positions.tsv \
   > engine/benchmarks/results/endgame-exact-score-raw.jsonl
 ```
 
@@ -55,8 +55,8 @@ Minimum aggregate shape:
   "benchmark": "endgame_exact_score",
   "measured_commit": "<full measured commit sha>",
   "measured_revision": "<short measured revision>",
-  "command": "./build-bench/engine/benchmarks/vibe_othello_endgame_bench --jsonl --repeat 3 --max-empties 12 --corpus engine/testdata/endgame/positions.tsv",
-  "corpus": "engine/testdata/endgame/positions.tsv",
+  "command": "./build-bench/engine/benchmarks/vibe_othello_endgame_bench --jsonl --repeat 3 --max-empties 12 --corpus engine/fixtures/endgame/positions.tsv",
+  "corpus": "engine/fixtures/endgame/positions.tsv",
   "results": [
     {
       "position_id": "twelve_empty_simple",

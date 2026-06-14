@@ -5,7 +5,7 @@ script_dir="$(CDPATH= cd "$(dirname "$0")" && pwd -P)"
 repo_root="$(CDPATH= cd "$script_dir/../../../.." && pwd -P)"
 
 bench="${1:-./build-bench/engine/benchmarks/vibe_othello_endgame_bench}"
-output="${2:-engine/testdata/endgame/golden/exact_score.jsonl}"
+output="${2:-engine/fixtures/endgame/golden/exact_score.jsonl}"
 tmp="${TMPDIR:-/tmp}/vibe_othello_endgame_golden.$$"
 trap 'rm -f "$tmp"' EXIT
 
@@ -15,5 +15,5 @@ mkdir -p "$(dirname "$output")"
   --jsonl \
   --repeat 1 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv >"$tmp"
+  --corpus engine/fixtures/endgame/positions.tsv >"$tmp"
 "$script_dir/check_golden.py" --write-normalized "$output" "$tmp"

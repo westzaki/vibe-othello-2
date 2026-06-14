@@ -26,7 +26,7 @@ public:
 
 std::vector<test_support::EndgamePositionCase> load_endgame_corpus() {
   const std::string path =
-      std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/testdata/endgame/positions.tsv";
+      std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/fixtures/endgame/positions.tsv";
   std::vector<test_support::EndgamePositionCase> cases =
       test_support::load_endgame_position_corpus(path);
   REQUIRE_FALSE(cases.empty());

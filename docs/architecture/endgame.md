@@ -904,7 +904,7 @@ engine/tests/search/
 Recommended test-support layout:
 
 ```text
-engine/test_support/search/
+engine/tests/support/search/
   reference_endgame.h
   reference_endgame.cc
   endgame_positions.h
@@ -928,7 +928,7 @@ engine/benchmarks/corpora/
 or:
 
 ```text
-testdata/endgame/
+engine/fixtures/endgame/
   exact_score.txt
   wld.txt
   pass.txt

@@ -320,7 +320,7 @@ std::optional<std::vector<PositionCase>> try_load_corpus(std::string_view path) 
 }
 
 std::vector<PositionCase> default_positions() {
-  static constexpr std::string_view kCheckedInCorpus = "engine/testdata/endgame/positions.tsv";
+  static constexpr std::string_view kCheckedInCorpus = "engine/fixtures/endgame/positions.tsv";
   if (std::optional<std::vector<PositionCase>> positions = try_load_corpus(kCheckedInCorpus)) {
     return *positions;
   }

@@ -92,7 +92,7 @@ SearchResult solve_direct_exact(board_core::Position position, bool use_endgame_
 }
 
 std::string endgame_corpus_path() {
-  return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/testdata/endgame/positions.tsv";
+  return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/fixtures/endgame/positions.tsv";
 }
 
 board_core::Position corpus_position(std::string_view id) {
