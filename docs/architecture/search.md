@@ -803,7 +803,7 @@ A transposition table stores search results for positions.
 Only fields compatible with `TTEntryKind` are valid.
 
 The current implementation stores `key`, `depth`, `score`, `bound`,
-`best_move`, `generation`, `kind`, and `occupied`.
+`best_move`, `has_best_move`, `generation`, `kind`, and `occupied`.
 
 The midgame table uses a search-internal default capacity. Public search
 defaults do not enable TT cutoff or TT ordering, and no public capacity option is

@@ -73,6 +73,7 @@ TEST_CASE("transposition table probe returns stored entries", "[search][tt]") {
   REQUIRE(entry->score == Score{17});
   REQUIRE(entry->bound == BoundType::lower);
   REQUIRE(entry->best_move == best_move);
+  REQUIRE(entry->has_best_move);
   REQUIRE(entry->kind == TTEntryKind::midgame);
   REQUIRE(stats.tt_probes == 2);
   REQUIRE(stats.tt_hits == 1);
@@ -208,40 +209,123 @@ TEST_CASE("transposition table rejects entries without legal normal best moves",
   REQUIRE(stats.tt_invalid_best_move_stores == 2);
 }
 
+TEST_CASE("transposition table stores value entries without best moves", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const board_core::Position position = board_core::initial_position();
+
+  table.store_value(position, Depth{6}, Score{8}, BoundType::exact,
+                    TTEntryKind::exact_endgame_score, &stats);
+
+  const std::optional<TTEntry> entry = table.probe(position, &stats);
+  REQUIRE(entry.has_value());
+  REQUIRE(entry->depth == Depth{6});
+  REQUIRE(entry->score == Score{8});
+  REQUIRE(entry->bound == BoundType::exact);
+  REQUIRE_FALSE(entry->has_best_move);
+  REQUIRE(entry->best_move == board_core::make_pass());
+  REQUIRE(entry->kind == TTEntryKind::exact_endgame_score);
+  REQUIRE(stats.tt_stores == 1);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
+}
+
+TEST_CASE("transposition table value update clears previous best move hint", "[search][tt]") {
+  TranspositionTable table{4};
+  SearchStats stats{};
+  const board_core::Position position = board_core::initial_position();
+  const board_core::Move best_move = select_legal_move(position, 0);
+
+  table.store(position, Depth{3}, Score{17}, BoundType::lower, best_move, TTEntryKind::midgame,
+              &stats);
+  table.store_value(position, Depth{4}, Score{12}, BoundType::exact,
+                    TTEntryKind::exact_endgame_score, &stats);
+
+  const std::optional<TTEntry> entry = table.probe(position, &stats);
+  REQUIRE(entry.has_value());
+  REQUIRE(entry->depth == Depth{4});
+  REQUIRE(entry->score == Score{12});
+  REQUIRE(entry->kind == TTEntryKind::exact_endgame_score);
+  REQUIRE_FALSE(entry->has_best_move);
+  REQUIRE(entry->best_move == board_core::make_pass());
+  REQUIRE(stats.tt_stores == 2);
+  REQUIRE(stats.tt_invalid_best_move_stores == 0);
+}
+
 TEST_CASE("TT cutoff score respects kind depth and bounds", "[search][tt]") {
   TTEntry entry{
       .depth = Depth{4},
       .score = Score{10},
       .bound = BoundType::exact,
       .best_move = board_core::make_move(square(2, 3)),
+      .has_best_move = true,
       .kind = TTEntryKind::midgame,
       .occupied = true,
   };
 
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{10});
-  REQUIRE(tt_cutoff_score(entry, Depth{5}, Score{-5}, Score{5}) == std::nullopt);
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{10});
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{5}, Score{-5}, Score{5}) == std::nullopt);
 
   entry.depth = Depth{5};
   entry.kind = TTEntryKind::exact_endgame_score;
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
 
   entry.kind = TTEntryKind::midgame;
   entry.bound = BoundType::lower;
   entry.score = Score{5};
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{5});
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{5});
   entry.score = Score{4};
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
 
   entry.bound = BoundType::upper;
   entry.score = Score{-5};
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{-5});
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{-5});
   entry.score = Score{-4};
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
 
   entry.kind = TTEntryKind::exact_endgame_wld;
   entry.bound = BoundType::exact;
   entry.score = Score{10};
-  REQUIRE(tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
+  REQUIRE(midgame_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == std::nullopt);
+}
+
+TEST_CASE("exact endgame score TT cutoff respects kind depth and bounds", "[search][tt]") {
+  TTEntry entry{
+      .depth = Depth{4},
+      .score = Score{6},
+      .bound = BoundType::exact,
+      .kind = TTEntryKind::exact_endgame_score,
+      .occupied = true,
+  };
+
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{6});
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{5}, Score{-5}, Score{5}) ==
+          std::nullopt);
+
+  entry.depth = Depth{5};
+  entry.kind = TTEntryKind::midgame;
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) ==
+          std::nullopt);
+
+  entry.kind = TTEntryKind::exact_endgame_score;
+  entry.bound = BoundType::lower;
+  entry.score = Score{5};
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{5});
+  entry.score = Score{4};
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) ==
+          std::nullopt);
+
+  entry.bound = BoundType::upper;
+  entry.score = Score{-5};
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) == Score{-5});
+  entry.score = Score{-4};
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) ==
+          std::nullopt);
+
+  entry.kind = TTEntryKind::exact_endgame_wld;
+  entry.bound = BoundType::exact;
+  entry.score = Score{1};
+  REQUIRE(exact_endgame_score_tt_cutoff_score(entry, Depth{4}, Score{-5}, Score{5}) ==
+          std::nullopt);
 }
 
 } // namespace
