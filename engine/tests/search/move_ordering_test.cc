@@ -220,7 +220,7 @@ TEST_CASE("midgame Othello-specific ordering outranks killer and history hints",
   REQUIRE(moves.moves[moves.size - 1] == move(1, 1));
 }
 
-TEST_CASE("endgame parity ordering prefers odd 4-neighbor empty regions deterministically",
+TEST_CASE("endgame ordering combines opponent mobility and parity deterministically",
           "[search][move_ordering][endgame]") {
   const board_core::Position position{
       .player = ~board_core::Bitboard{0} &
@@ -239,8 +239,8 @@ TEST_CASE("endgame parity ordering prefers odd 4-neighbor empty regions determin
   require_ordered_moves_match_legal_set(position, static_moves);
   REQUIRE(parity_moves.size == 2);
   REQUIRE(static_moves.size == 2);
-  REQUIRE(static_moves.moves[0] == move(1, 1));
-  REQUIRE(static_moves.moves[1] == move(5, 5));
+  REQUIRE(static_moves.moves[0] == move(5, 5));
+  REQUIRE(static_moves.moves[1] == move(1, 1));
   REQUIRE(parity_moves.moves[0] == move(5, 5));
   REQUIRE(parity_moves.moves[1] == move(1, 1));
 }
