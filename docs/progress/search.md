@@ -20,8 +20,8 @@ Relevant design documents:
 
 ## Current Foundation
 
-The current repository already has the core search surface and several optimized
-search paths.
+The current repository already has the core search surface, production midgame
+search paths, and a root-triggered exact-score endgame path.
 
 Existing search public types include:
 
@@ -59,6 +59,13 @@ The current search implementation includes:
 * best-completed-depth publication when iterative search is interrupted
 * search statistics aggregation
 * search benchmark coverage
+* deterministic search golden-check tooling
+* root-triggered generic exact-score endgame solving through `search_iterative`
+* `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold
+  integration
+* exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
+  statistics
+* endgame benchmark coverage through `vibe_othello_endgame_bench`
 
 Existing search tests include:
 
@@ -70,15 +77,20 @@ Existing search tests include:
 * PVS tests
 * reference-search differential tests
 * transposition-table tests
+* exact endgame tests
+* exact endgame reference differential tests
+* deterministic search golden-check tooling
 
 ## Current Gaps
 
 The current implementation does not yet have:
 
-* exact endgame search path
 * WLD search path
 * endgame TT probing or storing
+* parity-region endgame ordering
 * specialized endgame routines
+* public direct endgame solve API
+* checked-in search or endgame performance baselines
 * real internal iterative deepening
 * killer heuristic
 * history heuristic
@@ -88,14 +100,20 @@ The current implementation does not yet have:
 * parallel search
 * analysis and review-specific result adapters
 
+The exact endgame path is currently a root-triggered generic exact-score solver.
+It is entered before normal iterative deepening when the root position is at or
+below `endgame_exact_empties`. It does not yet provide WLD, endgame TT, parity
+ordering, or small-empty specialized routines.
+
 Current time limits are cooperative and checked periodically inside recursive
-search. This keeps the hot path smaller, but it is not a hard real-time
-deadline.
+midgame and endgame search. This keeps the hot path smaller, but it is not a
+hard real-time deadline.
 
 Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 
-Unimplemented search options are expected to remain safe no-ops until each
-option is implemented.
+Remaining unimplemented search options are expected to remain safe no-ops until
+each option is implemented. `exact_endgame` is no longer a no-op when the root
+threshold is met.
 
 ## Implementation Plan
 
@@ -122,9 +140,10 @@ Status values:
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
 | Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
 | Add killer and history heuristics | not started | Options currently safe no-ops |
-| Add exact endgame solver | not started | Tracked in `docs/progress/endgame.md` |
-| Add exact endgame TT semantics | not started | Tracked in `docs/progress/endgame.md` |
+| Add exact endgame solver | done | Root-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
+| Add exact endgame TT semantics | not started | `use_endgame_tt` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add specialized endgame routines | not started | Tracked in `docs/progress/endgame.md` |
+| Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add Multi-PV root search | not started | `multi_pv` currently safe no-op |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
