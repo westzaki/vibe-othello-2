@@ -1,6 +1,13 @@
+add_library(vibe_othello_data_import_replay_records STATIC replay_records.cc)
+
+target_link_libraries(vibe_othello_data_import_replay_records PUBLIC vibe_othello::engine)
+
+target_include_directories(vibe_othello_data_import_replay_records PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(vibe_othello_data_import_replay_smoke main.cc)
 
-target_link_libraries(vibe_othello_data_import_replay_smoke PRIVATE vibe_othello::engine)
+target_link_libraries(vibe_othello_data_import_replay_smoke PRIVATE
+                      vibe_othello_data_import_replay_records)
 
 set_target_properties(vibe_othello_data_import_replay_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-data-import-replay-smoke)
