@@ -70,6 +70,36 @@ micro-optimizing per-node cost.
 Use `--root-mode best` for practical high-empty measurement unless all-root
 candidate reporting is the explicit question.
 
+## WLD Vs Exact-Score Comparison
+
+Use this local comparison to decide whether direct WLD search is ready to drive a
+later root-triggered orchestration change. Keep the raw JSONL in local scratch
+space and report the summary table in the pull request description.
+
+```sh
+python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
+  --bench ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --position-id fourteen_empty_simple \
+  --position-id sixteen_empty_simple \
+  --position-id eighteen_empty_simple \
+  --position-id twenty_empty_simple \
+  --mode both \
+  --root-mode best \
+  --parity on \
+  --tt on \
+  --repeat 1 \
+  --timeout-sec 180 \
+  --output-dir /tmp/vibe-endgame-wld-vs-exact
+```
+
+Interpret completed pairs by checking deterministic agreement first: exact-score
+rows with positive, zero, or negative `score` must match WLD rows with `win`,
+`draw`, or `loss` respectively. Compare `nodes_p50` and `endgame_nodes_p50`
+before elapsed time, because local timing is machine- and load-sensitive. If WLD
+substantially reduces nodes across the selected positions, use a follow-up PR to
+evaluate root-triggered WLD orchestration. If it does not, improve WLD ordering,
+WLD TT behavior, or WLD small-empty specialization before adding orchestration.
+
 ## Parity Region Shootout
 
 Local shootout on 2026-06-15 JST after the opponent-mobility endgame ordering
