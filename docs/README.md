@@ -18,4 +18,6 @@ Read only the document needed for the current task.
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
 | Pattern learning implementation status | `progress/pattern-learning.md` |
+| Pattern learning corpus data policy | `../data/corpora/README.md` |
+| Evaluation artifact data policy | `../data/eval/README.md` |
 | Progress documentation rules | `progress/README.md` |

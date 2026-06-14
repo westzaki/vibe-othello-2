@@ -95,6 +95,8 @@ The current repository already documents that:
 * search does not own evaluation feature definitions
 * endgame exact search must not call heuristic evaluation
 * board core is the source of truth for positions and moves
+* evaluation artifact manifests and binary weights live under the `data/eval/`
+  policy
 
 ## Current Gaps
 
@@ -105,7 +107,6 @@ The current implementation does not yet have:
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
-* evaluation data or artifact README
 * trained weights
 * trainer tooling
 * calibrated score scale
@@ -126,6 +127,7 @@ Status values:
 | Add evaluation architecture document | done | `docs/architecture/evaluation.md` |
 | Add evaluation progress document | done | this file |
 | Add docs index rows | done | `docs/README.md` |
+| Add evaluation artifact policy README | done | `data/eval/README.md` |
 | Keep search-facing evaluator interface stable | done | `engine/include/vibe_othello/search/evaluator.h` |
 | Add evaluation namespace and public runtime headers | done | `engine/include/vibe_othello/evaluation/` |
 | Add simple baseline evaluator | not started | Useful before learned artifacts are available |

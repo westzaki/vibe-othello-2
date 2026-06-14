@@ -1,0 +1,12 @@
+# Keep local raw corpora and downloaded source payloads out of git.
+/downloads/
+/external/
+/local/
+/raw/
+*.7z
+*.bz2
+*.gz
+*.tar
+*.tgz
+*.xz
+*.zip

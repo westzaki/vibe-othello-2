@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibe-othello.example/schemas/dataset-manifest.schema.json",
+  "title": "Vibe Othello dataset manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dataset_id",
+    "source_name",
+    "source_url",
+    "retrieved_at",
+    "license_or_terms",
+    "redistribution_allowed",
+    "commercial_use_allowed",
+    "derived_weights_allowed",
+    "required_attribution",
+    "local_path",
+    "sha256",
+    "notes"
+  ],
+  "properties": {
+    "dataset_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable repository-local dataset identifier."
+    },
+    "source_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable source or generation name."
+    },
+    "source_url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Source URL, local URI, or durable source reference."
+    },
+    "retrieved_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "Date the payload was retrieved or generated, in UTC ISO date form."
+    },
+    "license_or_terms": {
+      "type": "string",
+      "minLength": 1,
+      "description": "License name, terms summary, or unknown."
+    },
+    "redistribution_allowed": {
+      "$ref": "#/$defs/permission"
+    },
+    "commercial_use_allowed": {
+      "$ref": "#/$defs/permission"
+    },
+    "derived_weights_allowed": {
+      "$ref": "#/$defs/permission"
+    },
+    "required_attribution": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required attribution text, or none."
+    },
+    "local_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative local-only path or not-applicable. Do not commit personal absolute paths."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 of the exact source payload, or the empty payload digest for manifest-only samples."
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Review notes, restrictions, and provenance caveats."
+    }
+  },
+  "$defs": {
+    "permission": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "const": "unknown"
+        }
+      ],
+      "description": "true, false, or unknown when the terms have not been reviewed."
+    }
+  }
+}
