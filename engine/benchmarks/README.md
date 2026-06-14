@@ -51,8 +51,9 @@ The search fixture corpus currently covers:
 Endgame benchmark output is TSV by default and measures the root-only exact
 endgame solver through `search_iterative` with `exact_endgame = true`. Use
 `--csv` for comma-separated output, `--jsonl` for JSON Lines output,
-`--repeat N` to repeat each position, and `--max-empties N` to cap the default
-or external corpus by empty count.
+`--parity on|off|both` to choose exact endgame parity ordering, `--repeat N` to
+repeat each position, and `--max-empties N` to cap the default or external
+corpus by empty count.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
 `--corpus` is omitted, the executable first uses the checked-in
@@ -84,6 +85,18 @@ For small-empty exact-score changes, use a low cap to isolate the shared
 Compare the existing `nodes`, `endgame_nodes`, `elapsed_ms`, and `nps` fields
 against the previous baseline or a same-machine before run.
 
+For parity-ordering changes, run both policies in one benchmark invocation and
+compare node counts by empty count:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --parity both \
+  --repeat 3 \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv
+```
+
 ## Layout
 
 | Path | Role |
@@ -114,10 +127,10 @@ For search benchmarks, report the depth argument and the emitted columns:
 `tt_stores`, `tt_cutoffs`, `elapsed_ms`, and `nps`.
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
-`position_id`, `category`, `empties`, `repeat`, `score`, `best_move`, `exact`,
-`stopped`, `completed_depth`, `nodes`, `endgame_nodes`, `terminal_nodes`,
-`pass_nodes`, `beta_cutoffs`, `alpha_updates`, `root_moves_searched`,
-`elapsed_ms`, and `nps`.
+`position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `score`,
+`best_move`, `exact`, `stopped`, `completed_depth`, `nodes`, `endgame_nodes`,
+`terminal_nodes`, `pass_nodes`, `beta_cutoffs`, `alpha_updates`,
+`root_moves_searched`, `elapsed_ms`, and `nps`.
 
 Search JSONL output emits one JSON object per position/mode/depth result. The
 schema is:
@@ -136,6 +149,7 @@ schema is:
 - `position_id`, `category`, `position`
 - `mode`, currently `exact_score`
 - `empties`, `repeat`
+- `parity_ordering`, currently `on` or `off`
 - `score`, `best_move`, `exact`, `stopped`, `completed_depth`
 - `nodes`, `endgame_nodes`, `terminal_nodes`, `pass_nodes`
 - `beta_cutoffs`, `alpha_updates`, `root_moves_searched`

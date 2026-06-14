@@ -58,6 +58,7 @@ using MoveOrderingHints = MidgameOrderingHints;
 struct EndgameOrderingHints {
   std::optional<board_core::Move> tt_best_move;
   std::optional<board_core::Move> root_best_move;
+  bool use_parity_ordering = true;
 };
 
 enum class SearchDispatch : std::uint8_t {

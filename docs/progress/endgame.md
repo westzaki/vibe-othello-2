@@ -36,6 +36,7 @@ Existing search public types include:
 Existing `SearchOptions` include:
 
 * `use_endgame_tt`
+* `use_endgame_parity_ordering`
 * `exact_endgame`
 * `endgame_exact_empties`
 * `endgame_wld_empties`
@@ -69,6 +70,8 @@ The current exact endgame implementation includes:
 * avoids root move reporting for internal leaf cutover
 * publishes replayable PVs
 * marks result and root moves exact when completed
+* uses ordering-only 4-neighbor empty-region parity hints when
+  `SearchOptions::use_endgame_parity_ordering` is enabled
 * counts exact endgame nodes through `SearchStats::endgame_nodes`
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
 * uses `TTEntryKind::exact_endgame_score` for optional exact-score endgame TT
@@ -88,7 +91,6 @@ The current implementation does not yet have:
 * public direct endgame solve API
 * WLD search path
 * WLD endgame TT probing or storing
-* parity-region ordering
 * tuned native or WASM thresholds
 
 `use_endgame_tt` is implemented for exact-score endgame search. It remains
@@ -123,7 +125,7 @@ Status values:
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
 | Add WLD mode | not started | May be deferred after exact score |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
-| Add parity ordering as ordering only | not started | Test enabled/disabled equality |
+| Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
 | Add shared zero/one/two/three-empty path | done | Tested against generic solver through an internal generic-only policy |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |
 | Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/2/3/4/6/8/10/12 empty positions and a forced pass case |

@@ -70,6 +70,8 @@ The current search implementation includes:
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
   when `SearchOptions::use_endgame_tt` is enabled
 * shared small-empty exact-score path for 0, 1, 2, and 3 empty squares
+* ordering-only exact endgame parity hints through
+  `SearchOptions::use_endgame_parity_ordering`
 * endgame benchmark coverage through `vibe_othello_endgame_bench`
 * checked-in exact endgame benchmark baseline data for local comparison
 
@@ -93,7 +95,6 @@ The current implementation does not yet have:
 
 * WLD search path
 * WLD endgame TT probing or storing
-* parity-region endgame ordering
 * public direct endgame solve API
 * checked-in search performance baselines
 * real internal iterative deepening

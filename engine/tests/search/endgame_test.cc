@@ -43,19 +43,22 @@ board_core::Position parse_position_or_fail(std::string_view text) {
   return *position;
 }
 
-SearchOptions exact_options(std::uint8_t threshold, bool use_endgame_tt = false) noexcept {
+SearchOptions exact_options(std::uint8_t threshold, bool use_endgame_tt = false,
+                            bool use_endgame_parity_ordering = true) noexcept {
   return SearchOptions{
       .use_endgame_tt = use_endgame_tt,
       .exact_endgame = true,
+      .use_endgame_parity_ordering = use_endgame_parity_ordering,
       .endgame_exact_empties = threshold,
   };
 }
 
 SearchResult search_exact(board_core::Position position, std::uint8_t threshold,
-                          bool use_endgame_tt = false) {
+                          bool use_endgame_tt = false, bool use_endgame_parity_ordering = true) {
   CountingEvaluator evaluator{123};
-  SearchResult result = search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                                         exact_options(threshold, use_endgame_tt));
+  SearchResult result =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
+                       exact_options(threshold, use_endgame_tt, use_endgame_parity_ordering));
   REQUIRE(evaluator.calls == 0);
   return result;
 }
@@ -369,6 +372,50 @@ TEST_CASE("exact endgame TT preserves exact scores for representative positions"
   REQUIRE(saw_tt_probe);
   REQUIRE(saw_tt_store);
   REQUIRE(saw_tt_cutoff);
+}
+
+TEST_CASE("exact endgame parity ordering preserves corpus scores and best move tie behavior",
+          "[search][endgame][parity]") {
+  const std::vector<test_support::EndgamePositionCase> cases =
+      test_support::load_endgame_position_corpus(endgame_corpus_path());
+
+  bool saw_generic_parity_position = false;
+  for (const test_support::EndgamePositionCase& position_case : cases) {
+    INFO("position_id: " << position_case.id);
+    const std::uint8_t empties = position_case.expected_empties;
+    const SearchResult without_parity = search_exact(position_case.position, empties, false, false);
+    const SearchResult with_parity = search_exact(position_case.position, empties, false, true);
+
+    require_exact_result_invariants(position_case.position, without_parity);
+    require_exact_result_invariants(position_case.position, with_parity);
+    require_same_exact_scores(with_parity, without_parity);
+    saw_generic_parity_position = saw_generic_parity_position || empties > 3;
+  }
+
+  REQUIRE(saw_generic_parity_position);
+}
+
+TEST_CASE("exact endgame parity ordering leaves terminal and forced pass roots unchanged",
+          "[search][endgame][parity]") {
+  const std::array<board_core::Position, 2> positions{
+      parse_position_or_fail(
+          "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b"),
+      parse_position_or_fail(
+          "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"),
+  };
+
+  for (const board_core::Position position : positions) {
+    const std::uint8_t empties = test_support::endgame_empty_count(position);
+    const SearchResult without_parity = search_exact(position, empties, false, false);
+    const SearchResult with_parity = search_exact(position, empties, false, true);
+
+    require_exact_result_invariants(position, without_parity);
+    require_exact_result_invariants(position, with_parity);
+    REQUIRE(with_parity.best_move == without_parity.best_move);
+    REQUIRE(with_parity.score == without_parity.score);
+    REQUIRE(with_parity.pv == without_parity.pv);
+    REQUIRE(with_parity.root_moves == without_parity.root_moves);
+  }
 }
 
 TEST_CASE("exact endgame stop requested before search publishes no exact result",
