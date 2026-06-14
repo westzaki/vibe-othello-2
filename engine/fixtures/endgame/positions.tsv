@@ -9,3 +9,7 @@ six_empty_simple	generated	WWWWWWW./BBBBBW../BBWBWW.W/BWWWWWW./BWBBWWBB/BBBWB.BW
 eight_empty_simple	generated	WWWWWWW./BBBBBW../BBWBWW../BWWWWWB./BWBBWWWB/BBBWB.WW/BBBBBB.W/BBBWWWWW b	8	Deterministically generated from initial position
 ten_empty_simple	generated	WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBWB/BBBWB.BW/BBBBBB../BBBWWWWW b	10	Deterministically generated from initial position
 twelve_empty_simple	generated	WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBBB/BBBWB.B./BBWBBB../BW.WWWWW b	12	Deterministically generated from initial position
+fourteen_empty_simple	generated	WWWWWWW./.WWWBW../BBWBBB../BWWBB.B./BWBBBBBB/BWBBB.B./.WWWWB../BW.WWWWW b	14	Deterministically generated from initial position
+sixteen_empty_simple	generated	WWWWWB../.WWWBW../BBWBBW../BWWBB.W./BWBBBWW./BWBBB.W./.WWWWB../BW.WWWWW b	16	Deterministically generated from initial position
+eighteen_empty_simple	generated	WWWWW.../.WWWWW../BBWBBW../BWWBB.W./BWBBBWW./BWBBB.W./.WWWWB../BW.WWWB. b	18	Deterministically generated from initial position
+twenty_empty_simple	generated	WWBB..../.WWBWW../BWWW.W../BWWBW.W./BWBBWWW./BWBBB.W./.WWWWB../BW.WWWB. b	20	Deterministically generated from initial position
