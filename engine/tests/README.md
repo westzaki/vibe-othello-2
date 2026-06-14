@@ -1,6 +1,8 @@
 # Engine Tests
 
 Engine tests use Catch2 and run through CTest.
+Test sources and test-only helpers live under this directory. Checked-in data
+shared with benchmarks or golden generation scripts lives in `../fixtures/`.
 
 ## Board Core Tests
 
@@ -49,9 +51,9 @@ Engine tests use Catch2 and run through CTest.
 
 | File | Role |
 | --- | --- |
-| `../test_support/board_core/reference_board.*` | Slow readable reference board for differential tests. |
-| `../test_support/board_core/perft.*` | Shared perft implementation for board-core validation. |
-| `../test_support/board_core/corpus.h` | Shared representative positions, deterministic seeds, RNG, and move selection helpers. |
-| `../test_support/search/reference_search.*` | Shared reference search implementation for search validation. |
-| `../test_support/search/reference_endgame.*` | Slow readable exact endgame solver for differential tests. |
-| `../test_support/search/endgame_positions.*` | Shared deterministic endgame positions for tests and benchmarks. |
+| `support/board_core/reference_board.*` | Slow readable reference board for differential tests. |
+| `support/board_core/perft.*` | Shared perft implementation for board-core validation. |
+| `support/board_core/corpus.h` | Shared representative positions, deterministic seeds, RNG, and move selection helpers. |
+| `support/search/reference_search.*` | Shared reference search implementation for search validation. |
+| `support/search/reference_endgame.*` | Slow readable exact endgame solver for differential tests. |
+| `support/search/endgame_positions.*` | Shared deterministic endgame positions for tests. |

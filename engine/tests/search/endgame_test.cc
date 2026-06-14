@@ -76,7 +76,7 @@ SearchResult search_exact_with_limits(board_core::Position position, std::uint8_
 }
 
 std::string endgame_corpus_path() {
-  return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/testdata/endgame/positions.tsv";
+  return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/fixtures/endgame/positions.tsv";
 }
 
 board_core::Position corpus_position(std::string_view id) {

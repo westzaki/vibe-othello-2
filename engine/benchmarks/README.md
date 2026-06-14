@@ -41,7 +41,7 @@ changing code:
   --exact-endgame 8 \
   --endgame-tt both \
   --endgame-parity both \
-  --corpus engine/testdata/search/positions.tsv \
+  --corpus engine/fixtures/search/positions.tsv \
   --jsonl
 ```
 
@@ -53,7 +53,7 @@ for output compatibility. `--exact-endgame N` enables exact endgame cutover when
 search rows. Fixed-depth rows use the public fixed-depth API, so only the
 evaluator choice applies there.
 
-Use `--corpus engine/testdata/search/positions.tsv` to run the checked-in search
+Use `--corpus engine/fixtures/search/positions.tsv` to run the checked-in search
 corpus. If `--corpus` is omitted, the executable uses the built-in corpus for
 backward-compatible local runs. Corpus rows are TSV with:
 
@@ -89,7 +89,7 @@ emitted columns.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
 `--corpus` is omitted, the executable first uses the checked-in
-`engine/testdata/endgame/positions.tsv` corpus when run from the repository
+`engine/fixtures/endgame/positions.tsv` corpus when run from the repository
 root. If that file is unavailable, it falls back to a deterministic built-in
 corpus with the same 0/1/4/6/8/10/12-empty positions, including a forced-pass
 case. External corpus rows are TSV with:
@@ -100,7 +100,7 @@ id	category	position	expected_empties	notes
 
 `position` uses the board-core serialized position format.
 
-Use `--corpus engine/testdata/endgame/positions.tsv` to run the checked-in
+Use `--corpus engine/fixtures/endgame/positions.tsv` to run the checked-in
 endgame corpus used by deterministic golden checks.
 
 For small-empty exact-score changes, use a low cap to isolate the shared
@@ -111,7 +111,7 @@ For small-empty exact-score changes, use a low cap to isolate the shared
   --jsonl \
   --repeat 10 \
   --max-empties 3 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/fixtures/endgame/positions.tsv
 ```
 
 Compare the existing `nodes`, `endgame_nodes`, `elapsed_ms`, and `nps` fields
@@ -129,7 +129,7 @@ count:
   --tt off \
   --repeat 3 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/fixtures/endgame/positions.tsv
 ```
 
 For exact endgame TT changes, keep parity fixed and compare the `tt_mode`,
@@ -143,7 +143,7 @@ and `elapsed_ms`:
   --tt both \
   --repeat 3 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/fixtures/endgame/positions.tsv
 ```
 
 For exact endgame root reporting changes, keep parity and TT fixed and compare
@@ -155,12 +155,12 @@ For exact endgame root reporting changes, keep parity and TT fixed and compare
   --jsonl \
   --root-mode all \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/fixtures/endgame/positions.tsv
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
   --root-mode best \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/fixtures/endgame/positions.tsv
 ```
 
 For interaction checks before changing root mode, small-empty paths, WLD, or TT
@@ -175,7 +175,7 @@ position and repeat:
   --tt both \
   --repeat 2 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/fixtures/endgame/positions.tsv
 ```
 
 Parity and TT are correctness-neutral options for exact-score search. Compare
@@ -190,8 +190,8 @@ emit zero TT counters.
 | `board_core_bench.cc` | Board-core hot-path benchmark executable. |
 | `endgame_bench.cc` | Exact endgame benchmark executable with checked-in corpus default and built-in fallback. |
 | `search_bench.cc` | Search benchmark executable with configurable fixed depths. |
-| `../testdata/search/positions.tsv` | Search benchmark corpus for repeatable local and future golden checks. |
-| `../testdata/endgame/positions.tsv` | Exact endgame benchmark corpus for repeatable local and future golden checks. |
+| `../fixtures/search/positions.tsv` | Search benchmark corpus for repeatable local and future golden checks. |
+| `../fixtures/endgame/positions.tsv` | Exact endgame benchmark corpus for repeatable local and future golden checks. |
 | `baselines/` | Optional checked-in reference measurements and their documentation. |
 | `results/` | Local scratch space for benchmark outputs. Contents are ignored by Git. |
 | `scripts/common/` | Low-level shared Python helpers for benchmark management scripts. |
@@ -277,7 +277,7 @@ schema is:
 The checked-in deterministic search golden is:
 
 ```text
-engine/testdata/search/golden/discdiff_depth_1_4.jsonl
+engine/fixtures/search/golden/discdiff_depth_1_4.jsonl
 ```
 
 It is generated from the checked-in corpus with iterative search, disc-difference
@@ -288,11 +288,11 @@ evaluation, depths 1..4, TT mode `both`, and JSONL output:
   --mode iterative \
   --depth 1..4 \
   --tt both \
-  --corpus engine/testdata/search/positions.tsv \
+  --corpus engine/fixtures/search/positions.tsv \
   --jsonl > /tmp/search_actual.jsonl
 engine/benchmarks/scripts/search/check_golden.py \
   /tmp/search_actual.jsonl \
-  engine/testdata/search/golden/discdiff_depth_1_4.jsonl
+  engine/fixtures/search/golden/discdiff_depth_1_4.jsonl
 ```
 
 `engine/benchmarks/scripts/search/check_golden.py` normalizes both actual and
@@ -336,7 +336,7 @@ disc-difference evaluation, depth 5, TT mode `both`, and raw JSONL output:
   --mode iterative \
   --depth 5 \
   --tt both \
-  --corpus engine/testdata/search/positions.tsv \
+  --corpus engine/fixtures/search/positions.tsv \
   --jsonl \
   > engine/benchmarks/results/search-iterative-discdiff-depth5-raw.jsonl
 ```
@@ -389,7 +389,7 @@ JSONL output:
   --jsonl \
   --repeat 3 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv \
+  --corpus engine/fixtures/endgame/positions.tsv \
   > engine/benchmarks/results/endgame-exact-score-raw.jsonl
 ```
 
@@ -421,7 +421,7 @@ and regeneration checklist.
 The checked-in deterministic exact endgame golden is:
 
 ```text
-engine/testdata/endgame/golden/exact_score.jsonl
+engine/fixtures/endgame/golden/exact_score.jsonl
 ```
 
 It is generated from the checked-in endgame corpus with exact endgame search,
@@ -433,10 +433,10 @@ output:
   --jsonl \
   --repeat 1 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv > /tmp/endgame_actual.jsonl
+  --corpus engine/fixtures/endgame/positions.tsv > /tmp/endgame_actual.jsonl
 engine/benchmarks/scripts/endgame/check_golden.py \
   /tmp/endgame_actual.jsonl \
-  engine/testdata/endgame/golden/exact_score.jsonl
+  engine/fixtures/endgame/golden/exact_score.jsonl
 ```
 
 `engine/benchmarks/scripts/endgame/check_golden.py` normalizes both actual and

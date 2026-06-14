@@ -18,14 +18,14 @@ FetchContent_MakeAvailable(Catch2)
 
 add_library(
   vibe_othello_engine_test_support STATIC
-  ../test_support/board_core/perft.cc
-  ../test_support/search/endgame_positions.cc
-  ../test_support/board_core/reference_board.cc
-  ../test_support/search/reference_endgame.cc
-  ../test_support/search/reference_search.cc)
+  support/board_core/perft.cc
+  support/search/endgame_positions.cc
+  support/board_core/reference_board.cc
+  support/search/reference_endgame.cc
+  support/search/reference_search.cc)
 
 target_include_directories(vibe_othello_engine_test_support
-                           PUBLIC ../test_support)
+                           PUBLIC support)
 
 target_link_libraries(vibe_othello_engine_test_support PUBLIC vibe_othello::engine)
 

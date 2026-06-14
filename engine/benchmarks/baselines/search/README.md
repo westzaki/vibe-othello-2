@@ -16,7 +16,7 @@ checked-in search corpus:
   --mode iterative \
   --depth 5 \
   --tt both \
-  --corpus engine/testdata/search/positions.tsv \
+  --corpus engine/fixtures/search/positions.tsv \
   --jsonl \
   > engine/benchmarks/results/search-iterative-discdiff-depth5-raw.jsonl
 ```
@@ -60,8 +60,8 @@ Minimum aggregate shape:
   "benchmark": "search_iterative_discdiff",
   "measured_commit": "<full measured commit sha>",
   "measured_revision": "<short measured revision>",
-  "command": "./build-bench/engine/benchmarks/vibe_othello_search_bench --mode iterative --depth 5 --tt both --corpus engine/testdata/search/positions.tsv --jsonl",
-  "corpus": "engine/testdata/search/positions.tsv",
+  "command": "./build-bench/engine/benchmarks/vibe_othello_search_bench --mode iterative --depth 5 --tt both --corpus engine/fixtures/search/positions.tsv --jsonl",
+  "corpus": "engine/fixtures/search/positions.tsv",
   "mode": "iterative",
   "depth": 5,
   "tt_mode": "both",

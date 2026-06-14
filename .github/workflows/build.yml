@@ -82,5 +82,5 @@ jobs:
       - name: Run clang-tidy
         continue-on-error: true
         run: |
-          mapfile -t files < <(find engine/src engine/tests engine/test_support tools -type f -name '*.cc' -print)
+          mapfile -t files < <(find engine/src engine/tests tools -type f -name '*.cc' -print)
           clang-tidy -p build-tidy "${files[@]}"

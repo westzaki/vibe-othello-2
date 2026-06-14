@@ -65,15 +65,21 @@ engine/
 │  ├─ baselines/
 │  ├─ results/
 │  └─ scripts/
+├─ fixtures/
 ├─ include/
 ├─ src/
-├─ test_support/
 └─ tests/
+   └─ support/
 ```
 
 Engine tests use Catch2 and run through CTest.
-Shared test-only helpers live in `engine/test_support/` and are linked only by
-test targets.
+`engine/tests/` owns test sources and test-only helpers. Shared test-only
+helpers live in `engine/tests/support/` and are linked only by test targets.
+
+`engine/fixtures/` owns checked-in data shared by tests, benchmarks, and golden
+generation scripts. Keep reusable validation corpora and expected-output files
+there instead of under `engine/tests/` when non-test executables also consume
+them.
 
 `engine/benchmarks/` owns the benchmark suite: C++ benchmark executables,
 checked-in aggregate baselines, ignored local result scratch files, and

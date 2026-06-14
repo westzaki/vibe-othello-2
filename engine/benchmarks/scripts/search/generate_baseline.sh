@@ -6,7 +6,7 @@ repo_root="$(CDPATH= cd "$script_dir/../../../.." && pwd -P)"
 
 bench="${1:-./build-bench/engine/benchmarks/vibe_othello_search_bench}"
 output="${2:-}"
-corpus="engine/testdata/search/positions.tsv"
+corpus="engine/fixtures/search/positions.tsv"
 depth="5"
 mode="iterative"
 tt_mode="both"

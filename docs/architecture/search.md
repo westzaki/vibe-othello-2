@@ -1288,7 +1288,7 @@ engine/tests/search/
 Recommended test-support layout:
 
 ```text
-engine/test_support/search/
+engine/tests/support/search/
   reference_search.h
   reference_search.cc
   search_positions.h
