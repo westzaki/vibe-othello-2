@@ -262,7 +262,11 @@ TEST_CASE("exact endgame stop requested before search publishes no exact result"
 
   REQUIRE(result.stopped);
   REQUIRE_FALSE(result.exact);
+  REQUIRE(result.bound == BoundType::lower);
+  REQUIRE(result.completed_depth == Depth{0});
+  REQUIRE(result.score == kScoreLoss);
   REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.pv.size == 0);
   REQUIRE(result.root_moves.empty());
   REQUIRE(result.nodes == 0);
   REQUIRE(result.stats.nodes == 0);
@@ -277,7 +281,11 @@ TEST_CASE("exact endgame max nodes can stop before any root move completes",
 
   REQUIRE(result.stopped);
   REQUIRE_FALSE(result.exact);
+  REQUIRE(result.bound == BoundType::lower);
+  REQUIRE(result.completed_depth == Depth{0});
+  REQUIRE(result.score == kScoreLoss);
   REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.pv.size == 0);
   REQUIRE(result.root_moves.empty());
   REQUIRE(result.nodes == 1);
   REQUIRE(result.stats.nodes == 1);
@@ -297,6 +305,8 @@ TEST_CASE("interrupted exact endgame publishes only completed exact root moves",
 
   REQUIRE(limited.stopped);
   REQUIRE_FALSE(limited.exact);
+  REQUIRE(limited.bound == BoundType::lower);
+  REQUIRE(limited.completed_depth == complete.completed_depth);
   REQUIRE(limited.best_move.has_value());
   REQUIRE(limited.score == complete.root_moves[0].score);
   REQUIRE(limited.pv == complete.root_moves[0].pv);

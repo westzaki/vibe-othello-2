@@ -82,6 +82,8 @@ void publish_elapsed(SearchResult* result, std::chrono::steady_clock::time_point
 void mark_stopped_non_exact(SearchResult* result) noexcept {
   result->stopped = true;
   result->exact = false;
+  result->bound = BoundType::lower;
+  result->score = kScoreLoss;
 }
 
 } // namespace
@@ -174,7 +176,7 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
   };
 
   SearchResult result{
-      .completed_depth = completed_depth,
+      .completed_depth = 0,
   };
 
   if (note_endgame_node_visited(&context)) {
@@ -187,6 +189,7 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
 
   if (board_core::is_terminal(context.position)) {
     ++context.stats.terminal_nodes;
+    result.completed_depth = completed_depth;
     result.score = terminal_score(context.position);
     result.nodes = context.stats.nodes;
     result.stats = context.stats;
@@ -223,6 +226,7 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
     const SearchValue& pass_value = pass.value();
 
     result.best_move = board_core::make_pass();
+    result.completed_depth = completed_depth;
     result.score = pass_value.score;
     result.pv = pass_value.pv;
     result.root_moves.push_back(
@@ -275,12 +279,15 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
   publish_elapsed(&result, start);
   if (result.stopped) {
     if (result.best_move.has_value()) {
+      result.bound = BoundType::lower;
+      result.completed_depth = completed_depth;
       result.score = best_score;
       result.pv = best_line;
     }
     return result;
   }
 
+  result.completed_depth = completed_depth;
   result.score = best_score;
   result.pv = best_line;
   result.exact = true;
