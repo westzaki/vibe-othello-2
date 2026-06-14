@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-TOOLS_BENCHMARKS = Path(__file__).resolve().parents[1] / "benchmarks"
-sys.path.insert(0, str(TOOLS_BENCHMARKS))
+COMMON_DIR = Path(__file__).resolve().parents[1] / "common"
+sys.path.insert(0, str(COMMON_DIR))
 
 import baseline_common
 

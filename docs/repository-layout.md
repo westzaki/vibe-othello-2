@@ -54,12 +54,17 @@ docs/
 ## Engine Layout
 
 The engine owns Othello rules and state transitions. It builds as a static
-library; executable entry points live in `tools/` or `apps/`.
+library. Human-facing executable entry points live in `tools/` or `apps/`;
+engine-specific benchmark executables and benchmark management scripts live
+under `engine/benchmarks/`.
 
 ```text
 engine/
 ├─ README.md
 ├─ benchmarks/
+│  ├─ baselines/
+│  ├─ results/
+│  └─ scripts/
 ├─ include/
 ├─ src/
 ├─ test_support/
@@ -70,10 +75,16 @@ Engine tests use Catch2 and run through CTest.
 Shared test-only helpers live in `engine/test_support/` and are linked only by
 test targets.
 
+`engine/benchmarks/` owns the benchmark suite: C++ benchmark executables,
+checked-in aggregate baselines, ignored local result scratch files, and
+golden/baseline helper scripts. Benchmark helper scripts are part of the engine
+benchmark suite, not generic top-level tools.
+
 ## Tools Layout
 
-Tools link against engine libraries and provide small command-line entry points for
-development, smoke checks, and validation.
+Tools link against engine libraries and provide small command-line entry points
+for development, smoke checks, and validation. Keep this area focused on
+human-run development CLIs rather than benchmark suite management scripts.
 
 ```text
 tools/
@@ -82,15 +93,8 @@ tools/
 │  └─ README.md
 ├─ engine-cli/
 │  └─ main.cc
-├─ engine-smoke/
-│  └─ main.cc
-├─ endgame/
-│  ├─ check_baseline.py
-│  ├─ check_golden.py
-│  └─ generate_golden.sh
-└─ search/
-   ├─ check_golden.py
-   └─ generate_golden.sh
+└─ engine-smoke/
+   └─ main.cc
 ```
 
 ## Apps Layout
