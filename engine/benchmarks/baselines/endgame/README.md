@@ -31,6 +31,10 @@ To regenerate the checked-in baseline:
 5. Keep per-repeat timing summaries in `raw_runs` when useful for comparison.
 6. Run the schema check below before committing.
 
+There is currently no endgame baseline generator helper. Keep the manual
+selection step explicit until the selected-repeat policy is automated enough for
+a script.
+
 The checked-in aggregate JSON must include:
 
 - `schema_version`
@@ -68,7 +72,7 @@ Minimum aggregate shape:
 Sanity-check the aggregate JSON before committing it:
 
 ```sh
-tools/endgame/check_baseline.py \
+engine/benchmarks/scripts/endgame/check_baseline.py \
   engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json
 ```
 

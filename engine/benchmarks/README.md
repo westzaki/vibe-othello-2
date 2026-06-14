@@ -194,6 +194,15 @@ emit zero TT counters.
 | `../testdata/endgame/positions.tsv` | Exact endgame benchmark corpus for repeatable local and future golden checks. |
 | `baselines/` | Optional checked-in reference measurements and their documentation. |
 | `results/` | Local scratch space for benchmark outputs. Contents are ignored by Git. |
+| `scripts/common/` | Low-level shared Python helpers for benchmark management scripts. |
+| `scripts/search/` | Search golden and aggregate baseline helper scripts. |
+| `scripts/endgame/` | Endgame golden and aggregate baseline helper scripts. |
+
+Benchmark helper scripts are part of the engine benchmark suite, not generic
+top-level developer tools. Keep benchmark-specific schema validation in the
+search, endgame, or board-core script that owns that output shape. Shared
+helpers should stay low-level: JSON loading/writing, common envelope checks,
+metadata helpers, and primitive type checks.
 
 ## Reporting Results
 
@@ -281,23 +290,23 @@ evaluation, depths 1..4, TT mode `both`, and JSONL output:
   --tt both \
   --corpus engine/testdata/search/positions.tsv \
   --jsonl > /tmp/search_actual.jsonl
-tools/search/check_golden.py \
+engine/benchmarks/scripts/search/check_golden.py \
   /tmp/search_actual.jsonl \
   engine/testdata/search/golden/discdiff_depth_1_4.jsonl
 ```
 
-`tools/search/check_golden.py` normalizes both actual and golden JSONL before
-comparing deterministic result fields only: position metadata, mode, TT mode,
-depth, evaluator, score, best move, PV, and root move
+`engine/benchmarks/scripts/search/check_golden.py` normalizes both actual and
+golden JSONL before comparing deterministic result fields only: position
+metadata, mode, TT mode, depth, evaluator, score, best move, PV, and root move
 score/bound/depth/exact/selective values keyed by move. It intentionally does
-not gate `nodes`, eval/search statistics, TT statistics, `elapsed_ns`, or `nps`.
-Those values can move with implementation details, machine load, and benchmark
-environment, so they should be reviewed separately when relevant.
+not gate `nodes`, eval/search statistics, TT statistics, `elapsed_ns`, or
+`nps`. Those values can move with implementation details, machine load, and
+benchmark environment, so they should be reviewed separately when relevant.
 
 Golden updates are manual. Regenerate with:
 
 ```sh
-tools/search/generate_golden.sh
+engine/benchmarks/scripts/search/generate_golden.sh
 ```
 
 Review the JSONL diff before committing it. Do not auto-update golden files in
@@ -335,7 +344,7 @@ disc-difference evaluation, depth 5, TT mode `both`, and raw JSONL output:
 Regenerate the aggregate baseline with:
 
 ```sh
-tools/search/generate_baseline.sh
+engine/benchmarks/scripts/search/generate_baseline.sh
 ```
 
 The `--jsonl` output is raw benchmark output: one JSON object per
@@ -350,7 +359,7 @@ type, command, and corpus.
 Sanity-check the checked-in aggregate baseline JSON with:
 
 ```sh
-tools/search/check_baseline.py \
+engine/benchmarks/scripts/search/check_baseline.py \
   engine/benchmarks/baselines/search/2026-06-14-<short-sha>-<machine>-<compiler>-release.json
 ```
 
@@ -392,10 +401,15 @@ statistics, the selected repeat timing, and raw repeat timing summaries. It is
 comparison data only, not a performance gate. Prefer comparing runs from the
 same machine, compiler, build type, command, and corpus.
 
+There is currently no endgame `generate_baseline.sh` helper. Regenerate endgame
+baselines manually from the raw JSONL command above, then validate the aggregate
+JSON with the schema check below. Add a generator only when the baseline
+selection policy is automated enough to make the helper unambiguous.
+
 Sanity-check the checked-in aggregate baseline JSON with:
 
 ```sh
-tools/endgame/check_baseline.py \
+engine/benchmarks/scripts/endgame/check_baseline.py \
   engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json
 ```
 
@@ -420,25 +434,25 @@ output:
   --repeat 1 \
   --max-empties 12 \
   --corpus engine/testdata/endgame/positions.tsv > /tmp/endgame_actual.jsonl
-tools/endgame/check_golden.py \
+engine/benchmarks/scripts/endgame/check_golden.py \
   /tmp/endgame_actual.jsonl \
   engine/testdata/endgame/golden/exact_score.jsonl
 ```
 
-`tools/endgame/check_golden.py` normalizes both actual and golden JSONL before
-comparing deterministic result fields only: position metadata, mode, empty
-count, score, best move, exact/stopped flags, completed depth, PV, and root move
-score/bound/depth/exact/selective values keyed by move. It intentionally does
-not gate `repeat`, option columns, node counts, search statistics, `elapsed_ms`,
-or `nps`. Those values are expected to move when exact endgame TT, parity
-ordering, or small-empty paths are introduced. Matrix benchmark output from
-`--parity both` or `--tt both` has extra records and is not the input shape for
-the checked-in single-policy golden file.
+`engine/benchmarks/scripts/endgame/check_golden.py` normalizes both actual and
+golden JSONL before comparing deterministic result fields only: position
+metadata, mode, empty count, score, best move, exact/stopped flags, completed
+depth, PV, and root move score/bound/depth/exact/selective values keyed by
+move. It intentionally does not gate `repeat`, option columns, node counts,
+search statistics, `elapsed_ms`, or `nps`. Those values are expected to move
+when exact endgame TT, parity ordering, or small-empty paths are introduced.
+Matrix benchmark output from `--parity both` or `--tt both` has extra records
+and is not the input shape for the checked-in single-policy golden file.
 
 Golden updates are manual. Regenerate with:
 
 ```sh
-tools/endgame/generate_golden.sh
+engine/benchmarks/scripts/endgame/generate_golden.sh
 ```
 
 Review the JSONL diff before committing it. Do not auto-update golden files in

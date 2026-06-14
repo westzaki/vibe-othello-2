@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+script_dir="$(CDPATH= cd "$(dirname "$0")" && pwd -P)"
+repo_root="$(CDPATH= cd "$script_dir/../../../.." && pwd -P)"
+
 bench="${1:-./build-bench/engine/benchmarks/vibe_othello_search_bench}"
 output="${2:-}"
 corpus="engine/testdata/search/positions.tsv"
@@ -10,6 +13,7 @@ tt_mode="both"
 build_type="Release"
 raw="engine/benchmarks/results/search-iterative-discdiff-depth${depth}-raw.jsonl"
 
+cd "$repo_root"
 mkdir -p engine/benchmarks/results
 
 measured_commit="$(git rev-parse HEAD)"
@@ -51,7 +55,7 @@ command="${bench} --mode ${mode} --depth ${depth} --tt ${tt_mode} --corpus ${cor
   --corpus "$corpus" \
   --jsonl >"$raw"
 
-tools/search/check_baseline.py \
+"$script_dir/check_baseline.py" \
   --write-aggregate "$output" \
   --measured-commit "$measured_commit" \
   --measured-revision "$measured_revision" \
@@ -67,4 +71,4 @@ tools/search/check_baseline.py \
   --tt-mode "$tt_mode" \
   "$raw"
 
-tools/search/check_baseline.py "$output"
+"$script_dir/check_baseline.py" "$output"

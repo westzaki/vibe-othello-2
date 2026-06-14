@@ -29,7 +29,8 @@ per-position comparison rows.
 To regenerate the checked-in baseline:
 
 1. Configure and build `vibe_othello_search_bench` in Release mode.
-2. Run `tools/search/generate_baseline.sh` on an otherwise quiet machine.
+2. Run `engine/benchmarks/scripts/search/generate_baseline.sh` on an otherwise
+   quiet machine.
 3. Set `measured_commit` and `measured_revision` to the engine commit that was
    measured, not necessarily the documentation commit that updates the baseline.
 4. Review deterministic result fields first: score, best move, PV, and root
@@ -120,7 +121,7 @@ Minimum aggregate shape:
 Sanity-check the aggregate JSON before committing it:
 
 ```sh
-tools/search/check_baseline.py \
+engine/benchmarks/scripts/search/check_baseline.py \
   engine/benchmarks/baselines/search/2026-06-14-<short-sha>-<machine>-<compiler>-release.json
 ```
 
