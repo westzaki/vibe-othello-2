@@ -178,6 +178,30 @@ data, not universal truth. Timing and NPS values are not intended to be CI gates
 golden checks compare deterministic fields such as score, best move, PV, and
 root move scores separately from timing and search statistics.
 
+## Endgame Baselines
+
+The checked-in exact endgame benchmark baseline is:
+
+```text
+engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json
+```
+
+It is generated from the checked-in endgame corpus with exact endgame search,
+repeat count 3, a 12-empty cap, and JSONL output:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --repeat 3 \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv
+```
+
+The baseline stores environment metadata, deterministic search statistics, the
+selected repeat timing, and raw repeat timing values. It is comparison data only,
+not a performance gate. Prefer comparing runs from the same machine, compiler,
+build type, command, and corpus.
+
 ## Endgame Golden Checks
 
 The checked-in deterministic exact endgame golden is:

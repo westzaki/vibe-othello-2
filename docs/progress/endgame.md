@@ -69,6 +69,7 @@ The current exact endgame implementation includes:
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
 * provides an endgame benchmark executable with a checked-in corpus default and
   deterministic built-in fallback
+* has checked-in exact endgame benchmark baseline data for local comparison
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
 
@@ -81,7 +82,6 @@ The current implementation does not yet have:
 * endgame TT probing or storing
 * parity-region ordering
 * small-empty specialized routines
-* checked-in endgame benchmark baselines
 * tuned native or WASM thresholds
 
 `use_endgame_tt` and `endgame_wld_empties` are currently expected to remain safe
@@ -116,7 +116,8 @@ Status values:
 | Add specialized zero/one/two/three-empty routines | not started | Test against generic solver |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |
 | Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/4/6/8/10/12 empty positions and a forced pass case |
-| Tune thresholds for native builds | deferred | Requires benchmark baselines |
+| Add checked-in endgame benchmark baseline | done | `engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json` |
+| Tune thresholds for native builds | deferred | Requires repeated same-machine comparisons after baseline collection |
 | Tune thresholds separately for WASM builds | deferred | Requires WASM measurement |
 | Consider parallel endgame search | deferred | Only after single-thread stability |
 
