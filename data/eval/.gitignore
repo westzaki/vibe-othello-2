@@ -1,0 +1,9 @@
+# Keep local learned weights and large generated artifacts out of normal git history.
+/artifacts/
+/local/
+*.bin
+*.npy
+*.npz
+*.onnx
+*.weights
+*.weights.bin

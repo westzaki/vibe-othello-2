@@ -10,6 +10,7 @@ repo/
 ├─ README.md
 ├─ .github/
 ├─ docs/
+├─ data/
 ├─ engine/
 ├─ tools/
 ├─ apps/
@@ -25,6 +26,7 @@ repo/
 | `README.md` | Project entry point |
 | `.github/` | Pull request templates and CI workflows |
 | `docs/` | Architecture, progress, layout, style, and review documents |
+| `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |
 | `engine/` | Native C++ Othello engine static library |
 | `tools/` | Developer and validation command-line tools |
 | `apps/` | User-facing applications |
@@ -86,6 +88,26 @@ checked-in aggregate baselines, ignored local result scratch files, and
 golden/baseline helper scripts. Benchmark helper scripts are part of the engine
 benchmark suite, not generic top-level tools.
 
+## Data Layout
+
+`data/` owns repository policy and manifests for pattern-learning inputs and
+evaluation artifacts.
+
+```text
+data/
+├─ corpora/
+│  ├─ README.md
+│  ├─ dataset-manifest.schema.json
+│  └─ samples/
+└─ eval/
+   └─ README.md
+```
+
+Raw third-party corpora, derived datasets, learned binary weights, and large
+generated artifacts stay out of normal git history. Checked-in manifests and
+tiny manifest-only samples are allowed when they contain no restricted payload
+data and no personal local paths.
+
 ## Tools Layout
 
 Tools link against engine libraries and provide small command-line entry points
@@ -94,6 +116,7 @@ human-run development CLIs rather than benchmark suite management scripts.
 
 ```text
 tools/
+├─ data-policy/
 ├─ arena/
 │  ├─ openings/
 │  └─ README.md

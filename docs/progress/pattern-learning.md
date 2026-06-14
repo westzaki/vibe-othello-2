@@ -33,6 +33,9 @@ Existing foundations include:
 * deterministic search and endgame golden-check tooling
 * benchmark infrastructure for board core, search, and endgame
 * runtime-owned fixed pattern schema fixture with validation coverage
+* repository data policy READMEs for corpus manifests and evaluation artifacts
+* dataset manifest JSON schema with a manifest-only sample
+* CTest-backed dataset manifest smoke validation
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -41,9 +44,6 @@ evaluation checks, and strength comparisons.
 
 The current implementation does not yet have:
 
-* `data/corpora/README.md`
-* `data/eval/README.md`
-* dataset manifest schema
 * local-only corpus download scripts
 * data importer tools
 * pattern dataset builder
@@ -71,10 +71,10 @@ Status values:
 | Add pattern-learning architecture document | done | `docs/architecture/pattern-learning.md` |
 | Add pattern-learning progress document | done | this file |
 | Add docs index rows | done | `docs/README.md` |
-| Add corpus data policy README | not started | Expected at `data/corpora/README.md` |
-| Add evaluation artifact README | not started | Expected at `data/eval/README.md` |
-| Add dataset manifest schema | not started | Must capture license and provenance fields |
-| Add tiny synthetic fixture records | not started | Tests must not require external corpora |
+| Add corpus data policy README | done | `data/corpora/README.md` |
+| Add evaluation artifact README | done | `data/eval/README.md` |
+| Add dataset manifest schema | done | `data/corpora/dataset-manifest.schema.json` plus CTest smoke validation |
+| Add tiny synthetic fixture records | not started | Manifest-only sample exists; no raw records are committed |
 | Add importer for one simple text format | not started | Should reject illegal or malformed records |
 | Add dataset builder and deterministic splitter | not started | Should record duplicate handling and split ids |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
@@ -85,7 +85,7 @@ Status values:
 | Add runtime loader compatibility test | not started | Bridges learning output to evaluation runtime |
 | Add local-only external corpus scripts | deferred | Requires source-specific license review |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |
-| Add publication gate | not started | Blocks unclear provenance by default |
+| Add publication gate | not started | Policy documented; enforcement beyond manifest smoke validation is still pending |
 
 ## Completion Bar
 
