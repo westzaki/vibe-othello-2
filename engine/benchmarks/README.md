@@ -51,9 +51,11 @@ The search fixture corpus currently covers:
 Endgame benchmark output is TSV by default and measures the root-only exact
 endgame solver through `search_iterative` with `exact_endgame = true`. Use
 `--csv` for comma-separated output, `--jsonl` for JSON Lines output,
-`--parity on|off|both` to choose exact endgame parity ordering, `--repeat N` to
-repeat each position, and `--max-empties N` to cap the default or external
-corpus by empty count.
+`--parity on|off|both` to choose exact endgame parity ordering,
+`--tt off|on|both` to choose exact endgame transposition-table use, `--repeat N`
+to repeat each position, and `--max-empties N` to cap the default or external
+corpus by empty count. Defaults are `--parity on` and `--tt off`, which preserve
+the original non-TT benchmark shape except for newly emitted columns.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
 `--corpus` is omitted, the executable first uses the checked-in
@@ -83,19 +85,56 @@ For small-empty exact-score changes, use a low cap to isolate the shared
 ```
 
 Compare the existing `nodes`, `endgame_nodes`, `elapsed_ms`, and `nps` fields
-against the previous baseline or a same-machine before run.
+against the previous baseline or a same-machine before run. TSV and CSV outputs
+now include additional option and TT-stat columns; prefer header-based parsing
+for local scripts.
 
-For parity-ordering changes, run both policies in one benchmark invocation and
-compare node counts by empty count:
+For parity-ordering changes, keep TT fixed and compare node counts by empty
+count:
 
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
   --parity both \
+  --tt off \
   --repeat 3 \
   --max-empties 12 \
   --corpus engine/testdata/endgame/positions.tsv
 ```
+
+For exact endgame TT changes, keep parity fixed and compare the `tt_mode`,
+`tt_probes`, `tt_hits`, `tt_cutoffs`, and `tt_stores` fields alongside `nodes`
+and `elapsed_ms`:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --parity on \
+  --tt both \
+  --repeat 3 \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv
+```
+
+For interaction checks before changing root mode, small-empty paths, WLD, or TT
+behavior, run the full parity/TT matrix. The deterministic run order is
+`parity_ordering=off,tt_mode=off`, `off,on`, `on,off`, then `on,on` for each
+position and repeat:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --parity both \
+  --tt both \
+  --repeat 2 \
+  --max-empties 12 \
+  --corpus engine/testdata/endgame/positions.tsv
+```
+
+Parity and TT are correctness-neutral options for exact-score search. Compare
+`score`, `best_move`, `pv`, `exact`, and `stopped` first; performance analysis
+should then look at nodes, timing, and TT hit/cutoff rates. `tt_mode=off` should
+emit zero TT counters.
 
 ## Layout
 
@@ -127,10 +166,12 @@ For search benchmarks, report the depth argument and the emitted columns:
 `tt_stores`, `tt_cutoffs`, `elapsed_ms`, and `nps`.
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
-`position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `score`,
-`best_move`, `exact`, `stopped`, `completed_depth`, `nodes`, `endgame_nodes`,
-`terminal_nodes`, `pass_nodes`, `beta_cutoffs`, `alpha_updates`,
-`root_moves_searched`, `elapsed_ms`, and `nps`.
+`position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `tt_mode`,
+`score`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
+`endgame_nodes`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
+`alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
+`tt_stores`, `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
+`tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
 
 Search JSONL output emits one JSON object per position/mode/depth result. The
 schema is:
@@ -150,9 +191,13 @@ schema is:
 - `mode`, currently `exact_score`
 - `empties`, `repeat`
 - `parity_ordering`, currently `on` or `off`
+- `tt_mode`, currently `off` or `on`
 - `score`, `best_move`, `exact`, `stopped`, `completed_depth`
 - `nodes`, `endgame_nodes`, `terminal_nodes`, `pass_nodes`
 - `beta_cutoffs`, `alpha_updates`, `root_moves_searched`
+- `tt_probes`, `tt_hits`, `tt_cutoffs`, `tt_stores`
+- `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
+  `tt_invalid_best_move_stores`
 - `elapsed_ms`, `nps`
 - `pv`
 - `root_moves`, with `move`, `score`, `bound`, `depth`, `exact`, `selective`
@@ -215,7 +260,8 @@ engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64
 ```
 
 It is generated from the checked-in endgame corpus with exact endgame search,
-repeat count 3, a 12-empty cap, and raw JSONL output:
+repeat count 3, a 12-empty cap, default parity ordering, TT disabled, and raw
+JSONL output:
 
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
@@ -253,7 +299,8 @@ engine/testdata/endgame/golden/exact_score.jsonl
 ```
 
 It is generated from the checked-in endgame corpus with exact endgame search,
-repeat count 1, a 12-empty cap, and JSONL output:
+repeat count 1, a 12-empty cap, default parity ordering, TT disabled, and JSONL
+output:
 
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
@@ -270,9 +317,11 @@ tools/endgame/check_golden.py \
 comparing deterministic result fields only: position metadata, mode, empty
 count, score, best move, exact/stopped flags, completed depth, PV, and root move
 score/bound/depth/exact/selective values keyed by move. It intentionally does
-not gate `repeat`, node counts, search statistics, `elapsed_ms`, or `nps`.
-Those values are expected to move when exact endgame TT, parity ordering, or
-small-empty paths are introduced.
+not gate `repeat`, option columns, node counts, search statistics, `elapsed_ms`,
+or `nps`. Those values are expected to move when exact endgame TT, parity
+ordering, or small-empty paths are introduced. Matrix benchmark output from
+`--parity both` or `--tt both` has extra records and is not the input shape for
+the checked-in single-policy golden file.
 
 Golden updates are manual. Regenerate with:
 

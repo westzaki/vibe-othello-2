@@ -61,10 +61,17 @@ enum class ParityMode {
   both,
 };
 
+enum class TTMode {
+  off,
+  on,
+  both,
+};
+
 struct Config {
   std::string corpus_path;
   OutputFormat output_format = OutputFormat::tsv;
   ParityMode parity_mode = ParityMode::on;
+  TTMode tt_mode = TTMode::off;
   std::uint32_t repeat = 1;
   std::uint8_t max_empties = 12;
   char delimiter = '\t';
@@ -221,8 +228,8 @@ std::vector<PositionCase> built_in_fallback_positions() {
 
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
-         << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--repeat N] [--max-empties N]"
-            " [--corpus PATH]\n\n"
+         << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--tt off|on|both]"
+            " [--repeat N] [--max-empties N] [--corpus PATH]\n\n"
          << "External TSV schema: id<TAB>category<TAB>position<TAB>expected_empties<TAB>notes\n";
 }
 
@@ -374,6 +381,25 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--tt") {
+      require_condition(index + 1 < argc, "--tt requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--tt", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      if (value == "off") {
+        config.tt_mode = TTMode::off;
+      } else if (value == "on") {
+        config.tt_mode = TTMode::on;
+      } else if (value == "both") {
+        config.tt_mode = TTMode::both;
+      } else {
+        require_condition(false, "invalid TT mode");
+      }
+      continue;
+    }
+
     if (argument == "--repeat") {
       require_condition(index + 1 < argc, "--repeat requires a value");
       value = argv[++index];
@@ -446,6 +472,10 @@ std::string best_move_to_string(const SearchResult& result) {
 }
 
 std::string_view parity_mode_name(bool enabled) noexcept {
+  return enabled ? "on" : "off";
+}
+
+std::string_view tt_mode_name(bool enabled) noexcept {
   return enabled ? "on" : "off";
 }
 
@@ -550,7 +580,7 @@ void require_replayable_pv(Position position, Line pv, std::string_view id) {
 }
 
 void validate_result(const PositionCase& position_case, const TimedResult& timed_result,
-                     std::uint8_t actual_empties) {
+                     std::uint8_t actual_empties, bool use_tt) {
   const SearchResult& result = timed_result.result;
   if (actual_empties != position_case.expected_empties) {
     std::cerr << "endgame_bench: expected " << static_cast<int>(position_case.expected_empties)
@@ -568,12 +598,28 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
     require_condition(is_legal_root_move(position_case.position, *result.best_move),
                       "best move is not legal from root");
   }
+  if (!use_tt) {
+    require_condition(result.stats.tt_probes == 0, "TT probes were recorded with TT disabled");
+    require_condition(result.stats.tt_hits == 0, "TT hits were recorded with TT disabled");
+    require_condition(result.stats.tt_cutoffs == 0, "TT cutoffs were recorded with TT disabled");
+    require_condition(result.stats.tt_stores == 0, "TT stores were recorded with TT disabled");
+    require_condition(result.stats.tt_overwrites == 0,
+                      "TT overwrites were recorded with TT disabled");
+    require_condition(result.stats.tt_collisions == 0,
+                      "TT collisions were recorded with TT disabled");
+    require_condition(result.stats.tt_rejected_stores == 0,
+                      "TT rejected stores were recorded with TT disabled");
+    require_condition(result.stats.tt_invalid_best_move_stores == 0,
+                      "TT invalid-best-move stores were recorded with TT disabled");
+  }
   require_replayable_pv(position_case.position, result.pv, position_case.id);
 }
 
-TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_parity_ordering) {
+TimedResult run_exact_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
+                              bool use_tt) {
   DummyEvaluator evaluator;
   const SearchOptions options{
+      .use_endgame_tt = use_tt,
       .exact_endgame = true,
       .use_endgame_parity_ordering = use_parity_ordering,
       .endgame_exact_empties = empties,
@@ -601,34 +647,42 @@ double nodes_per_second(const TimedResult& timed_result) {
 
 void print_delimited_header(char delimiter) {
   std::cout << "position_id" << delimiter << "category" << delimiter << "empties" << delimiter
-            << "repeat" << delimiter << "parity_ordering" << delimiter << "score" << delimiter
-            << "best_move" << delimiter << "exact" << delimiter << "stopped" << delimiter
-            << "completed_depth" << delimiter << "nodes" << delimiter << "endgame_nodes"
-            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
-            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "root_moves_searched"
-            << delimiter << "elapsed_ms" << delimiter << "nps" << '\n';
+            << "repeat" << delimiter << "parity_ordering" << delimiter << "tt_mode" << delimiter
+            << "score" << delimiter << "best_move" << delimiter << "exact" << delimiter << "stopped"
+            << delimiter << "completed_depth" << delimiter << "nodes" << delimiter
+            << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter << "pass_nodes"
+            << delimiter << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter
+            << "root_moves_searched" << delimiter << "tt_probes" << delimiter << "tt_hits"
+            << delimiter << "tt_cutoffs" << delimiter << "tt_stores" << delimiter << "tt_overwrites"
+            << delimiter << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
+            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
+            << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
-                            std::uint8_t empties, bool use_parity_ordering,
+                            std::uint8_t empties, bool use_parity_ordering, bool use_tt,
                             const TimedResult& timed_result, char delimiter) {
   const SearchResult& result = timed_result.result;
   std::cout << position_case.id << delimiter << position_case.category << delimiter
             << static_cast<int>(empties) << delimiter << repeat << delimiter
-            << parity_mode_name(use_parity_ordering) << delimiter << result.score << delimiter
-            << best_move_to_string(result) << delimiter << (result.exact ? "true" : "false")
-            << delimiter << (result.stopped ? "true" : "false") << delimiter
-            << result.completed_depth << delimiter << result.nodes << delimiter
+            << parity_mode_name(use_parity_ordering) << delimiter << tt_mode_name(use_tt)
+            << delimiter << result.score << delimiter << best_move_to_string(result) << delimiter
+            << (result.exact ? "true" : "false") << delimiter << (result.stopped ? "true" : "false")
+            << delimiter << result.completed_depth << delimiter << result.nodes << delimiter
             << result.stats.endgame_nodes << delimiter << result.stats.terminal_nodes << delimiter
             << result.stats.pass_nodes << delimiter << result.stats.beta_cutoffs << delimiter
             << result.stats.alpha_updates << delimiter << result.stats.root_moves_searched
-            << delimiter << std::fixed << std::setprecision(3) << elapsed_ms(timed_result.elapsed)
-            << delimiter << std::fixed << std::setprecision(0) << nodes_per_second(timed_result)
-            << '\n';
+            << delimiter << result.stats.tt_probes << delimiter << result.stats.tt_hits << delimiter
+            << result.stats.tt_cutoffs << delimiter << result.stats.tt_stores << delimiter
+            << result.stats.tt_overwrites << delimiter << result.stats.tt_collisions << delimiter
+            << result.stats.tt_rejected_stores << delimiter
+            << result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
+            << std::setprecision(3) << elapsed_ms(timed_result.elapsed) << delimiter << std::fixed
+            << std::setprecision(0) << nodes_per_second(timed_result) << '\n';
 }
 
 void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
-                        std::uint8_t empties, bool use_parity_ordering,
+                        std::uint8_t empties, bool use_parity_ordering, bool use_tt,
                         const TimedResult& timed_result) {
   const SearchResult& result = timed_result.result;
   std::cout << '{';
@@ -643,6 +697,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"repeat\":" << repeat;
   std::cout << ",\"parity_ordering\":";
   print_json_string(std::cout, parity_mode_name(use_parity_ordering));
+  std::cout << ",\"tt_mode\":";
+  print_json_string(std::cout, tt_mode_name(use_tt));
   std::cout << ",\"score\":" << result.score;
   std::cout << ",\"best_move\":";
   print_json_string(std::cout, best_move_to_string(result));
@@ -656,6 +712,14 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"beta_cutoffs\":" << result.stats.beta_cutoffs;
   std::cout << ",\"alpha_updates\":" << result.stats.alpha_updates;
   std::cout << ",\"root_moves_searched\":" << result.stats.root_moves_searched;
+  std::cout << ",\"tt_probes\":" << result.stats.tt_probes;
+  std::cout << ",\"tt_hits\":" << result.stats.tt_hits;
+  std::cout << ",\"tt_cutoffs\":" << result.stats.tt_cutoffs;
+  std::cout << ",\"tt_stores\":" << result.stats.tt_stores;
+  std::cout << ",\"tt_overwrites\":" << result.stats.tt_overwrites;
+  std::cout << ",\"tt_collisions\":" << result.stats.tt_collisions;
+  std::cout << ",\"tt_rejected_stores\":" << result.stats.tt_rejected_stores;
+  std::cout << ",\"tt_invalid_best_move_stores\":" << result.stats.tt_invalid_best_move_stores;
   std::cout << ",\"elapsed_ms\":" << std::setprecision(17) << elapsed_ms(timed_result.elapsed);
   std::cout << ",\"nps\":" << std::setprecision(17) << nodes_per_second(timed_result);
   std::cout << ",\"pv\":";
@@ -684,6 +748,23 @@ std::array<bool, 2> parity_runs(ParityMode mode, std::uint8_t* size) noexcept {
   return {true, false};
 }
 
+std::array<bool, 2> tt_runs(TTMode mode, std::uint8_t* size) noexcept {
+  switch (mode) {
+  case TTMode::off:
+    *size = 1;
+    return {false, false};
+  case TTMode::on:
+    *size = 1;
+    return {true, false};
+  case TTMode::both:
+    *size = 2;
+    return {false, true};
+  }
+
+  *size = 1;
+  return {false, false};
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -708,16 +789,21 @@ int main(int argc, char** argv) {
     const std::array<bool, 2> parity_values = parity_runs(config->parity_mode, &parity_run_count);
     for (std::uint8_t parity_index = 0; parity_index < parity_run_count; ++parity_index) {
       const bool use_parity_ordering = parity_values[parity_index];
-      for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
-        const TimedResult timed_result =
-            run_exact_endgame(position_case.position, actual_empties, use_parity_ordering);
-        validate_result(position_case, timed_result, actual_empties);
-        if (config->output_format == OutputFormat::jsonl) {
-          print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering,
-                             timed_result);
-        } else {
-          print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
-                                 timed_result, config->delimiter);
+      std::uint8_t tt_run_count = 0;
+      const std::array<bool, 2> tt_values = tt_runs(config->tt_mode, &tt_run_count);
+      for (std::uint8_t tt_index = 0; tt_index < tt_run_count; ++tt_index) {
+        const bool use_tt = tt_values[tt_index];
+        for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
+          const TimedResult timed_result = run_exact_endgame(position_case.position, actual_empties,
+                                                             use_parity_ordering, use_tt);
+          validate_result(position_case, timed_result, actual_empties, use_tt);
+          if (config->output_format == OutputFormat::jsonl) {
+            print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering, use_tt,
+                               timed_result);
+          } else {
+            print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
+                                   use_tt, timed_result, config->delimiter);
+          }
         }
       }
     }
