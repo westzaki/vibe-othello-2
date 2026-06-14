@@ -42,8 +42,8 @@ std::array<std::uint8_t, PatternWeights::kDiscCountEntries> fixture_phase_by_dis
   return phases;
 }
 
-std::vector<search::Score> fixture_phase_biases() {
-  return {0, 0};
+std::vector<search::Score> fixture_phase_biases(search::Score early = 0, search::Score late = 0) {
+  return {early, late};
 }
 
 search::Score fixture_weight(std::uint32_t index, std::uint8_t length,
@@ -107,6 +107,18 @@ PatternWeights make_uniform_weights(search::Score edge_weight, search::Score cor
       {
           make_uniform_table("edge-8", 8, edge_weight),
           make_uniform_table("corner-3x3", 9, corner_weight),
+      },
+  };
+}
+
+PatternWeights make_bias_only_weights(search::Score early_bias, search::Score late_bias) {
+  return PatternWeights{
+      kFixturePhaseCount,
+      fixture_phase_by_disc_count(),
+      fixture_phase_biases(early_bias, late_bias),
+      {
+          make_uniform_table("edge-8", 8, 0),
+          make_uniform_table("corner-3x3", 9, 0),
       },
   };
 }
@@ -257,6 +269,14 @@ TEST_CASE("tiny pattern evaluator rejects incompatible weights", "[evaluation][t
 TEST_CASE("tiny pattern evaluator rejects sentinel-reaching weights",
           "[evaluation][tiny_pattern]") {
   REQUIRE_THROWS_AS(TinyPatternEvaluator{make_uniform_weights(4'000, 4'000)},
+                    std::invalid_argument);
+}
+
+TEST_CASE("tiny pattern evaluator rejects sentinel-reaching phase bias",
+          "[evaluation][tiny_pattern]") {
+  REQUIRE_THROWS_AS(TinyPatternEvaluator{make_bias_only_weights(search::kScoreWin, 0)},
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(TinyPatternEvaluator{make_bias_only_weights(0, search::kScoreLoss)},
                     std::invalid_argument);
 }
 

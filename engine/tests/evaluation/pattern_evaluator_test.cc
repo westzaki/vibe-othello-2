@@ -301,6 +301,15 @@ TEST_CASE("pattern evaluator rejects sentinel-reaching weights", "[evaluation][p
       std::invalid_argument);
 }
 
+TEST_CASE("pattern evaluator rejects sentinel-reaching phase bias", "[evaluation][pattern]") {
+  REQUIRE_THROWS_AS(PatternEvaluator(make_single_square_bias_weights(search::kScoreWin, 0),
+                                     single_square_feature_set()),
+                    std::invalid_argument);
+  REQUIRE_THROWS_AS(PatternEvaluator(make_single_square_bias_weights(0, search::kScoreLoss),
+                                     single_square_feature_set()),
+                    std::invalid_argument);
+}
+
 TEST_CASE("pattern evaluator stays inside search sentinels", "[evaluation][pattern]") {
   const PatternEvaluator evaluator{make_tiny_pattern_fixture_weights(),
                                    tiny_pattern_feature_set_fixture()};
