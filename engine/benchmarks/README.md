@@ -187,20 +187,34 @@ engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64
 ```
 
 It is generated from the checked-in endgame corpus with exact endgame search,
-repeat count 3, a 12-empty cap, and JSONL output:
+repeat count 3, a 12-empty cap, and raw JSONL output:
 
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
   --repeat 3 \
   --max-empties 12 \
-  --corpus engine/testdata/endgame/positions.tsv
+  --corpus engine/testdata/endgame/positions.tsv \
+  > engine/benchmarks/results/endgame-exact-score-raw.jsonl
 ```
 
-The baseline stores environment metadata, deterministic search statistics, the
-selected repeat timing, and raw repeat timing values. It is comparison data only,
-not a performance gate. Prefer comparing runs from the same machine, compiler,
-build type, command, and corpus.
+The `--jsonl` output is raw benchmark output: one JSON object per
+position/repeat. The checked-in baseline is an aggregate JSON document built
+from that raw output. It stores environment metadata, `measured_commit` and
+`measured_revision` for the measured engine commit, deterministic search
+statistics, the selected repeat timing, and raw repeat timing summaries. It is
+comparison data only, not a performance gate. Prefer comparing runs from the
+same machine, compiler, build type, command, and corpus.
+
+Sanity-check the checked-in aggregate baseline JSON with:
+
+```sh
+tools/endgame/check_baseline.py \
+  engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json
+```
+
+See `engine/benchmarks/baselines/endgame/README.md` for the aggregate JSON shape
+and regeneration checklist.
 
 ## Endgame Golden Checks
 

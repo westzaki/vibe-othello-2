@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "benchmark": "endgame_exact_score",
-  "commit": "8f89540722da763adef7889a33ef627765f44d04",
-  "revision": "8f89540",
+  "measured_commit": "8f89540722da763adef7889a33ef627765f44d04",
+  "measured_revision": "8f89540",
   "measured_at": "2026-06-14",
   "machine": "apple-silicon-macos-arm64",
   "os": "Darwin 24.6.0 arm64",
