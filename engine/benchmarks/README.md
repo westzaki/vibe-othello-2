@@ -77,7 +77,7 @@ The search fixture corpus currently covers:
 - `late_midgame`
 
 Endgame benchmark output is TSV by default and measures the root-only exact
-endgame solver through `search_iterative` with `exact_endgame = true`. Use
+endgame solver through `solve_exact_endgame`. Use
 `--csv` for comma-separated output, `--jsonl` for JSON Lines output,
 `--parity on|off|both` to choose exact endgame parity ordering,
 `--tt off|on|both` to choose exact endgame transposition-table use,

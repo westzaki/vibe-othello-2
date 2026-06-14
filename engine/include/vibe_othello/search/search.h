@@ -47,6 +47,15 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits, SearchOptions options);
 
+// Directly solve a root position to an exact final disc-difference score.
+//
+// This does not require an Evaluator, does not use the exact_endgame threshold
+// gate, and can be expensive for positions with many empty squares. max_nodes,
+// max_time, and stop_requested are respected; max_depth is not meaningful for
+// direct exact endgame solving and is ignored.
+SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits = {},
+                                 SearchOptions options = {});
+
 } // namespace vibe_othello::search
 
 #endif // VIBE_OTHELLO_SEARCH_SEARCH_H_

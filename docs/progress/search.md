@@ -66,6 +66,7 @@ The current search implementation includes:
 * search benchmark coverage
 * deterministic search golden-check tooling
 * root-triggered generic exact-score endgame solving through `search_iterative`
+* public direct exact-score endgame solving through `solve_exact_endgame`
 * `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold
   integration
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
@@ -104,7 +105,6 @@ The current implementation does not yet have:
 
 * WLD search path
 * WLD endgame TT probing or storing
-* public direct endgame solve API
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
 * ProbCut or calibrated selective pruning
@@ -164,6 +164,7 @@ Status values:
 | Add exact endgame solver | done | Root-triggered and internal leaf-triggered generic exact-score solver; details in `docs/progress/endgame.md` |
 | Add exact endgame TT semantics | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD remains not started |
 | Add specialized small-empty exact-score path | done | 0/1/2/3 empty path is tested against generic exact endgame search |
+| Add public direct exact endgame solve API | done | `solve_exact_endgame` calls the exact-score solver without an evaluator or threshold gate |
 | Add WLD search path | not started | `endgame_wld_empties` currently safe no-op; tracked in `docs/progress/endgame.md` |
 | Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |

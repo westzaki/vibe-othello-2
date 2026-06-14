@@ -75,6 +75,22 @@ SearchResult search_exact_with_limits(board_core::Position position, std::uint8_
   return result;
 }
 
+SearchResult solve_direct_exact(board_core::Position position, SearchLimits limits = {},
+                                SearchOptions options = {}) {
+  return solve_exact_endgame(position, limits, options);
+}
+
+SearchResult solve_direct_exact(board_core::Position position, bool use_endgame_tt,
+                                bool use_endgame_parity_ordering, std::uint8_t multi_pv = 0) {
+  return solve_exact_endgame(
+      position, SearchLimits{},
+      SearchOptions{.use_endgame_tt = use_endgame_tt,
+                    .exact_endgame = false,
+                    .use_endgame_parity_ordering = use_endgame_parity_ordering,
+                    .multi_pv = multi_pv,
+                    .endgame_exact_empties = 0});
+}
+
 std::string endgame_corpus_path() {
   return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/testdata/endgame/positions.tsv";
 }
@@ -246,6 +262,129 @@ TEST_CASE("exact endgame option triggers only at or below threshold", "[search][
   REQUIRE(at_threshold.exact);
   REQUIRE(at_threshold.score == 64);
   REQUIRE(at_threshold_evaluator.calls == 0);
+}
+
+TEST_CASE("public direct exact endgame matches root-triggered exact search",
+          "[search][endgame][public]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+
+  const SearchResult through_iterative = search_exact(position, empties);
+  const SearchResult direct = solve_direct_exact(position);
+
+  require_exact_result_invariants(position, through_iterative);
+  require_exact_result_invariants(position, direct);
+  require_same_exact_scores(position, direct, through_iterative);
+  REQUIRE(direct.completed_depth == through_iterative.completed_depth);
+  REQUIRE(direct.root_moves == through_iterative.root_moves);
+  REQUIRE(direct.pv == through_iterative.pv);
+}
+
+TEST_CASE("public direct exact endgame bypasses exact endgame threshold options",
+          "[search][endgame][public]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+  CountingEvaluator evaluator{77};
+
+  const SearchResult gated_off =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
+                       SearchOptions{.exact_endgame = false, .endgame_exact_empties = 0});
+  const SearchResult through_iterative = search_exact(position, empties);
+  const SearchResult direct =
+      solve_direct_exact(position, SearchLimits{.max_depth = Depth{0}},
+                         SearchOptions{.exact_endgame = false, .endgame_exact_empties = 0});
+
+  REQUIRE_FALSE(gated_off.exact);
+  REQUIRE(gated_off.stats.eval_calls == 1);
+  REQUIRE(evaluator.calls == 1);
+  require_exact_result_invariants(position, direct);
+  require_same_exact_scores(position, direct, through_iterative);
+  REQUIRE(direct.completed_depth == Depth{empties});
+}
+
+TEST_CASE("public direct exact endgame solves terminal root without evaluator",
+          "[search][endgame][public]") {
+  const board_core::Position terminal = parse_position_or_fail(
+      "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b");
+  REQUIRE(board_core::is_terminal(terminal));
+
+  const SearchResult result = solve_direct_exact(terminal);
+
+  REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.score == 16);
+  REQUIRE(result.completed_depth == Depth{0});
+  REQUIRE(result.root_moves.empty());
+  REQUIRE(result.stats.terminal_nodes == 1);
+  require_exact_result_invariants(terminal, result);
+}
+
+TEST_CASE("public direct exact endgame reports forced pass replayably",
+          "[search][endgame][public]") {
+  const board_core::Position position = parse_position_or_fail(
+      "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+  REQUIRE_FALSE(board_core::has_legal_move(position));
+  REQUIRE_FALSE(board_core::is_terminal(position));
+
+  const SearchResult result = solve_direct_exact(position);
+
+  REQUIRE(result.best_move == board_core::make_pass());
+  REQUIRE(result.score == 58);
+  REQUIRE(result.completed_depth == Depth{1});
+  REQUIRE(result.root_moves.size() == 1);
+  REQUIRE(result.root_moves[0].move == board_core::make_pass());
+  REQUIRE(result.pv.size == 2);
+  REQUIRE(result.pv.moves[0] == board_core::make_pass());
+  REQUIRE(result.pv.moves[1] == board_core::make_move(square(7, 7)));
+  require_exact_result_invariants(position, result);
+}
+
+TEST_CASE("public direct exact endgame respects max node and stop limits",
+          "[search][endgame][public][limits]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult max_nodes_result = solve_direct_exact(position, SearchLimits{.max_nodes = 1});
+
+  REQUIRE(max_nodes_result.stopped);
+  REQUIRE_FALSE(max_nodes_result.exact);
+  REQUIRE(max_nodes_result.bound == BoundType::lower);
+  REQUIRE(max_nodes_result.completed_depth == Depth{0});
+  REQUIRE_FALSE(max_nodes_result.best_move.has_value());
+  REQUIRE(max_nodes_result.nodes == 1);
+  REQUIRE(max_nodes_result.stats.nodes == 1);
+  REQUIRE(max_nodes_result.stats.endgame_nodes == 1);
+  REQUIRE(max_nodes_result.nodes <= 1);
+
+  std::atomic_bool stop_requested{true};
+  const SearchResult stop_result =
+      solve_direct_exact(position, SearchLimits{.stop_requested = &stop_requested});
+
+  REQUIRE(stop_result.stopped);
+  REQUIRE_FALSE(stop_result.exact);
+  REQUIRE(stop_result.bound == BoundType::lower);
+  REQUIRE(stop_result.completed_depth == Depth{0});
+  REQUIRE_FALSE(stop_result.best_move.has_value());
+  REQUIRE(stop_result.nodes == 0);
+  REQUIRE(stop_result.stats.endgame_nodes == 0);
+}
+
+TEST_CASE("public direct exact endgame TT and parity options preserve exact result",
+          "[search][endgame][public][tt][parity]") {
+  const board_core::Position position = test_support::generated_endgame_position(6);
+
+  const SearchResult baseline = solve_direct_exact(position, false, false);
+  const SearchResult with_parity = solve_direct_exact(position, false, true);
+  const SearchResult with_tt = solve_direct_exact(position, true, false);
+  const SearchResult with_both = solve_direct_exact(position, true, true);
+
+  require_exact_result_invariants(position, baseline);
+  require_exact_result_invariants(position, with_parity);
+  require_exact_result_invariants(position, with_tt);
+  require_exact_result_invariants(position, with_both);
+  require_same_exact_scores(position, with_parity, baseline);
+  require_same_exact_scores(position, with_tt, baseline);
+  require_same_exact_scores(position, with_both, baseline);
+  REQUIRE(with_tt.stats.tt_probes > 0);
+  REQUIRE(with_both.stats.tt_probes > 0);
 }
 
 TEST_CASE("midgame leaf cutover solves small exact endgames without evaluator",

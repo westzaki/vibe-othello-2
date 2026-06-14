@@ -265,39 +265,28 @@ SearchResult search_iterative(board_core::Position position,
 When `options.exact_endgame` is enabled and the empty threshold is met,
 `search_iterative` may route to endgame search.
 
-A future direct public API may be added for tools.
+Tools and callers that need evaluator-free exact score solving may call the
+direct public API.
 
 ```cpp
-struct EndgameOptions {
-  SolveMode mode = SolveMode::exact_score;
-  bool use_tt = false;
-  bool use_parity_ordering = true;
-  bool use_stability_ordering = true;
-  bool use_mobility_ordering = true;
-  bool use_specialized_small_empty = true;
-  std::uint8_t exact_empties = 10;
-  std::uint8_t wld_empties = 12;
-};
-
-struct EndgameResult {
-  std::optional<board_core::Move> best_move;
-  Score score = 0;
-  WldResult wld = WldResult::draw;
-  BoundType bound = BoundType::exact;
-  Line pv{};
-  SearchStats stats{};
-  NodeCount nodes = 0;
-  std::chrono::milliseconds elapsed{0};
-  bool exact = true;
-  bool stopped = false;
-};
-
-EndgameResult solve_endgame(board_core::Position position,
-                            SearchLimits limits,
-                            EndgameOptions options);
+SearchResult solve_exact_endgame(board_core::Position position,
+                                 SearchLimits limits = {},
+                                 SearchOptions options = {});
 ```
 
-A direct public API is optional.
+Direct exact solving starts exact final-disc-difference search regardless of the
+root empty count. It does not use the `exact_endgame` or
+`endgame_exact_empties` threshold gate, does not require an evaluator, and does
+not fall back to midgame search. `max_nodes`, `max_time`, and `stop_requested`
+are respected. `max_depth` is ignored because exact endgame depth is the root
+empty count.
+
+`use_endgame_tt`, `use_endgame_parity_ordering`, and exact root reporting options
+such as `multi_pv` are honored. Midgame-only options must not change direct
+exact-score semantics.
+
+WLD remains a separate unimplemented mode. Exact-score direct API results may be
+converted to WLD by sign, but no public WLD solver exists yet.
 
 Reusable endgame logic should live in `engine/src/search/`.
 

@@ -340,6 +340,31 @@ endgame root search, `0` keeps backward-compatible all-root exact reporting, `1`
 selects best-only exact reporting, and values greater than one are currently a
 safe no-op that behave like `0` until top-N reporting is implemented.
 
+## Direct Exact Endgame API
+
+Search exposes an evaluator-free direct exact endgame entry point:
+
+```cpp
+SearchResult solve_exact_endgame(board_core::Position position,
+                                 SearchLimits limits = {},
+                                 SearchOptions options = {});
+```
+
+This API starts exact final-disc-difference search directly. It does not use the
+`SearchOptions::exact_endgame` or `endgame_exact_empties` root threshold gate and
+does not fall back to evaluator-based midgame search.
+
+Because direct exact solving may be expensive for high-empty positions, callers
+should use `SearchLimits` when appropriate. `max_nodes`, `max_time`, and
+`stop_requested` are respected with the same cooperative semantics as other
+search entry points. `max_depth` is not meaningful for direct exact endgame
+solving and is ignored.
+
+`use_endgame_tt`, `use_endgame_parity_ordering`, and exact endgame root
+reporting options such as `multi_pv` keep their exact endgame meanings. Midgame
+options such as PVS, IID, history, killers, midgame TT, and selective pruning do
+not change direct exact result semantics.
+
 ## Search Result
 
 Search result is the stable public output.
