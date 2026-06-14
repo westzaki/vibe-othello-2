@@ -82,10 +82,15 @@ endgame solver through `solve_exact_endgame`. Use
 `--parity on|off|both` to choose exact endgame parity ordering,
 `--tt off|on|both` to choose exact endgame transposition-table use,
 `--root-mode all|best` to choose root reporting behavior, `--repeat N` to repeat
-each position, and `--max-empties N` to cap the default or external corpus by
-empty count. Defaults are `--parity on`, `--tt off`, and `--root-mode all`,
-which preserve the original non-TT all-root benchmark shape except for newly
-emitted columns.
+each position, `--min-empties N` and `--max-empties N` to filter the default or
+external corpus by empty count, repeatable `--position-id ID` and
+`--category NAME` filters to run selected rows, and `--list-positions` to print
+matching `id`, `category`, `empties`, and `notes` without running search.
+Defaults are `--parity on`, `--tt off`, `--root-mode all`, `--min-empties 0`,
+and `--max-empties 12`, which preserve the original non-TT all-root benchmark
+shape except for newly emitted columns. A `--position-id` selection can name a
+row above the default empty cap; an explicitly supplied `--max-empties` still
+constrains the selected rows.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
 `--corpus` is omitted, the executable first uses the checked-in
@@ -102,6 +107,40 @@ id	category	position	expected_empties	notes
 
 Use `--corpus engine/fixtures/endgame/positions.tsv` to run the checked-in
 endgame corpus used by deterministic golden checks.
+
+List checked-in exact endgame positions before choosing an expensive run:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --list-positions \
+  --corpus engine/fixtures/endgame/positions.tsv
+```
+
+High-empty exact runs should usually start with `--root-mode best` and
+`--repeat 1`, then expand the matrix after the selected position is practical on
+the local machine. Run exactly the 18-empty checked-in positions with:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --min-empties 18 \
+  --max-empties 18 \
+  --root-mode best \
+  --repeat 1 \
+  --corpus engine/fixtures/endgame/positions.tsv
+```
+
+Run the 20-empty simple position alone without creating a temporary corpus file:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --position-id twenty_empty_simple \
+  --max-empties 20 \
+  --root-mode best \
+  --repeat 1 \
+  --corpus engine/fixtures/endgame/positions.tsv
+```
 
 To measure the expanded checked-in corpus through 20 empty squares, raise the
 empty cap explicitly and write JSONL to local scratch space:
@@ -180,13 +219,13 @@ For exact endgame root reporting changes, keep parity and TT fixed and compare
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
-  --root-mode all \
-  --max-empties 12 \
+  --root-mode best \
+  --position-id fourteen_empty_simple \
   --corpus engine/fixtures/endgame/positions.tsv
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
-  --root-mode best \
-  --max-empties 12 \
+  --root-mode all \
+  --position-id fourteen_empty_simple \
   --corpus engine/fixtures/endgame/positions.tsv
 ```
 
