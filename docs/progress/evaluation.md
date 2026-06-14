@@ -43,6 +43,10 @@ The current evaluation runtime includes:
 * `LoadedPatternWeights` for artifact-loader output
 * explicit runtime `PatternWeights` container for immutable evaluator tables
 * ternary pattern index encoding
+* explicit runtime `PatternFeatureSet` geometry for mapping weight tables to
+  board instances
+* production-facing `PatternEvaluator` that consumes `PatternWeights` and a
+  `PatternFeatureSet`
 * fixed tiny pattern instances for edges and corners
 * explicit pattern schema validation
 * `TinyPatternEvaluator`
@@ -59,13 +63,19 @@ relative scores, performs no file I/O, and reads scores from explicit
 the evaluator implementation. Scores are kept strictly inside the search
 sentinel range by construction.
 
+`PatternEvaluator` implements `search::Evaluator`, returns side-to-move
+relative scores, performs no file I/O in the evaluator hot path, validates the
+runtime feature set against `PatternWeights`, and sums phase-dependent table
+weights over each declared pattern instance.
+
 Existing evaluation tests cover:
 
 * deterministic scoring
 * side-to-move score convention
+* generic runtime feature set scoring
 * hand-computed ternary pattern index
 * fixture-backed score compatibility
-* rejection of corrupted or incompatible tiny weights
+* rejection of corrupted or incompatible tiny and generic pattern inputs
 * phase boundary behavior
 * search sentinel score range
 * artifact loader success and rejection paths
@@ -121,7 +131,7 @@ Status values:
 | Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, range, schema validation, artifact loader paths, and loaded-to-runtime conversion |
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
-| Add production `PatternEvaluator` | not started | Should implement `search::Evaluator` |
+| Add production `PatternEvaluator` | done | Consumes runtime `PatternWeights` plus explicit `PatternFeatureSet` geometry |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
