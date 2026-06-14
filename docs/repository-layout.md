@@ -120,6 +120,7 @@ tools/
 ├─ data-import/
 ├─ pattern-dataset/
 ├─ pattern-features/
+├─ pattern-train/
 ├─ arena/
 │  ├─ openings/
 │  └─ README.md
