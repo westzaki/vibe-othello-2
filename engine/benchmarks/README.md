@@ -173,13 +173,17 @@ Run the 20-empty simple position alone without creating a temporary corpus file:
 
 ### High-empty probe runner
 
-Use the high-empty probe runner for measurement-only exact endgame checks above
-the default empty cap. It runs one selected position per subprocess, writes one
-JSONL file per position, applies a per-position timeout, and preserves completed
-lower-empty results when a later high-empty position times out.
+Use the high-empty probe runner for measurement-only endgame checks above the
+default empty cap. It runs one selected position and solve mode per subprocess,
+writes one JSONL file per position/mode, applies a per-position/mode timeout,
+and preserves completed lower-empty results when a later high-empty position
+times out.
 
 Start high-empty probes with `--root-mode best`, `--tt on`, `--parity on`, and
-`--repeat 1` before expanding to a wider option matrix.
+`--repeat 1` before expanding to a wider option matrix. The runner defaults to
+`--mode exact-score` for backward-compatible exact-score measurements. Use
+`--mode wld` for direct WLD probes or `--mode both` to run exact score and WLD
+once each for every selected position.
 
 ```sh
 python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
@@ -195,6 +199,26 @@ python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
   --position-id twenty_empty_simple \
   --timeout-sec 300 \
   --output-dir /tmp/vibe-endgame-probe-20
+```
+
+Compare exact-score and WLD search on selected high-empty positions with
+`--mode both`. Completed paired rows are checked by comparing the exact-score
+sign with the WLD result.
+
+```sh
+python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
+  --bench ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --position-id fourteen_empty_simple \
+  --position-id sixteen_empty_simple \
+  --position-id eighteen_empty_simple \
+  --position-id twenty_empty_simple \
+  --mode both \
+  --root-mode best \
+  --parity on \
+  --tt on \
+  --repeat 1 \
+  --timeout-sec 180 \
+  --output-dir /tmp/vibe-endgame-wld-vs-exact
 ```
 
 The generated JSONL files and runner summaries are machine-specific local
