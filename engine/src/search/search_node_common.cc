@@ -66,9 +66,27 @@ BoundType classify_bound(Score score, Score original_alpha, Score original_beta)
   return BoundType::exact;
 }
 
-std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
-                                     Score beta) noexcept {
+std::optional<Score> midgame_tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
+                                             Score beta) noexcept {
   if (entry.kind != TTEntryKind::midgame || entry.depth < depth) {
+    return std::nullopt;
+  }
+  if (entry.bound == BoundType::exact) {
+    return entry.score;
+  }
+  if (entry.bound == BoundType::lower && entry.score >= beta) {
+    return entry.score;
+  }
+  if (entry.bound == BoundType::upper && entry.score <= alpha) {
+    return entry.score;
+  }
+  return std::nullopt;
+}
+
+std::optional<Score> exact_endgame_score_tt_cutoff_score(const TTEntry& entry,
+                                                         Depth remaining_empties, Score alpha,
+                                                         Score beta) noexcept {
+  if (entry.kind != TTEntryKind::exact_endgame_score || entry.depth < remaining_empties) {
     return std::nullopt;
   }
   if (entry.bound == BoundType::exact) {
@@ -118,7 +136,7 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
                   ? std::nullopt
                   : context->transposition_table->probe(context->position, &context->stats);
   if (context->options.use_midgame_tt && tt_entry->has_value()) {
-    const std::optional<Score> cutoff = tt_cutoff_score(**tt_entry, depth, alpha, beta);
+    const std::optional<Score> cutoff = midgame_tt_cutoff_score(**tt_entry, depth, alpha, beta);
     if (cutoff.has_value()) {
       ++context->stats.tt_cutoffs;
       return SearchNodeResult::completed(SearchValue{
@@ -138,7 +156,8 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
 MoveOrderingHints build_ordering_hints_from_tt(const SearchContext& context,
                                                const std::optional<TTEntry>& tt_entry) noexcept {
   return MoveOrderingHints{
-      .tt_best_move = context.options.use_tt_best_move_ordering && tt_entry.has_value()
+      .tt_best_move = context.options.use_tt_best_move_ordering && tt_entry.has_value() &&
+                              tt_entry->kind == TTEntryKind::midgame && tt_entry->has_best_move
                           ? std::optional<board_core::Move>{tt_entry->best_move}
                           : std::nullopt,
   };

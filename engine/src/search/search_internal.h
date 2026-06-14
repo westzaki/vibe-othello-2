@@ -91,6 +91,7 @@ struct TTEntry {
   Score score = 0;
   BoundType bound = BoundType::exact;
   board_core::Move best_move = board_core::make_pass();
+  bool has_best_move = false;
   std::uint8_t generation = 0;
   TTEntryKind kind = TTEntryKind::midgame;
   bool occupied = false;
@@ -111,6 +112,8 @@ public:
 
   void store(board_core::Position position, Depth depth, Score score, BoundType bound,
              board_core::Move best_move, TTEntryKind kind, SearchStats* stats) noexcept;
+  void store_value(board_core::Position position, Depth depth, Score score, BoundType bound,
+                   TTEntryKind kind, SearchStats* stats) noexcept;
 
 private:
   struct TTBucket {
@@ -118,6 +121,9 @@ private:
   };
 
   std::size_t index_for(board_core::PositionHash key) const noexcept;
+  void store_entry(board_core::Position position, Depth depth, Score score, BoundType bound,
+                   std::optional<board_core::Move> best_move, TTEntryKind kind,
+                   SearchStats* stats) noexcept;
 
   std::vector<TTBucket> buckets_;
   std::uint8_t generation_ = 1;
@@ -178,8 +184,11 @@ MoveList order_midgame_moves(board_core::Position position, MidgameOrderingHints
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
 MoveList order_endgame_moves(board_core::Position position, EndgameOrderingHints hints) noexcept;
 BoundType classify_bound(Score score, Score original_alpha, Score original_beta) noexcept;
-std::optional<Score> tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
-                                     Score beta) noexcept;
+std::optional<Score> midgame_tt_cutoff_score(const TTEntry& entry, Depth depth, Score alpha,
+                                             Score beta) noexcept;
+std::optional<Score> exact_endgame_score_tt_cutoff_score(const TTEntry& entry,
+                                                         Depth remaining_empties, Score alpha,
+                                                         Score beta) noexcept;
 std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Score alpha, Score beta,
                                                     Depth depth, Ply ply,
                                                     std::optional<TTEntry>* tt_entry);

@@ -325,7 +325,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       context.transposition_table != nullptr) {
     const std::optional<TTEntry> root_tt_entry =
         context.transposition_table->probe(context.position, &context.stats);
-    if (root_tt_entry.has_value()) {
+    if (root_tt_entry.has_value() && root_tt_entry->kind == TTEntryKind::midgame &&
+        root_tt_entry->has_best_move) {
       root_hints.tt_best_move = root_tt_entry->best_move;
     }
   }

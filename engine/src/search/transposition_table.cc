@@ -27,13 +27,15 @@ std::size_t bucket_count_for(std::size_t requested_entries) noexcept {
 }
 
 TTEntry make_entry(board_core::PositionHash key, Depth depth, Score score, BoundType bound,
-                   board_core::Move best_move, TTEntryKind kind, std::uint8_t generation) noexcept {
+                   std::optional<board_core::Move> best_move, TTEntryKind kind,
+                   std::uint8_t generation) noexcept {
   return TTEntry{
       .key = key,
       .depth = depth,
       .score = score,
       .bound = bound,
-      .best_move = best_move,
+      .best_move = best_move.value_or(board_core::make_pass()),
+      .has_best_move = best_move.has_value(),
       .generation = generation,
       .kind = kind,
       .occupied = true,
@@ -89,6 +91,18 @@ void TranspositionTable::store(board_core::Position position, Depth depth, Score
     return;
   }
 
+  store_entry(position, depth, score, bound, best_move, kind, stats);
+}
+
+void TranspositionTable::store_value(board_core::Position position, Depth depth, Score score,
+                                     BoundType bound, TTEntryKind kind,
+                                     SearchStats* stats) noexcept {
+  store_entry(position, depth, score, bound, std::nullopt, kind, stats);
+}
+
+void TranspositionTable::store_entry(board_core::Position position, Depth depth, Score score,
+                                     BoundType bound, std::optional<board_core::Move> best_move,
+                                     TTEntryKind kind, SearchStats* stats) noexcept {
   const board_core::PositionHash key = board_core::hash_position(position);
   TTBucket& bucket = buckets_[index_for(key)];
   const TTEntry incoming = make_entry(key, depth, score, bound, best_move, kind, generation_);
