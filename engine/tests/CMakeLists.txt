@@ -19,6 +19,7 @@ FetchContent_MakeAvailable(Catch2)
 add_library(
   vibe_othello_engine_test_support STATIC
   ../test_support/board_core/perft.cc
+  ../test_support/search/endgame_positions.cc
   ../test_support/board_core/reference_board.cc
   ../test_support/search/reference_endgame.cc
   ../test_support/search/reference_search.cc)

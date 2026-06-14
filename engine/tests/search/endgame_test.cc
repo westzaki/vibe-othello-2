@@ -1,14 +1,18 @@
+#include "search/endgame_positions.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/serialization.h"
 #include "vibe_othello/search/search.h"
 
-#include <array>
 #include <atomic>
-#include <bit>
 #include <catch2/catch_test_macros.hpp>
-#include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
+
+#ifndef VIBE_OTHELLO_SOURCE_DIR
+#error "VIBE_OTHELLO_SOURCE_DIR must be defined for endgame tests"
+#endif
 
 namespace vibe_othello::search {
 namespace {
@@ -61,51 +65,19 @@ SearchResult search_exact_with_limits(board_core::Position position, std::uint8_
   return result;
 }
 
-std::uint8_t count_empty_squares(board_core::Position position) noexcept {
-  return static_cast<std::uint8_t>(std::popcount(~board_core::occupied(position)));
+std::string endgame_corpus_path() {
+  return std::string{VIBE_OTHELLO_SOURCE_DIR} + "/engine/testdata/endgame/positions.tsv";
 }
 
-board_core::Move select_legal_move(board_core::Position position, std::size_t choice) {
-  const board_core::Bitboard legal = board_core::legal_moves(position);
-  if (legal == 0) {
-    return board_core::make_pass();
-  }
-
-  std::array<board_core::Move, board_core::kSquareCount> moves{};
-  std::size_t move_count = 0;
-  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
-    const board_core::Square move_square = board_core::square_from_index(square_index);
-    if ((legal & board_core::bit(move_square)) != 0) {
-      moves[move_count] = board_core::make_move(move_square);
-      ++move_count;
-    }
-  }
-
-  REQUIRE(move_count > 0);
-  return moves[choice % move_count];
-}
-
-board_core::Position generated_position(std::uint8_t target_empties) {
-  static constexpr std::array<std::size_t, 64> kChoices{
-      12, 11, 6, 6, 7,  11, 13, 13, 0, 15, 9, 12, 5,  7,  13, 15, 15, 13, 12, 8, 14, 5,
-      3,  4,  2, 1, 12, 14, 5,  14, 4, 0,  9, 11, 13, 15, 12, 13, 2,  7,  5,  5, 7,  6,
-      3,  8,  1, 9, 4,  2,  10, 6,  0, 11, 5, 13, 7,  3,  12, 1,  8,  4,  14, 2,
-  };
-
-  board_core::Position position = board_core::initial_position();
-  std::size_t ply = 0;
-  while (count_empty_squares(position) > target_empties) {
-    REQUIRE_FALSE(board_core::is_terminal(position));
-    const board_core::Move move = select_legal_move(position, kChoices[ply % kChoices.size()]);
-    board_core::MoveDelta delta{};
-    REQUIRE(board_core::apply_move(&position, move, &delta));
-    if (move.kind == board_core::MoveKind::normal) {
-      ++ply;
-    }
-  }
-
-  REQUIRE(count_empty_squares(position) == target_empties);
-  return position;
+board_core::Position corpus_position(std::string_view id) {
+  const std::vector<test_support::EndgamePositionCase> cases =
+      test_support::load_endgame_position_corpus(endgame_corpus_path());
+  const std::optional<test_support::EndgamePositionCase> position_case =
+      test_support::find_endgame_position_case(cases, id);
+  REQUIRE(position_case.has_value());
+  REQUIRE(test_support::endgame_empty_count(position_case->position) ==
+          position_case->expected_empties);
+  return position_case->position;
 }
 
 void require_replayable_pv(board_core::Position position, Line pv) {
@@ -271,7 +243,7 @@ TEST_CASE("exact endgame stop requested before search publishes no exact result"
 
 TEST_CASE("exact endgame max nodes can stop before any root move completes",
           "[search][endgame][limits]") {
-  const board_core::Position position = generated_position(4);
+  const board_core::Position position = corpus_position("four_empty_simple");
 
   const SearchResult result = search_exact_with_limits(position, 4, SearchLimits{.max_nodes = 1});
 
@@ -286,7 +258,7 @@ TEST_CASE("exact endgame max nodes can stop before any root move completes",
 
 TEST_CASE("interrupted exact endgame publishes only completed exact root moves",
           "[search][endgame][limits]") {
-  const board_core::Position position = generated_position(4);
+  const board_core::Position position = corpus_position("four_empty_simple");
   const SearchResult complete = search_exact(position, 4);
   REQUIRE(complete.root_moves.size() > 1);
   REQUIRE(complete.root_moves[0].nodes > 0);
