@@ -72,6 +72,8 @@ The current exact endgame implementation includes:
 * has checked-in exact endgame benchmark baseline data for local comparison
 * has production-vs-reference tests for terminal, one-empty, forced-pass, and
   deterministic small-empty positions
+* has specialized exact-score routines for 0, 1, 2, and 3 empty squares,
+  guarded by generic-vs-specialized differential tests
 
 ## Current Gaps
 
@@ -81,7 +83,6 @@ The current implementation does not yet have:
 * WLD search path
 * endgame TT probing or storing
 * parity-region ordering
-* small-empty specialized routines
 * tuned native or WASM thresholds
 
 `use_endgame_tt` and `endgame_wld_empties` are currently expected to remain safe
@@ -113,9 +114,9 @@ Status values:
 | Add WLD mode | not started | May be deferred after exact score |
 | Add endgame TT probe/store with separate entry kinds | not started | Test enabled/disabled equality |
 | Add parity ordering as ordering only | not started | Test enabled/disabled equality |
-| Add specialized zero/one/two/three-empty routines | not started | Test against generic solver |
+| Add specialized zero/one/two/three-empty routines | done | Tested against generic solver through an internal generic-only policy |
 | Add `engine/benchmarks/endgame_bench.cc` | done | Measures root-only exact endgame search by empty count |
-| Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/4/6/8/10/12 empty positions and a forced pass case |
+| Add endgame benchmark corpus | done | Built-in deterministic corpus covers 0/1/2/3/4/6/8/10/12 empty positions and a forced pass case |
 | Add checked-in endgame benchmark baseline | done | `engine/benchmarks/baselines/endgame/2026-06-14-8f89540-apple-silicon-macos-arm64-apple-clang-17-release.json` |
 | Tune thresholds for native builds | deferred | Requires repeated same-machine comparisons after baseline collection |
 | Tune thresholds separately for WASM builds | deferred | Requires WASM measurement |

@@ -271,7 +271,7 @@ TEST_CASE("interrupted exact endgame publishes only completed exact root moves",
   REQUIRE(complete.root_moves.size() > 1);
   REQUIRE(complete.root_moves[0].nodes > 0);
 
-  const NodeCount nodes_after_first_root = static_cast<NodeCount>(1 + complete.root_moves[0].nodes);
+  const NodeCount nodes_after_first_root = static_cast<NodeCount>(2 + complete.root_moves[0].nodes);
   const SearchResult limited =
       search_exact_with_limits(position, 4, SearchLimits{.max_nodes = nodes_after_first_root});
 

@@ -2,6 +2,8 @@ id	category	position	expected_empties	notes
 zero_empty_terminal	zero_empty	BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b	0	Full-board terminal position
 one_empty_forced_move	one_empty	BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b	1	One empty square with one legal normal move
 one_empty_forced_pass	forced_pass	BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b	1	One empty square where root must pass
+two_empty_simple	generated	WWWWWWW./BBBBBBB./BBWBWBWW/BBBBBWWB/BWBBWWWB/BBBWWWWW/BBBBWWWW/BBBWWWWW b	2	Deterministically generated from initial position
+three_empty_simple	generated	WWWWWWW./BBBBBBB./BBWBWBWW/BBBBBWWB/BWBBWWWB/BBBWB.WW/BBBBBBWW/BBBWWWWW w	3	Deterministically generated from initial position
 four_empty_simple	generated	WWWWWWW./BBBBBW../BBWBWWWW/BBBBBWWB/BWBBWWWB/BBBWB.WW/BBBBBBWW/BBBWWWWW b	4	Deterministically generated from initial position
 six_empty_simple	generated	WWWWWWW./BBBBBW../BBWBWW.W/BWWWWWW./BWBBWWBB/BBBWB.BW/BBBBBBBW/BBBWWWWW b	6	Deterministically generated from initial position
 eight_empty_simple	generated	WWWWWWW./BBBBBW../BBWBWW../BWWWWWB./BWBBWWWB/BBBWB.WW/BBBBBB.W/BBBWWWWW b	8	Deterministically generated from initial position
