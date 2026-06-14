@@ -44,6 +44,7 @@ The current evaluation runtime includes:
 * explicit runtime `PatternWeights` container for immutable evaluator tables
 * ternary pattern index encoding
 * fixed tiny pattern instances for edges and corners
+* explicit pattern schema validation
 * `TinyPatternEvaluator`
 
 Ternary pattern digits are:
@@ -83,7 +84,6 @@ The current implementation does not yet have:
 
 * production baseline evaluator
 * production learned pattern evaluator
-* schema validation for artifact-backed pattern definitions
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
@@ -114,10 +114,11 @@ Status values:
 | Add simple baseline evaluator | not started | Useful before learned artifacts are available |
 | Add minimal pattern schema types | done | `evaluation/pattern.h` |
 | Add explicit pattern weight container | done | `LoadedPatternWeights` stores loader output; runtime `PatternWeights` stores phase maps and immutable tables |
+| Add explicit pattern schema validation | done | Validates ids, lengths, squares, duplicate policy, and pattern table size overflow |
 | Add ternary pattern index encoding | done | Empty/player/opponent digits are `0/1/2` |
 | Add tiny fixed edge and corner pattern instances | done | Runtime pattern geometry only |
 | Add tiny pattern-only evaluator | done | Implements `search::Evaluator` and consumes `PatternWeights` |
-| Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, range, artifact loader paths, and loaded-to-runtime conversion |
+| Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, range, schema validation, artifact loader paths, and loaded-to-runtime conversion |
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | not started | Should implement `search::Evaluator` |
@@ -137,7 +138,7 @@ Evaluation is strong enough to build on when:
 * scores remain strictly inside search sentinels
 * side-to-move-relative score signs are tested
 * artifact loading rejects incompatible data
-* artifact-backed pattern schemas validate length against square count
+* artifact-backed pattern schemas validate ids, lengths, square lists, duplicate policy, and pattern table size overflow
 * pattern index encoding is tested against hand-computed fixtures
 * fixture-weight runtime evaluation is separated from future artifact loading
 * search can run with the evaluator enabled or replaced by a reference evaluator

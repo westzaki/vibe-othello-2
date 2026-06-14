@@ -66,6 +66,7 @@ PatternManifest tiny_manifest() {
           {
               PatternDefinition{
                   .id = "tiny-corner-pair",
+                  .length = 2,
                   .squares =
                       {
                           square_from_file_rank(0, 0),
@@ -140,10 +141,12 @@ TEST_CASE("pattern weight artifact layout exposes bias slot and ordered pattern 
           {
               PatternDefinition{
                   .id = "first-single-square",
+                  .length = 1,
                   .squares = {square_from_file_rank(0, 0)},
               },
               PatternDefinition{
                   .id = "second-corner-pair",
+                  .length = 2,
                   .squares =
                       {
                           square_from_file_rank(0, 0),
@@ -224,9 +227,20 @@ TEST_CASE("pattern weight artifact loader validates pattern set id") {
 
 TEST_CASE("pattern weight artifact loader validates pattern length against square count") {
   PatternManifest manifest = tiny_manifest();
+  manifest.patterns[0].length = board_core::kSquareCount + 1;
   manifest.patterns[0].squares.assign(board_core::kSquareCount + 1, square_from_file_rank(0, 0));
 
   require_error(manifest, tiny_artifact(), PatternWeightsLoadError::invalid_pattern_length);
+}
+
+TEST_CASE("pattern weight artifact loader rejects invalid pattern schema") {
+  PatternManifest empty_id = tiny_manifest();
+  empty_id.patterns[0].id.clear();
+  require_error(empty_id, tiny_artifact(), PatternWeightsLoadError::invalid_pattern_length);
+
+  PatternManifest duplicate_square = tiny_manifest();
+  duplicate_square.patterns[0].squares[1] = duplicate_square.patterns[0].squares[0];
+  require_error(duplicate_square, tiny_artifact(), PatternWeightsLoadError::invalid_pattern_length);
 }
 
 TEST_CASE("pattern weight artifact loader validates pattern squares") {
