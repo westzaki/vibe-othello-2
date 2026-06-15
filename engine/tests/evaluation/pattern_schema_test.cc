@@ -80,9 +80,28 @@ TEST_CASE("fixed pattern-set fixture validates edge and corner schemas",
   REQUIRE(pattern_set.patterns[0].id == "edge-8");
   REQUIRE(pattern_set.patterns[0].length == 8);
   REQUIRE(pattern_set.patterns[0].squares.size() == 8);
+  REQUIRE(pattern_set.patterns[0].symmetry_policy == PatternSymmetryPolicy::none);
   REQUIRE(pattern_set.patterns[1].id == "corner-3x3");
   REQUIRE(pattern_set.patterns[1].length == 9);
   REQUIRE(pattern_set.patterns[1].squares.size() == 9);
+  REQUIRE(pattern_set.patterns[1].symmetry_policy == PatternSymmetryPolicy::none);
+  REQUIRE(validate_pattern_set(pattern_set).ok());
+}
+
+TEST_CASE("symmetry-aware fixed pattern-set fixture opts in edge and corner policies",
+          "[evaluation][pattern_schema]") {
+  const PatternSet& pattern_set = symmetry_aware_fixed_pattern_set_fixture();
+
+  REQUIRE(pattern_set.id == "fixed-pattern-fixture-v1-symmetry-aware");
+  REQUIRE(pattern_set.patterns.size() == 2);
+  REQUIRE(pattern_set.patterns[0].id == "edge-8");
+  REQUIRE(pattern_set.patterns[0].length == 8);
+  REQUIRE(pattern_set.patterns[0].squares.size() == 8);
+  REQUIRE(pattern_set.patterns[0].symmetry_policy == PatternSymmetryPolicy::reverse);
+  REQUIRE(pattern_set.patterns[1].id == "corner-3x3");
+  REQUIRE(pattern_set.patterns[1].length == 9);
+  REQUIRE(pattern_set.patterns[1].squares.size() == 9);
+  REQUIRE(pattern_set.patterns[1].symmetry_policy == PatternSymmetryPolicy::square_d4);
   REQUIRE(validate_pattern_set(pattern_set).ok());
 }
 
@@ -274,6 +293,58 @@ TEST_CASE("canonical ternary pattern index handles square D4 symmetry",
     REQUIRE(canonical_ternary_pattern_index(transformed, PatternSymmetryPolicy::square_d4) ==
             canonical);
   }
+}
+
+TEST_CASE("symmetry-aware fixture policies canonicalize representative variants",
+          "[evaluation][pattern_schema]") {
+  const PatternSet& pattern_set = symmetry_aware_fixed_pattern_set_fixture();
+  REQUIRE(pattern_set.patterns.size() == 2);
+
+  constexpr std::array<PatternCell, 8> edge{
+      PatternCell::opponent, PatternCell::empty,  PatternCell::player,   PatternCell::empty,
+      PatternCell::empty,    PatternCell::player, PatternCell::opponent, PatternCell::empty,
+  };
+  const std::array<PatternCell, 8> reversed = reverse_edge(edge);
+  const std::uint32_t edge_raw = ternary_pattern_index(edge);
+  const std::uint32_t edge_reversed_raw = ternary_pattern_index(reversed);
+
+  const std::optional<std::uint32_t> edge_canonical = canonical_ternary_pattern_index(
+      edge_raw, static_cast<std::uint8_t>(edge.size()), pattern_set.patterns[0].symmetry_policy);
+  const std::optional<std::uint32_t> reversed_edge_canonical =
+      canonical_ternary_pattern_index(edge_reversed_raw, static_cast<std::uint8_t>(reversed.size()),
+                                      pattern_set.patterns[0].symmetry_policy);
+
+  REQUIRE(edge_canonical.has_value());
+  REQUIRE(reversed_edge_canonical.has_value());
+  REQUIRE(edge_canonical == reversed_edge_canonical);
+  REQUIRE(*edge_canonical <= edge_raw);
+  REQUIRE(*edge_canonical <= edge_reversed_raw);
+
+  constexpr std::array<PatternCell, 9> corner{
+      PatternCell::empty,    PatternCell::player, PatternCell::opponent,
+      PatternCell::opponent, PatternCell::empty,  PatternCell::player,
+      PatternCell::player,   PatternCell::empty,  PatternCell::opponent,
+  };
+  const std::array<PatternCell, 9> rotated =
+      transform_square_d4(corner, kSquareD4SourceByOutput[1]);
+  const std::array<PatternCell, 9> reflected =
+      transform_square_d4(corner, kSquareD4SourceByOutput[4]);
+  const std::uint32_t corner_raw = ternary_pattern_index(corner);
+
+  const std::optional<std::uint32_t> corner_canonical =
+      canonical_ternary_pattern_index(corner_raw, static_cast<std::uint8_t>(corner.size()),
+                                      pattern_set.patterns[1].symmetry_policy);
+  const std::optional<std::uint32_t> rotated_corner_canonical =
+      canonical_ternary_pattern_index(rotated, pattern_set.patterns[1].symmetry_policy);
+  const std::optional<std::uint32_t> reflected_corner_canonical =
+      canonical_ternary_pattern_index(reflected, pattern_set.patterns[1].symmetry_policy);
+
+  REQUIRE(corner_canonical.has_value());
+  REQUIRE(rotated_corner_canonical.has_value());
+  REQUIRE(reflected_corner_canonical.has_value());
+  REQUIRE(corner_canonical == rotated_corner_canonical);
+  REQUIRE(corner_canonical == reflected_corner_canonical);
+  REQUIRE(*corner_canonical <= corner_raw);
 }
 
 TEST_CASE("canonical ternary pattern index preserves player and opponent digits",

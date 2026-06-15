@@ -95,6 +95,8 @@ validate_pattern_set(const PatternSet& pattern_set) noexcept;
 
 [[nodiscard]] const PatternSet& fixed_pattern_set_fixture() noexcept;
 
+[[nodiscard]] const PatternSet& symmetry_aware_fixed_pattern_set_fixture() noexcept;
+
 constexpr std::uint32_t ternary_pattern_index(std::span<const PatternCell> cells) noexcept {
   std::uint32_t index = 0;
   std::uint32_t place = 1;
