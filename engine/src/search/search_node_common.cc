@@ -76,7 +76,7 @@ std::uint8_t internal_exact_endgame_threshold(SearchOptions options) noexcept {
 
 bool should_use_internal_exact_endgame(board_core::Position position,
                                        SearchOptions options) noexcept {
-  return options.exact_endgame &&
+  return options.exact_endgame && options.mode != SearchMode::win_loss_draw &&
          empty_count(position) <= internal_exact_endgame_threshold(options);
 }
 

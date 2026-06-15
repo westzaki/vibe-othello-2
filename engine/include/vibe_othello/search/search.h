@@ -38,6 +38,7 @@ struct SearchOptions {
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;
   std::uint8_t selectivity_level = 0;
+  SearchMode mode = SearchMode::move;
 };
 
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,

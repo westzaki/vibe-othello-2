@@ -194,6 +194,12 @@ Endgame search is triggered from root search when all of the following hold:
 * the requested mode is compatible with endgame solving
 * cancellation has not already been requested
 
+Exact-score and WLD root triggers are separate. Exact-score root integration
+uses `endgame_exact_empties` and returns a final disc-difference margin. WLD
+root integration is used only when the caller explicitly requests
+`SearchMode::win_loss_draw` and the root empty count is less than or equal to
+`endgame_wld_empties`; it returns only `-1`, `0`, or `1`.
+
 Recommended initial thresholds:
 
 * `endgame_exact_empties = 10`
@@ -262,8 +268,10 @@ SearchResult search_iterative(board_core::Position position,
                               SearchOptions options);
 ```
 
-When `options.exact_endgame` is enabled and the empty threshold is met,
-`search_iterative` may route to endgame search.
+When `options.exact_endgame` is enabled and the exact-score empty threshold is
+met, `search_iterative` may route to exact-score endgame search. When
+`options.mode == SearchMode::win_loss_draw` and the WLD empty threshold is met,
+`search_iterative` may route to WLD endgame search.
 
 Tools and callers that need evaluator-free exact score or WLD solving may call
 the direct public APIs.
@@ -288,6 +296,10 @@ empty count.
 Direct WLD solving starts exact win/loss/draw search regardless of the root empty
 count. It returns only `loss`, `draw`, or `win` as `-1`, `0`, or `1`; it does
 not return final disc margins.
+
+Root-triggered WLD through `search_iterative` uses the same result semantics.
+`SearchResult::score` and root move scores are WLD values, and `exact` means the
+exact WLD outcome was completed rather than an exact final margin.
 
 `use_endgame_tt`, `use_endgame_parity_ordering`, and root reporting options such
 as `multi_pv` are honored. Midgame-only options must not change direct
@@ -524,7 +536,7 @@ Rules:
 * midgame entries must not cause exact endgame cutoffs
 * exact-score entries must not satisfy heuristic midgame probes
 * WLD entries must not satisfy exact-score probes
-* exact-score entries may be converted to WLD only through sign checks
+* exact-score and WLD entries remain separate in the current implementation
 * TT entries store side-to-move-relative scores
 * TT depth should mean remaining empties or exact remaining plies, not midgame
   depth
@@ -657,9 +669,9 @@ Root integration:
 
 Internal integration:
 
-* when a midgame leaf reaches depth zero and exact endgame is enabled, call
-  exact endgame search instead of heuristic evaluation if the position is under
-  the conservative internal threshold
+* when a midgame leaf reaches depth zero, exact-score endgame is enabled, and
+  the request is not WLD, call exact endgame search instead of heuristic
+  evaluation if the position is under the conservative internal threshold
 * the initial internal exact-score threshold is capped at four empties, even
   when `endgame_exact_empties` is larger
 * internal endgame calls do not publish root move reports

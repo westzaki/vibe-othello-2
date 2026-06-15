@@ -57,6 +57,20 @@ SearchOptions exact_options(std::uint8_t threshold, bool use_endgame_tt = false,
   };
 }
 
+SearchOptions wld_options(std::uint8_t threshold, bool use_endgame_tt = false,
+                          bool use_endgame_parity_ordering = true, std::uint8_t multi_pv = 0,
+                          std::uint8_t exact_threshold = 0, bool exact_endgame = false) noexcept {
+  return SearchOptions{
+      .use_endgame_tt = use_endgame_tt,
+      .exact_endgame = exact_endgame,
+      .use_endgame_parity_ordering = use_endgame_parity_ordering,
+      .multi_pv = multi_pv,
+      .endgame_exact_empties = exact_threshold,
+      .endgame_wld_empties = threshold,
+      .mode = SearchMode::win_loss_draw,
+  };
+}
+
 SearchResult search_exact(board_core::Position position, std::uint8_t threshold,
                           bool use_endgame_tt = false, bool use_endgame_parity_ordering = true,
                           std::uint8_t multi_pv = 0) {
@@ -68,11 +82,31 @@ SearchResult search_exact(board_core::Position position, std::uint8_t threshold,
   return result;
 }
 
+SearchResult search_wld(board_core::Position position, std::uint8_t threshold,
+                        bool use_endgame_tt = false, bool use_endgame_parity_ordering = true,
+                        std::uint8_t multi_pv = 0) {
+  CountingEvaluator evaluator{123};
+  SearchResult result = search_iterative(
+      position, evaluator, SearchLimits{.max_depth = Depth{0}},
+      wld_options(threshold, use_endgame_tt, use_endgame_parity_ordering, multi_pv));
+  REQUIRE(evaluator.calls == 0);
+  return result;
+}
+
 SearchResult search_exact_with_limits(board_core::Position position, std::uint8_t threshold,
                                       SearchLimits limits, std::uint8_t multi_pv = 0) {
   CountingEvaluator evaluator{123};
   SearchResult result = search_iterative(position, evaluator, limits,
                                          exact_options(threshold, false, true, multi_pv));
+  REQUIRE(evaluator.calls == 0);
+  return result;
+}
+
+SearchResult search_wld_with_limits(board_core::Position position, std::uint8_t threshold,
+                                    SearchLimits limits, std::uint8_t multi_pv = 0) {
+  CountingEvaluator evaluator{123};
+  SearchResult result =
+      search_iterative(position, evaluator, limits, wld_options(threshold, false, true, multi_pv));
   REQUIRE(evaluator.calls == 0);
   return result;
 }
@@ -475,6 +509,156 @@ TEST_CASE("public direct WLD endgame sign matches exact corpus results",
   }
 
   REQUIRE(saw_generic_wld_position);
+}
+
+TEST_CASE("root-triggered WLD search matches direct WLD result",
+          "[search][endgame][wld][iterative]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+
+  const SearchResult through_iterative = search_wld(position, empties);
+  const SearchResult direct = solve_direct_wld(position);
+
+  require_wld_result_invariants(position, through_iterative);
+  require_wld_result_invariants(position, direct);
+  REQUIRE(through_iterative.score == direct.score);
+  REQUIRE(through_iterative.completed_depth == direct.completed_depth);
+  REQUIRE(through_iterative.best_move == direct.best_move);
+  REQUIRE(through_iterative.pv == direct.pv);
+  REQUIRE(through_iterative.root_moves == direct.root_moves);
+}
+
+TEST_CASE("root-triggered WLD search sign matches exact-score endgame",
+          "[search][endgame][wld][iterative]") {
+  for (const std::string_view id :
+       {"four_empty_simple", "eight_empty_simple", "twelve_empty_simple"}) {
+    INFO("position_id: " << id);
+    const board_core::Position position = corpus_position(id);
+    const std::uint8_t empties = test_support::endgame_empty_count(position);
+
+    const SearchResult exact = solve_direct_exact(position);
+    const SearchResult wld = search_wld(position, empties);
+
+    require_exact_result_invariants(position, exact);
+    require_wld_result_invariants(position, wld);
+    REQUIRE(wld.score == wld_from_exact_score(exact.score));
+    REQUIRE(wld.completed_depth == exact.completed_depth);
+    REQUIRE(wld.best_move.has_value() == exact.best_move.has_value());
+    if (wld.best_move.has_value()) {
+      REQUIRE(is_legal_root_move(position, *wld.best_move));
+    }
+    for (const RootMoveInfo& wld_root_move : wld.root_moves) {
+      REQUIRE(wld_root_move.score ==
+              wld_from_exact_score(root_score_for_move(exact, wld_root_move.move)));
+    }
+  }
+}
+
+TEST_CASE("root-triggered WLD requires explicit WLD mode and threshold",
+          "[search][endgame][wld][iterative]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+
+  CountingEvaluator no_mode_evaluator{77};
+  const SearchResult no_mode =
+      search_iterative(position, no_mode_evaluator, SearchLimits{.max_depth = Depth{0}},
+                       SearchOptions{.endgame_wld_empties = empties});
+  REQUIRE_FALSE(no_mode.exact);
+  REQUIRE(no_mode.score == 77);
+  REQUIRE(no_mode.stats.endgame_nodes == 0);
+  REQUIRE(no_mode_evaluator.calls == 1);
+
+  CountingEvaluator disabled_threshold_evaluator{78};
+  const SearchResult disabled_threshold = search_iterative(
+      position, disabled_threshold_evaluator, SearchLimits{.max_depth = Depth{0}}, wld_options(0));
+  REQUIRE_FALSE(disabled_threshold.exact);
+  REQUIRE(disabled_threshold.score == 78);
+  REQUIRE(disabled_threshold.stats.endgame_nodes == 0);
+  REQUIRE(disabled_threshold_evaluator.calls == 1);
+
+  CountingEvaluator above_threshold_evaluator{79};
+  const SearchResult above_threshold = search_iterative(
+      position, above_threshold_evaluator, SearchLimits{.max_depth = Depth{0}},
+      wld_options(static_cast<std::uint8_t>(empties - 1), false, true, 0, empties, true));
+  REQUIRE_FALSE(above_threshold.exact);
+  REQUIRE(above_threshold.score == 79);
+  REQUIRE(above_threshold.stats.endgame_nodes == 0);
+  REQUIRE(above_threshold_evaluator.calls == 1);
+}
+
+TEST_CASE("exact-score request is not changed by WLD threshold",
+          "[search][endgame][wld][iterative]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+  CountingEvaluator evaluator{123};
+
+  const SearchOptions options{
+      .exact_endgame = true,
+      .endgame_exact_empties = empties,
+      .endgame_wld_empties = empties,
+      .mode = SearchMode::exact_score,
+  };
+  const SearchResult through_iterative =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}}, options);
+  const SearchResult direct = solve_direct_exact(position);
+
+  REQUIRE(evaluator.calls == 0);
+  require_exact_result_invariants(position, through_iterative);
+  require_same_exact_scores(position, through_iterative, direct);
+  REQUIRE(through_iterative.score == direct.score);
+  REQUIRE(through_iterative.root_moves == direct.root_moves);
+}
+
+TEST_CASE("root-triggered WLD TT and parity options preserve outcome",
+          "[search][endgame][wld][iterative][tt][parity]") {
+  const board_core::Position position = test_support::generated_endgame_position(6);
+
+  const SearchResult baseline = search_wld(position, 6, false, false);
+  const SearchResult with_parity = search_wld(position, 6, false, true);
+  const SearchResult with_tt = search_wld(position, 6, true, false);
+  const SearchResult with_both = search_wld(position, 6, true, true);
+
+  require_wld_result_invariants(position, baseline);
+  require_wld_result_invariants(position, with_parity);
+  require_wld_result_invariants(position, with_tt);
+  require_wld_result_invariants(position, with_both);
+  REQUIRE(with_parity.score == baseline.score);
+  REQUIRE(with_tt.score == baseline.score);
+  REQUIRE(with_both.score == baseline.score);
+  REQUIRE(with_parity.best_move == baseline.best_move);
+  REQUIRE(with_tt.best_move == baseline.best_move);
+  REQUIRE(with_both.best_move == baseline.best_move);
+  REQUIRE(with_tt.stats.tt_probes > 0);
+  REQUIRE(with_both.stats.tt_probes > 0);
+}
+
+TEST_CASE("root-triggered WLD respects max node and stop limits",
+          "[search][endgame][wld][iterative][limits]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult max_nodes_result =
+      search_wld_with_limits(position, 4, SearchLimits{.max_nodes = 1});
+
+  REQUIRE(max_nodes_result.stopped);
+  REQUIRE_FALSE(max_nodes_result.exact);
+  REQUIRE(max_nodes_result.bound == BoundType::lower);
+  REQUIRE(max_nodes_result.completed_depth == Depth{0});
+  REQUIRE_FALSE(max_nodes_result.best_move.has_value());
+  REQUIRE(max_nodes_result.nodes == 1);
+  REQUIRE(max_nodes_result.stats.nodes == 1);
+  REQUIRE(max_nodes_result.stats.endgame_nodes == 1);
+
+  std::atomic_bool stop_requested{true};
+  const SearchResult stop_result =
+      search_wld_with_limits(position, 4, SearchLimits{.stop_requested = &stop_requested});
+
+  REQUIRE(stop_result.stopped);
+  REQUIRE_FALSE(stop_result.exact);
+  REQUIRE(stop_result.bound == BoundType::lower);
+  REQUIRE(stop_result.completed_depth == Depth{0});
+  REQUIRE_FALSE(stop_result.best_move.has_value());
+  REQUIRE(stop_result.nodes == 0);
+  REQUIRE(stop_result.stats.endgame_nodes == 0);
 }
 
 TEST_CASE("public direct WLD endgame TT and parity options preserve outcome",
