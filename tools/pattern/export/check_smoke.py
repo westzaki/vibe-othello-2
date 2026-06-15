@@ -20,7 +20,7 @@ EXPECTED_EXPORT_SUMMARY = {
     "pattern_set_id": "fixed-pattern-fixture-v1",
     "weights_checksum": "0x3c640916",
     "weights_size_bytes": "210016",
-    "source": "tools/pattern-train tiny deterministic smoke summary",
+    "source": "tools/pattern/train tiny deterministic smoke summary",
     "training_note": "tiny smoke phase-bias baseline; pattern tables are zero-filled",
 }
 
@@ -124,7 +124,7 @@ def main() -> int:
             "phase_count": 2,
             "pattern_set_id": "fixed-pattern-fixture-v1",
             "weights_checksum": "0x3c640916",
-            "source": "tools/pattern-train tiny deterministic smoke summary",
+            "source": "tools/pattern/train tiny deterministic smoke summary",
             "training_note": "tiny smoke phase-bias baseline; pattern tables are zero-filled",
             "phase_bias": [3, 0],
         }
