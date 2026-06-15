@@ -136,19 +136,26 @@ def check_trainer_v0a_report(report: dict[str, object]) -> bool:
     expected_scalars = {
         "schema_version": 1,
         "trainer_version": "phase-bias-v0a",
-        "input_rows": 56,
-        "accepted_rows": 56,
-        "rejected_rows": 0,
+        "input_feature_rows": 56,
+        "accepted_examples": 7,
+        "rejected_examples": 0,
+        "rejected_feature_rows": 0,
+        "feature_rows_by_example_min": 8,
+        "feature_rows_by_example_max": 8,
+        "duplicate_feature_rows": 0,
     }
     for key, expected in expected_scalars.items():
         if report.get(key) != expected:
             print(f"v0a report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
             return False
-    if report.get("counts_by_split") != {"train": 40, "validation": 8, "test": 8}:
-        print(f"unexpected v0a split counts: {report.get('counts_by_split')!r}", file=sys.stderr)
+    if report.get("counts_by_split_examples") != {"train": 5, "validation": 1, "test": 1}:
+        print(
+            f"unexpected v0a split counts: {report.get('counts_by_split_examples')!r}",
+            file=sys.stderr,
+        )
         return False
-    if report.get("counts_by_phase") != {
-        "0": 48,
+    if report.get("counts_by_phase_examples") != {
+        "0": 6,
         "1": 0,
         "2": 0,
         "3": 0,
@@ -160,9 +167,12 @@ def check_trainer_v0a_report(report: dict[str, object]) -> bool:
         "9": 0,
         "10": 0,
         "11": 0,
-        "12": 8,
+        "12": 1,
     }:
-        print(f"unexpected v0a phase counts: {report.get('counts_by_phase')!r}", file=sys.stderr)
+        print(
+            f"unexpected v0a phase counts: {report.get('counts_by_phase_examples')!r}",
+            file=sys.stderr,
+        )
         return False
     phase_bias = report.get("phase_bias")
     if not isinstance(phase_bias, dict):
@@ -193,6 +203,85 @@ def check_trainer_v0a_report(report: dict[str, object]) -> bool:
     checksum = report.get("checksum")
     if not isinstance(checksum, str) or not checksum.startswith("sha256:"):
         print(f"invalid v0a checksum: {checksum!r}", file=sys.stderr)
+        return False
+    notes = report.get("notes")
+    if not isinstance(notes, list) or not any("example-level phase-bias" in str(note) for note in notes):
+        print(f"v0a report notes did not mention example-level training: {notes!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def first_data_line(dataset_text: str) -> str:
+    lines = dataset_text.splitlines()
+    if len(lines) < 2:
+        raise ValueError("dataset has no data line")
+    return lines[1]
+
+
+def mutate_field(line: str, field_index: int, value: str) -> str:
+    fields = line.split("\t")
+    fields[field_index] = value
+    return "\t".join(fields)
+
+
+def check_partly_malformed_report(report: dict[str, object]) -> bool:
+    expected = {
+        "input_feature_rows": 58,
+        "accepted_examples": 7,
+        "rejected_examples": 2,
+        "rejected_feature_rows": 2,
+    }
+    for key, expected_value in expected.items():
+        if report.get(key) != expected_value:
+            print(
+                f"v0a rejected row field mismatch for {key}: {report.get(key)!r}",
+                file=sys.stderr,
+            )
+            return False
+    return True
+
+
+def check_metadata_conflict_report(report: dict[str, object]) -> bool:
+    expected = {
+        "input_feature_rows": 57,
+        "accepted_examples": 6,
+        "rejected_examples": 1,
+        "rejected_feature_rows": 9,
+    }
+    for key, expected_value in expected.items():
+        if report.get(key) != expected_value:
+            print(
+                f"v0a metadata conflict field mismatch for {key}: {report.get(key)!r}",
+                file=sys.stderr,
+            )
+            return False
+    notes = report.get("notes")
+    if not isinstance(notes, list) or not any("inconsistent metadata" in str(note) for note in notes):
+        print(f"v0a metadata conflict was not reported in notes: {notes!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_duplicate_feature_report(report: dict[str, object]) -> bool:
+    expected = {
+        "input_feature_rows": 57,
+        "accepted_examples": 7,
+        "rejected_examples": 0,
+        "rejected_feature_rows": 0,
+        "duplicate_feature_rows": 1,
+        "feature_rows_by_example_min": 8,
+        "feature_rows_by_example_max": 9,
+    }
+    for key, expected_value in expected.items():
+        if report.get(key) != expected_value:
+            print(
+                f"v0a duplicate feature field mismatch for {key}: {report.get(key)!r}",
+                file=sys.stderr,
+            )
+            return False
+    details = report.get("duplicate_feature_rows_by_record_id")
+    if not isinstance(details, list) or len(details) != 1:
+        print(f"v0a duplicate feature details are missing: {details!r}", file=sys.stderr)
         return False
     return True
 
@@ -265,8 +354,32 @@ def check_trainer_v0a(
         ):
             return False
         malformed = json.loads(malformed_report.read_text(encoding="utf-8"))
-        if malformed.get("rejected_rows") != 2 or malformed.get("accepted_rows") != 56:
-            print(f"v0a rejected row counts are wrong: {malformed!r}", file=sys.stderr)
+        if not check_partly_malformed_report(malformed):
+            return False
+
+        conflict_path = temp_dir / "metadata-conflict.tsv"
+        conflict_weights = temp_dir / "metadata-conflict-weights.tsv"
+        conflict_report = temp_dir / "metadata-conflict-report.json"
+        conflict_line = mutate_field(first_data_line(dataset_text), 2, "validation")
+        conflict_path.write_text(dataset_text + conflict_line + "\n", encoding="utf-8")
+        if not run_trainer_v0a(
+            trainer_script, conflict_path, conflict_weights, conflict_report
+        ):
+            return False
+        conflict = json.loads(conflict_report.read_text(encoding="utf-8"))
+        if not check_metadata_conflict_report(conflict):
+            return False
+
+        duplicate_path = temp_dir / "duplicate-feature.tsv"
+        duplicate_weights = temp_dir / "duplicate-feature-weights.tsv"
+        duplicate_report = temp_dir / "duplicate-feature-report.json"
+        duplicate_path.write_text(dataset_text + first_data_line(dataset_text) + "\n", encoding="utf-8")
+        if not run_trainer_v0a(
+            trainer_script, duplicate_path, duplicate_weights, duplicate_report
+        ):
+            return False
+        duplicate = json.loads(duplicate_report.read_text(encoding="utf-8"))
+        if not check_duplicate_feature_report(duplicate):
             return False
 
         no_accepted_path = temp_dir / "no-accepted.tsv"
@@ -276,7 +389,7 @@ def check_trainer_v0a(
             encoding="utf-8",
         )
         if not run_trainer_v0a_expect_failure(
-            trainer_script, no_accepted_path, "dataset has no accepted rows"
+            trainer_script, no_accepted_path, "dataset has no accepted examples"
         ):
             return False
 
@@ -288,7 +401,7 @@ def check_trainer_v0a(
             encoding="utf-8",
         )
         if not run_trainer_v0a_expect_failure(
-            trainer_script, no_train_path, "dataset has no accepted train rows"
+            trainer_script, no_train_path, "dataset has no accepted train examples"
         ):
             return False
 

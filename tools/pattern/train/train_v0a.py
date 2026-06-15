@@ -9,7 +9,7 @@ import hashlib
 import json
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -31,17 +31,80 @@ TRAINER_VERSION = "phase-bias-v0a"
 
 
 @dataclass(frozen=True)
-class AcceptedRow:
+class Feature:
+    pattern_id: str
+    instance: int
+    ternary_index: int
+
+
+@dataclass(frozen=True)
+class ParsedFeatureRow:
+    record_id: str
+    ply: int
     split: str
     label: int
     phase: int
+    feature: Feature
+
+
+@dataclass(frozen=True)
+class Example:
+    record_id: str
+    ply: int
+    split: str
+    label_final_disc_diff: int
+    phase: int
+    features: list[Feature]
+
+
+@dataclass
+class ExampleBuilder:
+    record_id: str
+    ply: int
+    split: str
+    label: int
+    phase: int
+    features: list[Feature] = field(default_factory=list)
+    row_count: int = 0
+    reject_reasons: list[str] = field(default_factory=list)
+
+    def add(self, row: ParsedFeatureRow, line_number: int) -> None:
+        self.row_count += 1
+        if (
+            row.ply != self.ply
+            or row.split != self.split
+            or row.label != self.label
+            or row.phase != self.phase
+        ):
+            self.reject_reasons.append(
+                f"line {line_number}: record_id {self.record_id} has inconsistent metadata"
+            )
+        self.features.append(row.feature)
+
+    def to_example(self) -> Example:
+        return Example(
+            record_id=self.record_id,
+            ply=self.ply,
+            split=self.split,
+            label_final_disc_diff=self.label,
+            phase=self.phase,
+            features=self.features,
+        )
+
+
+@dataclass(frozen=True)
+class DuplicateFeatureRows:
+    total: int
+    by_record_id: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
 class LoadResult:
-    input_rows: int
-    accepted_rows: list[AcceptedRow]
-    rejected_rows: int
+    input_feature_rows: int
+    accepted_examples: list[Example]
+    rejected_examples: int
+    rejected_feature_rows: int
+    duplicate_feature_rows: DuplicateFeatureRows
     notes: list[str]
 
 
@@ -65,7 +128,9 @@ def parse_int(text: str | None) -> int | None:
     return value
 
 
-def validate_row(row: dict[str, str], line_number: int) -> tuple[AcceptedRow | None, str | None]:
+def validate_row(
+    row: dict[str, str], line_number: int
+) -> tuple[ParsedFeatureRow | None, str | None]:
     record_id = row["record_id"]
     pattern_id = row["pattern_id"]
     if not record_id:
@@ -92,14 +157,64 @@ def validate_row(row: dict[str, str], line_number: int) -> tuple[AcceptedRow | N
         return None, f"line {line_number}: instance must be a non-negative integer"
     if ternary_index is None or ternary_index < 0:
         return None, f"line {line_number}: ternary_index must be a non-negative integer"
-    return AcceptedRow(split=split, label=label, phase=phase), None
+    return (
+        ParsedFeatureRow(
+            record_id=record_id,
+            ply=ply,
+            split=split,
+            label=label,
+            phase=phase,
+            feature=Feature(pattern_id=pattern_id, instance=instance, ternary_index=ternary_index),
+        ),
+        None,
+    )
 
 
-def load_rows(path: Path) -> LoadResult:
-    accepted: list[AcceptedRow] = []
+def row_record_id(row: dict[str, Any] | None) -> str | None:
+    if row is None:
+        return None
+    value = row.get("record_id")
+    return value if isinstance(value, str) and value else None
+
+
+def duplicate_feature_rows_for(examples: list[Example]) -> DuplicateFeatureRows:
+    total = 0
+    by_record_id: list[dict[str, Any]] = []
+    for example in examples:
+        counts: dict[tuple[str, int, int], int] = {}
+        for feature in example.features:
+            key = (feature.pattern_id, feature.instance, feature.ternary_index)
+            counts[key] = counts.get(key, 0) + 1
+        duplicates = [
+            {
+                "pattern_id": pattern_id,
+                "instance": instance,
+                "ternary_index": ternary_index,
+                "count": count,
+            }
+            for (pattern_id, instance, ternary_index), count in counts.items()
+            if count > 1
+        ]
+        if duplicates:
+            duplicate_count = sum(duplicate["count"] - 1 for duplicate in duplicates)
+            total += duplicate_count
+            by_record_id.append(
+                {
+                    "record_id": example.record_id,
+                    "duplicate_feature_rows": duplicate_count,
+                    "features": duplicates,
+                }
+            )
+    return DuplicateFeatureRows(total=total, by_record_id=by_record_id)
+
+
+def load_examples(path: Path) -> LoadResult:
+    builders: dict[str, ExampleBuilder] = {}
+    rejected_record_ids: set[str] = set()
+    invalid_rows_by_record_id: dict[str, int] = {}
+    rejected_feature_rows_without_record_id = 0
     notes: list[str] = []
-    input_rows = 0
-    rejected_rows = 0
+    input_feature_rows = 0
     try:
         input_file = path.open(newline="", encoding="utf-8")
     except OSError as error:
@@ -110,25 +225,72 @@ def load_rows(path: Path) -> LoadResult:
         if reader.fieldnames != EXPECTED_HEADER:
             raise RuntimeError("unexpected TSV header")
         for line_number, row in enumerate(reader, start=2):
-            input_rows += 1
+            input_feature_rows += 1
+            record_id = row_record_id(row)
             if row is None or set(row) != set(EXPECTED_HEADER) or None in row:
-                rejected_rows += 1
+                if record_id is None:
+                    rejected_feature_rows_without_record_id += 1
+                else:
+                    invalid_rows_by_record_id[record_id] = (
+                        invalid_rows_by_record_id.get(record_id, 0) + 1
+                    )
+                    rejected_record_ids.add(record_id)
                 notes.append(f"line {line_number}: expected 8 TSV fields")
                 continue
-            accepted_row, error = validate_row(row, line_number)
-            if accepted_row is None:
-                rejected_rows += 1
+
+            parsed_row, error = validate_row(row, line_number)
+            if parsed_row is None:
+                if record_id is None:
+                    rejected_feature_rows_without_record_id += 1
+                else:
+                    invalid_rows_by_record_id[record_id] = (
+                        invalid_rows_by_record_id.get(record_id, 0) + 1
+                    )
+                    rejected_record_ids.add(record_id)
                 if error is not None:
                     notes.append(error)
                 continue
-            accepted.append(accepted_row)
 
-    if input_rows == 0:
+            builder = builders.get(parsed_row.record_id)
+            if builder is None:
+                builder = ExampleBuilder(
+                    record_id=parsed_row.record_id,
+                    ply=parsed_row.ply,
+                    split=parsed_row.split,
+                    label=parsed_row.label,
+                    phase=parsed_row.phase,
+                )
+                builders[parsed_row.record_id] = builder
+            builder.add(parsed_row, line_number)
+            if builder.reject_reasons:
+                rejected_record_ids.add(parsed_row.record_id)
+
+    if input_feature_rows == 0:
         raise RuntimeError("dataset has no rows")
+
+    accepted_examples: list[Example] = []
+    rejected_feature_rows = rejected_feature_rows_without_record_id
+    rejected_examples = 0
+    for record_id, builder in builders.items():
+        if record_id in rejected_record_ids:
+            rejected_examples += 1
+            rejected_feature_rows += builder.row_count + invalid_rows_by_record_id.get(record_id, 0)
+            notes.extend(builder.reject_reasons)
+            continue
+        accepted_examples.append(builder.to_example())
+
+    for record_id, invalid_rows in invalid_rows_by_record_id.items():
+        if record_id not in builders:
+            rejected_examples += 1
+            rejected_feature_rows += invalid_rows
+
+    duplicate_feature_rows = duplicate_feature_rows_for(accepted_examples)
     return LoadResult(
-        input_rows=input_rows,
-        accepted_rows=accepted,
-        rejected_rows=rejected_rows,
+        input_feature_rows=input_feature_rows,
+        accepted_examples=accepted_examples,
+        rejected_examples=rejected_examples,
+        rejected_feature_rows=rejected_feature_rows,
+        duplicate_feature_rows=duplicate_feature_rows,
         notes=notes,
     )
 
@@ -137,11 +299,11 @@ def mean(values: list[int]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def train_phase_bias(rows: list[AcceptedRow]) -> dict[str, float]:
+def train_phase_bias(examples: list[Example]) -> dict[str, float]:
     labels_by_phase: dict[int, list[int]] = {phase: [] for phase in PHASES}
-    for row in rows:
-        if row.split == "train":
-            labels_by_phase[row.phase].append(row.label)
+    for example in examples:
+        if example.split == "train":
+            labels_by_phase[example.phase].append(example.label_final_disc_diff)
     return {str(phase): mean(labels_by_phase[phase]) for phase in PHASES}
 
 
@@ -153,26 +315,26 @@ def sign(value: float) -> int:
     return 0
 
 
-def metrics_for_rows(rows: list[AcceptedRow], phase_bias: dict[str, float]) -> dict[str, Any]:
-    if not rows:
+def metrics_for_examples(examples: list[Example], phase_bias: dict[str, float]) -> dict[str, Any]:
+    if not examples:
         return {"rows": 0, "MAE": None, "RMSE": None, "sign_accuracy": None}
 
     absolute_error = 0.0
     squared_error = 0.0
     sign_matches = 0
-    for row in rows:
-        prediction = phase_bias[str(row.phase)]
-        error = prediction - row.label
+    for example in examples:
+        prediction = phase_bias[str(example.phase)]
+        error = prediction - example.label_final_disc_diff
         absolute_error += abs(error)
         squared_error += error * error
-        if sign(prediction) == sign(row.label):
+        if sign(prediction) == sign(example.label_final_disc_diff):
             sign_matches += 1
-    row_count = len(rows)
+    example_count = len(examples)
     return {
-        "rows": row_count,
-        "MAE": absolute_error / row_count,
-        "RMSE": math.sqrt(squared_error / row_count),
-        "sign_accuracy": sign_matches / row_count,
+        "rows": example_count,
+        "MAE": absolute_error / example_count,
+        "RMSE": math.sqrt(squared_error / example_count),
+        "sign_accuracy": sign_matches / example_count,
     }
 
 
@@ -186,41 +348,60 @@ def stable_float(value: Any) -> Any:
     return value
 
 
-def report_without_checksum(load_result: LoadResult, phase_bias: dict[str, float]) -> dict[str, Any]:
-    accepted = load_result.accepted_rows
-    rows_by_split = {split: [row for row in accepted if row.split == split] for split in SPLITS}
-    rows_by_phase = {phase: [row for row in accepted if row.phase == phase] for phase in PHASES}
+def report_without_checksum(
+    load_result: LoadResult, phase_bias: dict[str, float]
+) -> dict[str, Any]:
+    accepted = load_result.accepted_examples
+    examples_by_split = {
+        split: [example for example in accepted if example.split == split] for split in SPLITS
+    }
+    examples_by_phase = {
+        phase: [example for example in accepted if example.phase == phase] for phase in PHASES
+    }
+    feature_counts = [len(example.features) for example in accepted]
 
     report = {
         "schema_version": SCHEMA_VERSION,
         "trainer_version": TRAINER_VERSION,
-        "input_rows": load_result.input_rows,
-        "accepted_rows": len(accepted),
-        "rejected_rows": load_result.rejected_rows,
-        "counts_by_split": {split: len(rows_by_split[split]) for split in SPLITS},
-        "counts_by_phase": {str(phase): len(rows_by_phase[phase]) for phase in PHASES},
+        "input_feature_rows": load_result.input_feature_rows,
+        "accepted_examples": len(accepted),
+        "rejected_examples": load_result.rejected_examples,
+        "rejected_feature_rows": load_result.rejected_feature_rows,
+        "counts_by_split_examples": {
+            split: len(examples_by_split[split]) for split in SPLITS
+        },
+        "counts_by_phase_examples": {
+            str(phase): len(examples_by_phase[phase]) for phase in PHASES
+        },
+        "feature_rows_by_example_min": min(feature_counts) if feature_counts else 0,
+        "feature_rows_by_example_max": max(feature_counts) if feature_counts else 0,
+        "duplicate_feature_rows": load_result.duplicate_feature_rows.total,
+        "duplicate_feature_rows_by_record_id": load_result.duplicate_feature_rows.by_record_id,
         "metrics_by_split": {
-            split: metrics_for_rows(rows_by_split[split], phase_bias) for split in SPLITS
+            split: metrics_for_examples(examples_by_split[split], phase_bias) for split in SPLITS
         },
         "metrics_by_phase": {
-            str(phase): metrics_for_rows(rows_by_phase[phase], phase_bias) for phase in PHASES
+            str(phase): metrics_for_examples(examples_by_phase[phase], phase_bias)
+            for phase in PHASES
         },
         "phase_bias": phase_bias,
         "notes": [
-            "phase-bias baseline only; pattern weights, SGD, artifact export, and self-play are out of scope",
-            "validation and test rows are used only for metrics",
-            "metrics are row-weighted over emitted pattern rows",
+            "example-level phase-bias baseline; pattern weights, SGD, ridge regression, "
+            "artifact export, and self-play are out of scope",
+            "phase bias is learned from train split examples only",
+            "validation and test examples are used only for metrics",
+            "metrics are example-weighted over record_id groups",
             *load_result.notes,
         ],
     }
     return stable_float(report)
 
 
-def validate_training_rows(rows: list[AcceptedRow]) -> None:
-    if not rows:
-        raise RuntimeError("dataset has no accepted rows")
-    if not any(row.split == "train" for row in rows):
-        raise RuntimeError("dataset has no accepted train rows")
+def validate_training_examples(examples: list[Example]) -> None:
+    if not examples:
+        raise RuntimeError("dataset has no accepted examples")
+    if not any(example.split == "train" for example in examples):
+        raise RuntimeError("dataset has no accepted train examples")
 
 
 def checksum_for(report: dict[str, Any], weights_text: str) -> str:
@@ -247,9 +428,9 @@ def write_text(path: Path, text: str) -> None:
 def main() -> int:
     args = parse_args()
     try:
-        load_result = load_rows(args.dataset)
-        validate_training_rows(load_result.accepted_rows)
-        phase_bias = train_phase_bias(load_result.accepted_rows)
+        load_result = load_examples(args.dataset)
+        validate_training_examples(load_result.accepted_examples)
+        phase_bias = train_phase_bias(load_result.accepted_examples)
         weights_text = weights_tsv(phase_bias)
         report = report_without_checksum(load_result, phase_bias)
         report["checksum"] = checksum_for(report, weights_text)
@@ -262,9 +443,10 @@ def main() -> int:
 
     print(
         "summary "
-        f"input_rows={load_result.input_rows} "
-        f"accepted_rows={len(load_result.accepted_rows)} "
-        f"rejected_rows={load_result.rejected_rows} "
+        f"input_feature_rows={load_result.input_feature_rows} "
+        f"accepted_examples={len(load_result.accepted_examples)} "
+        f"rejected_examples={load_result.rejected_examples} "
+        f"rejected_feature_rows={load_result.rejected_feature_rows} "
         f"trainer_version={TRAINER_VERSION}",
         file=sys.stderr,
     )
