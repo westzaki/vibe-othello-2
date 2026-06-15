@@ -34,6 +34,11 @@ Existing search public types include:
 * `SearchMode`
 * `WldResult`
 * `SearchLimits`
+* `MidgameSearchOptions`
+* `MoveOrderingOptions`
+* `EndgameSearchOptions`
+* `SearchReportingOptions`
+* `ExperimentalSearchOptions`
 * `SearchOptions`
 * `SearchStats`
 * `RootMoveInfo`
@@ -60,6 +65,9 @@ The current search implementation includes:
   legal midgame TT best-move hints
 * separate midgame and endgame move-ordering entry points sharing legal-move
   expansion and insertion-sort mechanics
+* typed `SearchOptions` sub-configs for midgame, ordering, endgame, reporting,
+  and experimental options, with a legacy flat-field compatibility path through
+  internal option normalization
 * `max_nodes`, `max_time`, `infinite`, and `stop_requested` enforcement
 * best-completed-depth publication when iterative search is interrupted
 * search statistics aggregation
@@ -68,25 +76,25 @@ The current search implementation includes:
 * root-triggered generic exact-score endgame solving through `search_iterative`
 * public direct exact-score endgame solving through `solve_exact_endgame`
 * public direct WLD endgame solving through `solve_wld_endgame`
-* `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold
-  integration
+* `SearchOptions::endgame.exact_endgame` and
+  `SearchOptions::endgame.endgame_exact_empties` threshold integration
 * root-triggered WLD endgame solving through `search_iterative` when
   `SearchMode::win_loss_draw` is explicitly requested and
-  `endgame_wld_empties` is met
+  `SearchOptions::endgame.endgame_wld_empties` is met
 * exact endgame result flags, root-move reports, PVs, and `endgame_nodes`
   statistics
-* exact endgame root reporting selection through `SearchOptions::multi_pv`,
-  where `0` keeps all-root exact reporting and `1` enables best-only exact
-  reporting
+* exact endgame root reporting selection through
+  `SearchOptions::reporting.multi_pv`, where `0` keeps all-root exact reporting
+  and `1` enables best-only exact reporting
 * exact-score endgame TT semantics through `TTEntryKind::exact_endgame_score`
-  when `SearchOptions::use_endgame_tt` is enabled, including ordering-only legal
-  TT best-move hints when a probed entry cannot cut off
+  when `SearchOptions::endgame.use_endgame_tt` is enabled, including
+  ordering-only legal TT best-move hints when a probed entry cannot cut off
 * WLD endgame TT semantics through `TTEntryKind::exact_endgame_wld` when
-  `SearchOptions::use_endgame_tt` is enabled in direct or root-triggered WLD
-  search
+  `SearchOptions::endgame.use_endgame_tt` is enabled in direct or
+  root-triggered WLD search
 * specialized small-empty exact-score paths for 0, 1, 2, 3, and 4 empty squares
 * ordering-only exact endgame parity hints through
-  `SearchOptions::use_endgame_parity_ordering`
+  `SearchOptions::ordering.use_endgame_parity_ordering`
 * endgame benchmark coverage through `vibe_othello_endgame_bench`, including
   parity-ordering and exact endgame TT comparison modes
 * checked-in exact endgame benchmark baseline data for local comparison
@@ -103,6 +111,7 @@ Existing search tests include:
 * transposition-table tests
 * exact endgame tests
 * exact endgame reference differential tests
+* legacy flat-field and typed-config option equivalence tests
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
 
@@ -119,18 +128,20 @@ The current implementation does not yet have:
 The exact endgame path currently has root-triggered and internal leaf-triggered
 generic exact-score solving. Root exact search is entered before normal
 iterative deepening when the root position is at or below
-`endgame_exact_empties`. WLD root search is entered before normal iterative
-deepening when `SearchMode::win_loss_draw` is explicitly requested and the root
-position is at or below `endgame_wld_empties`; it returns `-1`, `0`, or `1`
+`SearchOptions::endgame.endgame_exact_empties`. WLD root search is entered
+before normal iterative deepening when `SearchMode::win_loss_draw` is explicitly
+requested and the root position is at or below
+`SearchOptions::endgame.endgame_wld_empties`; it returns `-1`, `0`, or `1`
 rather than a final disc-difference margin. Internal leaf cutover is entered
 from depth-limited midgame search before heuristic evaluation when
-`exact_endgame` is enabled, the request is not WLD, and the leaf is at or below
-`min(endgame_exact_empties, 4)`. Internal cutover does not publish root exact
-move reports or mark the whole root result exact. Parity ordering is available
-as an ordering-only hint and must not change exact results. Exact/WLD endgame
-root reporting uses `multi_pv == 0` for the default all-root exact report,
-`multi_pv == 1` for best-only exact reporting, and treats `multi_pv > 1` as a
-safe all-root no-op until top-N reporting is implemented.
+`SearchOptions::endgame.exact_endgame` is enabled, the request is not WLD, and
+the leaf is at or below `min(endgame_exact_empties, 4)`. Internal cutover does
+not publish root exact move reports or mark the whole root result exact. Parity
+ordering is available as an ordering-only hint and must not change exact
+results. Exact/WLD endgame root reporting uses `reporting.multi_pv == 0` for the
+default all-root exact report, `reporting.multi_pv == 1` for best-only exact
+reporting, and treats `reporting.multi_pv > 1` as a safe all-root no-op until
+top-N reporting is implemented.
 
 Current time limits are cooperative and checked periodically inside recursive
 midgame and endgame search. This keeps the hot path smaller, but it is not a
@@ -139,9 +150,9 @@ hard real-time deadline.
 Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 
 Remaining unimplemented search options are expected to remain safe no-ops until
-each option is implemented. `use_iid` now enables ordering-only shallow midgame
-searches, and `exact_endgame` is no longer a no-op when the root threshold is
-met.
+each option is implemented. `midgame.use_iid` now enables ordering-only shallow
+midgame searches, and `endgame.exact_endgame` is no longer a no-op when the root
+threshold is met.
 
 ## Implementation Plan
 
@@ -174,7 +185,7 @@ Status values:
 | Add specialized small-empty exact-score path | done | 0/1/2/3/4 empty path is tested against generic exact endgame search |
 | Add public direct exact endgame solve API | done | `solve_exact_endgame` calls the exact-score solver without an evaluator or threshold gate |
 | Add public direct WLD endgame solve API | done | `solve_wld_endgame` calls the WLD solver without an evaluator or threshold gate |
-| Add root-triggered WLD search path | done | `SearchMode::win_loss_draw` plus `endgame_wld_empties` routes `search_iterative` to WLD endgame solving without exposing final margins |
+| Add root-triggered WLD search path | done | `SearchMode::win_loss_draw` plus `endgame.endgame_wld_empties` routes `search_iterative` to WLD endgame solving without exposing final margins |
 | Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |

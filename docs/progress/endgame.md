@@ -35,11 +35,12 @@ Existing search public types include:
 
 Existing `SearchOptions` include:
 
-* `use_endgame_tt`
-* `use_endgame_parity_ordering`
-* `exact_endgame`
-* `endgame_exact_empties`
-* `endgame_wld_empties`
+* `EndgameSearchOptions::use_endgame_tt`
+* `MoveOrderingOptions::use_endgame_parity_ordering`
+* `EndgameSearchOptions::exact_endgame`
+* `EndgameSearchOptions::endgame_exact_empties`
+* `EndgameSearchOptions::endgame_wld_empties`
+* legacy flat endgame fields normalized into the typed config during migration
 
 Existing `SearchStats` include:
 
@@ -59,11 +60,13 @@ The current exact endgame implementation includes:
 * evaluator-free public direct WLD solving through `solve_wld_endgame`
 * root-triggered WLD orchestration through `search_iterative` when
   `SearchMode::win_loss_draw` is explicitly requested and the root position is
-  at or below `endgame_wld_empties`
+  at or below `SearchOptions::endgame.endgame_wld_empties`
 * internal leaf-triggered integration before heuristic evaluation when
-  `exact_endgame` is enabled, the request is not WLD, and the leaf has at most
-  `min(endgame_exact_empties, 4)` empty squares
-* `SearchOptions::exact_endgame` and `endgame_exact_empties` threshold checks
+  `SearchOptions::endgame.exact_endgame` is enabled, the request is not WLD, and
+  the leaf has at most `min(endgame_exact_empties, 4)` empty squares
+* typed `SearchOptions::endgame.exact_endgame` and
+  `SearchOptions::endgame.endgame_exact_empties` threshold checks, with legacy
+  flat-field compatibility through internal normalization
 * dedicated endgame move-ordering entry points that currently preserve the
   existing static Othello ordering
 * generic exact final-disc-difference negamax with alpha-beta pruning
@@ -73,21 +76,21 @@ The current exact endgame implementation includes:
 * avoids evaluator calls in exact endgame mode
 * supports root move reporting for root-triggered exact search
 * supports all-root exact reporting by default and best-only exact reporting
-  when `SearchOptions::multi_pv == 1`
+  when `SearchOptions::reporting.multi_pv == 1`
 * avoids root move reporting for internal leaf cutover
 * publishes replayable PVs
 * marks result and root moves exact when completed
 * uses ordering-only 4-neighbor empty-region parity hints when
-  `SearchOptions::use_endgame_parity_ordering` is enabled
+  `SearchOptions::ordering.use_endgame_parity_ordering` is enabled
 * counts exact endgame nodes through `SearchStats::endgame_nodes`
 * checks `max_nodes`, `max_time`, and `stop_requested` cooperatively
 * uses `TTEntryKind::exact_endgame_score` for optional exact-score endgame TT
-  probe/store/cutoff when `SearchOptions::use_endgame_tt` is enabled
+  probe/store/cutoff when `SearchOptions::endgame.use_endgame_tt` is enabled
 * uses legal `exact_endgame_score` and `exact_endgame_wld` TT best moves as
   ordering-only hints when a compatible endgame TT entry cannot cut off the
   current alpha-beta window
 * uses `TTEntryKind::exact_endgame_wld` for optional WLD endgame TT
-  probe/store/cutoff when `SearchOptions::use_endgame_tt` is enabled
+  probe/store/cutoff when `SearchOptions::endgame.use_endgame_tt` is enabled
 * direct WLD search returns only `loss`, `draw`, or `win` as `-1`, `0`, or `1`
   in `SearchResult::score` and root move scores; it does not return final disc
   margins
@@ -108,19 +111,21 @@ The current implementation does not yet have:
 
 * tuned native or WASM thresholds
 
-`use_endgame_tt` is implemented for exact-score, direct WLD, and
-root-triggered WLD endgame search. It remains separate from midgame TT semantics
-by using
+`SearchOptions::endgame.use_endgame_tt` is implemented for exact-score, direct
+WLD, and root-triggered WLD endgame search. It remains separate from midgame TT
+semantics by using
 `TTEntryKind::exact_endgame_score` and `TTEntryKind::exact_endgame_wld`, and by
 treating TT depth as remaining empty squares. WLD TT entries do not satisfy
 exact-score probes, and exact-score TT entries do not satisfy WLD probes in the
-current implementation. `endgame_wld_empties` gates root `search_iterative` WLD
-orchestration, but only for explicit `SearchMode::win_loss_draw` requests.
-`exact_endgame` is implemented when the root threshold is met and as a
-conservative internal leaf cutover at four empties or fewer for non-WLD
-requests. `multi_pv == 1` selects best-only exact/WLD root reporting for direct
-endgame solvers and root-triggered WLD/exact endgame search; `multi_pv > 1`
-remains a safe all-root no-op until top-N reporting is implemented.
+current implementation. `SearchOptions::endgame.endgame_wld_empties` gates root
+`search_iterative` WLD orchestration, but only for explicit
+`SearchMode::win_loss_draw` requests. `SearchOptions::endgame.exact_endgame` is
+implemented when the root threshold is met and as a conservative internal leaf
+cutover at four empties or fewer for non-WLD requests.
+`SearchOptions::reporting.multi_pv == 1` selects best-only exact/WLD root
+reporting for direct endgame solvers and root-triggered WLD/exact endgame
+search; `SearchOptions::reporting.multi_pv > 1` remains a safe all-root no-op
+until top-N reporting is implemented.
 
 ## Implementation Plan
 
@@ -142,10 +147,10 @@ Status values:
 | Add reference endgame solver in test support | done | Slow and clear, no TT or heuristic evaluation |
 | Add exact endgame golden corpus | done | `engine/fixtures/endgame/positions.tsv` plus deterministic `exact_score.jsonl` |
 | Add small-empty golden tests | not started | Generate from trusted reference solver and inspect a subset |
-| Integrate root threshold through `SearchOptions::exact_endgame` | done | Root integration before normal iterative deepening |
-| Integrate internal leaf threshold through `SearchOptions::exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
+| Integrate root threshold through `SearchOptions::endgame.exact_endgame` | done | Root integration before normal iterative deepening |
+| Integrate internal leaf threshold through `SearchOptions::endgame.exact_endgame` | done | Conservative cutover before evaluator calls, capped at four empties and without root move reports |
 | Mark exact root results with `exact = true` | done | Also marks root moves exact and non-selective |
-| Add best-only exact root reporting | done | `SearchOptions::multi_pv == 1` returns only the exact best root move; default and `multi_pv > 1` keep all-root exact reports |
+| Add best-only exact root reporting | done | `SearchOptions::reporting.multi_pv == 1` returns only the exact best root move; default and `reporting.multi_pv > 1` keep all-root exact reports |
 | Add WLD mode | done | Public direct `solve_wld_endgame` and explicit root-triggered `search_iterative` WLD return exact `-1/0/1` outcomes without final margins |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD uses `TTEntryKind::exact_endgame_wld`; the two probe paths do not satisfy each other |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |

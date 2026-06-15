@@ -1,6 +1,7 @@
 #pragma once
 
 #include "move_ordering_internal.h"
+#include "search_options_internal.h"
 #include "transposition_table_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/hash.h"
@@ -64,7 +65,7 @@ struct SearchContext {
   const Evaluator& evaluator;
   SearchStats stats{};
   SearchLimits limits{};
-  SearchOptions options{};
+  ResolvedSearchOptions options{};
   TranspositionTable* transposition_table = nullptr;
   MidgameOrderingState* ordering_state = nullptr;
   SearchLimitState* limit_state = nullptr;
@@ -75,7 +76,7 @@ struct SearchContext {
 struct EndgameContext {
   board_core::Position position;
   SearchLimits limits{};
-  SearchOptions options{};
+  ResolvedSearchOptions options{};
   TranspositionTable* transposition_table = nullptr;
   SearchLimitState* limit_state = nullptr;
   SearchStats stats{};

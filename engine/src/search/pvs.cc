@@ -71,7 +71,7 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
 
 SearchNodeResult full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
                                     Ply ply) {
-  if (context->options.use_pvs) {
+  if (context->options.midgame.use_pvs) {
     return pvs(context, alpha, beta, depth, ply);
   }
   return alphabeta(context, alpha, beta, depth, ply);

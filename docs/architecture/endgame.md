@@ -189,16 +189,20 @@ WLD TT entries must never satisfy exact-score probes.
 
 Endgame search is triggered from root search when all of the following hold:
 
-* `SearchOptions::exact_endgame` is true
+* `SearchOptions::endgame.exact_endgame` is true after option normalization
 * empty count is less than or equal to a configured threshold
 * the requested mode is compatible with endgame solving
 * cancellation has not already been requested
 
 Exact-score and WLD root triggers are separate. Exact-score root integration
-uses `endgame_exact_empties` and returns a final disc-difference margin. WLD
-root integration is used only when the caller explicitly requests
-`SearchMode::win_loss_draw` and the root empty count is less than or equal to
-`endgame_wld_empties`; it returns only `-1`, `0`, or `1`.
+uses `SearchOptions::endgame.endgame_exact_empties` and returns a final
+disc-difference margin. WLD root integration is used only when the caller
+explicitly requests `SearchMode::win_loss_draw` and the root empty count is less
+than or equal to `SearchOptions::endgame.endgame_wld_empties`; it returns only
+`-1`, `0`, or `1`.
+
+Legacy flat `SearchOptions` fields are still normalized into the typed endgame
+config during the compatibility period.
 
 Recommended initial thresholds:
 
@@ -268,10 +272,10 @@ SearchResult search_iterative(board_core::Position position,
                               SearchOptions options);
 ```
 
-When `options.exact_endgame` is enabled and the exact-score empty threshold is
-met, `search_iterative` may route to exact-score endgame search. When
-`options.mode == SearchMode::win_loss_draw` and the WLD empty threshold is met,
-`search_iterative` may route to WLD endgame search.
+When `options.endgame.exact_endgame` is enabled and the exact-score empty
+threshold is met, `search_iterative` may route to exact-score endgame search.
+When `options.mode == SearchMode::win_loss_draw` and the WLD empty threshold is
+met, `search_iterative` may route to WLD endgame search.
 
 Tools and callers that need evaluator-free exact score or WLD solving may call
 the direct public APIs.
@@ -287,11 +291,11 @@ SearchResult solve_wld_endgame(board_core::Position position,
 ```
 
 Direct exact solving starts exact final-disc-difference search regardless of the
-root empty count. It does not use the `exact_endgame` or
-`endgame_exact_empties` threshold gate, does not require an evaluator, and does
-not fall back to midgame search. `max_nodes`, `max_time`, and `stop_requested`
-are respected. `max_depth` is ignored because exact endgame depth is the root
-empty count.
+root empty count. It does not use the `endgame.exact_endgame` or
+`endgame.endgame_exact_empties` threshold gate, does not require an evaluator,
+and does not fall back to midgame search. `max_nodes`, `max_time`, and
+`stop_requested` are respected. `max_depth` is ignored because exact endgame
+depth is the root empty count.
 
 Direct WLD solving starts exact win/loss/draw search regardless of the root empty
 count. It returns only `loss`, `draw`, or `win` as `-1`, `0`, or `1`; it does
@@ -301,9 +305,9 @@ Root-triggered WLD through `search_iterative` uses the same result semantics.
 `SearchResult::score` and root move scores are WLD values, and `exact` means the
 exact WLD outcome was completed rather than an exact final margin.
 
-`use_endgame_tt`, `use_endgame_parity_ordering`, and root reporting options such
-as `multi_pv` are honored. Midgame-only options must not change direct
-exact-score or WLD semantics.
+`endgame.use_endgame_tt`, `ordering.use_endgame_parity_ordering`, and root
+reporting options such as `reporting.multi_pv` are honored. Midgame-only
+options must not change direct exact-score or WLD semantics.
 
 Reusable endgame logic should live in `engine/src/search/`.
 
@@ -839,7 +843,8 @@ The first implementation may return all root moves with exact scores.
 
 That is often useful for UI and review.
 
-For exact endgame root search, `SearchOptions::multi_pv` is interpreted as:
+For exact endgame root search, `SearchOptions::reporting.multi_pv` is
+interpreted as:
 
 * `0`: default all-root exact reporting
 * `1`: best-only exact reporting

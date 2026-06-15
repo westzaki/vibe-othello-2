@@ -299,7 +299,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .position = position,
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = completed_depth},
-      .options = options,
+      .options = normalize_search_options(options),
       .transposition_table = tt,
       .ordering_state = ordering_state == nullptr ? &local_ordering_state : ordering_state,
       .limit_state = limit_state,
@@ -326,7 +326,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     mark_stopped_and_finalize(&result, context, start);
     return result;
   }
-  if (context.options.use_tt_best_move_ordering && !root_hints.tt_best_move.has_value() &&
+  if (context.options.ordering.use_tt_best_move_ordering && !root_hints.tt_best_move.has_value() &&
       context.transposition_table != nullptr) {
     const std::optional<TTEntry> root_tt_entry =
         context.transposition_table->probe(context.position, &context.stats);
@@ -336,10 +336,10 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     }
   }
   root_hints.use_opponent_mobility = true;
-  if (context.ordering_state != nullptr && context.options.use_killers) {
+  if (context.ordering_state != nullptr && context.options.ordering.use_killers) {
     root_hints.killer_moves = context.ordering_state->killer_moves[0];
   }
-  if (context.ordering_state != nullptr && context.options.use_history) {
+  if (context.ordering_state != nullptr && context.options.ordering.use_history) {
     root_hints.history = &context.ordering_state->history;
   }
   StackFrame& root_frame = context.stack[0];
@@ -459,18 +459,22 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
                               SearchLimits limits, SearchOptions options) {
   const auto start = std::chrono::steady_clock::now();
   const Depth max_depth = limits.max_depth < 0 ? Depth{0} : limits.max_depth;
+  const internal::ResolvedSearchOptions resolved_options =
+      internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
 
-  if (internal::should_use_wld_endgame(position, options)) {
+  if (internal::should_use_wld_endgame(position, resolved_options)) {
     internal::TranspositionTable tt_storage{};
-    internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
+    internal::TranspositionTable* tt =
+        resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
     return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
   }
 
-  if (internal::should_use_exact_endgame(position, options)) {
+  if (internal::should_use_exact_endgame(position, resolved_options)) {
     internal::TranspositionTable tt_storage{};
-    internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
+    internal::TranspositionTable* tt =
+        resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
     return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
   }
 
@@ -491,8 +495,10 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
     best_completed.score = internal::terminal_score(position);
   }
   internal::TranspositionTable tt_storage{};
-  internal::TranspositionTable* tt =
-      (options.use_tt_best_move_ordering || options.use_midgame_tt) ? &tt_storage : nullptr;
+  internal::TranspositionTable* tt = (resolved_options.ordering.use_tt_best_move_ordering ||
+                                      resolved_options.midgame.use_midgame_tt)
+                                         ? &tt_storage
+                                         : nullptr;
   internal::MidgameOrderingState ordering_state{};
   std::optional<board_core::Move> previous_best_move;
   std::optional<Score> previous_score;
@@ -523,7 +529,7 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
     }
     const internal::MoveOrderingHints root_hints{.root_best_move = previous_best_move};
     SearchResult current =
-        options.use_aspiration && depth >= 2 && previous_score.has_value()
+        resolved_options.midgame.use_aspiration && depth >= 2 && previous_score.has_value()
             ? internal::search_depth_with_aspiration(position, evaluator, depth, root_hints,
                                                      options, tt, *previous_score, &ordering_state,
                                                      &limit_state)
@@ -553,19 +559,27 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
                                  SearchOptions options) {
+  options.exact_endgame = true;
+  options.endgame.exact_endgame = true;
+  const internal::ResolvedSearchOptions resolved_options =
+      internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   internal::TranspositionTable tt_storage{};
-  internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
-  options.exact_endgame = true;
+  internal::TranspositionTable* tt =
+      resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
   return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
 }
 
 SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits,
                                SearchOptions options) {
+  options.exact_endgame = true;
+  options.endgame.exact_endgame = true;
+  const internal::ResolvedSearchOptions resolved_options =
+      internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   internal::TranspositionTable tt_storage{};
-  internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
-  options.exact_endgame = true;
+  internal::TranspositionTable* tt =
+      resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
   return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
 }
 

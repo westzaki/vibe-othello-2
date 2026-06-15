@@ -20,6 +20,38 @@ struct SearchLimits {
   const std::atomic_bool* stop_requested = nullptr;
 };
 
+struct MidgameSearchOptions {
+  bool use_pvs = false;
+  bool use_aspiration = false;
+  bool use_iid = false;
+  bool use_midgame_tt = false;
+};
+
+struct MoveOrderingOptions {
+  bool use_tt_best_move_ordering = false;
+  bool use_history = false;
+  bool use_killers = false;
+  bool use_endgame_parity_ordering = true;
+};
+
+struct EndgameSearchOptions {
+  bool exact_endgame = false;
+  bool use_endgame_tt = false;
+  std::uint8_t endgame_exact_empties = 0;
+  std::uint8_t endgame_wld_empties = 0;
+};
+
+struct SearchReportingOptions {
+  std::uint8_t multi_pv = 0;
+};
+
+struct ExperimentalSearchOptions {
+  bool probcut = false;
+  bool use_pv_table = false;
+  bool use_parallel = false;
+  std::uint8_t selectivity_level = 0;
+};
+
 struct SearchOptions {
   bool use_pvs = false;
   bool use_aspiration = false;
@@ -38,6 +70,11 @@ struct SearchOptions {
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;
   std::uint8_t selectivity_level = 0;
+  MidgameSearchOptions midgame{};
+  MoveOrderingOptions ordering{};
+  EndgameSearchOptions endgame{};
+  SearchReportingOptions reporting{};
+  ExperimentalSearchOptions experimental{};
   SearchMode mode = SearchMode::move;
 };
 
@@ -50,10 +87,11 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
 // Directly solve a root position to an exact final disc-difference score.
 //
-// This does not require an Evaluator, does not use the exact_endgame threshold
-// gate, and can be expensive for positions with many empty squares. max_nodes,
-// max_time, and stop_requested are respected; max_depth is not meaningful for
-// direct exact endgame solving and is ignored.
+// This does not require an Evaluator, does not use the
+// EndgameSearchOptions::exact_endgame threshold gate, and can be expensive for
+// positions with many empty squares. max_nodes, max_time, and stop_requested are
+// respected; max_depth is not meaningful for direct exact endgame solving and is
+// ignored.
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits = {},
                                  SearchOptions options = {});
 

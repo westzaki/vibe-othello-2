@@ -269,6 +269,51 @@ Search must never return an illegal move.
 Search options control algorithms.
 
 ```cpp
+struct MidgameSearchOptions {
+  bool use_pvs;
+  bool use_aspiration;
+  bool use_iid;
+  bool use_midgame_tt;
+};
+
+struct MoveOrderingOptions {
+  bool use_tt_best_move_ordering;
+  bool use_history;
+  bool use_killers;
+  bool use_endgame_parity_ordering;
+};
+
+struct EndgameSearchOptions {
+  bool exact_endgame;
+  bool use_endgame_tt;
+  std::uint8_t endgame_exact_empties;
+  std::uint8_t endgame_wld_empties;
+};
+
+struct SearchReportingOptions {
+  std::uint8_t multi_pv;
+};
+
+struct ExperimentalSearchOptions {
+  bool probcut;
+  bool use_pv_table;
+  bool use_parallel;
+  std::uint8_t selectivity_level;
+};
+
+struct SearchOptions {
+  MidgameSearchOptions midgame;
+  MoveOrderingOptions ordering;
+  EndgameSearchOptions endgame;
+  SearchReportingOptions reporting;
+  ExperimentalSearchOptions experimental;
+  SearchMode mode;
+};
+```
+
+The public API still accepts legacy flat fields during migration:
+
+```cpp
 struct SearchOptions {
   bool use_pvs;
   bool use_aspiration;
@@ -287,6 +332,11 @@ struct SearchOptions {
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
   std::uint8_t selectivity_level;
+  MidgameSearchOptions midgame;
+  MoveOrderingOptions ordering;
+  EndgameSearchOptions endgame;
+  SearchReportingOptions reporting;
+  ExperimentalSearchOptions experimental;
   SearchMode mode;
 };
 ```
@@ -296,7 +346,12 @@ Every non-baseline option must be independently disableable.
 All options default to the disabled value. Unimplemented options must be safely
 ignored or explicitly treated as disabled.
 
-`use_pvs` switches the recursive full-window search path from plain alpha-beta
+Search internals normalize public `SearchOptions` into a resolved typed config
+before dispatch. During the compatibility period, legacy flat fields and typed
+sub-configs express the same behavior. Existing legacy callers keep working,
+and new call sites should prefer the typed sub-configs.
+
+`midgame.use_pvs` switches the recursive full-window search path from plain alpha-beta
 to Principal Variation Search. It is disabled by default.
 
 Regression tests should run with all selective options disabled.
@@ -305,41 +360,41 @@ Benchmarks should report which options were enabled.
 
 Midgame TT and endgame TT have different semantics.
 
-`use_midgame_tt` controls midgame transposition-table cutoffs from compatible
+`midgame.use_midgame_tt` controls midgame transposition-table cutoffs from compatible
 stored entries.
 
-`use_endgame_tt` controls exact endgame score and WLD entries.
+`endgame.use_endgame_tt` controls exact endgame score and WLD entries.
 
-`use_endgame_tt` has no effect in iterative midgame search when `exact_endgame`
+`endgame.use_endgame_tt` has no effect in iterative midgame search when `endgame.exact_endgame`
 is disabled. Direct endgame solver APIs honor it independently of the root
 threshold gate.
 
-`use_endgame_tt` enables exact-score endgame transposition-table probe, store,
+`endgame.use_endgame_tt` enables exact-score endgame transposition-table probe, store,
 and cutoff behavior when exact endgame search is active. It also enables WLD
 endgame transposition-table probe, store, and cutoff behavior when direct or
 root-triggered WLD search is active.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
-`use_endgame_parity_ordering` controls ordering-only parity hints in exact
+`ordering.use_endgame_parity_ordering` controls ordering-only parity hints in exact
 endgame search. It must not prune legal moves or change exact results.
 
-`use_pv_table` controls a dedicated PV table, if one is used.
+`experimental.use_pv_table` controls a dedicated PV table, if one is used.
 
-`use_tt_best_move_ordering` controls transposition-table best-move ordering.
+`ordering.use_tt_best_move_ordering` controls transposition-table best-move ordering.
 
 TT best-move ordering may reorder legal moves.
 
 TT best-move ordering must not perform TT cutoffs by itself.
 
-`use_midgame_tt` and `use_tt_best_move_ordering` are independent. Midgame TT
+`midgame.use_midgame_tt` and `ordering.use_tt_best_move_ordering` are independent. Midgame TT
 cutoffs may be enabled without TT best-move ordering, and TT best-move ordering
 may be enabled without TT cutoffs.
 
 Disabling one table must not silently disable or weaken the semantics of another
 table.
 
-`multi_pv` controls root line reporting only where implemented. For exact
+`reporting.multi_pv` controls root line reporting only where implemented. For exact
 endgame root search, `0` keeps backward-compatible all-root exact reporting, `1`
 selects best-only exact reporting, and values greater than one are currently a
 safe no-op that behave like `0` until top-N reporting is implemented.
@@ -347,8 +402,8 @@ safe no-op that behave like `0` until top-N reporting is implemented.
 `mode` is the caller's requested search result mode. `SearchMode::move` is the
 default. Root-triggered WLD endgame search is used only when `mode` is
 `SearchMode::win_loss_draw` and the root empty count is less than or equal to
-`endgame_wld_empties`. Exact-score endgame search remains separate and returns
-final disc-difference margins.
+`endgame.endgame_wld_empties`. Exact-score endgame search remains separate and
+returns final disc-difference margins.
 
 ## Direct Exact Endgame API
 
@@ -361,8 +416,9 @@ SearchResult solve_exact_endgame(board_core::Position position,
 ```
 
 This API starts exact final-disc-difference search directly. It does not use the
-`SearchOptions::exact_endgame` or `endgame_exact_empties` root threshold gate and
-does not fall back to evaluator-based midgame search.
+`SearchOptions::endgame.exact_endgame` or
+`SearchOptions::endgame.endgame_exact_empties` root threshold gate and does not
+fall back to evaluator-based midgame search.
 
 Because direct exact solving may be expensive for high-empty positions, callers
 should use `SearchLimits` when appropriate. `max_nodes`, `max_time`, and
@@ -370,10 +426,10 @@ should use `SearchLimits` when appropriate. `max_nodes`, `max_time`, and
 search entry points. `max_depth` is not meaningful for direct exact endgame
 solving and is ignored.
 
-`use_endgame_tt`, `use_endgame_parity_ordering`, and exact endgame root
-reporting options such as `multi_pv` keep their exact endgame meanings. Midgame
-options such as PVS, IID, history, killers, midgame TT, and selective pruning do
-not change direct exact result semantics.
+`endgame.use_endgame_tt`, `ordering.use_endgame_parity_ordering`, and exact
+endgame root reporting options such as `reporting.multi_pv` keep their exact
+endgame meanings. Midgame options such as PVS, IID, history, killers, midgame
+TT, and selective pruning do not change direct exact result semantics.
 
 ## Direct WLD Endgame API
 
@@ -386,14 +442,16 @@ SearchResult solve_wld_endgame(board_core::Position position,
 ```
 
 This API starts exact win/loss/draw search directly. It does not use the
-`SearchOptions::exact_endgame`, `endgame_exact_empties`, or
-`endgame_wld_empties` root threshold gates and does not fall back to
-evaluator-based midgame search.
+`SearchOptions::endgame.exact_endgame`,
+`SearchOptions::endgame.endgame_exact_empties`, or
+`SearchOptions::endgame.endgame_wld_empties` root threshold gates and does not
+fall back to evaluator-based midgame search.
 
 The returned `SearchResult::score` and root move scores are WLD values from the
 side-to-move perspective: `-1` for loss, `0` for draw, and `1` for win. They are
-not final disc-difference margins. `use_endgame_tt`, `use_endgame_parity_ordering`,
-and root reporting options such as `multi_pv` keep their endgame meanings.
+not final disc-difference margins. `endgame.use_endgame_tt`,
+`ordering.use_endgame_parity_ordering`, and root reporting options such as
+`reporting.multi_pv` keep their endgame meanings.
 
 `search_iterative` can also route the root to WLD endgame search when
 `SearchOptions::mode == SearchMode::win_loss_draw` and the root empty count is
