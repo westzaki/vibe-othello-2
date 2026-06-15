@@ -25,6 +25,7 @@ DEFAULT_ROOT_MODE = "best"
 DEFAULT_PARITY = "on"
 DEFAULT_TT = "on"
 DEFAULT_MODE = "exact-score"
+DEFAULT_ENTRY = "direct"
 DEFAULT_REPEAT = 1
 DEFAULT_TIMEOUT_SEC = 120
 DEFAULT_FORMAT = "markdown"
@@ -42,13 +43,18 @@ WLD_RESULT_BY_SCORE = {
 }
 SUMMARY_COLUMNS = (
     "position_id",
+    "empties",
+    "threshold",
+    "triggered",
     "status",
+    "entry",
     "mode",
     "elapsed_wall_ms",
     "output_jsonl",
     "elapsed_ms_p50",
     "nodes_p50",
     "endgame_nodes_p50",
+    "eval_calls",
     "nps_p50",
     "tt_hit_rate",
     "tt_cutoff_rate",
@@ -58,6 +64,7 @@ SUMMARY_COLUMNS = (
     "best_move",
     "exact",
     "stopped",
+    "completed_depth",
     "error",
 )
 
@@ -66,6 +73,8 @@ SUMMARY_COLUMNS = (
 class ProbeResult:
     position_id: str
     mode: str
+    entry: str
+    threshold: int
     status: str
     elapsed_wall_ms: int
     output_jsonl: Path
@@ -133,15 +142,29 @@ def selected_modes(args: argparse.Namespace) -> list[str]:
     return [args.mode]
 
 
-def safe_filename(position_id: str, mode: str, index: int, seen: dict[tuple[str, str], int]) -> str:
+def selected_thresholds(args: argparse.Namespace) -> list[int]:
+    if args.entry != "iterative-root":
+        return [0]
+    return args.threshold or [args.endgame_wld_empties]
+
+
+def safe_filename(
+    position_id: str,
+    mode: str,
+    entry: str,
+    threshold: int,
+    index: int,
+    seen: dict[tuple[str, str, str, int], int],
+) -> str:
     safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", position_id).strip("._")
     if not safe_id:
         safe_id = "position"
 
-    key = (position_id, mode)
+    key = (position_id, mode, entry, threshold)
     seen[key] = seen.get(key, 0) + 1
     suffix = "" if seen[key] == 1 else f"-{seen[key]}"
-    return f"{index:02d}-{safe_id}{suffix}-{mode}.jsonl"
+    threshold_part = "" if entry == "direct" else f"-t{threshold}"
+    return f"{index:02d}-{safe_id}{suffix}-{mode}-{entry}{threshold_part}.jsonl"
 
 
 def load_aggregate_module(path: Path) -> Any:
@@ -183,7 +206,7 @@ def validate_jsonl(path: Path, position_id: str, mode: str) -> list[dict[str, An
                         f"{path}:{line_number}: expected mode {expected_mode!r}, "
                         f"got {actual_mode!r}"
                     )
-                if mode == "wld":
+                if mode == "wld" and record.get("status", "completed") == "completed":
                     validate_wld_record(path, line_number, record)
                 records.append(record)
     except OSError as error:
@@ -242,6 +265,8 @@ def same_or_join(values: list[Any]) -> Any:
 def build_summary_rows(
     position_id: str,
     mode: str,
+    entry: str,
+    threshold: int,
     status: str,
     elapsed_wall_ms: int,
     output_jsonl: Path,
@@ -250,13 +275,28 @@ def build_summary_rows(
     error: str = "",
 ) -> list[dict[str, Any]]:
     if status != "completed":
+        first_record = records[0] if records else {}
         return [
             {
                 "position_id": position_id,
+                "empties": first_record.get("empties", ""),
+                "threshold": first_record.get("threshold", threshold),
+                "triggered": first_record.get("triggered", ""),
+                "entry": entry,
                 "status": status,
                 "mode": mode,
                 "elapsed_wall_ms": elapsed_wall_ms,
                 "output_jsonl": str(output_jsonl),
+                "score": first_record.get("score", ""),
+                "wld_result": first_record.get("wld_result", "n/a"),
+                "best_move": first_record.get("best_move", ""),
+                "exact": first_record.get("exact", ""),
+                "stopped": first_record.get("stopped", ""),
+                "completed_depth": first_record.get("completed_depth", ""),
+                "nodes_p50": first_record.get("nodes", ""),
+                "endgame_nodes_p50": first_record.get("endgame_nodes", ""),
+                "eval_calls": first_record.get("eval_calls", ""),
+                "root_moves_searched_p50": first_record.get("root_moves_searched", ""),
                 "error": error,
             }
         ]
@@ -272,12 +312,15 @@ def build_summary_rows(
         row = {
             "position_id": position_id,
             "status": status,
+            "entry": entry,
+            "threshold": threshold,
             "mode": mode,
             "elapsed_wall_ms": elapsed_wall_ms,
             "output_jsonl": str(output_jsonl),
             "elapsed_ms_p50": aggregate_row.get("elapsed_ms_p50", ""),
             "nodes_p50": aggregate_row.get("nodes_p50", ""),
             "endgame_nodes_p50": aggregate_row.get("endgame_nodes_p50", ""),
+            "eval_calls": "",
             "nps_p50": aggregate_row.get("nps_p50", ""),
             "tt_hit_rate": aggregate_row.get("tt_hit_rate", ""),
             "tt_cutoff_rate": aggregate_row.get("tt_cutoff_rate", ""),
@@ -287,9 +330,19 @@ def build_summary_rows(
             "best_move": "",
             "exact": "",
             "stopped": "",
+            "completed_depth": "",
+            "empties": "",
+            "triggered": "",
             "error": "",
         }
         if group_records:
+            row["empties"] = same_or_join([record.get("empties", "") for record in group_records])
+            row["threshold"] = same_or_join(
+                [record.get("threshold", threshold) for record in group_records]
+            )
+            row["triggered"] = same_or_join(
+                [record.get("triggered", "") for record in group_records]
+            )
             root_moves = [
                 record["root_moves_searched"]
                 for record in group_records
@@ -304,6 +357,12 @@ def build_summary_rows(
             row["best_move"] = same_or_join([record.get("best_move", "") for record in group_records])
             row["exact"] = same_or_join([record.get("exact", "") for record in group_records])
             row["stopped"] = same_or_join([record.get("stopped", "") for record in group_records])
+            row["completed_depth"] = same_or_join(
+                [record.get("completed_depth", "") for record in group_records]
+            )
+            row["eval_calls"] = same_or_join(
+                [record.get("eval_calls", "") for record in group_records]
+            )
         rows.append(row)
     return rows
 
@@ -359,6 +418,7 @@ def run_probe(
     aggregate_module: Any,
     position_id: str,
     mode: str,
+    threshold: int,
     output_jsonl: Path,
 ) -> ProbeResult:
     command = [
@@ -374,11 +434,15 @@ def run_probe(
         args.tt,
         "--mode",
         mode,
+        "--entry",
+        args.entry,
         "--repeat",
         str(args.repeat),
         "--corpus",
         str(args.corpus),
     ]
+    if args.entry == "iterative-root":
+        command.extend(["--endgame-wld-empties", str(threshold)])
 
     start = time.monotonic()
     try:
@@ -399,11 +463,22 @@ def run_probe(
         return ProbeResult(
             position_id,
             mode,
+            args.entry,
+            threshold,
             "timed_out",
             elapsed_wall_ms,
             output_jsonl,
             summary_rows=build_summary_rows(
-                position_id, mode, "timed_out", elapsed_wall_ms, output_jsonl, [], [], message
+                position_id,
+                mode,
+                args.entry,
+                threshold,
+                "timed_out",
+                elapsed_wall_ms,
+                output_jsonl,
+                [],
+                [],
+                message,
             ),
             error=message,
         )
@@ -413,11 +488,22 @@ def run_probe(
         return ProbeResult(
             position_id,
             mode,
+            args.entry,
+            threshold,
             "failed",
             elapsed_wall_ms,
             output_jsonl,
             summary_rows=build_summary_rows(
-                position_id, mode, "failed", elapsed_wall_ms, output_jsonl, [], [], message
+                position_id,
+                mode,
+                args.entry,
+                threshold,
+                "failed",
+                elapsed_wall_ms,
+                output_jsonl,
+                [],
+                [],
+                message,
             ),
             error=message,
         )
@@ -428,40 +514,102 @@ def run_probe(
         return ProbeResult(
             position_id,
             mode,
+            args.entry,
+            threshold,
             "failed",
             elapsed_wall_ms,
             output_jsonl,
             summary_rows=build_summary_rows(
-                position_id, mode, "failed", elapsed_wall_ms, output_jsonl, [], [], error
+                position_id,
+                mode,
+                args.entry,
+                threshold,
+                "failed",
+                elapsed_wall_ms,
+                output_jsonl,
+                [],
+                [],
+                error,
             ),
             error=error,
         )
 
     try:
         records = validate_jsonl(output_jsonl, position_id, mode)
-        aggregate_rows = aggregate_jsonl(aggregate_module, output_jsonl)
     except ValueError as error:
         return ProbeResult(
             position_id,
             mode,
+            args.entry,
+            threshold,
             "failed",
             elapsed_wall_ms,
             output_jsonl,
             summary_rows=build_summary_rows(
-                position_id, mode, "failed", elapsed_wall_ms, output_jsonl, [], [], str(error)
+                position_id,
+                mode,
+                args.entry,
+                threshold,
+                "failed",
+                elapsed_wall_ms,
+                output_jsonl,
+                [],
+                [],
+                str(error),
             ),
             error=str(error),
         )
 
+    record_statuses = {record.get("status", "completed") for record in records}
+    status = "completed" if record_statuses == {"completed"} else same_or_join(list(record_statuses))
+    if status == "completed":
+        try:
+            aggregate_rows = aggregate_jsonl(aggregate_module, output_jsonl)
+        except ValueError as error:
+            return ProbeResult(
+                position_id,
+                mode,
+                args.entry,
+                threshold,
+                "failed",
+                elapsed_wall_ms,
+                output_jsonl,
+                summary_rows=build_summary_rows(
+                    position_id,
+                    mode,
+                    args.entry,
+                    threshold,
+                    "failed",
+                    elapsed_wall_ms,
+                    output_jsonl,
+                    [],
+                    [],
+                    str(error),
+                ),
+                error=str(error),
+            )
+    else:
+        aggregate_rows = []
+
     return ProbeResult(
         position_id,
         mode,
-        "completed",
+        args.entry,
+        threshold,
+        status,
         elapsed_wall_ms,
         output_jsonl,
         aggregate_rows,
         build_summary_rows(
-            position_id, mode, "completed", elapsed_wall_ms, output_jsonl, aggregate_rows, records
+            position_id,
+            mode,
+            args.entry,
+            threshold,
+            status,
+            elapsed_wall_ms,
+            output_jsonl,
+            aggregate_rows,
+            records,
         ),
     )
 
@@ -536,6 +684,8 @@ def print_json(results: list[ProbeResult]) -> None:
             {
                 "position_id": result.position_id,
                 "mode": result.mode,
+                "entry": result.entry,
+                "threshold": result.threshold,
                 "status": result.status,
                 "elapsed_wall_ms": result.elapsed_wall_ms,
                 "output_jsonl": str(result.output_jsonl),
@@ -577,6 +727,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--parity", choices=("on", "off", "both"), default=DEFAULT_PARITY)
     parser.add_argument("--tt", choices=("off", "on", "both"), default=DEFAULT_TT)
     parser.add_argument("--mode", choices=MODE_CHOICES, default=DEFAULT_MODE)
+    parser.add_argument(
+        "--entry",
+        choices=("direct", "iterative-root"),
+        default=DEFAULT_ENTRY,
+        help="benchmark entry point; iterative-root measures search_iterative WLD triggering",
+    )
+    parser.add_argument(
+        "--endgame-wld-empties",
+        type=positive_int,
+        default=None,
+        help="single iterative-root WLD threshold when --threshold is not supplied",
+    )
+    parser.add_argument(
+        "--threshold",
+        action="append",
+        type=positive_int,
+        help="iterative-root WLD threshold to run; repeat for a threshold matrix",
+    )
     parser.add_argument("--repeat", type=positive_int, default=DEFAULT_REPEAT)
     parser.add_argument(
         "--timeout-sec",
@@ -600,17 +768,30 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.entry == "iterative-root":
+        if args.mode != "wld":
+            fail("--entry iterative-root supports --mode wld only")
+        if not args.threshold and args.endgame_wld_empties is None:
+            fail("--entry iterative-root requires --threshold or --endgame-wld-empties")
+    elif args.threshold or args.endgame_wld_empties is not None:
+        fail("--threshold and --endgame-wld-empties require --entry iterative-root")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     aggregate_module = load_aggregate_module(args.aggregate_script)
     position_ids = selected_position_ids(args)
     modes = selected_modes(args)
+    thresholds = selected_thresholds(args)
 
     results: list[ProbeResult] = []
-    seen: dict[tuple[str, str], int] = {}
+    seen: dict[tuple[str, str, str, int], int] = {}
     for index, position_id in enumerate(position_ids, start=1):
         for mode in modes:
-            output_jsonl = args.output_dir / safe_filename(position_id, mode, index, seen)
-            results.append(run_probe(args, aggregate_module, position_id, mode, output_jsonl))
+            for threshold in thresholds:
+                output_jsonl = args.output_dir / safe_filename(
+                    position_id, mode, args.entry, threshold, index, seen
+                )
+                results.append(
+                    run_probe(args, aggregate_module, position_id, mode, threshold, output_jsonl)
+                )
 
     paired_errors = validate_paired_wld(results)
     if paired_errors:
