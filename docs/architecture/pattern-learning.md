@@ -56,16 +56,16 @@ external corpora / self-play / engine labels
 tools/data-import
         | normalized records + source manifests
         v
-tools/pattern-dataset
+tools/pattern/dataset
         | positions, labels, split ids
         v
-tools/pattern-features
+tools/pattern/features
         | sparse pattern indices by phase
         v
-tools/pattern-train
+tools/pattern/train
         | fitted weights + metrics
         v
-tools/pattern-calibrate
+tools/pattern/calibrate
         | optional score-to-probability mapping
         v
 data/eval artifacts --> engine/src/evaluation runtime loader
@@ -87,11 +87,13 @@ engine/
 
 tools/
 |-- data-import/
-|-- pattern-dataset/
-|-- pattern-features/
-|-- pattern-train/
-|-- pattern-calibrate/
-`-- pattern-export/
+|-- data-policy/
+|-- pattern/
+|   |-- dataset/
+|   |-- features/
+|   |-- train/
+|   |-- calibrate/
+|   `-- export/
 
 data/
 |-- corpora/README.md
