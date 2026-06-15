@@ -138,6 +138,50 @@ queries on the current checked-in high-empty probes. The remaining risks are the
 small generated corpus, machine-specific timing, WLD outcome-only scoring, no
 WASM tuning, and no top-N Multi-PV reporting yet.
 
+## Broader Corpus Follow-Up
+
+The checked-in endgame corpus currently has no additional high-empty rows beyond
+`fourteen_empty_simple`, `sixteen_empty_simple`, `eighteen_empty_simple`, and
+`twenty_empty_simple`. A broader real-game or randomized high-empty corpus should
+be a follow-up PR. As a small same-PR check, the existing lower-empty corpus rows
+were also measured without adding new fixture data.
+
+Local runner check on 2026-06-15 JST used the full checked-in endgame corpus,
+`--root-mode best`, `--parity on`, `--tt on`, `--repeat 1`, and a 180-second
+per-row timeout. Raw JSONL output stayed in local scratch space under
+`/tmp/vibe-endgame-wld-broader-direct-pr` and
+`/tmp/vibe-endgame-wld-threshold-broader-pr`.
+
+Direct WLD matched the exact-score sign for all 14 checked-in rows. The
+additional lower-empty rows were:
+
+| position | category | empties | exact score | direct WLD | best move | direct WLD nodes |
+| --- | --- | ---: | ---: | --- | --- | ---: |
+| `zero_empty_terminal` | zero_empty | 0 | 16 | win | none | 1 |
+| `one_empty_forced_move` | one_empty | 1 | 64 | win | h8 | 2 |
+| `one_empty_forced_pass` | forced_pass | 1 | 58 | win | pass | 3 |
+| `two_empty_simple` | generated | 2 | 2 | win | h7 | 3 |
+| `three_empty_simple` | generated | 3 | -2 | loss | f3 | 4 |
+| `four_empty_simple` | generated | 4 | 18 | win | f3 | 21 |
+| `six_empty_simple` | generated | 6 | 2 | win | f3 | 86 |
+| `eight_empty_simple` | generated | 8 | 2 | win | g7 | 624 |
+| `ten_empty_simple` | generated | 10 | 0 | draw | a7 | 1747 |
+| `twelve_empty_simple` | generated | 12 | 0 | draw | a7 | 6201 |
+
+Root-triggered WLD was then measured with thresholds 16, 18, and 20 across all
+14 rows. All completed root-triggered WLD rows matched direct WLD on score,
+WLD result, best move, exact/stopped flags, and completed depth. Threshold
+gating also behaved correctly: the 18-empty row reported `not_triggered` at
+threshold 16, and the 20-empty row reported `not_triggered` at thresholds 16 and
+18. All other rows triggered and completed. There were no timeouts or failed
+rows.
+
+This follow-up does not change the recommendation. The default should remain
+disabled, and `endgame_wld_empties = 20` remains only a native
+manual/experimental threshold for best-only WLD outcome queries. The evidence is
+still limited because the broader checked-in rows are small deterministic
+positions rather than a broad real-game high-empty corpus.
+
 ## Parity Region Shootout
 
 Local shootout on 2026-06-15 JST after the opponent-mobility endgame ordering
