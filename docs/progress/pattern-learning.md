@@ -42,6 +42,8 @@ Existing foundations include:
   final-disc-difference labels
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
   records using runtime tiny pattern geometry and ternary encoding
+* runtime-owned opt-in pattern symmetry canonicalization primitives that future
+  feature extraction, training, and export steps can share
 * CTest-backed tiny deterministic pattern trainer smoke that consumes the
   pattern dataset TSV, fits a train-split-only phase-bias baseline, and fixes
   summary counts, a representative learned value, and checksum
@@ -63,6 +65,8 @@ The current implementation does not yet have:
 * production trainer
 * calibration tool
 * production artifact exporter
+* production pattern-set symmetry enablement with a new pattern set id and any
+  required artifact version changes
 * production training reports
 * publication gate for license and provenance status
 
@@ -90,6 +94,7 @@ Status values:
 | Add importer for one simple text format | done | Minimal `tools/data-import` replay smoke accepts expected-good rows and rejects malformed, illegal, or bad-pass rows through board-core move application |
 | Add dataset builder and deterministic splitter | done | Minimal `tools/pattern-dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, and keeps duplicate input rows in deterministic input order |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
+| Add symmetry canonicalization primitive | done | Evaluation exposes an isolated helper for raw, reverse, and square D4 canonical ternary indices; current tools still emit raw ternary indices |
 | Add feature extractor | done | Minimal `tools/pattern-features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices |
 | Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern-train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
 | Add calibration tool | not started | Optional score-to-probability mapping |
@@ -108,6 +113,8 @@ Pattern learning is strong enough to support production evaluation when:
 * raw external corpora are kept out of git by default
 * tiny fixtures exercise import, replay, feature extraction, and export
 * feature schema is versioned and shared with runtime evaluation
+* any enabled symmetry policy is shared by trainer, feature extractor, exporter,
+  and runtime evaluator through the same canonicalization helper
 * train/validation/test splits are deterministic
 * tiny trainer output is reproducible
 * exported artifacts load in runtime evaluation

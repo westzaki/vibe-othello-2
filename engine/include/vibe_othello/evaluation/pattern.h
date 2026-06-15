@@ -21,6 +21,12 @@ enum class PatternCell : std::uint8_t {
   opponent = 2,
 };
 
+enum class PatternSymmetryPolicy : std::uint8_t {
+  none = 0,
+  reverse = 1,
+  square_d4 = 2,
+};
+
 struct PatternSchema {
   std::string_view name;
   std::uint8_t length;
@@ -36,6 +42,7 @@ struct PatternDefinition {
   std::uint8_t length = 0;
   std::vector<board_core::Square> squares;
   bool allow_duplicate_squares = false;
+  PatternSymmetryPolicy symmetry_policy = PatternSymmetryPolicy::none;
 };
 
 struct PatternSet {
@@ -51,6 +58,7 @@ enum class PatternSchemaValidationError : std::uint8_t {
   pattern_size_overflow,
   invalid_pattern_square,
   duplicate_pattern_square,
+  unsupported_symmetry_policy,
 };
 
 struct PatternSchemaValidationResult {
@@ -102,6 +110,21 @@ constexpr std::uint32_t
 ternary_pattern_index(const std::array<PatternCell, Length>& cells) noexcept {
   return ternary_pattern_index(std::span<const PatternCell>{cells});
 }
+
+[[nodiscard]] std::optional<std::uint32_t>
+canonical_ternary_pattern_index(std::span<const PatternCell> cells,
+                                PatternSymmetryPolicy symmetry_policy) noexcept;
+
+template <std::size_t Length>
+[[nodiscard]] std::optional<std::uint32_t>
+canonical_ternary_pattern_index(const std::array<PatternCell, Length>& cells,
+                                PatternSymmetryPolicy symmetry_policy) noexcept {
+  return canonical_ternary_pattern_index(std::span<const PatternCell>{cells}, symmetry_policy);
+}
+
+[[nodiscard]] std::optional<std::uint32_t>
+canonical_ternary_pattern_index(std::uint32_t index, std::uint8_t pattern_length,
+                                PatternSymmetryPolicy symmetry_policy) noexcept;
 
 constexpr PatternCell cell_at(board_core::Position position, board_core::Square square) noexcept {
   const board_core::Bitboard mask = board_core::bit(square);
