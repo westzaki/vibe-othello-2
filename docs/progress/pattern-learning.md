@@ -66,6 +66,27 @@ Existing foundations include:
   the payload; train/validation/test split ids are derived from
   `dataset_id + board`, while `record_id` is distinct from `position_id` so
   multiple labels for the same position stay in the same split
+* CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
+  the normalized TSV into `tools/pattern/dataset`, validates board/count/label
+  columns, preserves importer-provided `position_id` and `split`, keeps same
+  position rows in one split, emits `ply` as `occupied_count - 4`, and retains
+  exact duplicate records in input order
+
+The Egaroucid normalized dataset report currently records:
+
+* `schema_version`
+* `source_dataset_ids`
+* `input_rows`, `accepted_rows`, and `rejected_rows`
+* `counts_by_split`, `counts_by_phase`, and `counts_by_label_kind`
+* `label_min`, `label_max`, and `label_mean`
+* `repeated_position_count` and `exact_duplicate_record_count`
+* `checksum`
+* `split_policy: position-sha256`
+* `duplicate_policy: keep_all_input_order`
+
+The dataset builder treats Egaroucid importer splits as authoritative. It does
+not recompute split from `record_id`; it validates that every repeated
+`position_id` stays in one importer-provided split.
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -85,7 +106,8 @@ The current implementation does not yet have:
 
 No raw external corpora, derived datasets, or learned weights are currently
 tracked in the repository. The checked-in TSV records are repository-local
-synthetic smoke fixtures only.
+synthetic smoke fixtures only. Publication of weights derived from Egaroucid
+data remains unknown and gated by provenance review.
 
 ## Implementation Plan
 
@@ -115,6 +137,7 @@ Status values:
 | Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
+| Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
 | Add local-only external corpus scripts | deferred | Download automation remains out of scope; the importer expects a locally obtained payload |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |
 | Add publication gate | not started | Policy documented; enforcement beyond manifest smoke validation is still pending |
