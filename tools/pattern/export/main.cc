@@ -263,7 +263,7 @@ bool write_manifest(const std::string& path,
   output << "  \"weights_file\": \"" << weights_path.filename().string() << "\",\n";
   output << "  \"weights_size_bytes\": " << weights_size << ",\n";
   output << "  \"weights_checksum\": \"" << hex_u32(checksum) << "\",\n";
-  output << "  \"source\": \"tools/pattern-train tiny deterministic smoke summary\",\n";
+  output << "  \"source\": \"tools/pattern/train tiny deterministic smoke summary\",\n";
   output << "  \"training_note\": \"" << kTrainingNote << "\",\n";
   output << "  \"phase_bias\": [";
   for (std::size_t index = 0; index < phase_biases.size(); ++index) {
@@ -329,7 +329,7 @@ int main(int argc, char** argv) {
   std::cout << "pattern_set_id=" << pattern_set.id << '\n';
   std::cout << "weights_checksum=" << hex_u32(checksum) << '\n';
   std::cout << "weights_size_bytes=" << artifact.size() << '\n';
-  std::cout << "source=tools/pattern-train tiny deterministic smoke summary\n";
+  std::cout << "source=tools/pattern/train tiny deterministic smoke summary\n";
   std::cout << "training_note=" << kTrainingNote << '\n';
   return 0;
 }

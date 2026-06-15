@@ -152,7 +152,7 @@ Status values:
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | done | Consumes runtime `PatternWeights` plus explicit `PatternFeatureSet` geometry and applies per-phase bias before pattern table contributions |
-| Add learning artifact round-trip smoke | done | `tools/pattern-export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score |
+| Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
