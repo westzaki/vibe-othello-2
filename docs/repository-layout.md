@@ -121,6 +121,7 @@ tools/
 ├─ pattern-dataset/
 ├─ pattern-features/
 ├─ pattern-train/
+├─ pattern-export/
 ├─ arena/
 │  ├─ openings/
 │  └─ README.md
