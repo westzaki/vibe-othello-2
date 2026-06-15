@@ -44,6 +44,9 @@ Existing foundations include:
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
   records using runtime tiny pattern geometry and ternary encoding; raw ternary
   indices remain the default, with opt-in canonical ternary index output
+* shared `tools/pattern/common` helpers keep dataset and feature smoke tools on
+  the same tiny phase mapping, raw/canonical index policy, pattern-set selection,
+  and feature-set validation logic
 * runtime-owned opt-in pattern symmetry canonicalization primitives that future
   feature extraction, training, and export steps can share
 * a symmetry-aware tiny pattern-set fixture used only by canonical smoke tooling

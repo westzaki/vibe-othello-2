@@ -1,0 +1,5 @@
+add_library(vibe_othello_pattern_common STATIC pattern_common.cc)
+
+target_link_libraries(vibe_othello_pattern_common PUBLIC vibe_othello::engine)
+
+target_include_directories(vibe_othello_pattern_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
