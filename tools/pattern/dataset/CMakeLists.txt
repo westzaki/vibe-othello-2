@@ -1,7 +1,8 @@
 add_executable(vibe_othello_pattern_dataset_smoke main.cc)
 
 target_link_libraries(vibe_othello_pattern_dataset_smoke
-                      PRIVATE vibe_othello_data_import_replay_records)
+                      PRIVATE vibe_othello_data_import_replay_records
+                              vibe_othello_pattern_common)
 
 set_target_properties(vibe_othello_pattern_dataset_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-dataset-smoke)
