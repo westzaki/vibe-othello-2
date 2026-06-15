@@ -45,6 +45,12 @@ Existing foundations include:
 * CTest-backed tiny deterministic pattern trainer smoke that consumes the
   pattern dataset TSV, fits a train-split-only phase-bias baseline, and fixes
   summary counts, a representative learned value, and checksum
+* CTest-backed tiny artifact exporter smoke that converts the deterministic
+  trainer summary into a runtime-loader-compatible artifact with phase bias
+  slots and zero-filled tiny fixture pattern tables
+* CTest-backed runtime loader compatibility smoke that loads the tiny exported
+  artifact, converts it to `PatternWeights`, constructs `PatternEvaluator`, and
+  fixes a representative deterministic score
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -56,7 +62,7 @@ The current implementation does not yet have:
 * local-only corpus download scripts
 * production trainer
 * calibration tool
-* artifact exporter
+* production artifact exporter
 * production training reports
 * publication gate for license and provenance status
 
@@ -87,8 +93,9 @@ Status values:
 | Add feature extractor | done | Minimal `tools/pattern-features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices |
 | Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern-train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
 | Add calibration tool | not started | Optional score-to-probability mapping |
-| Add artifact exporter | not started | Writes binary weights plus manifest |
-| Add runtime loader compatibility test | not started | Bridges learning output to evaluation runtime |
+| Add tiny artifact exporter smoke | done | Minimal `tools/pattern-export` smoke writes a runtime-compatible binary payload plus manifest from the deterministic phase-bias trainer summary |
+| Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum |
+| Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add local-only external corpus scripts | deferred | Requires source-specific license review |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |
 | Add publication gate | not started | Policy documented; enforcement beyond manifest smoke validation is still pending |
