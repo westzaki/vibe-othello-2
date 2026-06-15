@@ -175,6 +175,7 @@ void require_replayable_root_pvs(board_core::Position position, const SearchResu
 void require_exact_result_invariants(board_core::Position position, const SearchResult& result) {
   REQUIRE_FALSE(result.stopped);
   REQUIRE(result.exact);
+  REQUIRE(result.score_kind == ScoreKind::exact_disc_diff);
   REQUIRE(result.bound == BoundType::exact);
   REQUIRE(result.nodes == result.stats.nodes);
   REQUIRE(result.stats.endgame_nodes == result.stats.nodes);
@@ -183,6 +184,7 @@ void require_exact_result_invariants(board_core::Position position, const Search
   require_replayable_pv(position, result.pv);
   require_replayable_root_pvs(position, result);
   for (const RootMoveInfo& root_move : result.root_moves) {
+    REQUIRE(root_move.score_kind == ScoreKind::exact_disc_diff);
     REQUIRE(root_move.bound == BoundType::exact);
     REQUIRE(root_move.exact);
     REQUIRE_FALSE(root_move.selective);
@@ -208,6 +210,7 @@ void require_wld_score(Score score) {
 void require_wld_result_invariants(board_core::Position position, const SearchResult& result) {
   REQUIRE_FALSE(result.stopped);
   REQUIRE(result.exact);
+  REQUIRE(result.score_kind == ScoreKind::win_loss_draw);
   REQUIRE(result.bound == BoundType::exact);
   REQUIRE(result.nodes == result.stats.nodes);
   REQUIRE(result.stats.endgame_nodes == result.stats.nodes);
@@ -218,6 +221,7 @@ void require_wld_result_invariants(board_core::Position position, const SearchRe
   require_replayable_root_pvs(position, result);
   for (const RootMoveInfo& root_move : result.root_moves) {
     require_wld_score(root_move.score);
+    REQUIRE(root_move.score_kind == ScoreKind::win_loss_draw);
     REQUIRE(root_move.bound == BoundType::exact);
     REQUIRE(root_move.exact);
     REQUIRE_FALSE(root_move.selective);
@@ -258,6 +262,7 @@ const RootMoveInfo& root_info_for_move(const SearchResult& result, board_core::M
 void require_same_exact_scores(board_core::Position position, const SearchResult& with_tt,
                                const SearchResult& without_tt) {
   REQUIRE(with_tt.score == without_tt.score);
+  REQUIRE(with_tt.score_kind == without_tt.score_kind);
   REQUIRE(with_tt.completed_depth == without_tt.completed_depth);
   REQUIRE(with_tt.best_move == without_tt.best_move);
   REQUIRE(with_tt.best_move.has_value() == without_tt.best_move.has_value());
@@ -269,6 +274,7 @@ void require_same_exact_scores(board_core::Position position, const SearchResult
   for (const RootMoveInfo& root_move : with_tt.root_moves) {
     const RootMoveInfo& without_tt_root_move = root_info_for_move(without_tt, root_move.move);
     REQUIRE(without_tt_root_move.score == root_move.score);
+    REQUIRE(without_tt_root_move.score_kind == root_move.score_kind);
     REQUIRE(without_tt_root_move.bound == root_move.bound);
     REQUIRE(without_tt_root_move.exact == root_move.exact);
     REQUIRE(without_tt_root_move.selective == root_move.selective);
@@ -712,6 +718,8 @@ TEST_CASE("root-triggered WLD respects max node and stop limits",
   REQUIRE_FALSE(max_nodes_result.exact);
   REQUIRE(max_nodes_result.bound == BoundType::lower);
   REQUIRE(max_nodes_result.completed_depth == Depth{0});
+  REQUIRE(max_nodes_result.score == kScoreLoss);
+  REQUIRE(max_nodes_result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(max_nodes_result.best_move.has_value());
   REQUIRE(max_nodes_result.nodes == 1);
   REQUIRE(max_nodes_result.stats.nodes == 1);
@@ -725,6 +733,8 @@ TEST_CASE("root-triggered WLD respects max node and stop limits",
   REQUIRE_FALSE(stop_result.exact);
   REQUIRE(stop_result.bound == BoundType::lower);
   REQUIRE(stop_result.completed_depth == Depth{0});
+  REQUIRE(stop_result.score == kScoreLoss);
+  REQUIRE(stop_result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(stop_result.best_move.has_value());
   REQUIRE(stop_result.nodes == 0);
   REQUIRE(stop_result.stats.endgame_nodes == 0);
@@ -781,6 +791,8 @@ TEST_CASE("public direct WLD endgame respects max node and stop limits",
   REQUIRE_FALSE(max_nodes_result.exact);
   REQUIRE(max_nodes_result.bound == BoundType::lower);
   REQUIRE(max_nodes_result.completed_depth == Depth{0});
+  REQUIRE(max_nodes_result.score == kScoreLoss);
+  REQUIRE(max_nodes_result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(max_nodes_result.best_move.has_value());
   REQUIRE(max_nodes_result.nodes == 1);
   REQUIRE(max_nodes_result.stats.nodes == 1);
@@ -794,6 +806,8 @@ TEST_CASE("public direct WLD endgame respects max node and stop limits",
   REQUIRE_FALSE(stop_result.exact);
   REQUIRE(stop_result.bound == BoundType::lower);
   REQUIRE(stop_result.completed_depth == Depth{0});
+  REQUIRE(stop_result.score == kScoreLoss);
+  REQUIRE(stop_result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(stop_result.best_move.has_value());
   REQUIRE(stop_result.nodes == 0);
   REQUIRE(stop_result.stats.endgame_nodes == 0);
@@ -809,6 +823,8 @@ TEST_CASE("public direct exact endgame respects max node and stop limits",
   REQUIRE_FALSE(max_nodes_result.exact);
   REQUIRE(max_nodes_result.bound == BoundType::lower);
   REQUIRE(max_nodes_result.completed_depth == Depth{0});
+  REQUIRE(max_nodes_result.score == kScoreLoss);
+  REQUIRE(max_nodes_result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(max_nodes_result.best_move.has_value());
   REQUIRE(max_nodes_result.nodes == 1);
   REQUIRE(max_nodes_result.stats.nodes == 1);
@@ -823,6 +839,8 @@ TEST_CASE("public direct exact endgame respects max node and stop limits",
   REQUIRE_FALSE(stop_result.exact);
   REQUIRE(stop_result.bound == BoundType::lower);
   REQUIRE(stop_result.completed_depth == Depth{0});
+  REQUIRE(stop_result.score == kScoreLoss);
+  REQUIRE(stop_result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(stop_result.best_move.has_value());
   REQUIRE(stop_result.nodes == 0);
   REQUIRE(stop_result.stats.endgame_nodes == 0);
@@ -1163,6 +1181,7 @@ TEST_CASE("exact endgame stop requested before search publishes no exact result"
   REQUIRE(result.bound == BoundType::lower);
   REQUIRE(result.completed_depth == Depth{0});
   REQUIRE(result.score == kScoreLoss);
+  REQUIRE(result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(result.best_move.has_value());
   REQUIRE(result.pv.size == 0);
   REQUIRE(result.root_moves.empty());
@@ -1182,6 +1201,7 @@ TEST_CASE("exact endgame max nodes can stop before any root move completes",
   REQUIRE(result.bound == BoundType::lower);
   REQUIRE(result.completed_depth == Depth{0});
   REQUIRE(result.score == kScoreLoss);
+  REQUIRE(result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(result.best_move.has_value());
   REQUIRE(result.pv.size == 0);
   REQUIRE(result.root_moves.empty());
@@ -1202,6 +1222,7 @@ TEST_CASE("best-only exact endgame max nodes can stop before any root move compl
   REQUIRE(result.bound == BoundType::lower);
   REQUIRE(result.completed_depth == Depth{0});
   REQUIRE(result.score == kScoreLoss);
+  REQUIRE(result.score_kind == ScoreKind::unavailable);
   REQUIRE_FALSE(result.best_move.has_value());
   REQUIRE(result.pv.size == 0);
   REQUIRE(result.root_moves.empty());
@@ -1227,6 +1248,7 @@ TEST_CASE("interrupted exact endgame publishes only completed exact root moves",
   REQUIRE(limited.completed_depth == complete.completed_depth);
   REQUIRE(limited.best_move.has_value());
   REQUIRE(limited.score == complete.root_moves[0].score);
+  REQUIRE(limited.score_kind == ScoreKind::exact_disc_diff);
   REQUIRE(limited.pv == complete.root_moves[0].pv);
   REQUIRE(limited.root_moves.size() == 1);
   REQUIRE(limited.root_moves[0] == complete.root_moves[0]);
@@ -1257,6 +1279,7 @@ TEST_CASE("interrupted best-only exact endgame publishes the completed best root
   REQUIRE(limited.completed_depth == complete.completed_depth);
   REQUIRE(limited.best_move.has_value());
   REQUIRE(limited.score == complete.root_moves[0].score);
+  REQUIRE(limited.score_kind == ScoreKind::exact_disc_diff);
   REQUIRE(limited.pv == complete.root_moves[0].pv);
   REQUIRE(limited.root_moves.size() == 1);
   REQUIRE(limited.root_moves[0] == complete.root_moves[0]);

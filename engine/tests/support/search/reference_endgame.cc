@@ -125,6 +125,7 @@ RootMoveInfo make_root_move(board_core::Move move, Score score, Depth depth, Nod
   return RootMoveInfo{
       .move = move,
       .score = score,
+      .score_kind = ScoreKind::exact_disc_diff,
       .bound = BoundType::exact,
       .depth = depth,
       .nodes = nodes,
@@ -141,6 +142,7 @@ SearchResult reference_exact_endgame(board_core::Position position) {
   const Depth completed_depth = static_cast<Depth>(empty_count(position));
 
   SearchResult result{
+      .score_kind = ScoreKind::exact_disc_diff,
       .bound = BoundType::exact,
       .completed_depth = completed_depth,
       .exact = true,

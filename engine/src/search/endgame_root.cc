@@ -6,11 +6,12 @@
 namespace vibe_othello::search::internal {
 namespace {
 
-RootMoveInfo make_endgame_root_move(board_core::Move move, Score score, Depth depth,
-                                    NodeCount nodes, Line pv) noexcept {
+RootMoveInfo make_endgame_root_move(board_core::Move move, Score score, ScoreKind score_kind,
+                                    Depth depth, NodeCount nodes, Line pv) noexcept {
   return RootMoveInfo{
       .move = move,
       .score = score,
+      .score_kind = score_kind,
       .bound = BoundType::exact,
       .depth = depth,
       .nodes = nodes,
@@ -30,6 +31,7 @@ void mark_stopped_non_exact(SearchResult* result) noexcept {
   result->exact = false;
   result->bound = BoundType::lower;
   result->score = kScoreLoss;
+  result->score_kind = ScoreKind::unavailable;
 }
 
 bool use_best_only_root_reporting(ResolvedSearchOptions options) noexcept {
@@ -149,6 +151,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   };
 
   SearchResult result{
+      .score_kind = EndgamePolicy::kScoreKind,
       .completed_depth = 0,
   };
 
@@ -170,6 +173,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
       mark_stopped_non_exact(&result);
       result.completed_depth = completed_depth;
       result.score = EndgamePolicy::terminal_score(context.position);
+      result.score_kind = EndgamePolicy::kScoreKind;
     } else {
       result.exact = true;
     }
@@ -211,8 +215,8 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
     result.score = pass_value.score;
     result.pv = pass_value.pv;
     result.root_moves.push_back(
-        make_endgame_root_move(board_core::make_pass(), pass_value.score, completed_depth,
-                               context.stats.nodes - before_nodes, pass_value.pv));
+        make_endgame_root_move(board_core::make_pass(), pass_value.score, EndgamePolicy::kScoreKind,
+                               completed_depth, context.stats.nodes - before_nodes, pass_value.pv));
     context.stats.root_moves_searched = 1;
     result.nodes = context.stats.nodes;
     result.stats = context.stats;
@@ -221,6 +225,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
       result.best_move = board_core::make_pass();
       result.completed_depth = completed_depth;
       result.score = pass_value.score;
+      result.score_kind = EndgamePolicy::kScoreKind;
       result.pv = pass_value.pv;
     } else {
       result.exact = true;
@@ -253,7 +258,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
     const SearchValue& child_value = child.value();
 
     RootMoveInfo root_move =
-        make_endgame_root_move(move, child_value.score, completed_depth,
+        make_endgame_root_move(move, child_value.score, EndgamePolicy::kScoreKind, completed_depth,
                                context.stats.nodes - before_nodes, child_value.pv);
     ++context.stats.root_moves_searched;
     const bool improves_root =
@@ -286,6 +291,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
       result.bound = BoundType::lower;
       result.completed_depth = completed_depth;
       result.score = best_score;
+      result.score_kind = EndgamePolicy::kScoreKind;
       result.pv = best_line;
       if (best_only_reporting && best_root_move.has_value()) {
         publish_best_only_root_move(&result, *best_root_move);

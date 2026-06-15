@@ -42,6 +42,7 @@ using vibe_othello::search::Evaluator;
 using vibe_othello::search::Line;
 using vibe_othello::search::RootMoveInfo;
 using vibe_othello::search::Score;
+using vibe_othello::search::ScoreKind;
 using vibe_othello::search::search_fixed_depth;
 using vibe_othello::search::search_iterative;
 using vibe_othello::search::SearchLimits;
@@ -882,6 +883,21 @@ std::string_view bound_name(BoundType bound) noexcept {
   return "unknown";
 }
 
+std::string_view score_kind_name(ScoreKind score_kind) noexcept {
+  switch (score_kind) {
+  case ScoreKind::unavailable:
+    return "unavailable";
+  case ScoreKind::heuristic:
+    return "heuristic";
+  case ScoreKind::exact_disc_diff:
+    return "exact_disc_diff";
+  case ScoreKind::win_loss_draw:
+    return "win_loss_draw";
+  }
+
+  return "unknown";
+}
+
 void print_json_string(std::ostream& output, std::string_view text) {
   output << '"';
   for (const char ch : text) {
@@ -943,6 +959,8 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
     output << "\"move\":";
     print_json_string(output, move_to_string(root_move.move));
     output << ",\"score\":" << root_move.score;
+    output << ",\"score_kind\":";
+    print_json_string(output, score_kind_name(root_move.score_kind));
     output << ",\"bound\":";
     print_json_string(output, bound_name(root_move.bound));
     output << ",\"depth\":" << root_move.depth;
@@ -981,16 +999,16 @@ void print_delimited_header(char delimiter) {
             << "aspiration" << delimiter << "history" << delimiter << "killers" << delimiter
             << "iid" << delimiter << "exact_endgame" << delimiter << "endgame_exact_empties"
             << delimiter << "endgame_tt" << delimiter << "endgame_parity" << delimiter << "depth"
-            << delimiter << "score" << delimiter << "best_move" << delimiter << "nodes" << delimiter
-            << "eval_calls" << delimiter << "terminal_nodes" << delimiter << "pass_nodes"
-            << delimiter << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter
-            << "pvs_researches" << delimiter << "aspiration_fail_lows" << delimiter
-            << "aspiration_fail_highs" << delimiter << "iid_searches" << delimiter
-            << "endgame_nodes" << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter
-            << "tt_stores" << delimiter << "tt_cutoffs" << delimiter << "tt_overwrites" << delimiter
-            << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
-            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
-            << '\n';
+            << delimiter << "score" << delimiter << "score_kind" << delimiter << "best_move"
+            << delimiter << "nodes" << delimiter << "eval_calls" << delimiter << "terminal_nodes"
+            << delimiter << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter
+            << "alpha_updates" << delimiter << "pvs_researches" << delimiter
+            << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs" << delimiter
+            << "iid_searches" << delimiter << "endgame_nodes" << delimiter << "tt_probes"
+            << delimiter << "tt_hits" << delimiter << "tt_stores" << delimiter << "tt_cutoffs"
+            << delimiter << "tt_overwrites" << delimiter << "tt_collisions" << delimiter
+            << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores" << delimiter
+            << "elapsed_ms" << delimiter << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode,
@@ -1013,9 +1031,10 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << static_cast<int>(variant.exact_endgame_empties) << delimiter
             << bool_mode_name(variant.use_endgame_tt) << delimiter
             << bool_mode_name(variant.use_endgame_parity) << delimiter << depth << delimiter
-            << timed_result.result.score << delimiter << best_move_to_string(timed_result.result)
-            << delimiter << timed_result.result.nodes << delimiter
-            << timed_result.result.stats.eval_calls << delimiter
+            << timed_result.result.score << delimiter
+            << score_kind_name(timed_result.result.score_kind) << delimiter
+            << best_move_to_string(timed_result.result) << delimiter << timed_result.result.nodes
+            << delimiter << timed_result.result.stats.eval_calls << delimiter
             << timed_result.result.stats.terminal_nodes << delimiter
             << timed_result.result.stats.pass_nodes << delimiter
             << timed_result.result.stats.beta_cutoffs << delimiter
@@ -1074,6 +1093,8 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"endgame_parity\":";
   print_json_string(std::cout, bool_mode_name(variant.use_endgame_parity));
   std::cout << ",\"score\":" << timed_result.result.score;
+  std::cout << ",\"score_kind\":";
+  print_json_string(std::cout, score_kind_name(timed_result.result.score_kind));
   std::cout << ",\"best_move\":";
   print_json_string(std::cout, best_move_to_string(timed_result.result));
   std::cout << ",\"pv\":";

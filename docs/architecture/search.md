@@ -205,6 +205,13 @@ enum class BoundType : std::uint8_t {
   upper,
 };
 
+enum class ScoreKind : std::uint8_t {
+  unavailable,
+  heuristic,
+  exact_disc_diff,
+  win_loss_draw,
+};
+
 enum class SearchMode : std::uint8_t {
   move,
   analyze,
@@ -467,6 +474,7 @@ Search result is the stable public output.
 struct RootMoveInfo {
   board_core::Move move;
   Score score;
+  ScoreKind score_kind;
   BoundType bound;
   Depth depth;
   NodeCount nodes;
@@ -503,6 +511,7 @@ struct SearchStats {
 struct SearchResult {
   std::optional<board_core::Move> best_move;
   Score score;
+  ScoreKind score_kind;
   BoundType bound;
   Depth completed_depth;
   NodeCount nodes;
@@ -517,6 +526,21 @@ struct SearchResult {
 
 `best_move` must be legal unless the position is terminal.
 
+`score_kind` describes how to interpret `score`. `unavailable` means no
+completed score is available and consumers must not interpret `score`.
+`heuristic` means evaluator score semantics, `exact_disc_diff` means final disc
+differential, and `win_loss_draw` means WLD outcome values only: `-1`, `0`, or
+`1`.
+
+`SearchResult::score_kind` describes `SearchResult::score`.
+`RootMoveInfo::score_kind` describes that root move's `score`.
+
+Direct exact endgame and root-triggered exact endgame results use
+`exact_disc_diff`. Direct WLD endgame and root-triggered WLD results use
+`win_loss_draw`. Normal fixed-depth and iterative midgame search results use
+`heuristic`, even when internal leaf cutover uses exact endgame to avoid
+calling the evaluator.
+
 `root_moves` must contain only legal moves.
 
 `root_moves` are reported in search order. Consumers that need a stable display
@@ -528,6 +552,11 @@ A stopped search may have a lower completed depth than requested.
 
 If search is stopped before the first depth completes, `best_move` may be empty
 even when the root position is not terminal.
+
+If an endgame search is stopped before publishing any completed root or terminal
+score, `SearchResult::score_kind` must be `unavailable`. If a stopped endgame
+search publishes a completed partial best score, it keeps that score's
+`score_kind`.
 
 Terminal positions should return no best move.
 

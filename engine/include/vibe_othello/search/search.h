@@ -92,6 +92,8 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 // positions with many empty squares. max_nodes, max_time, and stop_requested are
 // respected; max_depth is not meaningful for direct exact endgame solving and is
 // ignored.
+//
+// SearchResult::score_kind is ScoreKind::exact_disc_diff.
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits = {},
                                  SearchOptions options = {});
 
@@ -100,6 +102,8 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
 // The returned score is the WLD value from the side-to-move perspective:
 // WldResult::win maps to 1, draw maps to 0, and loss maps to -1. This does not
 // compute or return the final disc-difference margin.
+//
+// SearchResult::score_kind is ScoreKind::win_loss_draw.
 SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits = {},
                                SearchOptions options = {});
 
