@@ -42,6 +42,7 @@ using vibe_othello::search::BoundType;
 using vibe_othello::search::Evaluator;
 using vibe_othello::search::Line;
 using vibe_othello::search::RootMoveInfo;
+using vibe_othello::search::ScoreKind;
 using vibe_othello::search::search_iterative;
 using vibe_othello::search::SearchLimits;
 using vibe_othello::search::SearchMode;
@@ -718,6 +719,21 @@ std::string_view bound_name(BoundType bound) noexcept {
   return "unknown";
 }
 
+std::string_view score_kind_name(ScoreKind score_kind) noexcept {
+  switch (score_kind) {
+  case ScoreKind::unavailable:
+    return "unavailable";
+  case ScoreKind::heuristic:
+    return "heuristic";
+  case ScoreKind::exact_disc_diff:
+    return "exact_disc_diff";
+  case ScoreKind::win_loss_draw:
+    return "win_loss_draw";
+  }
+
+  return "unknown";
+}
+
 void print_json_string(std::ostream& output, std::string_view text) {
   output << '"';
   for (const char ch : text) {
@@ -779,6 +795,8 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
     output << "\"move\":";
     print_json_string(output, move_to_string(root_move.move));
     output << ",\"score\":" << root_move.score;
+    output << ",\"score_kind\":";
+    print_json_string(output, score_kind_name(root_move.score_kind));
     output << ",\"bound\":";
     print_json_string(output, bound_name(root_move.bound));
     output << ",\"depth\":" << root_move.depth;
@@ -834,9 +852,14 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
   require_condition(!result.stopped, "search result was stopped");
   require_condition(result.stats.eval_calls == 0, "exact endgame called evaluator");
   if (solve_mode == SolveMode::wld) {
+    require_condition(result.score_kind == ScoreKind::win_loss_draw,
+                      "WLD result score_kind was not win_loss_draw");
     require_condition(result.score >= static_cast<vibe_othello::search::Score>(WldResult::loss) &&
                           result.score <= static_cast<vibe_othello::search::Score>(WldResult::win),
                       "WLD result score was outside the WLD range");
+  } else {
+    require_condition(result.score_kind == ScoreKind::exact_disc_diff,
+                      "exact result score_kind was not exact_disc_diff");
   }
   require_condition(is_terminal(position_case.position) || result.stats.endgame_nodes != 0,
                     "non-terminal exact search visited zero endgame nodes");
@@ -915,15 +938,16 @@ void print_delimited_header(char delimiter) {
             << "repeat" << delimiter << "entry" << delimiter << "threshold" << delimiter
             << "triggered" << delimiter << "status" << delimiter << "parity_ordering" << delimiter
             << "tt_mode" << delimiter << "root_mode" << delimiter << "mode" << delimiter << "score"
-            << delimiter << "wld_result" << delimiter << "best_move" << delimiter << "exact"
-            << delimiter << "stopped" << delimiter << "completed_depth" << delimiter << "nodes"
-            << delimiter << "endgame_nodes" << delimiter << "eval_calls" << delimiter
-            << "terminal_nodes" << delimiter << "pass_nodes" << delimiter << "beta_cutoffs"
-            << delimiter << "alpha_updates" << delimiter << "root_moves_searched" << delimiter
-            << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_cutoffs" << delimiter
-            << "tt_stores" << delimiter << "tt_overwrites" << delimiter << "tt_collisions"
-            << delimiter << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores"
-            << delimiter << "elapsed_ms" << delimiter << "nps" << '\n';
+            << delimiter << "score_kind" << delimiter << "wld_result" << delimiter << "best_move"
+            << delimiter << "exact" << delimiter << "stopped" << delimiter << "completed_depth"
+            << delimiter << "nodes" << delimiter << "endgame_nodes" << delimiter << "eval_calls"
+            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
+            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "root_moves_searched"
+            << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_cutoffs"
+            << delimiter << "tt_stores" << delimiter << "tt_overwrites" << delimiter
+            << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
+            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
+            << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
@@ -939,6 +963,7 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
             << delimiter << parity_mode_name(use_parity_ordering) << delimiter
             << tt_mode_name(use_tt) << delimiter << root_mode_name(root_mode) << delimiter
             << solve_mode_name(solve_mode) << delimiter << result.score << delimiter
+            << score_kind_name(result.score_kind) << delimiter
             << (solve_mode == SolveMode::wld && timed_result.triggered ? wld_result_name(result)
                                                                        : "n/a")
             << delimiter << best_move_to_string(result) << delimiter
@@ -984,6 +1009,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"root_mode\":";
   print_json_string(std::cout, root_mode_name(root_mode));
   std::cout << ",\"score\":" << result.score;
+  std::cout << ",\"score_kind\":";
+  print_json_string(std::cout, score_kind_name(result.score_kind));
   if (solve_mode == SolveMode::wld && timed_result.triggered) {
     std::cout << ",\"wld_result\":";
     print_json_string(std::cout, wld_result_name(result));

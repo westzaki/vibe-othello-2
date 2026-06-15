@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT_MOVE_FIELDS = ("move", "score", "bound", "depth", "exact", "selective")
+ROOT_MOVE_FIELDS = ("move", "score", "score_kind", "bound", "depth", "exact", "selective")
 TOP_LEVEL_FIELDS = (
     "position_id",
     "category",
@@ -18,6 +18,7 @@ TOP_LEVEL_FIELDS = (
     "mode",
     "empties",
     "score",
+    "score_kind",
     "best_move",
     "exact",
     "stopped",

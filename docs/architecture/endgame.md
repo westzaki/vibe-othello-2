@@ -175,6 +175,11 @@ enum class SolveMode : std::uint8_t {
 `win_loss_draw` returns only whether the side to move can force a win, draw, or
 loss.
 
+Public exact-score endgame results must set `score_kind` to `exact_disc_diff`.
+Public WLD endgame results must set `score_kind` to `win_loss_draw`.
+Stopped endgame results that do not publish a completed root or terminal score
+must set `score_kind` to `unavailable`.
+
 The two modes may share recursion, move ordering, stack frames, and board-core
 operations.
 

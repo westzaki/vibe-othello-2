@@ -77,6 +77,7 @@ void require_replayable_root_pvs(board_core::Position position, const SearchResu
 void require_same_final_result(const SearchResult& actual, const SearchResult& expected) {
   REQUIRE(actual.best_move == expected.best_move);
   REQUIRE(actual.score == expected.score);
+  REQUIRE(actual.score_kind == expected.score_kind);
   REQUIRE(actual.bound == expected.bound);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.pv == expected.pv);
@@ -87,6 +88,7 @@ void require_same_final_result(const SearchResult& actual, const SearchResult& e
 void require_same_decision(const SearchResult& actual, const SearchResult& expected) {
   REQUIRE(actual.best_move == expected.best_move);
   REQUIRE(actual.score == expected.score);
+  REQUIRE(actual.score_kind == expected.score_kind);
   REQUIRE(actual.bound == expected.bound);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.exact == expected.exact);
@@ -124,6 +126,7 @@ void require_root_move_set_matches(const SearchResult& actual, const SearchResul
     for (const RootMoveInfo& actual_root_move : actual.root_moves) {
       if (actual_root_move.move == expected_root_move.move) {
         REQUIRE(actual_root_move.score == expected_root_move.score);
+        REQUIRE(actual_root_move.score_kind == expected_root_move.score_kind);
         REQUIRE(actual_root_move.bound == expected_root_move.bound);
         REQUIRE(actual_root_move.depth == expected_root_move.depth);
         REQUIRE(actual_root_move.pv == expected_root_move.pv);
@@ -144,6 +147,7 @@ void require_root_move_scores_match(const SearchResult& actual, const SearchResu
     for (const RootMoveInfo& actual_root_move : actual.root_moves) {
       if (actual_root_move.move == expected_root_move.move) {
         REQUIRE(actual_root_move.score == expected_root_move.score);
+        REQUIRE(actual_root_move.score_kind == expected_root_move.score_kind);
         REQUIRE(actual_root_move.bound == expected_root_move.bound);
         REQUIRE(actual_root_move.depth == expected_root_move.depth);
         REQUIRE(actual_root_move.exact == expected_root_move.exact);

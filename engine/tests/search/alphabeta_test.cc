@@ -66,6 +66,8 @@ void require_root_moves_match(const SearchResult& actual, const SearchResult& ex
       }
 
       REQUIRE(actual_root_move.score == expected_root_move.score);
+      REQUIRE(actual_root_move.score_kind == ScoreKind::heuristic);
+      REQUIRE(actual_root_move.score_kind == expected_root_move.score_kind);
       REQUIRE(actual_root_move.bound == BoundType::exact);
       REQUIRE(actual_root_move.depth == expected_root_move.depth);
       REQUIRE_FALSE(actual_root_move.exact);

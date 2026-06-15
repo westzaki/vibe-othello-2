@@ -33,6 +33,13 @@ enum class BoundType : std::uint8_t {
   upper,
 };
 
+enum class ScoreKind : std::uint8_t {
+  unavailable,
+  heuristic,
+  exact_disc_diff,
+  win_loss_draw,
+};
+
 enum class SearchMode : std::uint8_t {
   move,
   analyze,

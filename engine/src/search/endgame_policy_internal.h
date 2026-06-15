@@ -22,6 +22,7 @@ struct ExactScoreEndgamePolicy {
   static constexpr Score kInitialAlpha = kScoreLoss;
   static constexpr Score kInitialBeta = kScoreWin;
   static constexpr Score kWorstScore = kScoreLoss;
+  static constexpr ScoreKind kScoreKind = ScoreKind::exact_disc_diff;
   static constexpr bool kUsesSmallEmpty = true;
   static constexpr bool kUseInitialAlphaBeforeBestOnlyMove = false;
 
@@ -34,6 +35,7 @@ struct WldEndgamePolicy {
   static constexpr Score kInitialAlpha = kWldAlpha;
   static constexpr Score kInitialBeta = kWldBeta;
   static constexpr Score kWorstScore = kWldLossScore;
+  static constexpr ScoreKind kScoreKind = ScoreKind::win_loss_draw;
   static constexpr bool kUsesSmallEmpty = false;
   static constexpr bool kUseInitialAlphaBeforeBestOnlyMove = true;
 

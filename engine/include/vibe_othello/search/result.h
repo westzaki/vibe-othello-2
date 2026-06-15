@@ -39,6 +39,7 @@ struct SearchStats {
 struct RootMoveInfo {
   board_core::Move move = board_core::make_pass();
   Score score = 0;
+  ScoreKind score_kind = ScoreKind::heuristic;
   BoundType bound = BoundType::exact;
   Depth depth = 0;
   NodeCount nodes = 0;
@@ -52,6 +53,7 @@ struct RootMoveInfo {
 struct SearchResult {
   std::optional<board_core::Move> best_move;
   Score score = 0;
+  ScoreKind score_kind = ScoreKind::heuristic;
   BoundType bound = BoundType::exact;
   Depth completed_depth = 0;
   NodeCount nodes = 0;
