@@ -54,7 +54,9 @@ Existing internal transposition-table entry kinds include:
 
 The current exact endgame implementation includes:
 
-* `engine/src/search/endgame.cc`
+* split internal implementation files under `engine/src/search/`:
+  `endgame_policy_internal.h`, `endgame_tt.cc`, `endgame_small_empty.cc`,
+  `endgame_search.cc`, and `endgame_root.cc`
 * root-triggered integration through `search_iterative`
 * evaluator-free public direct exact-score solving through `solve_exact_endgame`
 * evaluator-free public direct WLD solving through `solve_wld_endgame`
@@ -141,7 +143,7 @@ Status values:
 | Add docs index rows | done | `docs/README.md` |
 | Add progress documentation home | done | `docs/progress/README.md` |
 | Add endgame progress document | done | this file |
-| Add `engine/src/search/endgame.cc` | done | First production solver file |
+| Add exact endgame implementation under `engine/src/search/` | done | First production solver started as `endgame.cc` and is now split by responsibility |
 | Add generic exact-score solver using board core | done | Root-only generic exact-score solver uses board-core move deltas and pass handling |
 | Add `engine/tests/search/endgame_test.cc` | done | Covers root exact score, pass, terminal, threshold, flags, legality, and PV replay |
 | Add reference endgame solver in test support | done | Slow and clear, no TT or heuristic evaluation |
