@@ -37,6 +37,25 @@ to_vector(std::span<const board_core::Square> squares) {
   return std::vector<board_core::Square>{squares.begin(), squares.end()};
 }
 
+[[nodiscard]] std::vector<PatternDefinition>
+make_fixed_pattern_definitions(PatternSymmetryPolicy edge_symmetry,
+                               PatternSymmetryPolicy corner_symmetry) {
+  return {
+      PatternDefinition{
+          .id = "edge-8",
+          .length = 8,
+          .squares = to_vector(kEdge8Squares),
+          .symmetry_policy = edge_symmetry,
+      },
+      PatternDefinition{
+          .id = "corner-3x3",
+          .length = 9,
+          .squares = to_vector(kCorner3x3Squares),
+          .symmetry_policy = corner_symmetry,
+      },
+  };
+}
+
 [[nodiscard]] std::optional<std::uint8_t> checked_canonical_length(std::size_t length) noexcept {
   if (length == 0 || length > kMaxPatternLengthForUint32Size) {
     return std::nullopt;
@@ -170,18 +189,16 @@ const PatternSet& fixed_pattern_set_fixture() noexcept {
   static const PatternSet pattern_set{
       .id = "fixed-pattern-fixture-v1",
       .patterns =
-          {
-              PatternDefinition{
-                  .id = "edge-8",
-                  .length = 8,
-                  .squares = to_vector(kEdge8Squares),
-              },
-              PatternDefinition{
-                  .id = "corner-3x3",
-                  .length = 9,
-                  .squares = to_vector(kCorner3x3Squares),
-              },
-          },
+          make_fixed_pattern_definitions(PatternSymmetryPolicy::none, PatternSymmetryPolicy::none),
+  };
+  return pattern_set;
+}
+
+const PatternSet& symmetry_aware_fixed_pattern_set_fixture() noexcept {
+  static const PatternSet pattern_set{
+      .id = "fixed-pattern-fixture-v1-symmetry-aware",
+      .patterns = make_fixed_pattern_definitions(PatternSymmetryPolicy::reverse,
+                                                 PatternSymmetryPolicy::square_d4),
   };
   return pattern_set;
 }

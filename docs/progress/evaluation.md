@@ -46,6 +46,8 @@ The current evaluation runtime includes:
 * ternary pattern index encoding
 * opt-in ternary pattern symmetry canonicalization primitives for `none`,
   `reverse`, and `square_d4`
+* a symmetry-aware tiny pattern-set fixture for smoke tooling, with `edge-8`
+  using `reverse` and `corner-3x3` using `square_d4`
 * explicit runtime `PatternFeatureSet` geometry for mapping weight tables to
   board instances
 * production-facing `PatternEvaluator` that consumes `PatternWeights` and a
@@ -90,6 +92,8 @@ Existing evaluation tests cover:
 * search sentinel score range
 * isolated pattern symmetry canonicalization for none, reverse, square D4,
   determinism, player/opponent digit preservation, and malformed inputs
+* CTest-backed raw and opt-in canonical tiny feature/dataset smoke outputs,
+  including shared row counts and changed representative canonical indices
 * artifact loader success and rejection paths
 * conversion from loaded artifact data to runtime `PatternWeights`
 * CTest-backed learning-pipeline round-trip from tiny trainer summary to
@@ -141,7 +145,7 @@ Status values:
 | Add explicit pattern weight container | done | `LoadedPatternWeights` stores loader output; runtime `PatternWeights` stores phase maps, phase biases, and immutable tables |
 | Add explicit pattern schema validation | done | Validates ids, lengths, squares, duplicate policy, and pattern table size overflow |
 | Add ternary pattern index encoding | done | Empty/player/opponent digits are `0/1/2` |
-| Add pattern symmetry canonicalization primitives | done | Pure opt-in helper covers `none`, edge `reverse`, and `square_d4` `3x3` representatives without changing runtime evaluator outputs |
+| Add pattern symmetry canonicalization primitives | done | Pure opt-in helper covers `none`, edge `reverse`, and `square_d4` `3x3` representatives; tiny feature/dataset smoke tooling can opt in to canonical indices without changing runtime evaluator outputs |
 | Add tiny fixed edge and corner pattern instances | done | Runtime pattern geometry only |
 | Add tiny pattern-only evaluator | done | Implements `search::Evaluator` and consumes `PatternWeights` |
 | Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, phase bias scoring, range, schema validation, artifact loader paths, and loaded-to-runtime conversion |
@@ -170,8 +174,8 @@ Evaluation is strong enough to build on when:
 * pattern evaluator scores include the selected phase bias
 * pattern index encoding is tested against hand-computed fixtures
 * pattern symmetry canonicalization is tested as an isolated helper while
-  existing evaluator, trainer, exporter, and smoke outputs keep raw ternary
-  indices
+  existing evaluator, trainer, exporter, and default smoke outputs keep raw
+  ternary indices; canonical smoke output is opt-in through shared helper usage
 * fixture-weight runtime evaluation is separated from future artifact loading
 * search can run with the evaluator enabled or replaced by a reference evaluator
 * exact endgame paths still avoid heuristic evaluation

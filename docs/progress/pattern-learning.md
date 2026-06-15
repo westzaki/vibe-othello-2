@@ -39,11 +39,15 @@ Existing foundations include:
 * CTest-backed board-core replay smoke validation for tiny synthetic TSV records
 * CTest-backed pattern dataset builder smoke over accepted tiny synthetic TSV
   records using deterministic split ids, runtime pattern feature indices, and
-  final-disc-difference labels
+  final-disc-difference labels; raw ternary indices remain the default, with
+  opt-in canonical ternary index output for smoke comparison
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
-  records using runtime tiny pattern geometry and ternary encoding
+  records using runtime tiny pattern geometry and ternary encoding; raw ternary
+  indices remain the default, with opt-in canonical ternary index output
 * runtime-owned opt-in pattern symmetry canonicalization primitives that future
   feature extraction, training, and export steps can share
+* a symmetry-aware tiny pattern-set fixture used only by canonical smoke tooling
+  today (`edge-8` uses `reverse`, `corner-3x3` uses `square_d4`)
 * CTest-backed tiny deterministic pattern trainer smoke that consumes the
   pattern dataset TSV, fits a train-split-only phase-bias baseline, and fixes
   summary counts, a representative learned value, and checksum
@@ -92,10 +96,10 @@ Status values:
 | Add dataset manifest schema | done | `data/corpora/dataset-manifest.schema.json` plus CTest smoke validation |
 | Add tiny synthetic fixture records | done | `data/corpora/samples/tiny-local-synthetic.records.tsv` contains checked-in synthetic good and bad replay smoke records |
 | Add importer for one simple text format | done | Minimal `tools/data-import` replay smoke accepts expected-good rows and rejects malformed, illegal, or bad-pass rows through board-core move application |
-| Add dataset builder and deterministic splitter | done | Minimal `tools/pattern-dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, and keeps duplicate input rows in deterministic input order |
+| Add dataset builder and deterministic splitter | done | Minimal `tools/pattern-dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, keeps duplicate input rows in deterministic input order, and supports opt-in canonical index output for smoke comparison |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
-| Add symmetry canonicalization primitive | done | Evaluation exposes an isolated helper for raw, reverse, and square D4 canonical ternary indices; current tools still emit raw ternary indices |
-| Add feature extractor | done | Minimal `tools/pattern-features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices |
+| Add symmetry canonicalization primitive | done | Evaluation exposes an isolated helper for raw, reverse, and square D4 canonical ternary indices; default tools still emit raw ternary indices, while canonical smoke mode opts in through the shared helper |
+| Add feature extractor | done | Minimal `tools/pattern-features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices, with opt-in canonical index output for smoke comparison |
 | Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern-train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
 | Add calibration tool | not started | Optional score-to-probability mapping |
 | Add tiny artifact exporter smoke | done | Minimal `tools/pattern-export` smoke writes a runtime-compatible binary payload plus manifest from the deterministic phase-bias trainer summary |
@@ -113,8 +117,10 @@ Pattern learning is strong enough to support production evaluation when:
 * raw external corpora are kept out of git by default
 * tiny fixtures exercise import, replay, feature extraction, and export
 * feature schema is versioned and shared with runtime evaluation
-* any enabled symmetry policy is shared by trainer, feature extractor, exporter,
-  and runtime evaluator through the same canonicalization helper
+* any production enabled symmetry policy is shared by trainer, feature
+  extractor, exporter, and runtime evaluator through the same canonicalization
+  helper; current canonical feature/dataset smoke coverage is opt-in and does
+  not change trainer, exporter, artifact, or runtime evaluator behavior
 * train/validation/test splits are deterministic
 * tiny trainer output is reproducible
 * exported artifacts load in runtime evaluation

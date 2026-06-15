@@ -20,4 +20,18 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.records.tsv
       --manifest
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json)
+
+  add_test(
+    NAME vibe_othello_pattern_features_canonical_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_smoke.py
+      --exe
+      $<TARGET_FILE:vibe_othello_pattern_features_smoke>
+      --records
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.records.tsv
+      --manifest
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json
+      --index-mode
+      canonical)
 endif()
