@@ -287,6 +287,7 @@ struct SearchOptions {
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
   std::uint8_t selectivity_level;
+  SearchMode mode;
 };
 ```
 
@@ -315,8 +316,8 @@ threshold gate.
 
 `use_endgame_tt` enables exact-score endgame transposition-table probe, store,
 and cutoff behavior when exact endgame search is active. It also enables WLD
-endgame transposition-table probe, store, and cutoff behavior when direct WLD
-search is active.
+endgame transposition-table probe, store, and cutoff behavior when direct or
+root-triggered WLD search is active.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
@@ -342,6 +343,12 @@ table.
 endgame root search, `0` keeps backward-compatible all-root exact reporting, `1`
 selects best-only exact reporting, and values greater than one are currently a
 safe no-op that behave like `0` until top-N reporting is implemented.
+
+`mode` is the caller's requested search result mode. `SearchMode::move` is the
+default. Root-triggered WLD endgame search is used only when `mode` is
+`SearchMode::win_loss_draw` and the root empty count is less than or equal to
+`endgame_wld_empties`. Exact-score endgame search remains separate and returns
+final disc-difference margins.
 
 ## Direct Exact Endgame API
 
@@ -387,6 +394,12 @@ The returned `SearchResult::score` and root move scores are WLD values from the
 side-to-move perspective: `-1` for loss, `0` for draw, and `1` for win. They are
 not final disc-difference margins. `use_endgame_tt`, `use_endgame_parity_ordering`,
 and root reporting options such as `multi_pv` keep their endgame meanings.
+
+`search_iterative` can also route the root to WLD endgame search when
+`SearchOptions::mode == SearchMode::win_loss_draw` and the root empty count is
+less than or equal to `SearchOptions::endgame_wld_empties`. This path returns
+the same WLD score semantics as `solve_wld_endgame`; it does not expose final
+disc-difference margins.
 
 ## Search Result
 
@@ -904,11 +917,10 @@ selective TT support may split it into separate `heuristic_midgame` and
 `selective_midgame` kinds if selective results need different compatibility
 rules.
 
-For `midgame` and `exact_endgame_score`, `score` is valid.
-
-For future `exact_endgame_wld` entries, WLD-specific result data must be kept
-distinct from exact disc-difference scores. WLD entries must never satisfy
-exact-score probes.
+For `midgame`, `exact_endgame_score`, and `exact_endgame_wld`, `score` is valid
+within that entry kind's score semantics. WLD-specific scores are kept distinct
+from exact disc-difference scores. WLD entries must never satisfy exact-score
+probes.
 
 Current internal entry shape:
 
@@ -982,11 +994,8 @@ requested solve mode or can safely answer it.
 
 `exact_endgame_score` entries may answer exact score queries directly.
 
-`exact_endgame_score` entries may answer WLD queries by converting final disc
-difference to win, draw, or loss.
-
-The first direct WLD implementation keeps exact-score and WLD probes fully
-separate and does not perform this conversion at probe time.
+The current WLD implementation keeps exact-score and WLD probes fully separate
+and does not perform exact-score-to-WLD conversion at probe time.
 
 `exact_endgame_wld` entries must not answer exact score queries.
 

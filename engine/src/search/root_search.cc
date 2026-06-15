@@ -462,6 +462,12 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
 
+  if (internal::should_use_wld_endgame(position, options)) {
+    internal::TranspositionTable tt_storage{};
+    internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;
+    return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
+  }
+
   if (internal::should_use_exact_endgame(position, options)) {
     internal::TranspositionTable tt_storage{};
     internal::TranspositionTable* tt = options.use_endgame_tt ? &tt_storage : nullptr;

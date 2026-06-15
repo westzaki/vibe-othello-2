@@ -725,7 +725,13 @@ std::uint8_t empty_count(board_core::Position position) noexcept {
 }
 
 bool should_use_exact_endgame(board_core::Position position, SearchOptions options) noexcept {
-  return options.exact_endgame && empty_count(position) <= options.endgame_exact_empties;
+  return options.exact_endgame && options.mode != SearchMode::win_loss_draw &&
+         empty_count(position) <= options.endgame_exact_empties;
+}
+
+bool should_use_wld_endgame(board_core::Position position, SearchOptions options) noexcept {
+  return options.mode == SearchMode::win_loss_draw && options.endgame_wld_empties > 0 &&
+         empty_count(position) <= options.endgame_wld_empties;
 }
 
 SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,

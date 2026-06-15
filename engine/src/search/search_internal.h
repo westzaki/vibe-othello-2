@@ -71,6 +71,7 @@ SearchNodeResult full_window_search(SearchContext* context, Score alpha, Score b
                                     Ply ply);
 std::uint8_t empty_count(board_core::Position position) noexcept;
 bool should_use_exact_endgame(board_core::Position position, SearchOptions options) noexcept;
+bool should_use_wld_endgame(board_core::Position position, SearchOptions options) noexcept;
 SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,
                                     std::uint8_t empties, Ply ply);
 SearchNodeResult wld_search(EndgameContext* context, Score alpha, Score beta, std::uint8_t empties,
