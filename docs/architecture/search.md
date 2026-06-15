@@ -1382,7 +1382,13 @@ engine/src/search/
   pvs.cc
   root_search.cc
   aspiration.cc
-  move_ordering.cc
+  move_ordering/
+    move_list.cc
+    static_othello_ordering.cc
+    mobility_ordering.cc
+    parity_ordering.cc
+    midgame_ordering.cc
+    endgame_ordering.cc
   transposition_table.cc
   endgame.cc
   time_manager.cc
