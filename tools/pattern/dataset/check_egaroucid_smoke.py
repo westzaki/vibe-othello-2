@@ -107,6 +107,21 @@ def check_report(report: dict[str, object]) -> bool:
 
 
 def check_repeated_positions(import_rows: list[dict[str, str]], dataset: list[str]) -> bool:
+    dataset_rows = dataset[1:]
+    for row in import_rows:
+        expected_ply = int(row["occupied_count"]) - 4
+        prefix = (
+            f"{row['record_id']}\t{expected_ply}\t"
+            f"{row['split']}\t{row['label_score_side_to_move']}\t"
+        )
+        matching = [line for line in dataset_rows if line.startswith(prefix)]
+        if len(matching) != 8:
+            print(
+                f"expected eight pattern rows with imported ply for {row['record_id']}",
+                file=sys.stderr,
+            )
+            return False
+
     repeated_rows = [row for row in import_rows if row["board_a1_to_h8"] == REPEATED_BOARD]
     if len(repeated_rows) != 3:
         print("expected three imported rows for the repeated board", file=sys.stderr)
@@ -120,14 +135,6 @@ def check_repeated_positions(import_rows: list[dict[str, str]], dataset: list[st
     if {row["label_score_side_to_move"] for row in repeated_rows} != {"-3", "5"}:
         print("repeated board did not preserve different scores", file=sys.stderr)
         return False
-
-    dataset_rows = dataset[1:]
-    for row in repeated_rows:
-        prefix = f"{row['record_id']}\t1\t{row['split']}\t{row['label_score_side_to_move']}\t"
-        matching = [line for line in dataset_rows if line.startswith(prefix)]
-        if len(matching) != 8:
-            print(f"expected eight pattern rows for imported record {row['record_id']}", file=sys.stderr)
-            return False
 
     exact_duplicate_ids = [
         row["record_id"] for row in repeated_rows if row["label_score_side_to_move"] == "-3"
@@ -150,6 +157,9 @@ def check_invalid_validation(exe: Path, valid_tsv: str, temp_dir: Path) -> bool:
         "bad-kind": ("label_kind", "final_disc_diff", "label_kind must be"),
         "bad-score": ("label_score_side_to_move", "65", "label_score_side_to_move must be"),
         "bad-count": ("player_disc_count", "99", "board counts do not match"),
+        "bad-occupied-range": ("occupied_count", "64", "occupied_count must be in [4, 63]"),
+        "bad-phase-range": ("phase", "13", "phase must be in [0, 12]"),
+        "bad-phase-mismatch": ("phase", "1", "phase must match occupied_count"),
     }
     for name, (field, value, expected_error) in cases.items():
         field_index = header.index(field)

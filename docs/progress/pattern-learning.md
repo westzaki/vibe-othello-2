@@ -69,7 +69,8 @@ Existing foundations include:
 * CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
   the normalized TSV into `tools/pattern/dataset`, validates board/count/label
   columns, preserves importer-provided `position_id` and `split`, keeps same
-  position rows in one split, and retains exact duplicate records in input order
+  position rows in one split, emits `ply` as `occupied_count - 4`, and retains
+  exact duplicate records in input order
 
 The Egaroucid normalized dataset report currently records:
 

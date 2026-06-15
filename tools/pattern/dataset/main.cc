@@ -268,6 +268,10 @@ bool validate_split(std::string_view split) noexcept {
   return split == "train" || split == "validation" || split == "test";
 }
 
+int egaroucid_phase_for_occupied_count(int occupied_count) noexcept {
+  return std::min(12, ((occupied_count - 4) * 13) / 60);
+}
+
 std::optional<vibe_othello::board_core::Position>
 position_from_a1_to_h8_board(std::string_view board) noexcept {
   namespace board_core = vibe_othello::board_core;
@@ -372,6 +376,14 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
     *error = "label_score_side_to_move must be in [-64, 64]";
     return false;
   }
+  if (*occupied < 4 || *occupied > 63) {
+    *error = "occupied_count must be in [4, 63]";
+    return false;
+  }
+  if (*phase < 0 || *phase > 12) {
+    *error = "phase must be in [0, 12]";
+    return false;
+  }
 
   row->label_score_side_to_move = *label;
   row->occupied_count = *occupied;
@@ -394,6 +406,10 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
   }
   if (row->empty_count + row->occupied_count != vibe_othello::board_core::kSquareCount) {
     *error = "occupied_count plus empty_count must equal 64";
+    return false;
+  }
+  if (row->phase != egaroucid_phase_for_occupied_count(row->occupied_count)) {
+    *error = "phase must match occupied_count";
     return false;
   }
   return true;
@@ -600,9 +616,9 @@ bool emit_pattern_rows_for_position(const NormalizedRow& row,
         std::cerr << "failed to encode pattern index: " << table.pattern_id << '\n';
         return false;
       }
-      std::cout << row.record_id << "\t1\t" << row.split << '\t' << row.label_score_side_to_move
-                << '\t' << row.phase << '\t' << table.pattern_id << '\t' << instance << '\t'
-                << *index << '\n';
+      std::cout << row.record_id << '\t' << (row.occupied_count - 4) << '\t' << row.split << '\t'
+                << row.label_score_side_to_move << '\t' << row.phase << '\t' << table.pattern_id
+                << '\t' << instance << '\t' << *index << '\n';
       ++emit_summary->rows;
       count_split(row.split, emit_summary);
     }
