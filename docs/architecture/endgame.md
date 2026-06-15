@@ -908,14 +908,17 @@ Recommended private implementation layout:
 
 ```text
 engine/src/search/
-  endgame.cc
+  endgame_policy_internal.h
+  endgame_root.cc
+  endgame_search.cc
+  endgame_small_empty.cc
+  endgame_tt.cc
   move_ordering/
     endgame_ordering.cc
     parity_ordering.cc
-  endgame_tt.cc
 ```
 
-The first implementation may put generic endgame search in one file:
+Earlier implementations kept generic endgame search in one file:
 
 ```text
 engine/src/search/endgame.cc

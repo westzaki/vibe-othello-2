@@ -1390,7 +1390,11 @@ engine/src/search/
     midgame_ordering.cc
     endgame_ordering.cc
   transposition_table.cc
-  endgame.cc
+  endgame_policy_internal.h
+  endgame_tt.cc
+  endgame_small_empty.cc
+  endgame_search.cc
+  endgame_root.cc
   time_manager.cc
   stats.cc
 ```

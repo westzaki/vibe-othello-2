@@ -11,7 +11,10 @@ target_sources(
           src/evaluation/pattern_weights.cc
           src/evaluation/tiny_pattern_evaluator.cc
           src/search/alphabeta.cc
-          src/search/endgame.cc
+          src/search/endgame_root.cc
+          src/search/endgame_search.cc
+          src/search/endgame_small_empty.cc
+          src/search/endgame_tt.cc
           src/search/move_ordering/endgame_ordering.cc
           src/search/move_ordering/midgame_ordering.cc
           src/search/move_ordering/mobility_ordering.cc
