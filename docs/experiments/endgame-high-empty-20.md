@@ -100,6 +100,44 @@ substantially reduces nodes across the selected positions, use a follow-up PR to
 evaluate root-triggered WLD orchestration. If it does not, improve WLD ordering,
 WLD TT behavior, or WLD small-empty specialization before adding orchestration.
 
+## Root-Triggered WLD Threshold Probe
+
+Local runner check on 2026-06-15 JST measured the root-triggered
+`search_iterative` WLD path with `--root-mode best`, `--parity on`, `--tt on`,
+`--repeat 1`, and a 180-second per-row timeout. Raw JSONL output stayed in
+local scratch space under `/tmp/vibe-endgame-wld-threshold-pr`.
+
+Direct WLD agreed with the exact-score sign for all measured positions:
+
+| position | empties | exact score | direct WLD | direct WLD elapsed_ms | direct WLD nodes |
+| --- | ---: | ---: | --- | ---: | ---: |
+| `fourteen_empty_simple` | 14 | -26 | loss | 28.609 | 42713 |
+| `sixteen_empty_simple` | 16 | -11 | loss | 179.430 | 324395 |
+| `eighteen_empty_simple` | 18 | -8 | loss | 801.072 | 1450690 |
+| `twenty_empty_simple` | 20 | 4 | win | 23299.300 | 42434203 |
+
+Threshold gating behaved as expected: rows below the root empty count reported
+`not_triggered` with zero endgame nodes and one evaluator call; rows at or above
+the root empty count triggered WLD and completed exactly.
+
+| position | empties | completed thresholds | not-triggered thresholds | score | best move | elapsed_ms range | nodes | tt_hit_rate | tt_cutoff_rate |
+| --- | ---: | --- | --- | ---: | --- | ---: | ---: | ---: | ---: |
+| `fourteen_empty_simple` | 14 | 14, 16, 18, 20, 22, 24 | none | -1 | c1 | 23.538-29.466 | 42713 | 0.0217966 | 0.0217498 |
+| `sixteen_empty_simple` | 16 | 16, 18, 20, 22, 24 | 14 | -1 | c1 | 175.030-180.874 | 324395 | 0.00603277 | 0.00570292 |
+| `eighteen_empty_simple` | 18 | 18, 20, 22, 24 | 14, 16 | -1 | c1 | 806.429-835.618 | 1450690 | 0.00236026 | 0.00217896 |
+| `twenty_empty_simple` | 20 | 20, 22, 24 | 14, 16, 18 | 1 | c1 | 23180.300-23211.900 | 42434203 | 0.00013171 | 0.000115143 |
+
+All completed root-triggered WLD rows returned WLD scores only (`-1` or `1`),
+reported `exact=true`, `stopped=false`, `completed_depth == empties`, and
+`eval_calls == 0`.
+
+Recommendation: keep the production default disabled until a broader corpus and
+WASM/native split are measured, but document `endgame_wld_empties = 20` as a
+reasonable native manual/experimental threshold for best-only WLD outcome
+queries on the current checked-in high-empty probes. The remaining risks are the
+small generated corpus, machine-specific timing, WLD outcome-only scoring, no
+WASM tuning, and no top-N Multi-PV reporting yet.
+
 ## Parity Region Shootout
 
 Local shootout on 2026-06-15 JST after the opponent-mobility endgame ordering

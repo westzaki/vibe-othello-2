@@ -39,8 +39,12 @@ using vibe_othello::board_core::Square;
 using vibe_othello::board_core::square_from_file_rank;
 using vibe_othello::board_core::square_from_index;
 using vibe_othello::search::BoundType;
+using vibe_othello::search::Evaluator;
 using vibe_othello::search::Line;
 using vibe_othello::search::RootMoveInfo;
+using vibe_othello::search::search_iterative;
+using vibe_othello::search::SearchLimits;
+using vibe_othello::search::SearchMode;
 using vibe_othello::search::SearchOptions;
 using vibe_othello::search::SearchResult;
 using vibe_othello::search::solve_exact_endgame;
@@ -75,6 +79,11 @@ enum class SolveMode {
   wld,
 };
 
+enum class EntryMode {
+  direct,
+  iterative_root,
+};
+
 struct Config {
   std::string corpus_path;
   OutputFormat output_format = OutputFormat::tsv;
@@ -82,12 +91,15 @@ struct Config {
   TTMode tt_mode = TTMode::off;
   RootMode root_mode = RootMode::all;
   SolveMode solve_mode = SolveMode::exact_score;
+  EntryMode entry_mode = EntryMode::direct;
   std::uint32_t repeat = 1;
   std::uint8_t min_empties = 0;
   std::uint8_t max_empties = 12;
+  std::uint8_t endgame_wld_empties = 0;
   char delimiter = '\t';
   bool list_positions = false;
   bool max_empties_was_set = false;
+  bool endgame_wld_empties_was_set = false;
   std::vector<std::string> position_ids;
   std::vector<std::string> categories;
 };
@@ -103,6 +115,26 @@ struct PositionCase {
 struct TimedResult {
   SearchResult result;
   std::chrono::nanoseconds elapsed;
+  EntryMode entry_mode = EntryMode::direct;
+  std::uint8_t threshold = 0;
+  bool triggered = true;
+  std::string_view status = "completed";
+};
+
+class CountingEvaluator final : public Evaluator {
+public:
+  explicit constexpr CountingEvaluator(vibe_othello::search::Score score) noexcept
+      : score_(score) {}
+
+  vibe_othello::search::Score evaluate(const Position&) const noexcept override {
+    ++calls;
+    return score_;
+  }
+
+  mutable int calls = 0;
+
+private:
+  vibe_othello::search::Score score_;
 };
 
 constexpr Square square(int file, int rank) noexcept {
@@ -234,7 +266,8 @@ std::vector<PositionCase> built_in_fallback_positions() {
 void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--tt off|on|both]"
-            " [--root-mode all|best] [--mode exact-score|wld] [--repeat N]"
+            " [--root-mode all|best] [--mode exact-score|wld] [--entry direct|iterative-root]"
+            " [--endgame-wld-empties N] [--repeat N]"
             " [--min-empties N] [--max-empties N] [--position-id ID] [--category NAME]"
             " [--list-positions] [--corpus PATH]\n\n"
          << "External TSV schema: id<TAB>category<TAB>position<TAB>expected_empties<TAB>notes\n";
@@ -450,6 +483,23 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--entry") {
+      require_condition(index + 1 < argc, "--entry requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--entry", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      if (value == "direct") {
+        config.entry_mode = EntryMode::direct;
+      } else if (value == "iterative-root" || value == "iterative_root") {
+        config.entry_mode = EntryMode::iterative_root;
+      } else {
+        require_condition(false, "invalid entry mode");
+      }
+      continue;
+    }
+
     if (argument == "--repeat") {
       require_condition(index + 1 < argc, "--repeat requires a value");
       value = argv[++index];
@@ -491,6 +541,22 @@ std::optional<Config> parse_config(int argc, char** argv) {
                         "invalid max empties");
       config.max_empties = static_cast<std::uint8_t>(*max_empties);
       config.max_empties_was_set = true;
+      continue;
+    }
+
+    if (argument == "--endgame-wld-empties") {
+      require_condition(index + 1 < argc, "--endgame-wld-empties requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--endgame-wld-empties", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> threshold = parse_int(value);
+      require_condition(threshold.has_value() && *threshold >= 0 &&
+                            *threshold <= vibe_othello::board_core::kSquareCount,
+                        "invalid endgame WLD empty threshold");
+      config.endgame_wld_empties = static_cast<std::uint8_t>(*threshold);
+      config.endgame_wld_empties_was_set = true;
       continue;
     }
 
@@ -541,6 +607,12 @@ std::optional<Config> parse_config(int argc, char** argv) {
 
   require_condition(config.min_empties <= config.max_empties,
                     "--min-empties must be less than or equal to --max-empties");
+  if (config.entry_mode == EntryMode::iterative_root) {
+    require_condition(config.solve_mode == SolveMode::wld,
+                      "--entry iterative-root currently supports --mode wld only");
+    require_condition(config.endgame_wld_empties_was_set,
+                      "--entry iterative-root requires --endgame-wld-empties");
+  }
   return config;
 }
 
@@ -593,6 +665,17 @@ std::string_view solve_mode_name(SolveMode mode) noexcept {
     return "exact_score";
   case SolveMode::wld:
     return "wld";
+  }
+
+  return "unknown";
+}
+
+std::string_view entry_mode_name(EntryMode mode) noexcept {
+  switch (mode) {
+  case EntryMode::direct:
+    return "direct";
+  case EntryMode::iterative_root:
+    return "iterative_root";
   }
 
   return "unknown";
@@ -731,6 +814,22 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
               << static_cast<int>(actual_empties) << '\n';
     std::exit(1);
   }
+  if (!timed_result.triggered) {
+    require_condition(timed_result.entry_mode == EntryMode::iterative_root,
+                      "only iterative-root runs may be untriggered");
+    require_condition(timed_result.threshold < actual_empties,
+                      "iterative-root WLD did not trigger at or above threshold");
+    require_condition(!result.exact, "untriggered iterative root result was exact");
+    require_condition(!result.stopped, "untriggered iterative root result was stopped");
+    require_condition(result.stats.endgame_nodes == 0,
+                      "untriggered iterative root visited endgame nodes");
+    require_condition(result.stats.eval_calls > 0, "untriggered iterative root did not evaluate");
+    return;
+  }
+  if (timed_result.entry_mode == EntryMode::iterative_root) {
+    require_condition(timed_result.threshold >= actual_empties,
+                      "iterative-root WLD triggered below threshold");
+  }
   require_condition(result.exact, "search result was not exact");
   require_condition(!result.stopped, "search result was stopped");
   require_condition(result.stats.eval_calls == 0, "exact endgame called evaluator");
@@ -764,23 +863,40 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
 }
 
 TimedResult run_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
-                        bool use_tt, RootMode root_mode, SolveMode solve_mode) {
+                        bool use_tt, RootMode root_mode, SolveMode solve_mode, EntryMode entry_mode,
+                        std::uint8_t endgame_wld_empties) {
   const SearchOptions options{
       .use_endgame_tt = use_tt,
       .exact_endgame = false,
       .use_endgame_parity_ordering = use_parity_ordering,
       .multi_pv = multi_pv_for_root_mode(root_mode),
       .endgame_exact_empties = 0,
+      .endgame_wld_empties = endgame_wld_empties,
+      .mode = solve_mode == SolveMode::wld ? SearchMode::win_loss_draw : SearchMode::exact_score,
   };
   const auto start = std::chrono::steady_clock::now();
-  SearchResult result = solve_mode == SolveMode::wld ? solve_wld_endgame(position, {}, options)
-                                                     : solve_exact_endgame(position, {}, options);
+  SearchResult result{};
+  if (entry_mode == EntryMode::iterative_root) {
+    CountingEvaluator evaluator{77};
+    result = search_iterative(position, evaluator, SearchLimits{.max_depth = 0}, options);
+  } else {
+    result = solve_mode == SolveMode::wld ? solve_wld_endgame(position, {}, options)
+                                          : solve_exact_endgame(position, {}, options);
+  }
   const auto end = std::chrono::steady_clock::now();
-  require_condition(result.completed_depth == static_cast<vibe_othello::search::Depth>(empties),
-                    "direct exact endgame did not solve the root empty count");
+  const bool triggered = result.stats.endgame_nodes != 0 || is_terminal(position);
+  if (triggered) {
+    require_condition(result.completed_depth == static_cast<vibe_othello::search::Depth>(empties),
+                      "endgame did not solve the root empty count");
+  }
   return TimedResult{
       .result = result,
       .elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start),
+      .entry_mode = entry_mode,
+      .threshold = entry_mode == EntryMode::iterative_root ? endgame_wld_empties
+                                                           : static_cast<std::uint8_t>(0),
+      .triggered = triggered,
+      .status = triggered ? "completed" : "not_triggered",
   };
 }
 
@@ -796,17 +912,18 @@ double nodes_per_second(const TimedResult& timed_result) {
 
 void print_delimited_header(char delimiter) {
   std::cout << "position_id" << delimiter << "category" << delimiter << "empties" << delimiter
-            << "repeat" << delimiter << "parity_ordering" << delimiter << "tt_mode" << delimiter
-            << "root_mode" << delimiter << "mode" << delimiter << "score" << delimiter
-            << "wld_result" << delimiter << "best_move" << delimiter << "exact" << delimiter
-            << "stopped" << delimiter << "completed_depth" << delimiter << "nodes" << delimiter
-            << "endgame_nodes" << delimiter << "terminal_nodes" << delimiter << "pass_nodes"
-            << delimiter << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter
-            << "root_moves_searched" << delimiter << "tt_probes" << delimiter << "tt_hits"
-            << delimiter << "tt_cutoffs" << delimiter << "tt_stores" << delimiter << "tt_overwrites"
-            << delimiter << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
-            << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
-            << '\n';
+            << "repeat" << delimiter << "entry" << delimiter << "threshold" << delimiter
+            << "triggered" << delimiter << "status" << delimiter << "parity_ordering" << delimiter
+            << "tt_mode" << delimiter << "root_mode" << delimiter << "mode" << delimiter << "score"
+            << delimiter << "wld_result" << delimiter << "best_move" << delimiter << "exact"
+            << delimiter << "stopped" << delimiter << "completed_depth" << delimiter << "nodes"
+            << delimiter << "endgame_nodes" << delimiter << "eval_calls" << delimiter
+            << "terminal_nodes" << delimiter << "pass_nodes" << delimiter << "beta_cutoffs"
+            << delimiter << "alpha_updates" << delimiter << "root_moves_searched" << delimiter
+            << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_cutoffs" << delimiter
+            << "tt_stores" << delimiter << "tt_overwrites" << delimiter << "tt_collisions"
+            << delimiter << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores"
+            << delimiter << "elapsed_ms" << delimiter << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
@@ -816,21 +933,25 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
   const SearchResult& result = timed_result.result;
   std::cout << position_case.id << delimiter << position_case.category << delimiter
             << static_cast<int>(empties) << delimiter << repeat << delimiter
-            << parity_mode_name(use_parity_ordering) << delimiter << tt_mode_name(use_tt)
-            << delimiter << root_mode_name(root_mode) << delimiter << solve_mode_name(solve_mode)
-            << delimiter << result.score << delimiter
-            << (solve_mode == SolveMode::wld ? wld_result_name(result) : "n/a") << delimiter
-            << best_move_to_string(result) << delimiter << (result.exact ? "true" : "false")
-            << delimiter << (result.stopped ? "true" : "false") << delimiter
-            << result.completed_depth << delimiter << result.nodes << delimiter
-            << result.stats.endgame_nodes << delimiter << result.stats.terminal_nodes << delimiter
-            << result.stats.pass_nodes << delimiter << result.stats.beta_cutoffs << delimiter
-            << result.stats.alpha_updates << delimiter << result.stats.root_moves_searched
-            << delimiter << result.stats.tt_probes << delimiter << result.stats.tt_hits << delimiter
-            << result.stats.tt_cutoffs << delimiter << result.stats.tt_stores << delimiter
-            << result.stats.tt_overwrites << delimiter << result.stats.tt_collisions << delimiter
-            << result.stats.tt_rejected_stores << delimiter
-            << result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
+            << entry_mode_name(timed_result.entry_mode) << delimiter
+            << static_cast<int>(timed_result.threshold) << delimiter
+            << (timed_result.triggered ? "true" : "false") << delimiter << timed_result.status
+            << delimiter << parity_mode_name(use_parity_ordering) << delimiter
+            << tt_mode_name(use_tt) << delimiter << root_mode_name(root_mode) << delimiter
+            << solve_mode_name(solve_mode) << delimiter << result.score << delimiter
+            << (solve_mode == SolveMode::wld && timed_result.triggered ? wld_result_name(result)
+                                                                       : "n/a")
+            << delimiter << best_move_to_string(result) << delimiter
+            << (result.exact ? "true" : "false") << delimiter << (result.stopped ? "true" : "false")
+            << delimiter << result.completed_depth << delimiter << result.nodes << delimiter
+            << result.stats.endgame_nodes << delimiter << result.stats.eval_calls << delimiter
+            << result.stats.terminal_nodes << delimiter << result.stats.pass_nodes << delimiter
+            << result.stats.beta_cutoffs << delimiter << result.stats.alpha_updates << delimiter
+            << result.stats.root_moves_searched << delimiter << result.stats.tt_probes << delimiter
+            << result.stats.tt_hits << delimiter << result.stats.tt_cutoffs << delimiter
+            << result.stats.tt_stores << delimiter << result.stats.tt_overwrites << delimiter
+            << result.stats.tt_collisions << delimiter << result.stats.tt_rejected_stores
+            << delimiter << result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
             << std::setprecision(3) << elapsed_ms(timed_result.elapsed) << delimiter << std::fixed
             << std::setprecision(0) << nodes_per_second(timed_result) << '\n';
 }
@@ -850,6 +971,12 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   print_json_string(std::cout, solve_mode_name(solve_mode));
   std::cout << ",\"empties\":" << static_cast<int>(empties);
   std::cout << ",\"repeat\":" << repeat;
+  std::cout << ",\"entry\":";
+  print_json_string(std::cout, entry_mode_name(timed_result.entry_mode));
+  std::cout << ",\"threshold\":" << static_cast<int>(timed_result.threshold);
+  std::cout << ",\"triggered\":" << (timed_result.triggered ? "true" : "false");
+  std::cout << ",\"status\":";
+  print_json_string(std::cout, timed_result.status);
   std::cout << ",\"parity_ordering\":";
   print_json_string(std::cout, parity_mode_name(use_parity_ordering));
   std::cout << ",\"tt_mode\":";
@@ -857,7 +984,7 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"root_mode\":";
   print_json_string(std::cout, root_mode_name(root_mode));
   std::cout << ",\"score\":" << result.score;
-  if (solve_mode == SolveMode::wld) {
+  if (solve_mode == SolveMode::wld && timed_result.triggered) {
     std::cout << ",\"wld_result\":";
     print_json_string(std::cout, wld_result_name(result));
   }
@@ -868,6 +995,7 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"completed_depth\":" << result.completed_depth;
   std::cout << ",\"nodes\":" << result.nodes;
   std::cout << ",\"endgame_nodes\":" << result.stats.endgame_nodes;
+  std::cout << ",\"eval_calls\":" << result.stats.eval_calls;
   std::cout << ",\"terminal_nodes\":" << result.stats.terminal_nodes;
   std::cout << ",\"pass_nodes\":" << result.stats.pass_nodes;
   std::cout << ",\"beta_cutoffs\":" << result.stats.beta_cutoffs;
@@ -1002,7 +1130,8 @@ int main(int argc, char** argv) {
         for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
           const TimedResult timed_result =
               run_endgame(position_case.position, actual_empties, use_parity_ordering, use_tt,
-                          config->root_mode, config->solve_mode);
+                          config->root_mode, config->solve_mode, config->entry_mode,
+                          config->endgame_wld_empties);
           validate_result(position_case, timed_result, actual_empties, use_tt, config->solve_mode);
           if (config->output_format == OutputFormat::jsonl) {
             print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering, use_tt,

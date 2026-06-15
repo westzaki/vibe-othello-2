@@ -109,17 +109,22 @@ endgame solver through `solve_exact_endgame` or the direct WLD solver through
 `--parity on|off|both` to choose exact endgame parity ordering,
 `--tt off|on|both` to choose exact endgame transposition-table use,
 `--root-mode all|best` to choose root reporting behavior,
-`--mode exact-score|wld` to choose the solve mode, `--repeat N` to repeat each
-position, `--min-empties N` and `--max-empties N` to filter the default or
-external corpus by empty count, repeatable `--position-id ID` and
-`--category NAME` filters to run selected rows, and `--list-positions` to print
-matching `id`, `category`, `empties`, and `notes` without running search.
+`--mode exact-score|wld` to choose the solve mode,
+`--entry direct|iterative-root` to choose whether the benchmark calls the direct
+solver API or the root `search_iterative` WLD trigger, `--endgame-wld-empties N`
+to set the iterative-root WLD threshold, `--repeat N` to repeat each position,
+`--min-empties N` and `--max-empties N` to filter the default or external corpus
+by empty count, repeatable `--position-id ID` and `--category NAME` filters to
+run selected rows, and `--list-positions` to print matching `id`, `category`,
+`empties`, and `notes` without running search.
 Defaults are `--parity on`, `--tt off`, `--root-mode all`,
-`--mode exact-score`, `--min-empties 0`, and `--max-empties 12`, which preserve
-the original non-TT all-root exact-score benchmark shape except for newly
-emitted columns. A `--position-id` selection can name a row above the default
-empty cap; an explicitly supplied `--max-empties` still constrains the selected
-rows.
+`--mode exact-score`, `--entry direct`, `--min-empties 0`, and
+`--max-empties 12`, which preserve the original non-TT all-root exact-score
+benchmark shape except for newly emitted columns. A `--position-id` selection
+can name a row above the default empty cap; an explicitly supplied
+`--max-empties` still constrains the selected rows. `--entry iterative-root`
+currently supports `--mode wld` only and reports `status=not_triggered` when the
+position empty count is above `--endgame-wld-empties`.
 
 Use `--corpus path/to/endgame.tsv` to run an external exact endgame corpus. If
 `--corpus` is omitted, the executable first uses the checked-in
@@ -219,6 +224,33 @@ python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
   --repeat 1 \
   --timeout-sec 180 \
   --output-dir /tmp/vibe-endgame-wld-vs-exact
+```
+
+Measure root-triggered WLD threshold behavior through `search_iterative` with
+repeatable `--threshold` values. Rows with `empties > threshold` are preserved
+as `not_triggered`; completed rows are aggregated normally.
+
+```sh
+python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
+  --bench ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --position-id fourteen_empty_simple \
+  --position-id sixteen_empty_simple \
+  --position-id eighteen_empty_simple \
+  --position-id twenty_empty_simple \
+  --mode wld \
+  --entry iterative-root \
+  --threshold 14 \
+  --threshold 16 \
+  --threshold 18 \
+  --threshold 20 \
+  --threshold 22 \
+  --threshold 24 \
+  --root-mode best \
+  --parity on \
+  --tt on \
+  --repeat 1 \
+  --timeout-sec 180 \
+  --output-dir /tmp/vibe-endgame-wld-threshold
 ```
 
 The generated JSONL files and runner summaries are machine-specific local
@@ -378,9 +410,9 @@ For search benchmarks, report the depth argument and the emitted columns:
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
 `position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `tt_mode`,
-`root_mode`, `mode`, `score`, `wld_result`, `best_move`, `exact`, `stopped`,
-`completed_depth`, `nodes`, `endgame_nodes`, `terminal_nodes`, `pass_nodes`,
-`beta_cutoffs`,
+`root_mode`, `mode`, `entry`, `threshold`, `triggered`, `status`, `score`,
+`wld_result`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
+`endgame_nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
 `alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
 `tt_stores`, `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
 `tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
@@ -412,12 +444,14 @@ schema is:
 - `position_id`, `category`, `position`
 - `mode`, currently `exact_score` or `wld`
 - `empties`, `repeat`
+- `entry`, currently `direct` or `iterative_root`
+- `threshold`, `triggered`, `status`
 - `parity_ordering`, currently `on` or `off`
 - `tt_mode`, currently `off` or `on`
 - `root_mode`, currently `all` or `best`
 - `score`, `wld_result` for WLD rows, `best_move`, `exact`, `stopped`,
   `completed_depth`
-- `nodes`, `endgame_nodes`, `terminal_nodes`, `pass_nodes`
+- `nodes`, `endgame_nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`
 - `beta_cutoffs`, `alpha_updates`, `root_moves_searched`
 - `tt_probes`, `tt_hits`, `tt_cutoffs`, `tt_stores`
 - `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
