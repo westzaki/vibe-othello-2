@@ -119,8 +119,18 @@ ExactEndgameTtProbe probe_endgame_tt(EndgameContext* context, Depth remaining_em
 template <typename EndgamePolicy>
 std::optional<board_core::Move> probe_endgame_root_tt_best_move(EndgameContext* context,
                                                                 Depth remaining_empties) {
-  return probe_endgame_tt<EndgamePolicy>(context, remaining_empties, EndgamePolicy::kInitialAlpha,
-                                         EndgamePolicy::kInitialBeta)
+  if (!should_use_endgame_tt(*context)) {
+    return std::nullopt;
+  }
+
+  const std::optional<TTEntry> entry =
+      context->transposition_table->probe(context->position, &context->stats);
+  if (!entry.has_value()) {
+    return std::nullopt;
+  }
+
+  return EndgamePolicy::probe_entry(*entry, context->position, remaining_empties,
+                                    EndgamePolicy::kInitialAlpha, EndgamePolicy::kInitialBeta)
       .best_move;
 }
 
