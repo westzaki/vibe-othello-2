@@ -13,8 +13,16 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/check_smoke.py
       --trainer-exe
       $<TARGET_FILE:vibe_othello_pattern_train_smoke>
+      --trainer-v0a
+      ${CMAKE_CURRENT_SOURCE_DIR}/train_v0a.py
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
+      --egaroucid-importer
+      ${CMAKE_SOURCE_DIR}/tools/data-import/import_egaroucid_train_data.py
+      --egaroucid-fixture
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
+      --egaroucid-manifest
+      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json
       --records
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.records.tsv
       --manifest
