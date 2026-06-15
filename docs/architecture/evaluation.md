@@ -204,6 +204,32 @@ Pattern definitions are runtime contracts.
 
 Changing a pattern definition without changing the artifact version is a bug.
 
+## Pattern Symmetry Policy
+
+Pattern symmetry canonicalization is part of the pattern definition contract.
+
+The supported primitive policies are:
+
+* `none`: use the ternary index exactly as encoded
+* `reverse`: use the smaller index between forward and reversed cell order
+* `square_d4`: for `3x3` square patterns, use the smallest index across the
+  eight D4 rotations and reflections
+
+The canonical representative is always the minimum ternary index among the
+allowed transforms. Ternary digits remain the side-to-move-relative runtime
+digits: empty `0`, player `1`, opponent `2`. Symmetry transforms must never
+swap player and opponent digits.
+
+Changing a production pattern from raw indices to canonical indices changes the
+meaning and size of its weight table. Any production artifact that changes a
+pattern symmetry policy must use a new `pattern_set` id and, when the binary or
+manifest contract changes, a new artifact format version.
+
+The trainer, feature extractor, exporter, and runtime evaluator should share
+the same canonicalization helper for any pattern set that enables symmetry.
+Until a pattern definition explicitly opts in, existing feature extraction,
+training, export, and runtime evaluation continue to use raw ternary indices.
+
 ## Pattern Families
 
 Start with a Buro-style pattern-only baseline rather than inventing a large

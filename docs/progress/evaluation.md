@@ -44,6 +44,8 @@ The current evaluation runtime includes:
 * explicit runtime `PatternWeights` container for phase maps, phase biases, and
   immutable evaluator tables
 * ternary pattern index encoding
+* opt-in ternary pattern symmetry canonicalization primitives for `none`,
+  `reverse`, and `square_d4`
 * explicit runtime `PatternFeatureSet` geometry for mapping weight tables to
   board instances
 * production-facing `PatternEvaluator` that consumes `PatternWeights` and a
@@ -86,6 +88,8 @@ Existing evaluation tests cover:
 * phase bias preservation from loaded artifacts into runtime `PatternWeights`
 * phase bias contribution to `PatternEvaluator` scores
 * search sentinel score range
+* isolated pattern symmetry canonicalization for none, reverse, square D4,
+  determinism, player/opponent digit preservation, and malformed inputs
 * artifact loader success and rejection paths
 * conversion from loaded artifact data to runtime `PatternWeights`
 * CTest-backed learning-pipeline round-trip from tiny trainer summary to
@@ -137,6 +141,7 @@ Status values:
 | Add explicit pattern weight container | done | `LoadedPatternWeights` stores loader output; runtime `PatternWeights` stores phase maps, phase biases, and immutable tables |
 | Add explicit pattern schema validation | done | Validates ids, lengths, squares, duplicate policy, and pattern table size overflow |
 | Add ternary pattern index encoding | done | Empty/player/opponent digits are `0/1/2` |
+| Add pattern symmetry canonicalization primitives | done | Pure opt-in helper covers `none`, edge `reverse`, and `square_d4` `3x3` representatives without changing runtime evaluator outputs |
 | Add tiny fixed edge and corner pattern instances | done | Runtime pattern geometry only |
 | Add tiny pattern-only evaluator | done | Implements `search::Evaluator` and consumes `PatternWeights` |
 | Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, phase bias scoring, range, schema validation, artifact loader paths, and loaded-to-runtime conversion |
@@ -164,6 +169,9 @@ Evaluation is strong enough to build on when:
 * artifact-backed phase bias slots survive loaded-to-runtime conversion
 * pattern evaluator scores include the selected phase bias
 * pattern index encoding is tested against hand-computed fixtures
+* pattern symmetry canonicalization is tested as an isolated helper while
+  existing evaluator, trainer, exporter, and smoke outputs keep raw ternary
+  indices
 * fixture-weight runtime evaluation is separated from future artifact loading
 * search can run with the evaluator enabled or replaced by a reference evaluator
 * exact endgame paths still avoid heuristic evaluation
