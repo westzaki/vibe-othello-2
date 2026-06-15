@@ -8,5 +8,6 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/validate_dataset_manifest.py
       --schema
       ${CMAKE_SOURCE_DIR}/data/corpora/dataset-manifest.schema.json
-      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json)
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json
+      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json)
 endif()

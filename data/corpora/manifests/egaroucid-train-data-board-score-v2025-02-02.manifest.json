@@ -1,0 +1,14 @@
+{
+  "dataset_id": "egaroucid-train-data-board-score-v2025-02-02",
+  "source_name": "Egaroucid_Train_Data.zip board-score training data",
+  "source_url": "https://www.egaroucid.nyanyan.dev/ja/technology/train-data/",
+  "retrieved_at": "2026-06-15",
+  "license_or_terms": "Custom terms published by Egaroucid: free use for own Othello AI activities; raw data redistribution is prohibited.",
+  "redistribution_allowed": false,
+  "commercial_use_allowed": "unknown",
+  "derived_weights_allowed": "unknown",
+  "required_attribution": "Attribution is requested but not required by the published terms; cite Egaroucid training data and https://www.egaroucid.nyanyan.dev/ja/technology/train-data/ when used.",
+  "local_path": "data/corpora/local/egaroucid/Egaroucid_Train_Data.zip",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "notes": "Manifest-only local corpus reference. Keep the raw zip, extracted txt files, and derived TSVs under data/corpora/local/ or another untracked local cache. The committed sha256 is the empty payload digest because the source payload is intentionally not committed; record the actual local payload checksum in local run metadata before training or publishing derived artifacts."
+}

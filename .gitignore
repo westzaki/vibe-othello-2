@@ -1,3 +1,7 @@
 build/
 build-*/
 out/
+__pycache__/
+
+# Local-only corpus payloads and extracted third-party data.
+/data/corpora/local/**

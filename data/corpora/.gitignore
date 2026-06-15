@@ -2,6 +2,7 @@
 /downloads/
 /external/
 /local/
+/local/**
 /raw/
 *.7z
 *.bz2

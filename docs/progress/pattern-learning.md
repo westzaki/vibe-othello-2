@@ -60,6 +60,12 @@ Existing foundations include:
 * CTest-backed runtime loader compatibility smoke that loads the tiny exported
   artifact, converts it to `PatternWeights`, constructs `PatternEvaluator`, and
   fixes a representative deterministic score
+* local-only Egaroucid board-score corpus manifest for
+  `Egaroucid_Train_Data.zip`, plus a streaming importer smoke that accepts raw
+  zip files, extracted text files, and extracted directories without committing
+  the payload; train/validation/test split ids are derived from
+  `dataset_id + board`, while `record_id` is distinct from `position_id` so
+  multiple labels for the same position stay in the same split
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, and strength comparisons.
@@ -108,7 +114,8 @@ Status values:
 | Add tiny artifact exporter smoke | done | Minimal `tools/pattern/export` smoke writes a runtime-compatible binary payload plus manifest from the deterministic phase-bias trainer summary |
 | Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
-| Add local-only external corpus scripts | deferred | Requires source-specific license review |
+| Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
+| Add local-only external corpus scripts | deferred | Download automation remains out of scope; the importer expects a locally obtained payload |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |
 | Add publication gate | not started | Policy documented; enforcement beyond manifest smoke validation is still pending |
 
