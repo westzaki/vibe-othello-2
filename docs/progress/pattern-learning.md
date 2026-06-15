@@ -55,12 +55,15 @@ Existing foundations include:
   pattern dataset TSV, fits a train-split-only phase-bias baseline, and fixes
   summary counts, a representative learned value, and checksum
 * `tools/pattern/train/train_v0a.py` consumes pattern rows TSV from the dataset
-  builder, rejects invalid rows into a deterministic report, learns only
-  13-phase train-split label means, writes `phase,bias` weights TSV, and reports
-  train/validation/test plus phase-level MAE, RMSE, and sign accuracy
+  builder, groups emitted feature rows into `record_id` examples, rejects
+  examples with inconsistent `ply`, split, label, or phase metadata, learns only
+  13-phase train-split example label means, writes `phase,bias` weights TSV, and
+  reports example-level train/validation/test plus phase-level MAE, RMSE, and
+  sign accuracy
 * CTest-backed Egaroucid importer -> dataset builder -> trainer v0a smoke checks
   deterministic report/weights output, train-only bias fitting, held-out
-  validation/test metrics, and invalid-row rejection counts
+  validation/test metrics, invalid-row rejection counts, malformed example
+  rejection, and duplicate feature row reporting
 * CTest-backed tiny artifact exporter smoke that converts the deterministic
   trainer summary into a runtime-loader-compatible artifact with phase bias
   slots and zero-filled tiny fixture pattern tables
@@ -113,9 +116,9 @@ The current implementation does not yet have:
 No raw external corpora, derived datasets, or learned weights are currently
 tracked in the repository. The checked-in TSV records are repository-local
 synthetic smoke fixtures only. Publication of weights derived from Egaroucid
-data remains unknown and gated by provenance review. Trainer v0a is a
-phase-bias baseline only; pattern weight learning, SGD, ridge regression, and
-publishable learned artifacts remain for later PRs.
+data remains unknown and gated by provenance review. Trainer v0a is an
+example-level phase-bias baseline only; pattern weight learning, SGD, ridge
+regression, and publishable learned artifacts remain for later PRs.
 
 ## Implementation Plan
 
@@ -140,7 +143,7 @@ Status values:
 | Add symmetry canonicalization primitive | done | Evaluation exposes an isolated helper for raw, reverse, and square D4 canonical ternary indices; default tools still emit raw ternary indices, while canonical smoke mode opts in through the shared helper |
 | Add feature extractor | done | Minimal `tools/pattern/features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices, with opt-in canonical index output for smoke comparison |
 | Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern/train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
-| Add trainer v0a phase-bias report | done | `tools/pattern/train/train_v0a.py` reads dataset builder pattern rows TSV, rejects invalid rows into the report, learns only train-split phase means, writes deterministic phase-bias weights TSV and JSON metrics, and is covered by the tiny Egaroucid importer -> dataset -> trainer smoke |
+| Add trainer v0a phase-bias report | done | `tools/pattern/train/train_v0a.py` reads dataset builder pattern rows TSV, groups rows into `record_id` examples, rejects malformed examples, reports duplicate feature rows, learns only train-split example phase means, writes deterministic phase-bias weights TSV and JSON metrics, and is covered by the tiny Egaroucid importer -> dataset -> trainer smoke |
 | Add pattern weight learning | not started | Next PR scope; no SGD, ridge regression, pattern table fitting, self-play, or learned artifact publication yet |
 | Add calibration tool | not started | Optional score-to-probability mapping |
 | Add tiny artifact exporter smoke | done | Minimal `tools/pattern/export` smoke writes a runtime-compatible binary payload plus manifest from the deterministic phase-bias trainer summary |
