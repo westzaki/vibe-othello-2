@@ -680,6 +680,72 @@ TEST_CASE("iterative safely ignores unimplemented search options", "[search][ite
   REQUIRE(actual.stats == expected.stats);
 }
 
+TEST_CASE("iterative typed midgame config matches legacy flat options", "[search][iterative]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  DiscDifferenceEvaluator legacy_evaluator;
+  DiscDifferenceEvaluator typed_evaluator;
+
+  const SearchOptions legacy_options{
+      .use_pvs = true,
+      .use_iid = true,
+      .use_history = true,
+      .use_killers = true,
+      .use_midgame_tt = true,
+      .use_tt_best_move_ordering = true,
+  };
+  const SearchOptions typed_options{
+      .midgame =
+          MidgameSearchOptions{
+              .use_pvs = true,
+              .use_iid = true,
+              .use_midgame_tt = true,
+          },
+      .ordering =
+          MoveOrderingOptions{
+              .use_tt_best_move_ordering = true,
+              .use_history = true,
+              .use_killers = true,
+          },
+  };
+
+  const SearchResult legacy = search_iterative(position, legacy_evaluator,
+                                               SearchLimits{.max_depth = Depth{5}}, legacy_options);
+  const SearchResult typed = search_iterative(position, typed_evaluator,
+                                              SearchLimits{.max_depth = Depth{5}}, typed_options);
+
+  require_same_final_result(typed, legacy);
+  require_basic_stats_invariants(typed);
+  require_root_move_set_matches(typed, legacy);
+  REQUIRE(typed.stats == legacy.stats);
+}
+
+TEST_CASE("iterative typed safe no-op options remain ignored", "[search][iterative]") {
+  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
+  DiscDifferenceEvaluator actual_evaluator;
+  DiscDifferenceEvaluator expected_evaluator;
+
+  const SearchOptions options{
+      .reporting = SearchReportingOptions{.multi_pv = 3},
+      .experimental =
+          ExperimentalSearchOptions{
+              .probcut = true,
+              .use_pv_table = true,
+              .use_parallel = true,
+              .selectivity_level = 2,
+          },
+  };
+
+  const SearchResult actual =
+      search_iterative(position, actual_evaluator, SearchLimits{.max_depth = Depth{3}}, options);
+  const SearchResult expected =
+      search_iterative(position, expected_evaluator, SearchLimits{.max_depth = Depth{3}});
+
+  require_same_final_result(actual, expected);
+  require_basic_stats_invariants(actual);
+  require_root_move_set_matches(actual, expected);
+  REQUIRE(actual.stats == expected.stats);
+}
+
 TEST_CASE("iterative handles root pass like fixed-depth search", "[search][iterative]") {
   constexpr board_core::Position pass_position{
       .player = board_core::bit(square(1, 0)),

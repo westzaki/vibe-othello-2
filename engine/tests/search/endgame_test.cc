@@ -609,6 +609,75 @@ TEST_CASE("exact-score request is not changed by WLD threshold",
   REQUIRE(through_iterative.root_moves == direct.root_moves);
 }
 
+TEST_CASE("typed exact endgame threshold matches legacy flat options",
+          "[search][endgame][iterative]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+  CountingEvaluator legacy_evaluator{123};
+  CountingEvaluator typed_evaluator{123};
+
+  const SearchOptions legacy_options{
+      .exact_endgame = true,
+      .endgame_exact_empties = empties,
+  };
+  const SearchOptions typed_options{
+      .endgame =
+          EndgameSearchOptions{
+              .exact_endgame = true,
+              .endgame_exact_empties = empties,
+          },
+  };
+
+  const SearchResult legacy = search_iterative(position, legacy_evaluator,
+                                               SearchLimits{.max_depth = Depth{0}}, legacy_options);
+  const SearchResult typed = search_iterative(position, typed_evaluator,
+                                              SearchLimits{.max_depth = Depth{0}}, typed_options);
+
+  REQUIRE(legacy_evaluator.calls == 0);
+  REQUIRE(typed_evaluator.calls == 0);
+  require_exact_result_invariants(position, legacy);
+  require_exact_result_invariants(position, typed);
+  REQUIRE(typed.best_move == legacy.best_move);
+  REQUIRE(typed.score == legacy.score);
+  REQUIRE(typed.completed_depth == legacy.completed_depth);
+  REQUIRE(typed.pv == legacy.pv);
+  REQUIRE(typed.root_moves == legacy.root_moves);
+  REQUIRE(typed.stats == legacy.stats);
+}
+
+TEST_CASE("typed WLD endgame threshold matches legacy flat options",
+          "[search][endgame][wld][iterative]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  const std::uint8_t empties = test_support::endgame_empty_count(position);
+  CountingEvaluator legacy_evaluator{123};
+  CountingEvaluator typed_evaluator{123};
+
+  const SearchOptions legacy_options{
+      .endgame_wld_empties = empties,
+      .mode = SearchMode::win_loss_draw,
+  };
+  const SearchOptions typed_options{
+      .endgame = EndgameSearchOptions{.endgame_wld_empties = empties},
+      .mode = SearchMode::win_loss_draw,
+  };
+
+  const SearchResult legacy = search_iterative(position, legacy_evaluator,
+                                               SearchLimits{.max_depth = Depth{0}}, legacy_options);
+  const SearchResult typed = search_iterative(position, typed_evaluator,
+                                              SearchLimits{.max_depth = Depth{0}}, typed_options);
+
+  REQUIRE(legacy_evaluator.calls == 0);
+  REQUIRE(typed_evaluator.calls == 0);
+  require_wld_result_invariants(position, legacy);
+  require_wld_result_invariants(position, typed);
+  REQUIRE(typed.best_move == legacy.best_move);
+  REQUIRE(typed.score == legacy.score);
+  REQUIRE(typed.completed_depth == legacy.completed_depth);
+  REQUIRE(typed.pv == legacy.pv);
+  REQUIRE(typed.root_moves == legacy.root_moves);
+  REQUIRE(typed.stats == legacy.stats);
+}
+
 TEST_CASE("root-triggered WLD TT and parity options preserve outcome",
           "[search][endgame][wld][iterative][tt][parity]") {
   const board_core::Position position = test_support::generated_endgame_position(6);
@@ -923,6 +992,43 @@ TEST_CASE("exact endgame multi pv one reports only the exact best root move", "[
   REQUIRE(best_only.root_moves[0].exact);
   REQUIRE_FALSE(best_only.root_moves[0].selective);
   REQUIRE(best_only.stats.root_moves_searched == all_roots.root_moves.size());
+}
+
+TEST_CASE("typed multi pv one matches legacy best-only exact reporting", "[search][endgame]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchOptions legacy_options{
+      .exact_endgame = true,
+      .multi_pv = 1,
+      .endgame_exact_empties = 4,
+  };
+  const SearchOptions typed_options{
+      .endgame =
+          EndgameSearchOptions{
+              .exact_endgame = true,
+              .endgame_exact_empties = 4,
+          },
+      .reporting = SearchReportingOptions{.multi_pv = 1},
+  };
+  CountingEvaluator legacy_evaluator{123};
+  CountingEvaluator typed_evaluator{123};
+
+  const SearchResult legacy = search_iterative(position, legacy_evaluator,
+                                               SearchLimits{.max_depth = Depth{0}}, legacy_options);
+  const SearchResult typed = search_iterative(position, typed_evaluator,
+                                              SearchLimits{.max_depth = Depth{0}}, typed_options);
+
+  REQUIRE(legacy_evaluator.calls == 0);
+  REQUIRE(typed_evaluator.calls == 0);
+  require_exact_result_invariants(position, legacy);
+  require_exact_result_invariants(position, typed);
+  REQUIRE(legacy.root_moves.size() == 1);
+  REQUIRE(typed.best_move == legacy.best_move);
+  REQUIRE(typed.score == legacy.score);
+  REQUIRE(typed.completed_depth == legacy.completed_depth);
+  REQUIRE(typed.pv == legacy.pv);
+  REQUIRE(typed.root_moves == legacy.root_moves);
+  REQUIRE(typed.stats == legacy.stats);
 }
 
 TEST_CASE("exact endgame multi pv greater than one is a safe all-root no-op", "[search][endgame]") {

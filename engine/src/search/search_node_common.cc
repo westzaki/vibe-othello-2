@@ -68,15 +68,15 @@ SearchNodeResult child_result(board_core::Move move, const SearchNodeResult& chi
   return SearchNodeResult::completed(result);
 }
 
-std::uint8_t internal_exact_endgame_threshold(SearchOptions options) noexcept {
-  return options.endgame_exact_empties < kInternalExactEndgameMaxEmpties
-             ? options.endgame_exact_empties
+std::uint8_t internal_exact_endgame_threshold(ResolvedSearchOptions options) noexcept {
+  return options.endgame.endgame_exact_empties < kInternalExactEndgameMaxEmpties
+             ? options.endgame.endgame_exact_empties
              : kInternalExactEndgameMaxEmpties;
 }
 
 bool should_use_internal_exact_endgame(board_core::Position position,
-                                       SearchOptions options) noexcept {
-  return options.exact_endgame && options.mode != SearchMode::win_loss_draw &&
+                                       ResolvedSearchOptions options) noexcept {
+  return options.endgame.exact_endgame && options.mode != SearchMode::win_loss_draw &&
          empty_count(position) <= internal_exact_endgame_threshold(options);
 }
 
@@ -258,7 +258,7 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   *tt_entry = context->transposition_table == nullptr
                   ? std::nullopt
                   : context->transposition_table->probe(context->position, &context->stats);
-  if (context->options.use_midgame_tt && tt_entry->has_value()) {
+  if (context->options.midgame.use_midgame_tt && tt_entry->has_value()) {
     const std::optional<Score> cutoff = midgame_tt_cutoff_score(**tt_entry, depth, alpha, beta);
     if (cutoff.has_value()) {
       ++context->stats.tt_cutoffs;
@@ -281,16 +281,16 @@ MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
                                                std::optional<board_core::Move> iid_best_move,
                                                Ply ply) noexcept {
   MoveOrderingHints hints{
-      .tt_best_move = context.options.use_tt_best_move_ordering
+      .tt_best_move = context.options.ordering.use_tt_best_move_ordering
                           ? legal_midgame_tt_best_move(context.position, tt_entry)
                           : std::nullopt,
       .iid_best_move = iid_best_move,
   };
 
-  if (context.ordering_state != nullptr && context.options.use_killers) {
+  if (context.ordering_state != nullptr && context.options.ordering.use_killers) {
     hints.killer_moves = context.ordering_state->killer_moves[ply];
   }
-  if (context.ordering_state != nullptr && context.options.use_history) {
+  if (context.ordering_state != nullptr && context.options.ordering.use_history) {
     hints.history = &context.ordering_state->history;
   }
   return hints;
@@ -301,8 +301,8 @@ std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context,
                                                          const std::optional<TTEntry>& tt_entry,
                                                          bool* stopped) {
   *stopped = false;
-  if (!context->options.use_iid || context->in_iid || depth < kIidMinDepth || alpha + 1 >= beta ||
-      ply >= kMaxPly) {
+  if (!context->options.midgame.use_iid || context->in_iid || depth < kIidMinDepth ||
+      alpha + 1 >= beta || ply >= kMaxPly) {
     return std::nullopt;
   }
 
@@ -409,14 +409,14 @@ void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::
     return;
   }
 
-  if (context->options.use_history) {
+  if (context->options.ordering.use_history) {
     int& history_score = context->ordering_state->history[move.square.index];
     const int bonus = static_cast<int>(depth * depth);
     history_score =
         history_score > kHistoryScoreLimit - bonus ? kHistoryScoreLimit : history_score + bonus;
   }
 
-  if (context->options.use_killers) {
+  if (context->options.ordering.use_killers) {
     std::array<board_core::Move, 2>& killers = context->ordering_state->killer_moves[ply];
     if (killers[0] != move) {
       killers[1] = killers[0];

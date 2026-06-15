@@ -49,7 +49,7 @@ Score wld_score_from_exact_score(Score score) noexcept {
 }
 
 bool should_use_endgame_tt(const EndgameContext& context) noexcept {
-  return context.options.use_endgame_tt && context.transposition_table != nullptr;
+  return context.options.endgame.use_endgame_tt && context.transposition_table != nullptr;
 }
 
 struct ExactScoreEndgamePolicy {
@@ -209,8 +209,8 @@ void mark_stopped_non_exact(SearchResult* result) noexcept {
   result->score = kScoreLoss;
 }
 
-bool use_best_only_root_reporting(SearchOptions options) noexcept {
-  return options.multi_pv == 1;
+bool use_best_only_root_reporting(ResolvedSearchOptions options) noexcept {
+  return options.reporting.multi_pv == 1;
 }
 
 Score best_only_root_alpha(board_core::Move move, Score best_score,
@@ -541,10 +541,11 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
   }
 
   frame.moves = order_endgame_moves(
-      context->position, EndgameOrderingHints{
-                             .tt_best_move = tt_probe.best_move,
-                             .use_parity_ordering = context->options.use_endgame_parity_ordering,
-                         });
+      context->position,
+      EndgameOrderingHints{
+          .tt_best_move = tt_probe.best_move,
+          .use_parity_ordering = context->options.ordering.use_endgame_parity_ordering,
+      });
   if (frame.moves.size == 0) {
     ++context->stats.pass_nodes;
     const SearchNodeResult pass = search_endgame_child_with_policy<EndgamePolicy>(
@@ -634,18 +635,20 @@ MoveList root_endgame_moves_with_policy(EndgameContext* context, Depth completed
                ? small_empty_move_list(context->position)
                : order_endgame_moves(
                      context->position,
-                     EndgameOrderingHints{.tt_best_move = root_tt_best_move,
-                                          .use_parity_ordering =
-                                              context->options.use_endgame_parity_ordering});
+                     EndgameOrderingHints{
+                         .tt_best_move = root_tt_best_move,
+                         .use_parity_ordering =
+                             context->options.ordering.use_endgame_parity_ordering});
   }
 
   const std::optional<board_core::Move> root_tt_best_move =
       probe_endgame_root_tt_best_move<EndgamePolicy>(context, completed_depth);
   return order_endgame_moves(
-      context->position, EndgameOrderingHints{
-                             .tt_best_move = root_tt_best_move,
-                             .use_parity_ordering = context->options.use_endgame_parity_ordering,
-                         });
+      context->position,
+      EndgameOrderingHints{
+          .tt_best_move = root_tt_best_move,
+          .use_parity_ordering = context->options.ordering.use_endgame_parity_ordering,
+      });
 }
 
 template <typename EndgamePolicy>
@@ -654,6 +657,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
                                             SmallEndgamePolicy small_endgame_policy,
                                             SearchLimitState* limit_state) {
   const auto start = std::chrono::steady_clock::now();
+  const ResolvedSearchOptions resolved_options = normalize_search_options(options);
   SearchLimitState local_limit_state =
       limit_state == nullptr ? initialize_limit_state(limits) : SearchLimitState{};
   SearchLimitState* active_limit_state = limit_state == nullptr ? &local_limit_state : limit_state;
@@ -662,7 +666,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   EndgameContext context{
       .position = position,
       .limits = limits,
-      .options = options,
+      .options = resolved_options,
       .transposition_table = tt,
       .limit_state = active_limit_state,
   };
@@ -826,14 +830,15 @@ std::uint8_t empty_count(board_core::Position position) noexcept {
   return static_cast<std::uint8_t>(std::popcount(~board_core::occupied(position)));
 }
 
-bool should_use_exact_endgame(board_core::Position position, SearchOptions options) noexcept {
-  return options.exact_endgame && options.mode != SearchMode::win_loss_draw &&
-         empty_count(position) <= options.endgame_exact_empties;
+bool should_use_exact_endgame(board_core::Position position,
+                              ResolvedSearchOptions options) noexcept {
+  return options.endgame.exact_endgame && options.mode != SearchMode::win_loss_draw &&
+         empty_count(position) <= options.endgame.endgame_exact_empties;
 }
 
-bool should_use_wld_endgame(board_core::Position position, SearchOptions options) noexcept {
-  return options.mode == SearchMode::win_loss_draw && options.endgame_wld_empties > 0 &&
-         empty_count(position) <= options.endgame_wld_empties;
+bool should_use_wld_endgame(board_core::Position position, ResolvedSearchOptions options) noexcept {
+  return options.mode == SearchMode::win_loss_draw && options.endgame.endgame_wld_empties > 0 &&
+         empty_count(position) <= options.endgame.endgame_wld_empties;
 }
 
 SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,
