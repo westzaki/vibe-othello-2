@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,10 @@ EXPECTED_SUMMARY = {
 }
 
 
+def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=False, capture_output=True, text=True)
+
+
 def parse_summary(text: str) -> dict[str, str]:
     summary: dict[str, str] = {}
     for line in text.splitlines():
@@ -34,10 +39,270 @@ def parse_summary(text: str) -> dict[str, str]:
     return summary
 
 
+def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str | None:
+    result = run_capture(
+        [
+            sys.executable,
+            str(importer),
+            "--input",
+            str(fixture),
+            "--manifest",
+            str(manifest),
+        ]
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return None
+    return result.stdout
+
+
+def run_dataset(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
+    result = run_capture(
+        [
+            str(exe),
+            "--normalized-tsv",
+            str(normalized_tsv),
+            "--report",
+            str(report),
+        ]
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return None
+    return result.stdout
+
+
+def run_trainer_v0a(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
+    result = run_capture(
+        [
+            sys.executable,
+            str(script),
+            "--dataset",
+            str(dataset),
+            "--weights-out",
+            str(weights),
+            "--report-out",
+            str(report),
+        ]
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    return True
+
+
+def run_trainer_v0a_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
+    with tempfile.TemporaryDirectory() as temp_dir_name:
+        temp_dir = Path(temp_dir_name)
+        result = run_capture(
+            [
+                sys.executable,
+                str(script),
+                "--dataset",
+                str(dataset),
+                "--weights-out",
+                str(temp_dir / "weights.tsv"),
+                "--report-out",
+                str(temp_dir / "report.json"),
+            ]
+        )
+    if result.returncode == 0:
+        print(f"v0a unexpectedly accepted invalid training dataset: {dataset}", file=sys.stderr)
+        return False
+    if expected_error not in result.stderr:
+        print(f"v0a did not report expected error {expected_error!r}", file=sys.stderr)
+        sys.stderr.write(result.stderr)
+        return False
+    return True
+
+
+def mutate_validation_and_test_labels(dataset_text: str) -> str:
+    lines = dataset_text.splitlines()
+    mutated = [lines[0]]
+    for line in lines[1:]:
+        fields = line.split("\t")
+        if fields[2] == "validation":
+            fields[3] = "64"
+        elif fields[2] == "test":
+            fields[3] = "-64"
+        mutated.append("\t".join(fields))
+    return "\n".join(mutated) + "\n"
+
+
+def check_trainer_v0a_report(report: dict[str, object]) -> bool:
+    expected_scalars = {
+        "schema_version": 1,
+        "trainer_version": "phase-bias-v0a",
+        "input_rows": 56,
+        "accepted_rows": 56,
+        "rejected_rows": 0,
+    }
+    for key, expected in expected_scalars.items():
+        if report.get(key) != expected:
+            print(f"v0a report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
+            return False
+    if report.get("counts_by_split") != {"train": 40, "validation": 8, "test": 8}:
+        print(f"unexpected v0a split counts: {report.get('counts_by_split')!r}", file=sys.stderr)
+        return False
+    if report.get("counts_by_phase") != {
+        "0": 48,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0,
+        "8": 0,
+        "9": 0,
+        "10": 0,
+        "11": 0,
+        "12": 8,
+    }:
+        print(f"unexpected v0a phase counts: {report.get('counts_by_phase')!r}", file=sys.stderr)
+        return False
+    phase_bias = report.get("phase_bias")
+    if not isinstance(phase_bias, dict):
+        print("missing v0a phase_bias", file=sys.stderr)
+        return False
+    if phase_bias.get("0") != -0.25:
+        print(f"phase 0 bias was not learned from train rows: {phase_bias.get('0')!r}", file=sys.stderr)
+        return False
+    if phase_bias.get("12") != 4.0:
+        print(f"phase 12 bias was not learned from train rows: {phase_bias.get('12')!r}", file=sys.stderr)
+        return False
+    if phase_bias.get("1") != 0.0:
+        print(f"phase 1 bias should be 0.0 without train rows: {phase_bias.get('1')!r}", file=sys.stderr)
+        return False
+    metrics = report.get("metrics_by_split")
+    if not isinstance(metrics, dict):
+        print("missing v0a metrics", file=sys.stderr)
+        return False
+    for split in ("train", "validation", "test"):
+        split_metrics = metrics.get(split)
+        if not isinstance(split_metrics, dict) or split_metrics.get("rows", 0) <= 0:
+            print(f"missing metrics for {split}: {split_metrics!r}", file=sys.stderr)
+            return False
+        for metric_name in ("MAE", "RMSE", "sign_accuracy"):
+            if split_metrics.get(metric_name) is None:
+                print(f"missing {metric_name} for {split}", file=sys.stderr)
+                return False
+    checksum = report.get("checksum")
+    if not isinstance(checksum, str) or not checksum.startswith("sha256:"):
+        print(f"invalid v0a checksum: {checksum!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_trainer_v0a(
+    trainer_script: Path, dataset_exe: Path, importer: Path, fixture: Path, manifest: Path
+) -> bool:
+    imported_tsv = run_egaroucid_importer(importer, fixture, manifest)
+    if imported_tsv is None:
+        return False
+
+    with tempfile.TemporaryDirectory() as temp_dir_name:
+        temp_dir = Path(temp_dir_name)
+        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
+        dataset_report = temp_dir / "dataset-report.json"
+        dataset_path = temp_dir / "pattern-dataset.tsv"
+        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
+
+        dataset_text = run_dataset(dataset_exe, normalized_tsv, dataset_report)
+        if dataset_text is None:
+            return False
+        dataset_path.write_text(dataset_text, encoding="utf-8")
+
+        first_weights = temp_dir / "first-weights.tsv"
+        first_report = temp_dir / "first-report.json"
+        second_weights = temp_dir / "second-weights.tsv"
+        second_report = temp_dir / "second-report.json"
+        if not run_trainer_v0a(trainer_script, dataset_path, first_weights, first_report):
+            return False
+        if not run_trainer_v0a(trainer_script, dataset_path, second_weights, second_report):
+            return False
+        if first_weights.read_text(encoding="utf-8") != second_weights.read_text(encoding="utf-8"):
+            print("v0a weights are not deterministic across repeated runs", file=sys.stderr)
+            return False
+        if first_report.read_text(encoding="utf-8") != second_report.read_text(encoding="utf-8"):
+            print("v0a report is not deterministic across repeated runs", file=sys.stderr)
+            return False
+
+        report = json.loads(first_report.read_text(encoding="utf-8"))
+        if not check_trainer_v0a_report(report):
+            return False
+
+        mutated_dataset = temp_dir / "mutated-validation-test.tsv"
+        mutated_dataset.write_text(mutate_validation_and_test_labels(dataset_text), encoding="utf-8")
+        mutated_weights = temp_dir / "mutated-weights.tsv"
+        mutated_report = temp_dir / "mutated-report.json"
+        if not run_trainer_v0a(trainer_script, mutated_dataset, mutated_weights, mutated_report):
+            return False
+        if first_weights.read_text(encoding="utf-8") != mutated_weights.read_text(encoding="utf-8"):
+            print("v0a weights changed after mutating validation/test labels", file=sys.stderr)
+            return False
+        mutated_metrics = json.loads(mutated_report.read_text(encoding="utf-8")).get(
+            "metrics_by_split", {}
+        )
+        if mutated_metrics == report.get("metrics_by_split"):
+            print("v0a validation/test metrics did not reflect held-out label changes", file=sys.stderr)
+            return False
+
+        malformed_path = temp_dir / "partly-malformed.tsv"
+        malformed_weights = temp_dir / "partly-malformed-weights.tsv"
+        malformed_report = temp_dir / "partly-malformed-report.json"
+        malformed_path.write_text(
+            dataset_text
+            + "bad-split\t0\toops\t0\t0\tedge-8\t0\t0\n"
+            + "bad-label\t0\ttrain\t65\t0\tedge-8\t0\t0\n",
+            encoding="utf-8",
+        )
+        if not run_trainer_v0a(
+            trainer_script, malformed_path, malformed_weights, malformed_report
+        ):
+            return False
+        malformed = json.loads(malformed_report.read_text(encoding="utf-8"))
+        if malformed.get("rejected_rows") != 2 or malformed.get("accepted_rows") != 56:
+            print(f"v0a rejected row counts are wrong: {malformed!r}", file=sys.stderr)
+            return False
+
+        no_accepted_path = temp_dir / "no-accepted.tsv"
+        no_accepted_path.write_text(
+            "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_index\n"
+            "bad-label\t0\ttrain\t65\t0\tedge-8\t0\t0\n",
+            encoding="utf-8",
+        )
+        if not run_trainer_v0a_expect_failure(
+            trainer_script, no_accepted_path, "dataset has no accepted rows"
+        ):
+            return False
+
+        no_train_path = temp_dir / "no-train.tsv"
+        no_train_path.write_text(
+            "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_index\n"
+            "validation-row\t0\tvalidation\t1\t0\tedge-8\t0\t0\n"
+            "test-row\t0\ttest\t-1\t0\tedge-8\t0\t0\n",
+            encoding="utf-8",
+        )
+        if not run_trainer_v0a_expect_failure(
+            trainer_script, no_train_path, "dataset has no accepted train rows"
+        ):
+            return False
+
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trainer-exe", required=True, type=Path)
+    parser.add_argument("--trainer-v0a", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
+    parser.add_argument("--egaroucid-importer", required=True, type=Path)
+    parser.add_argument("--egaroucid-fixture", required=True, type=Path)
+    parser.add_argument("--egaroucid-manifest", required=True, type=Path)
     parser.add_argument("--records", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     args = parser.parse_args()
@@ -46,7 +311,7 @@ def main() -> int:
         temp_dir = Path(temp_dir_name)
         dataset_path = temp_dir / "pattern-dataset.tsv"
 
-        dataset_result = subprocess.run(
+        dataset_result = run_capture(
             [
                 str(args.dataset_exe),
                 "--records",
@@ -55,10 +320,7 @@ def main() -> int:
                 str(args.manifest),
                 "--split-policy",
                 "tiny-cycle",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
+            ]
         )
         if dataset_result.returncode != 0:
             sys.stderr.write(dataset_result.stderr)
@@ -66,11 +328,8 @@ def main() -> int:
             return dataset_result.returncode
         dataset_path.write_text(dataset_result.stdout, encoding="utf-8")
 
-        trainer_result = subprocess.run(
+        trainer_result = run_capture(
             [str(args.trainer_exe), "--dataset", str(dataset_path)],
-            check=False,
-            capture_output=True,
-            text=True,
         )
         if trainer_result.returncode != 0:
             sys.stderr.write(trainer_result.stderr)
@@ -93,11 +352,8 @@ def main() -> int:
             "tiny-bad\t1\ttrain\t3\n",
             encoding="utf-8",
         )
-        malformed_result = subprocess.run(
+        malformed_result = run_capture(
             [str(args.trainer_exe), "--dataset", str(malformed_path)],
-            check=False,
-            capture_output=True,
-            text=True,
         )
         if malformed_result.returncode == 0:
             print("malformed dataset unexpectedly succeeded", file=sys.stderr)
@@ -107,6 +363,14 @@ def main() -> int:
             sys.stderr.write(malformed_result.stderr)
             return 1
 
+    if not check_trainer_v0a(
+        args.trainer_v0a,
+        args.dataset_exe,
+        args.egaroucid_importer,
+        args.egaroucid_fixture,
+        args.egaroucid_manifest,
+    ):
+        return 1
     return 0
 
 
