@@ -12,7 +12,12 @@ target_sources(
           src/evaluation/tiny_pattern_evaluator.cc
           src/search/alphabeta.cc
           src/search/endgame.cc
-          src/search/move_ordering.cc
+          src/search/move_ordering/endgame_ordering.cc
+          src/search/move_ordering/midgame_ordering.cc
+          src/search/move_ordering/mobility_ordering.cc
+          src/search/move_ordering/move_list.cc
+          src/search/move_ordering/parity_ordering.cc
+          src/search/move_ordering/static_othello_ordering.cc
           src/search/pvs.cc
           src/search/root_search.cc
           src/search/search_node_common.cc

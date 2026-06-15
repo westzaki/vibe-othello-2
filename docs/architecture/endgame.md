@@ -904,7 +904,9 @@ Recommended private implementation layout:
 ```text
 engine/src/search/
   endgame.cc
-  endgame_ordering.cc
+  move_ordering/
+    endgame_ordering.cc
+    parity_ordering.cc
   endgame_tt.cc
 ```
 
