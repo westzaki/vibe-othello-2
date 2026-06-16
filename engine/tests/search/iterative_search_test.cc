@@ -40,6 +40,11 @@ public:
   mutable int calls = 0;
 };
 
+Score terminal_score(board_core::Position position) noexcept {
+  return static_cast<Score>(std::popcount(position.player)) -
+         static_cast<Score>(std::popcount(position.opponent));
+}
+
 class CornerPreferenceEvaluator final : public Evaluator {
 public:
   Score evaluate(const board_core::Position& position) const noexcept override {
@@ -236,6 +241,29 @@ TEST_CASE("iterative depth zero matches fixed-depth zero", "[search][iterative]"
   REQUIRE(actual.stats == expected.stats);
   REQUIRE(actual.nodes == expected.nodes);
   REQUIRE(actual_evaluator.calls == expected_evaluator.calls);
+}
+
+TEST_CASE("iterative terminal root reports exact disc diff at shallow depths",
+          "[search][iterative]") {
+  constexpr board_core::Bitboard player = (board_core::Bitboard{1} << 40) - 1;
+  constexpr board_core::Position terminal{
+      .player = player,
+      .opponent = ~player,
+      .side_to_move = board_core::Color::black,
+  };
+
+  for (const Depth max_depth : {Depth{0}, Depth{1}}) {
+    ConstantEvaluator evaluator{99};
+    const SearchResult result =
+        search_iterative(terminal, evaluator, SearchLimits{.max_depth = max_depth});
+
+    REQUIRE_FALSE(result.best_move.has_value());
+    REQUIRE(result.score == terminal_score(terminal));
+    REQUIRE(result.score_kind == ScoreKind::exact_disc_diff);
+    REQUIRE(result.exact);
+    REQUIRE_FALSE(result.stopped);
+    REQUIRE(evaluator.calls == 0);
+  }
 }
 
 TEST_CASE("iterative negative max depth clamps to depth zero", "[search][iterative]") {
@@ -788,6 +816,8 @@ TEST_CASE("iterative terminal root returns the fixed-depth exact result", "[sear
   require_basic_stats_invariants(actual);
   require_root_move_set_matches(actual, expected);
   REQUIRE(actual.exact);
+  REQUIRE(actual.score == terminal_score(terminal));
+  REQUIRE(actual.score_kind == ScoreKind::exact_disc_diff);
   REQUIRE(actual.nodes >= expected.nodes);
   REQUIRE(actual_evaluator.calls == 0);
 }

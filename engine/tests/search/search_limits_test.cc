@@ -24,6 +24,11 @@ public:
   mutable int calls = 0;
 };
 
+Score terminal_score(board_core::Position position) noexcept {
+  return static_cast<Score>(std::popcount(position.player)) -
+         static_cast<Score>(std::popcount(position.opponent));
+}
+
 class StopAfterCallsEvaluator final : public Evaluator {
 public:
   StopAfterCallsEvaluator(std::atomic_bool* stop_requested, int call_limit) noexcept
@@ -174,6 +179,30 @@ TEST_CASE("stop requested before iterative search starts returns promptly", "[se
 
   REQUIRE(result.stopped);
   REQUIRE(result.completed_depth == Depth{0});
+  REQUIRE(result.nodes == 0);
+  REQUIRE(evaluator.calls == 0);
+}
+
+TEST_CASE("stop requested before terminal iterative search preserves exact score kind",
+          "[search][limits]") {
+  constexpr board_core::Bitboard player = (board_core::Bitboard{1} << 40) - 1;
+  constexpr board_core::Position terminal{
+      .player = player,
+      .opponent = ~player,
+      .side_to_move = board_core::Color::black,
+  };
+  std::atomic_bool stop_requested{true};
+  DiscDifferenceEvaluator evaluator;
+
+  const SearchResult result =
+      search_iterative(terminal, evaluator,
+                       SearchLimits{.max_depth = Depth{5}, .stop_requested = &stop_requested});
+
+  REQUIRE(result.stopped);
+  REQUIRE(result.exact);
+  REQUIRE_FALSE(result.best_move.has_value());
+  REQUIRE(result.score == terminal_score(terminal));
+  REQUIRE(result.score_kind == ScoreKind::exact_disc_diff);
   REQUIRE(result.nodes == 0);
   REQUIRE(evaluator.calls == 0);
 }

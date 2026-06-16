@@ -37,6 +37,11 @@ public:
   mutable int calls = 0;
 };
 
+Score terminal_score(board_core::Position position) noexcept {
+  return static_cast<Score>(std::popcount(position.player)) -
+         static_cast<Score>(std::popcount(position.opponent));
+}
+
 constexpr board_core::Square square(int file, int rank) noexcept {
   return board_core::square_from_file_rank(file, rank);
 }
@@ -263,6 +268,8 @@ TEST_CASE("alpha-beta terminal root matches reference negamax", "[search][alphab
 
   REQUIRE(actual.best_move == expected.best_move);
   REQUIRE(actual.score == expected.score);
+  REQUIRE(actual.score == terminal_score(terminal));
+  REQUIRE(actual.score_kind == ScoreKind::exact_disc_diff);
   REQUIRE(actual.completed_depth == expected.completed_depth);
   REQUIRE(actual.nodes == expected.nodes);
   require_basic_stats_invariants(actual);
