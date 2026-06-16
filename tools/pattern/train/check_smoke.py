@@ -75,12 +75,30 @@ def run_dataset(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
 
 
 def run_trainer_v0a(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
+    return run_trainer(script, "phase-bias-v0a", dataset, weights, report)
+
+
+def run_trainer_v0b(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
+    return run_trainer(script, "pattern-sgd-v0b", dataset, weights, report)
+
+
+def run_trainer(script: Path, mode: str, dataset: Path, weights: Path, report: Path) -> bool:
     result = run_capture(
         [
             sys.executable,
             str(script),
             "--dataset",
             str(dataset),
+            "--mode",
+            mode,
+            "--epochs",
+            "8",
+            "--learning-rate",
+            "0.1",
+            "--l2",
+            "0.0",
+            "--seed",
+            "7",
             "--weights-out",
             str(weights),
             "--report-out",
@@ -95,6 +113,14 @@ def run_trainer_v0a(script: Path, dataset: Path, weights: Path, report: Path) ->
 
 
 def run_trainer_v0a_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
+    return run_trainer_expect_failure(script, "phase-bias-v0a", dataset, expected_error)
+
+
+def run_trainer_v0b_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
+    return run_trainer_expect_failure(script, "pattern-sgd-v0b", dataset, expected_error)
+
+
+def run_trainer_expect_failure(script: Path, mode: str, dataset: Path, expected_error: str) -> bool:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         result = run_capture(
@@ -103,6 +129,8 @@ def run_trainer_v0a_expect_failure(script: Path, dataset: Path, expected_error: 
                 str(script),
                 "--dataset",
                 str(dataset),
+                "--mode",
+                mode,
                 "--weights-out",
                 str(temp_dir / "weights.tsv"),
                 "--report-out",
@@ -110,10 +138,10 @@ def run_trainer_v0a_expect_failure(script: Path, dataset: Path, expected_error: 
             ]
         )
     if result.returncode == 0:
-        print(f"v0a unexpectedly accepted invalid training dataset: {dataset}", file=sys.stderr)
+        print(f"{mode} unexpectedly accepted invalid training dataset: {dataset}", file=sys.stderr)
         return False
     if expected_error not in result.stderr:
-        print(f"v0a did not report expected error {expected_error!r}", file=sys.stderr)
+        print(f"{mode} did not report expected error {expected_error!r}", file=sys.stderr)
         sys.stderr.write(result.stderr)
         return False
     return True
@@ -179,13 +207,22 @@ def check_trainer_v0a_report(report: dict[str, object]) -> bool:
         print("missing v0a phase_bias", file=sys.stderr)
         return False
     if phase_bias.get("0") != -0.25:
-        print(f"phase 0 bias was not learned from train rows: {phase_bias.get('0')!r}", file=sys.stderr)
+        print(
+            f"phase 0 bias was not learned from train rows: {phase_bias.get('0')!r}",
+            file=sys.stderr,
+        )
         return False
     if phase_bias.get("12") != 4.0:
-        print(f"phase 12 bias was not learned from train rows: {phase_bias.get('12')!r}", file=sys.stderr)
+        print(
+            f"phase 12 bias was not learned from train rows: {phase_bias.get('12')!r}",
+            file=sys.stderr,
+        )
         return False
     if phase_bias.get("1") != 0.0:
-        print(f"phase 1 bias should be 0.0 without train rows: {phase_bias.get('1')!r}", file=sys.stderr)
+        print(
+            f"phase 1 bias should be 0.0 without train rows: {phase_bias.get('1')!r}",
+            file=sys.stderr,
+        )
         return False
     metrics = report.get("metrics_by_split")
     if not isinstance(metrics, dict):
@@ -205,7 +242,9 @@ def check_trainer_v0a_report(report: dict[str, object]) -> bool:
         print(f"invalid v0a checksum: {checksum!r}", file=sys.stderr)
         return False
     notes = report.get("notes")
-    if not isinstance(notes, list) or not any("example-level phase-bias" in str(note) for note in notes):
+    if not isinstance(notes, list) or not any(
+        "example-level phase-bias" in str(note) for note in notes
+    ):
         print(f"v0a report notes did not mention example-level training: {notes!r}", file=sys.stderr)
         return False
     return True
@@ -286,6 +325,103 @@ def check_duplicate_feature_report(report: dict[str, object]) -> bool:
     return True
 
 
+def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, object]) -> bool:
+    expected_scalars = {
+        "schema_version": 1,
+        "trainer_version": "pattern-sgd-v0b",
+        "input_feature_rows": 56,
+        "accepted_examples": 7,
+        "rejected_examples": 0,
+        "rejected_feature_rows": 0,
+        "feature_rows_by_example_min": 8,
+        "feature_rows_by_example_max": 8,
+        "duplicate_feature_rows": 0,
+        "epochs": 8,
+        "learning_rate": 0.1,
+        "l2": 0.0,
+        "seed": 7,
+    }
+    for key, expected in expected_scalars.items():
+        if report.get(key) != expected:
+            print(f"v0b report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
+            return False
+    if report.get("counts_by_split_examples") != {"train": 5, "validation": 1, "test": 1}:
+        print(
+            f"unexpected v0b split counts: {report.get('counts_by_split_examples')!r}",
+            file=sys.stderr,
+        )
+        return False
+    if weights.get("trainer_version") != "pattern-sgd-v0b":
+        print(f"unexpected v0b weights trainer: {weights.get('trainer_version')!r}", file=sys.stderr)
+        return False
+    if not isinstance(weights.get("phase_bias"), dict):
+        print("missing v0b phase_bias weights", file=sys.stderr)
+        return False
+    pattern_weights = weights.get("pattern_weights")
+    if not isinstance(pattern_weights, list) or not pattern_weights:
+        print(f"missing learned v0b pattern weights: {pattern_weights!r}", file=sys.stderr)
+        return False
+    if report.get("nonzero_weight_count") != len(pattern_weights):
+        print("v0b nonzero weight count does not match weights JSON", file=sys.stderr)
+        return False
+    if not isinstance(report.get("weight_l2_norm"), float) or report.get("weight_l2_norm") <= 0.0:
+        print(f"invalid v0b weight_l2_norm: {report.get('weight_l2_norm')!r}", file=sys.stderr)
+        return False
+    for checksum_key in ("weights_checksum", "checksum"):
+        checksum = report.get(checksum_key)
+        if not isinstance(checksum, str) or not checksum.startswith("sha256:"):
+            print(f"invalid v0b {checksum_key}: {checksum!r}", file=sys.stderr)
+            return False
+    if report.get("shuffle_policy") != "deterministic python random.Random(seed + epoch)":
+        print(f"unexpected v0b shuffle policy: {report.get('shuffle_policy')!r}", file=sys.stderr)
+        return False
+    notes = report.get("notes")
+    if not isinstance(notes, list) or not any(
+        "not a production trainer" in str(note) for note in notes
+    ):
+        print(f"v0b report notes did not mark trainer as non-production: {notes!r}", file=sys.stderr)
+        return False
+    if not any("duplicate feature rows" in str(note) for note in notes):
+        print(
+            f"v0b report notes did not mention duplicate contribution policy: {notes!r}",
+            file=sys.stderr,
+        )
+        return False
+    epochs = report.get("metrics_by_epoch")
+    if not isinstance(epochs, list) or len(epochs) != 8:
+        print(f"unexpected v0b epoch metrics: {epochs!r}", file=sys.stderr)
+        return False
+
+    baseline = report.get("baseline_phase_bias_metrics")
+    final = report.get("final_pattern_sgd_metrics")
+    if not isinstance(baseline, dict) or not isinstance(final, dict):
+        print("missing v0b baseline/final metrics", file=sys.stderr)
+        return False
+    baseline_split = baseline.get("metrics_by_split")
+    final_split = final.get("metrics_by_split")
+    if not isinstance(baseline_split, dict) or not isinstance(final_split, dict):
+        print("missing v0b split metrics", file=sys.stderr)
+        return False
+    baseline_train = baseline_split.get("train")
+    final_train = final_split.get("train")
+    if not isinstance(baseline_train, dict) or not isinstance(final_train, dict):
+        print("missing v0b train metrics", file=sys.stderr)
+        return False
+    if final_train.get("MAE") > baseline_train.get("MAE"):
+        print(
+            f"v0b train MAE regressed: {final_train.get('MAE')} > {baseline_train.get('MAE')}",
+            file=sys.stderr,
+        )
+        return False
+    if final_train.get("RMSE") > baseline_train.get("RMSE"):
+        print(
+            f"v0b train RMSE regressed: {final_train.get('RMSE')} > {baseline_train.get('RMSE')}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def check_trainer_v0a(
     trainer_script: Path, dataset_exe: Path, importer: Path, fixture: Path, manifest: Path
 ) -> bool:
@@ -337,7 +473,10 @@ def check_trainer_v0a(
             "metrics_by_split", {}
         )
         if mutated_metrics == report.get("metrics_by_split"):
-            print("v0a validation/test metrics did not reflect held-out label changes", file=sys.stderr)
+            print(
+                "v0a validation/test metrics did not reflect held-out label changes",
+                file=sys.stderr,
+            )
             return False
 
         malformed_path = temp_dir / "partly-malformed.tsv"
@@ -373,7 +512,9 @@ def check_trainer_v0a(
         duplicate_path = temp_dir / "duplicate-feature.tsv"
         duplicate_weights = temp_dir / "duplicate-feature-weights.tsv"
         duplicate_report = temp_dir / "duplicate-feature-report.json"
-        duplicate_path.write_text(dataset_text + first_data_line(dataset_text) + "\n", encoding="utf-8")
+        duplicate_path.write_text(
+            dataset_text + first_data_line(dataset_text) + "\n", encoding="utf-8"
+        )
         if not run_trainer_v0a(
             trainer_script, duplicate_path, duplicate_weights, duplicate_report
         ):
@@ -401,6 +542,134 @@ def check_trainer_v0a(
             encoding="utf-8",
         )
         if not run_trainer_v0a_expect_failure(
+            trainer_script, no_train_path, "dataset has no accepted train examples"
+        ):
+            return False
+
+    return True
+
+
+def check_trainer_v0b(
+    trainer_script: Path, dataset_exe: Path, importer: Path, fixture: Path, manifest: Path
+) -> bool:
+    imported_tsv = run_egaroucid_importer(importer, fixture, manifest)
+    if imported_tsv is None:
+        return False
+
+    with tempfile.TemporaryDirectory() as temp_dir_name:
+        temp_dir = Path(temp_dir_name)
+        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
+        dataset_report = temp_dir / "dataset-report.json"
+        dataset_path = temp_dir / "pattern-dataset.tsv"
+        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
+
+        dataset_text = run_dataset(dataset_exe, normalized_tsv, dataset_report)
+        if dataset_text is None:
+            return False
+        dataset_path.write_text(dataset_text, encoding="utf-8")
+
+        first_weights = temp_dir / "first-v0b-weights.json"
+        first_report = temp_dir / "first-v0b-report.json"
+        second_weights = temp_dir / "second-v0b-weights.json"
+        second_report = temp_dir / "second-v0b-report.json"
+        if not run_trainer_v0b(trainer_script, dataset_path, first_weights, first_report):
+            return False
+        if not run_trainer_v0b(trainer_script, dataset_path, second_weights, second_report):
+            return False
+        if first_weights.read_text(encoding="utf-8") != second_weights.read_text(encoding="utf-8"):
+            print("v0b weights are not deterministic across repeated runs", file=sys.stderr)
+            return False
+        if first_report.read_text(encoding="utf-8") != second_report.read_text(encoding="utf-8"):
+            print("v0b report is not deterministic across repeated runs", file=sys.stderr)
+            return False
+
+        report = json.loads(first_report.read_text(encoding="utf-8"))
+        weights = json.loads(first_weights.read_text(encoding="utf-8"))
+        if not check_trainer_v0b_report(report, weights):
+            return False
+
+        mutated_dataset = temp_dir / "mutated-validation-test.tsv"
+        mutated_dataset.write_text(mutate_validation_and_test_labels(dataset_text), encoding="utf-8")
+        mutated_weights = temp_dir / "mutated-v0b-weights.json"
+        mutated_report = temp_dir / "mutated-v0b-report.json"
+        if not run_trainer_v0b(trainer_script, mutated_dataset, mutated_weights, mutated_report):
+            return False
+        if first_weights.read_text(encoding="utf-8") != mutated_weights.read_text(encoding="utf-8"):
+            print("v0b weights changed after mutating validation/test labels", file=sys.stderr)
+            return False
+        mutated_metrics = json.loads(mutated_report.read_text(encoding="utf-8")).get(
+            "final_pattern_sgd_metrics", {}
+        )
+        if mutated_metrics == report.get("final_pattern_sgd_metrics"):
+            print(
+                "v0b held-out metrics did not reflect validation/test label changes",
+                file=sys.stderr,
+            )
+            return False
+
+        malformed_path = temp_dir / "partly-malformed.tsv"
+        malformed_weights = temp_dir / "partly-malformed-v0b-weights.json"
+        malformed_report = temp_dir / "partly-malformed-v0b-report.json"
+        malformed_path.write_text(
+            dataset_text
+            + "bad-split\t0\toops\t0\t0\tedge-8\t0\t0\n"
+            + "bad-label\t0\ttrain\t65\t0\tedge-8\t0\t0\n",
+            encoding="utf-8",
+        )
+        if not run_trainer_v0b(
+            trainer_script, malformed_path, malformed_weights, malformed_report
+        ):
+            return False
+        malformed = json.loads(malformed_report.read_text(encoding="utf-8"))
+        if not check_partly_malformed_report(malformed):
+            return False
+
+        conflict_path = temp_dir / "metadata-conflict.tsv"
+        conflict_weights = temp_dir / "metadata-conflict-v0b-weights.json"
+        conflict_report = temp_dir / "metadata-conflict-v0b-report.json"
+        conflict_line = mutate_field(first_data_line(dataset_text), 2, "validation")
+        conflict_path.write_text(dataset_text + conflict_line + "\n", encoding="utf-8")
+        if not run_trainer_v0b(
+            trainer_script, conflict_path, conflict_weights, conflict_report
+        ):
+            return False
+        conflict = json.loads(conflict_report.read_text(encoding="utf-8"))
+        if not check_metadata_conflict_report(conflict):
+            return False
+
+        duplicate_path = temp_dir / "duplicate-feature.tsv"
+        duplicate_weights = temp_dir / "duplicate-feature-v0b-weights.json"
+        duplicate_report = temp_dir / "duplicate-feature-v0b-report.json"
+        duplicate_path.write_text(
+            dataset_text + first_data_line(dataset_text) + "\n", encoding="utf-8"
+        )
+        if not run_trainer_v0b(
+            trainer_script, duplicate_path, duplicate_weights, duplicate_report
+        ):
+            return False
+        duplicate = json.loads(duplicate_report.read_text(encoding="utf-8"))
+        if not check_duplicate_feature_report(duplicate):
+            return False
+
+        no_accepted_path = temp_dir / "no-accepted.tsv"
+        no_accepted_path.write_text(
+            "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_index\n"
+            "bad-label\t0\ttrain\t65\t0\tedge-8\t0\t0\n",
+            encoding="utf-8",
+        )
+        if not run_trainer_v0b_expect_failure(
+            trainer_script, no_accepted_path, "dataset has no accepted examples"
+        ):
+            return False
+
+        no_train_path = temp_dir / "no-train.tsv"
+        no_train_path.write_text(
+            "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_index\n"
+            "validation-row\t0\tvalidation\t1\t0\tedge-8\t0\t0\n"
+            "test-row\t0\ttest\t-1\t0\tedge-8\t0\t0\n",
+            encoding="utf-8",
+        )
+        if not run_trainer_v0b_expect_failure(
             trainer_script, no_train_path, "dataset has no accepted train examples"
         ):
             return False
@@ -477,6 +746,14 @@ def main() -> int:
             return 1
 
     if not check_trainer_v0a(
+        args.trainer_v0a,
+        args.dataset_exe,
+        args.egaroucid_importer,
+        args.egaroucid_fixture,
+        args.egaroucid_manifest,
+    ):
+        return 1
+    if not check_trainer_v0b(
         args.trainer_v0a,
         args.dataset_exe,
         args.egaroucid_importer,

@@ -60,10 +60,21 @@ Existing foundations include:
   13-phase train-split example label means, writes `phase,bias` weights TSV, and
   reports example-level train/validation/test plus phase-level MAE, RMSE, and
   sign accuracy
+* `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0b` adds the first
+  example-level pattern weight learning path on top of the same grouped
+  examples: it initializes fixed per-phase train label means, learns
+  `phase + pattern_id + ternary_index` weights with deterministic train-only
+  SGD, writes local intermediate JSON weights, and reports baseline vs final
+  split, phase, and epoch metrics with deterministic checksums
 * CTest-backed Egaroucid importer -> dataset builder -> trainer v0a smoke checks
   deterministic report/weights output, train-only bias fitting, held-out
   validation/test metrics, invalid-row rejection counts, malformed example
   rejection, and duplicate feature row reporting
+* CTest-backed Egaroucid importer -> dataset builder -> trainer v0b smoke checks
+  deterministic report/weights output, train-only pattern fitting, held-out
+  validation/test metrics, invalid-row rejection counts, malformed example
+  rejection, duplicate feature row reporting, and no train-metric regression
+  versus the v0a phase-bias baseline on the tiny fixture
 * CTest-backed tiny artifact exporter smoke that converts the deterministic
   trainer summary into a runtime-loader-compatible artifact with phase bias
   slots and zero-filled tiny fixture pattern tables
@@ -117,8 +128,11 @@ No raw external corpora, derived datasets, or learned weights are currently
 tracked in the repository. The checked-in TSV records are repository-local
 synthetic smoke fixtures only. Publication of weights derived from Egaroucid
 data remains unknown and gated by provenance review. Trainer v0a is an
-example-level phase-bias baseline only; pattern weight learning, SGD, ridge
-regression, and publishable learned artifacts remain for later PRs.
+example-level phase-bias baseline only. Trainer v0b is the first
+example-level pattern weight learning smoke trainer, but it is not a production
+trainer; artifact export, runtime loading of v0b weights, full Egaroucid
+training, self-play, ridge regression, and publishable learned artifacts remain
+for later PRs.
 
 ## Implementation Plan
 
@@ -144,7 +158,7 @@ Status values:
 | Add feature extractor | done | Minimal `tools/pattern/features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices, with opt-in canonical index output for smoke comparison |
 | Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern/train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
 | Add trainer v0a phase-bias report | done | `tools/pattern/train/train_v0a.py` reads dataset builder pattern rows TSV, groups rows into `record_id` examples, rejects malformed examples, reports duplicate feature rows, learns only train-split example phase means, writes deterministic phase-bias weights TSV and JSON metrics, and is covered by the tiny Egaroucid importer -> dataset -> trainer smoke |
-| Add pattern weight learning | not started | Next PR scope; no SGD, ridge regression, pattern table fitting, self-play, or learned artifact publication yet |
+| Add pattern weight learning | done | First smoke-only example-level trainer v0b learns deterministic train-only `phase + pattern_id + ternary_index` weights from grouped examples; no production trainer, ridge regression, artifact export/runtime load, full Egaroucid training, self-play, or learned artifact publication yet |
 | Add calibration tool | not started | Optional score-to-probability mapping |
 | Add tiny artifact exporter smoke | done | Minimal `tools/pattern/export` smoke writes a runtime-compatible binary payload plus manifest from the deterministic phase-bias trainer summary |
 | Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum |
