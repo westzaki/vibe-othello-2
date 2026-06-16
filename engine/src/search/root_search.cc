@@ -64,9 +64,16 @@ void mark_stopped_and_finalize(SearchResult* result, const SearchContext& contex
   finish_result_from_context(result, context, start);
 }
 
+void publish_terminal_root_score(SearchResult* result, board_core::Position position) noexcept {
+  result->score = terminal_score(position);
+  result->score_kind = ScoreKind::exact_disc_diff;
+  result->exact = true;
+}
+
 SearchResult interrupted_depth_zero_result(board_core::Position position, SearchStats stats,
                                            std::chrono::steady_clock::time_point start) {
   SearchResult result{
+      .score_kind = ScoreKind::unavailable,
       .completed_depth = 0,
       .nodes = stats.nodes,
       .stats = stats,
@@ -75,7 +82,7 @@ SearchResult interrupted_depth_zero_result(board_core::Position position, Search
       .stopped = true,
   };
   if (result.exact) {
-    result.score = terminal_score(position);
+    publish_terminal_root_score(&result, position);
   }
   return result;
 }
@@ -97,6 +104,8 @@ void finish_depth_zero_or_terminal_result(SearchResult* result, const SearchCont
                                           const SearchValue& root, RootSearchWindow root_window,
                                           std::chrono::steady_clock::time_point start) {
   result->score = root.score;
+  result->score_kind =
+      board_core::is_terminal(context.position) ? ScoreKind::exact_disc_diff : ScoreKind::heuristic;
   result->bound = bound_for_score(root.score, root_window);
   result->pv = root.pv;
   result->exact = board_core::is_terminal(context.position);
@@ -315,6 +324,11 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     const SearchNodeResult root =
         full_window_search(&context, alpha, beta, completed_depth, Ply{0});
     if (root.is_stopped()) {
+      if (board_core::is_terminal(context.position)) {
+        publish_terminal_root_score(&result, context.position);
+      } else {
+        result.score_kind = ScoreKind::unavailable;
+      }
       mark_stopped_and_finalize(&result, context, start);
       return result;
     }
@@ -488,6 +502,8 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   }
 
   SearchResult best_completed{
+      .score_kind =
+          board_core::is_terminal(position) ? ScoreKind::exact_disc_diff : ScoreKind::unavailable,
       .completed_depth = 0,
       .exact = board_core::is_terminal(position),
   };

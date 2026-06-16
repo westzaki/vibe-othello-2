@@ -541,6 +541,10 @@ Direct exact endgame and root-triggered exact endgame results use
 `heuristic`, even when internal leaf cutover uses exact endgame to avoid
 calling the evaluator.
 
+Terminal root results use `exact_disc_diff` because their score is the final
+disc differential, including when a stop request interrupts the root before
+midgame search publishes any move.
+
 `root_moves` must contain only legal moves.
 
 `root_moves` are reported in search order. Consumers that need a stable display
