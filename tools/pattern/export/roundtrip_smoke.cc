@@ -6,7 +6,9 @@
 #include "vibe_othello/evaluation/pattern_feature_set.h"
 #include "vibe_othello/evaluation/pattern_weights.h"
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -19,7 +21,20 @@ namespace {
 
 struct Args {
   std::string weights_path;
+  std::uint16_t phase_count = 2;
+  std::optional<vibe_othello::search::Score> expected_score;
 };
+
+std::optional<int> parse_int(std::string_view text) noexcept {
+  int value = 0;
+  const char* begin = text.data();
+  const char* end = text.data() + text.size();
+  const auto [ptr, ec] = std::from_chars(begin, end, value);
+  if (ec != std::errc{} || ptr != end) {
+    return std::nullopt;
+  }
+  return value;
+}
 
 std::optional<Args> parse_args(int argc, char** argv) {
   Args args;
@@ -31,6 +46,28 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.weights_path = argv[++index];
+    } else if (arg == "--phase-count") {
+      if (index + 1 >= argc) {
+        std::cerr << "--phase-count requires a value\n";
+        return std::nullopt;
+      }
+      const std::optional<int> phase_count = parse_int(argv[++index]);
+      if (!phase_count.has_value() || (*phase_count != 2 && *phase_count != 13)) {
+        std::cerr << "--phase-count must be 2 or 13\n";
+        return std::nullopt;
+      }
+      args.phase_count = static_cast<std::uint16_t>(*phase_count);
+    } else if (arg == "--expect-score") {
+      if (index + 1 >= argc) {
+        std::cerr << "--expect-score requires a value\n";
+        return std::nullopt;
+      }
+      const std::optional<int> score = parse_int(argv[++index]);
+      if (!score.has_value()) {
+        std::cerr << "--expect-score must be an integer\n";
+        return std::nullopt;
+      }
+      args.expected_score = static_cast<vibe_othello::search::Score>(*score);
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -69,10 +106,16 @@ std::optional<std::vector<std::uint8_t>> read_binary(const std::string& path) {
 }
 
 std::array<std::uint8_t, vibe_othello::evaluation::PatternWeights::kDiscCountEntries>
-tiny_phase_by_disc_count() {
+tiny_phase_by_disc_count(std::uint16_t phase_count) {
   std::array<std::uint8_t, vibe_othello::evaluation::PatternWeights::kDiscCountEntries> phases{};
   for (std::uint8_t disc_count = 0; disc_count < phases.size(); ++disc_count) {
-    phases[disc_count] = disc_count < 20 ? 0 : 1;
+    if (phase_count == 2) {
+      phases[disc_count] = disc_count < 20 ? 0 : 1;
+    } else {
+      const int normalized_count = disc_count < 4 ? 0 : static_cast<int>(disc_count) - 4;
+      const int phase = std::min(12, (normalized_count * 13) / 60);
+      phases[disc_count] = static_cast<std::uint8_t>(phase);
+    }
   }
   return phases;
 }
@@ -118,7 +161,7 @@ int main(int argc, char** argv) {
       .bit_order = eval::PatternBitOrder::a1_lsb,
       .score_unit = eval::PatternScoreUnit::disc_diff,
       .score_scale = 1,
-      .phase_count = 2,
+      .phase_count = args->phase_count,
       .pattern_set_id = pattern_set.id,
       .patterns = pattern_set.patterns,
   };
@@ -130,7 +173,7 @@ int main(int argc, char** argv) {
   }
 
   const std::optional<eval::PatternWeights> weights =
-      eval::make_pattern_weights(*loaded.weights, tiny_phase_by_disc_count());
+      eval::make_pattern_weights(*loaded.weights, tiny_phase_by_disc_count(args->phase_count));
   if (!weights.has_value()) {
     std::cerr << "loaded artifact could not be converted to runtime PatternWeights\n";
     return 1;
@@ -144,15 +187,21 @@ int main(int argc, char** argv) {
     std::cerr << "PatternEvaluator result is not deterministic\n";
     return 1;
   }
-  if (first != 3) {
+  if (args->expected_score.has_value() && first != *args->expected_score) {
     std::cerr << "unexpected representative evaluation score: " << first << '\n';
     return 1;
   }
 
   std::cout << "loaded_pattern_set_id=" << loaded.weights->manifest.pattern_set_id << '\n';
+  std::cout << "phase_count=" << static_cast<int>(weights->phase_count()) << '\n';
   std::cout << "phase_stride=" << loaded.weights->phase_stride << '\n';
   std::cout << "phase_bias[0]=" << weights->phase_bias(0) << '\n';
-  std::cout << "phase_bias[1]=" << weights->phase_bias(1) << '\n';
+  if (weights->phase_count() > 1) {
+    std::cout << "phase_bias[1]=" << weights->phase_bias(1) << '\n';
+  }
+  if (weights->phase_count() > 12) {
+    std::cout << "phase_bias[12]=" << weights->phase_bias(12) << '\n';
+  }
   std::cout << "representative_score=" << first << '\n';
   return 0;
 }

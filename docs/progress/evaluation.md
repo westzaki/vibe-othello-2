@@ -98,6 +98,9 @@ Existing evaluation tests cover:
 * conversion from loaded artifact data to runtime `PatternWeights`
 * CTest-backed learning-pipeline round-trip from tiny trainer summary to
   exported artifact, runtime loader, `PatternWeights`, and `PatternEvaluator`
+* CTest-backed trainer v0b local weights JSON export into the existing runtime
+  artifact format, followed by runtime loader, `PatternWeights`, and
+  `PatternEvaluator` smoke evaluation
 
 The current repository already documents that:
 
@@ -118,8 +121,13 @@ The current implementation does not yet have:
 * calibration API
 * incremental evaluator state
 * trained weights
-* trainer tooling
+* production trainer tooling
 * calibrated score scale
+
+Trainer v0b learned weights can now be exported and loaded by runtime smoke,
+but full training, production artifact publication, evaluation bench coverage
+for learned artifacts, and fixed-position search bench validation remain
+unimplemented.
 
 The existing `search::Evaluator` interface is the production boundary for
 heuristic evaluation today.
@@ -152,7 +160,7 @@ Status values:
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | done | Consumes runtime `PatternWeights` plus explicit `PatternFeatureSet` geometry and applies per-phase bias before pattern table contributions |
-| Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score |
+| Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score; the tiny Egaroucid v0b smoke also exports learned pattern-SGD JSON into the existing artifact format and verifies loader/evaluator determinism |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
@@ -181,6 +189,9 @@ Evaluation is strong enough to build on when:
 * exact endgame paths still avoid heuristic evaluation
 * evaluation benchmark baselines exist
 * UI calibration remains separate from search scoring
+
+Next evaluation steps for learned artifacts are an evaluation benchmark pass and
+a fixed-position search benchmark before any production publication decision.
 
 ## Progress Update Rules
 
