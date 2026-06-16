@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the phase-bias-v0a pattern baseline from pattern rows TSV."""
+"""Train tiny pattern-learning baselines from pattern rows TSV."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import csv
 import hashlib
 import json
 import math
+import random
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +28,8 @@ EXPECTED_HEADER = [
 SPLITS = ("train", "validation", "test")
 PHASES = tuple(range(13))
 SCHEMA_VERSION = 1
-TRAINER_VERSION = "phase-bias-v0a"
+TRAINER_VERSION_V0A = "phase-bias-v0a"
+TRAINER_VERSION_V0B = "pattern-sgd-v0b"
 
 
 @dataclass(frozen=True)
@@ -111,9 +113,25 @@ class LoadResult:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, type=Path)
+    parser.add_argument(
+        "--mode",
+        choices=(TRAINER_VERSION_V0A, TRAINER_VERSION_V0B),
+        default=TRAINER_VERSION_V0A,
+    )
+    parser.add_argument("--epochs", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=0.05)
+    parser.add_argument("--l2", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--report-out", required=True, type=Path)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.epochs < 0:
+        parser.error("--epochs must be non-negative")
+    if args.learning_rate < 0.0:
+        parser.error("--learning-rate must be non-negative")
+    if args.l2 < 0.0:
+        parser.error("--l2 must be non-negative")
+    return args
 
 
 def parse_int(text: str | None) -> int | None:
@@ -307,6 +325,10 @@ def train_phase_bias(examples: list[Example]) -> dict[str, float]:
     return {str(phase): mean(labels_by_phase[phase]) for phase in PHASES}
 
 
+PatternWeightKey = tuple[int, str, int]
+PatternWeights = dict[PatternWeightKey, float]
+
+
 def sign(value: float) -> int:
     if value > 0:
         return 1
@@ -315,27 +337,66 @@ def sign(value: float) -> int:
     return 0
 
 
-def metrics_for_examples(examples: list[Example], phase_bias: dict[str, float]) -> dict[str, Any]:
+def phase_bias_score(example: Example, phase_bias: dict[str, float]) -> float:
+    return phase_bias[str(example.phase)]
+
+
+def pattern_sgd_score(
+    example: Example, phase_bias: dict[str, float], pattern_weights: PatternWeights
+) -> float:
+    score = phase_bias_score(example, phase_bias)
+    for feature in example.features:
+        score += pattern_weights.get(
+            (example.phase, feature.pattern_id, feature.ternary_index), 0.0
+        )
+    return score
+
+
+def metrics_for_examples(
+    examples: list[Example],
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights | None = None,
+    include_sign_accuracy: bool = True,
+    include_examples: bool = False,
+    rows_are_feature_rows: bool = False,
+) -> dict[str, Any]:
+    feature_rows = sum(len(example.features) for example in examples)
     if not examples:
-        return {"rows": 0, "MAE": None, "RMSE": None, "sign_accuracy": None}
+        metrics: dict[str, Any] = {
+            "rows": 0,
+            "MAE": None,
+            "RMSE": None,
+        }
+        if include_examples:
+            metrics["examples"] = 0
+        if include_sign_accuracy:
+            metrics["sign_accuracy"] = None
+        return metrics
 
     absolute_error = 0.0
     squared_error = 0.0
     sign_matches = 0
     for example in examples:
-        prediction = phase_bias[str(example.phase)]
+        if pattern_weights is None:
+            prediction = phase_bias_score(example, phase_bias)
+        else:
+            prediction = pattern_sgd_score(example, phase_bias, pattern_weights)
         error = prediction - example.label_final_disc_diff
         absolute_error += abs(error)
         squared_error += error * error
         if sign(prediction) == sign(example.label_final_disc_diff):
             sign_matches += 1
     example_count = len(examples)
-    return {
-        "rows": example_count,
+    metrics = {
+        "rows": feature_rows if rows_are_feature_rows else example_count,
         "MAE": absolute_error / example_count,
         "RMSE": math.sqrt(squared_error / example_count),
-        "sign_accuracy": sign_matches / example_count,
     }
+    if include_examples:
+        metrics["examples"] = example_count
+    if include_sign_accuracy:
+        metrics["sign_accuracy"] = sign_matches / example_count
+    return metrics
 
 
 def stable_float(value: Any) -> Any:
@@ -362,7 +423,7 @@ def report_without_checksum(
 
     report = {
         "schema_version": SCHEMA_VERSION,
-        "trainer_version": TRAINER_VERSION,
+        "trainer_version": TRAINER_VERSION_V0A,
         "input_feature_rows": load_result.input_feature_rows,
         "accepted_examples": len(accepted),
         "rejected_examples": load_result.rejected_examples,
@@ -404,6 +465,191 @@ def validate_training_examples(examples: list[Example]) -> None:
         raise RuntimeError("dataset has no accepted train examples")
 
 
+def split_examples(examples: list[Example]) -> dict[str, list[Example]]:
+    return {split: [example for example in examples if example.split == split] for split in SPLITS}
+
+
+def phase_examples(examples: list[Example]) -> dict[int, list[Example]]:
+    return {phase: [example for example in examples if example.phase == phase] for phase in PHASES}
+
+
+def train_pattern_sgd(
+    examples: list[Example],
+    phase_bias: dict[str, float],
+    epochs: int,
+    learning_rate: float,
+    l2: float,
+    seed: int,
+) -> tuple[PatternWeights, list[dict[str, Any]]]:
+    train_examples = [example for example in examples if example.split == "train"]
+    validation_examples = [example for example in examples if example.split == "validation"]
+    pattern_weights: PatternWeights = {}
+    metrics_by_epoch: list[dict[str, Any]] = []
+
+    for epoch in range(epochs):
+        epoch_examples = list(train_examples)
+        random.Random(seed + epoch).shuffle(epoch_examples)
+        for example in epoch_examples:
+            feature_count = len(example.features)
+            if feature_count == 0:
+                continue
+            error = (
+                pattern_sgd_score(example, phase_bias, pattern_weights)
+                - example.label_final_disc_diff
+            )
+            for feature in example.features:
+                key = (example.phase, feature.pattern_id, feature.ternary_index)
+                weight = pattern_weights.get(key, 0.0)
+                weight -= learning_rate * ((error / feature_count) + (l2 * weight))
+                if weight == 0.0:
+                    pattern_weights.pop(key, None)
+                else:
+                    pattern_weights[key] = weight
+        train_metrics = metrics_for_examples(train_examples, phase_bias, pattern_weights)
+        validation_metrics = metrics_for_examples(validation_examples, phase_bias, pattern_weights)
+        metrics_by_epoch.append(
+            {
+                "epoch": epoch + 1,
+                "train": {
+                    "MAE": train_metrics["MAE"],
+                    "RMSE": train_metrics["RMSE"],
+                },
+                "validation": {
+                    "MAE": validation_metrics["MAE"],
+                    "RMSE": validation_metrics["RMSE"],
+                },
+            }
+        )
+    return pattern_weights, stable_float(metrics_by_epoch)
+
+
+def nonzero_pattern_weight_items(pattern_weights: PatternWeights) -> list[dict[str, Any]]:
+    return [
+        {
+            "phase": phase,
+            "pattern_id": pattern_id,
+            "ternary_index": ternary_index,
+            "weight": weight,
+        }
+        for (phase, pattern_id, ternary_index), weight in sorted(pattern_weights.items())
+        if weight != 0.0
+    ]
+
+
+def pattern_weights_json(phase_bias: dict[str, float], pattern_weights: PatternWeights) -> str:
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "trainer_version": TRAINER_VERSION_V0B,
+        "phase_bias": {str(phase): phase_bias[str(phase)] for phase in PHASES},
+        "pattern_weights": nonzero_pattern_weight_items(pattern_weights),
+    }
+    return json.dumps(stable_float(payload), indent=2, sort_keys=True) + "\n"
+
+
+def weights_checksum_for(weights_text: str) -> str:
+    return f"sha256:{hashlib.sha256(weights_text.encode('utf-8')).hexdigest()}"
+
+
+def metrics_by_split(
+    examples: list[Example], phase_bias: dict[str, float], pattern_weights: PatternWeights | None
+) -> dict[str, Any]:
+    examples_by_split = split_examples(examples)
+    return {
+        split: metrics_for_examples(
+            examples_by_split[split],
+            phase_bias,
+            pattern_weights,
+            include_examples=True,
+            rows_are_feature_rows=True,
+        )
+        for split in SPLITS
+    }
+
+
+def metrics_by_phase(
+    examples: list[Example], phase_bias: dict[str, float], pattern_weights: PatternWeights | None
+) -> dict[str, Any]:
+    examples_by_phase = phase_examples(examples)
+    return {
+        str(phase): metrics_for_examples(
+            examples_by_phase[phase],
+            phase_bias,
+            pattern_weights,
+            include_sign_accuracy=False,
+            include_examples=True,
+            rows_are_feature_rows=True,
+        )
+        for phase in PHASES
+    }
+
+
+def pattern_sgd_report_without_checksum(
+    load_result: LoadResult,
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    metrics_by_epoch: list[dict[str, Any]],
+    args: argparse.Namespace,
+    weights_checksum: str,
+) -> dict[str, Any]:
+    accepted = load_result.accepted_examples
+    examples_by_split = split_examples(accepted)
+    examples_by_phase = phase_examples(accepted)
+    feature_counts = [len(example.features) for example in accepted]
+    nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
+    weight_l2_norm = math.sqrt(sum(weight * weight for weight in pattern_weights.values()))
+
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "trainer_version": TRAINER_VERSION_V0B,
+        "input_feature_rows": load_result.input_feature_rows,
+        "accepted_examples": len(accepted),
+        "rejected_examples": load_result.rejected_examples,
+        "rejected_feature_rows": load_result.rejected_feature_rows,
+        "counts_by_split_examples": {
+            split: len(examples_by_split[split]) for split in SPLITS
+        },
+        "counts_by_phase_examples": {
+            str(phase): len(examples_by_phase[phase]) for phase in PHASES
+        },
+        "feature_rows_by_example_min": min(feature_counts) if feature_counts else 0,
+        "feature_rows_by_example_max": max(feature_counts) if feature_counts else 0,
+        "duplicate_feature_rows": load_result.duplicate_feature_rows.total,
+        "duplicate_feature_rows_by_record_id": load_result.duplicate_feature_rows.by_record_id,
+        "epochs": args.epochs,
+        "learning_rate": args.learning_rate,
+        "l2": args.l2,
+        "seed": args.seed,
+        "shuffle_policy": "deterministic python random.Random(seed + epoch)",
+        "baseline_phase_bias_metrics": {
+            "phase_bias": phase_bias,
+            "metrics_by_split": metrics_by_split(accepted, phase_bias, None),
+            "metrics_by_phase": metrics_by_phase(accepted, phase_bias, None),
+        },
+        "final_pattern_sgd_metrics": {
+            "metrics_by_split": metrics_by_split(accepted, phase_bias, pattern_weights),
+            "metrics_by_phase": metrics_by_phase(accepted, phase_bias, pattern_weights),
+        },
+        "metrics_by_epoch": metrics_by_epoch,
+        "nonzero_weight_count": len(nonzero_weights),
+        "weight_l2_norm": weight_l2_norm,
+        "weights_checksum": weights_checksum,
+        "notes": [
+            "pattern-sgd-v0b is an example-level pattern weight learning smoke trainer, "
+            "not a production trainer",
+            "phase bias is initialized from train split examples and held fixed during v0b SGD",
+            "pattern weights are learned from train split examples only",
+            "validation and test examples are used only for metrics",
+            "feature occurrences are added once per feature row, matching runtime evaluator "
+            "occurrence semantics",
+            "duplicate feature rows are reported and intentionally kept as repeated contributions "
+            "in v0b",
+            "weights use a local intermediate JSON format; artifact export and runtime load are out of scope",
+            *load_result.notes,
+        ],
+    }
+    return stable_float(report)
+
+
 def checksum_for(report: dict[str, Any], weights_text: str) -> str:
     payload = json.dumps(report, sort_keys=True, separators=(",", ":")).encode("utf-8")
     digest = hashlib.sha256(payload + b"\n" + weights_text.encode("utf-8")).hexdigest()
@@ -425,18 +671,53 @@ def write_text(path: Path, text: str) -> None:
         raise RuntimeError(f"cannot write {path}: {error}") from error
 
 
+def run_phase_bias_v0a(load_result: LoadResult, args: argparse.Namespace) -> None:
+    phase_bias = train_phase_bias(load_result.accepted_examples)
+    weights_text = weights_tsv(phase_bias)
+    report = report_without_checksum(load_result, phase_bias)
+    report["checksum"] = checksum_for(report, weights_text)
+    report_text = json.dumps(report, indent=2, sort_keys=False) + "\n"
+    write_text(args.weights_out, weights_text)
+    write_text(args.report_out, report_text)
+
+
+def run_pattern_sgd_v0b(load_result: LoadResult, args: argparse.Namespace) -> None:
+    phase_bias = train_phase_bias(load_result.accepted_examples)
+    pattern_weights, metrics_by_epoch = train_pattern_sgd(
+        load_result.accepted_examples,
+        phase_bias,
+        args.epochs,
+        args.learning_rate,
+        args.l2,
+        args.seed,
+    )
+    weights_text = pattern_weights_json(phase_bias, pattern_weights)
+    weights_checksum = weights_checksum_for(weights_text)
+    report = pattern_sgd_report_without_checksum(
+        load_result,
+        phase_bias,
+        pattern_weights,
+        metrics_by_epoch,
+        args,
+        weights_checksum,
+    )
+    report["checksum"] = checksum_for(report, weights_text)
+    report_text = json.dumps(report, indent=2, sort_keys=False) + "\n"
+    write_text(args.weights_out, weights_text)
+    write_text(args.report_out, report_text)
+
+
 def main() -> int:
     args = parse_args()
     try:
         load_result = load_examples(args.dataset)
         validate_training_examples(load_result.accepted_examples)
-        phase_bias = train_phase_bias(load_result.accepted_examples)
-        weights_text = weights_tsv(phase_bias)
-        report = report_without_checksum(load_result, phase_bias)
-        report["checksum"] = checksum_for(report, weights_text)
-        report_text = json.dumps(report, indent=2, sort_keys=False) + "\n"
-        write_text(args.weights_out, weights_text)
-        write_text(args.report_out, report_text)
+        if args.mode == TRAINER_VERSION_V0A:
+            run_phase_bias_v0a(load_result, args)
+        elif args.mode == TRAINER_VERSION_V0B:
+            run_pattern_sgd_v0b(load_result, args)
+        else:
+            raise RuntimeError(f"unsupported mode: {args.mode}")
     except RuntimeError as error:
         print(error, file=sys.stderr)
         return 1
@@ -447,7 +728,7 @@ def main() -> int:
         f"accepted_examples={len(load_result.accepted_examples)} "
         f"rejected_examples={load_result.rejected_examples} "
         f"rejected_feature_rows={load_result.rejected_feature_rows} "
-        f"trainer_version={TRAINER_VERSION}",
+        f"trainer_version={args.mode}",
         file=sys.stderr,
     )
     return 0
