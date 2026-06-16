@@ -26,6 +26,7 @@ EXPECTED_EXPORT_SUMMARY = {
 
 EXPECTED_ROUNDTRIP_SUMMARY = {
     "loaded_pattern_set_id": "fixed-pattern-fixture-v1",
+    "phase_count": "2",
     "phase_stride": "26245",
     "phase_bias[0]": "3",
     "phase_bias[1]": "0",
@@ -49,12 +50,229 @@ def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
+def run_or_report(command: list[str]) -> subprocess.CompletedProcess[str] | None:
+    result = run_capture(command)
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return None
+    return result
+
+
+def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str | None:
+    result = run_or_report(
+        [
+            sys.executable,
+            str(importer),
+            "--input",
+            str(fixture),
+            "--manifest",
+            str(manifest),
+        ]
+    )
+    return None if result is None else result.stdout
+
+
+def run_dataset_from_normalized(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
+    result = run_or_report(
+        [
+            str(exe),
+            "--normalized-tsv",
+            str(normalized_tsv),
+            "--report",
+            str(report),
+        ]
+    )
+    return None if result is None else result.stdout
+
+
+def run_trainer_v0b(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
+    result = run_or_report(
+        [
+            sys.executable,
+            str(script),
+            "--dataset",
+            str(dataset),
+            "--mode",
+            "pattern-sgd-v0b",
+            "--epochs",
+            "8",
+            "--learning-rate",
+            "0.1",
+            "--l2",
+            "0.0",
+            "--seed",
+            "7",
+            "--weights-out",
+            str(weights),
+            "--report-out",
+            str(report),
+        ]
+    )
+    return result is not None
+
+
+def check_v0b_manifest(
+    manifest_path: Path,
+    weights_path: Path,
+    export_summary: dict[str, str],
+) -> bool:
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected = {
+        "format_version": 1,
+        "bit_order": "a1-lsb",
+        "score_unit": "disc-diff",
+        "score_scale": 1,
+        "phase_count": 13,
+        "pattern_set_id": "fixed-pattern-fixture-v1",
+        "trainer_version": "pattern-sgd-v0b",
+        "notes": "local smoke artifact; not production",
+    }
+    for key, expected_value in expected.items():
+        if manifest_data.get(key) != expected_value:
+            print(
+                f"v0b manifest field mismatch for {key}: {manifest_data.get(key)!r}",
+                file=sys.stderr,
+            )
+            return False
+    if manifest_data.get("weights_file") != weights_path.name:
+        print("v0b manifest weights_file does not point at generated weights", file=sys.stderr)
+        return False
+    if manifest_data.get("weights_checksum") != export_summary.get("weights_checksum"):
+        print("v0b manifest checksum does not match exporter summary", file=sys.stderr)
+        return False
+    source_checksum = manifest_data.get("source_weights_checksum")
+    if not isinstance(source_checksum, str) or not source_checksum.startswith("sha256:"):
+        print(f"invalid v0b source_weights_checksum: {source_checksum!r}", file=sys.stderr)
+        return False
+    if manifest_data.get("source_weights_checksum") != export_summary.get(
+        "source_weights_checksum"
+    ):
+        print("v0b source checksum does not match exporter summary", file=sys.stderr)
+        return False
+    phase_bias = manifest_data.get("phase_bias")
+    if not isinstance(phase_bias, list) or len(phase_bias) != 13:
+        print(f"invalid v0b phase_bias manifest payload: {phase_bias!r}", file=sys.stderr)
+        return False
+    nonzero = manifest_data.get("nonzero_pattern_weights")
+    if not isinstance(nonzero, int) or nonzero <= 0:
+        print(f"invalid v0b nonzero pattern count: {nonzero!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_v0b_roundtrip(
+    exporter: Path,
+    roundtrip: Path,
+    weights_json: Path,
+    temp_dir: Path,
+    v0a_representative_score: str,
+) -> bool:
+    first_weights = temp_dir / "v0b-smoke.weights.bin"
+    first_manifest = temp_dir / "v0b-smoke.manifest.json"
+    second_weights = temp_dir / "v0b-smoke-second.weights.bin"
+    second_manifest = temp_dir / "v0b-smoke-second.manifest.json"
+
+    first_export = run_or_report(
+        [
+            sys.executable,
+            str(exporter),
+            "--weights-json",
+            str(weights_json),
+            "--weights-out",
+            str(first_weights),
+            "--manifest-out",
+            str(first_manifest),
+        ]
+    )
+    if first_export is None:
+        return False
+    second_export = run_or_report(
+        [
+            sys.executable,
+            str(exporter),
+            "--weights-json",
+            str(weights_json),
+            "--weights-out",
+            str(second_weights),
+            "--manifest-out",
+            str(second_manifest),
+        ]
+    )
+    if second_export is None:
+        return False
+
+    try:
+        first_summary = parse_key_values(first_export.stdout)
+        second_summary = parse_key_values(second_export.stdout)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return False
+    if first_summary != second_summary:
+        print("v0b exporter summary is not deterministic", file=sys.stderr)
+        return False
+    if first_weights.read_bytes() != second_weights.read_bytes():
+        print("v0b exported artifact bytes are not deterministic", file=sys.stderr)
+        return False
+    if not check_v0b_manifest(first_manifest, first_weights, first_summary):
+        return False
+
+    first_roundtrip = run_or_report(
+        [str(roundtrip), "--weights", str(first_weights), "--phase-count", "13"]
+    )
+    if first_roundtrip is None:
+        return False
+    second_roundtrip = run_or_report(
+        [str(roundtrip), "--weights", str(second_weights), "--phase-count", "13"]
+    )
+    if second_roundtrip is None:
+        return False
+
+    try:
+        first_loaded = parse_key_values(first_roundtrip.stdout)
+        second_loaded = parse_key_values(second_roundtrip.stdout)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return False
+    if first_loaded != second_loaded:
+        print("v0b loader roundtrip summary is not deterministic", file=sys.stderr)
+        return False
+    expected_loaded = {
+        "loaded_pattern_set_id": "fixed-pattern-fixture-v1",
+        "phase_count": "13",
+        "phase_stride": "26245",
+        "phase_bias[0]": "0",
+        "phase_bias[1]": "0",
+        "phase_bias[12]": "4",
+    }
+    for key, expected_value in expected_loaded.items():
+        if first_loaded.get(key) != expected_value:
+            print(
+                f"v0b roundtrip field mismatch for {key}: {first_loaded.get(key)!r}",
+                file=sys.stderr,
+            )
+            return False
+    representative_score = first_loaded.get("representative_score")
+    if representative_score is None:
+        print("v0b roundtrip did not report representative_score", file=sys.stderr)
+        return False
+    if representative_score == v0a_representative_score:
+        print("v0a and v0b representative scores unexpectedly matched", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exporter-exe", required=True, type=Path)
+    parser.add_argument("--v0b-exporter", required=True, type=Path)
     parser.add_argument("--roundtrip-exe", required=True, type=Path)
     parser.add_argument("--trainer-exe", required=True, type=Path)
+    parser.add_argument("--trainer-v0a", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
+    parser.add_argument("--egaroucid-importer", required=True, type=Path)
+    parser.add_argument("--egaroucid-fixture", required=True, type=Path)
+    parser.add_argument("--egaroucid-manifest", required=True, type=Path)
     parser.add_argument("--records", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     args = parser.parse_args()
@@ -139,7 +357,15 @@ def main() -> int:
             print("manifest weights_file does not point at generated weights", file=sys.stderr)
             return 1
 
-        roundtrip_result = run_capture([str(args.roundtrip_exe), "--weights", str(weights_path)])
+        roundtrip_result = run_capture(
+            [
+                str(args.roundtrip_exe),
+                "--weights",
+                str(weights_path),
+                "--expect-score",
+                "3",
+            ]
+        )
         if roundtrip_result.returncode != 0:
             sys.stderr.write(roundtrip_result.stderr)
             sys.stderr.write(roundtrip_result.stdout)
@@ -151,6 +377,39 @@ def main() -> int:
             return 1
         if roundtrip_summary != EXPECTED_ROUNDTRIP_SUMMARY:
             print(f"unexpected roundtrip summary: {roundtrip_summary}", file=sys.stderr)
+            return 1
+
+        imported_tsv = run_egaroucid_importer(
+            args.egaroucid_importer,
+            args.egaroucid_fixture,
+            args.egaroucid_manifest,
+        )
+        if imported_tsv is None:
+            return 1
+        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
+        egaroucid_dataset_report = temp_dir / "egaroucid-dataset-report.json"
+        egaroucid_dataset = temp_dir / "egaroucid-pattern-dataset.tsv"
+        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
+        egaroucid_dataset_text = run_dataset_from_normalized(
+            args.dataset_exe,
+            normalized_tsv,
+            egaroucid_dataset_report,
+        )
+        if egaroucid_dataset_text is None:
+            return 1
+        egaroucid_dataset.write_text(egaroucid_dataset_text, encoding="utf-8")
+
+        v0b_weights = temp_dir / "v0b-weights.json"
+        v0b_report = temp_dir / "v0b-report.json"
+        if not run_trainer_v0b(args.trainer_v0a, egaroucid_dataset, v0b_weights, v0b_report):
+            return 1
+        if not check_v0b_roundtrip(
+            args.v0b_exporter,
+            args.roundtrip_exe,
+            v0b_weights,
+            temp_dir,
+            roundtrip_summary["representative_score"],
+        ):
             return 1
 
     return 0
