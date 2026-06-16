@@ -194,9 +194,8 @@ TEST_CASE("stop requested before terminal iterative search preserves exact score
   std::atomic_bool stop_requested{true};
   DiscDifferenceEvaluator evaluator;
 
-  const SearchResult result =
-      search_iterative(terminal, evaluator,
-                       SearchLimits{.max_depth = Depth{5}, .stop_requested = &stop_requested});
+  const SearchResult result = search_iterative(
+      terminal, evaluator, SearchLimits{.max_depth = Depth{5}, .stop_requested = &stop_requested});
 
   REQUIRE(result.stopped);
   REQUIRE(result.exact);

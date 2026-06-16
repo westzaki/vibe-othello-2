@@ -486,11 +486,12 @@ engine/benchmarks/scripts/search/check_golden.py \
 
 `engine/benchmarks/scripts/search/check_golden.py` normalizes both actual and
 golden JSONL before comparing deterministic result fields only: position
-metadata, mode, TT mode, depth, evaluator, score, best move, PV, and root move
-score/bound/depth/exact/selective values keyed by move. It intentionally does
-not gate `nodes`, eval/search statistics, TT statistics, `elapsed_ns`, or
-`nps`. Those values can move with implementation details, machine load, and
-benchmark environment, so they should be reviewed separately when relevant.
+metadata, mode, TT mode, depth, evaluator, score, score kind, best move, PV,
+and root move score/score_kind/bound/depth/exact/selective values keyed by move.
+It intentionally does not gate `nodes`, eval/search statistics, TT statistics,
+`elapsed_ns`, or `nps`. Those values can move with implementation details,
+machine load, and benchmark environment, so they should be reviewed separately
+when relevant.
 
 Golden updates are manual. Regenerate with:
 
