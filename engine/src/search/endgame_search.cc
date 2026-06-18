@@ -36,7 +36,7 @@ SearchNodeResult search_endgame_child_with_policy(EndgameContext* context, board
                                                   Score alpha, Score beta, std::uint8_t empties,
                                                   Ply ply,
                                                   SmallEndgamePolicy small_endgame_policy) {
-  StackFrame& frame = context->stack[ply];
+  EndgameStackFrame& frame = context->stack[ply];
   frame.current_move = move;
   const bool made_delta = board_core::make_move_delta(context->position, move, &frame.delta);
   require_invariant(made_delta);
@@ -84,8 +84,8 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
   const Score original_beta = beta;
   const Depth remaining_empties = static_cast<Depth>(empties);
 
-  StackFrame& frame = context->stack[ply];
-  frame = StackFrame{};
+  EndgameStackFrame& frame = context->stack[ply];
+  frame = EndgameStackFrame{};
 
   if (note_endgame_node_visited(context)) {
     return SearchNodeResult::stopped();

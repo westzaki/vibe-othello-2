@@ -71,6 +71,9 @@ The current search implementation includes:
 * `max_nodes`, `max_time`, `infinite`, and `stop_requested` enforcement
 * best-completed-depth publication when iterative search is interrupted
 * search statistics aggregation
+* separated internal headers for search limits, shared search utilities, and
+  endgame-specific context/TT declarations, so the midgame internal header no
+  longer owns endgame solver declarations
 * search benchmark coverage
 * deterministic search golden-check tooling
 * root-triggered generic exact-score endgame solving through `search_iterative`

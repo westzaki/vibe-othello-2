@@ -1,3 +1,4 @@
+#include "endgame_policy_internal.h"
 #include "search_internal.h"
 
 namespace vibe_othello::search::internal {
@@ -311,16 +312,6 @@ SearchNodeResult search_pass_child(SearchContext* context, Score alpha, Score be
     context->stack[ply].pv = result.value().pv;
   }
   return result;
-}
-
-void update_best_line_and_move(const SearchValue& child, board_core::Move move, SearchValue* best,
-                               std::optional<board_core::Move>* best_move, StackFrame* frame) {
-  if (!best_move->has_value() || child.score > best->score ||
-      (child.score == best->score && move.square.index < (*best_move)->square.index)) {
-    *best = child;
-    *best_move = move;
-    frame->pv = best->pv;
-  }
 }
 
 bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* alpha,

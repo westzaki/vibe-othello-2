@@ -1,4 +1,6 @@
-#include "search_internal.h"
+#include "search_context_internal.h"
+#include "search_limits_internal.h"
+#include "search_util_internal.h"
 
 #include <atomic>
 #include <bit>

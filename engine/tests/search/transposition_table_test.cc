@@ -1,3 +1,4 @@
+#include "../../src/search/endgame_tt_internal.h"
 #include "../../src/search/search_internal.h"
 #include "vibe_othello/board_core/board.h"
 

@@ -1,3 +1,4 @@
+#include "endgame_policy_internal.h"
 #include "result_builder_internal.h"
 #include "search_internal.h"
 

@@ -1,6 +1,8 @@
 #pragma once
 
-#include "search_internal.h"
+#include "endgame_tt_internal.h"
+#include "search_node_internal.h"
+#include "search_util_internal.h"
 
 #include <optional>
 
@@ -44,21 +46,26 @@ struct WldEndgamePolicy {
   }
 };
 
-ExactEndgameTtProbe probe_exact_score_endgame_tt(EndgameContext* context, Depth remaining_empties,
-                                                 Score alpha, Score beta);
-ExactEndgameTtProbe probe_wld_endgame_tt(EndgameContext* context, Depth remaining_empties,
-                                         Score alpha, Score beta);
-std::optional<board_core::Move>
-probe_exact_score_endgame_root_tt_best_move(EndgameContext* context, Depth remaining_empties);
-std::optional<board_core::Move> probe_wld_endgame_root_tt_best_move(EndgameContext* context,
-                                                                    Depth remaining_empties);
-void store_exact_score_endgame_tt(EndgameContext* context, Depth remaining_empties, Score score,
-                                  BoundType bound,
-                                  std::optional<board_core::Move> best_move = std::nullopt);
-void store_wld_endgame_tt(EndgameContext* context, Depth remaining_empties, Score score,
-                          BoundType bound,
-                          std::optional<board_core::Move> best_move = std::nullopt);
-
+std::uint8_t empty_count(board_core::Position position) noexcept;
+bool should_use_exact_endgame(board_core::Position position,
+                              ResolvedSearchOptions options) noexcept;
+bool should_use_wld_endgame(board_core::Position position, ResolvedSearchOptions options) noexcept;
+SearchNodeResult exact_score_search(EndgameContext* context, Score alpha, Score beta,
+                                    std::uint8_t empties, Ply ply);
+SearchNodeResult wld_search(EndgameContext* context, Score alpha, Score beta, std::uint8_t empties,
+                            Ply ply);
+SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
+                                 SearchOptions options, TranspositionTable* tt,
+                                 SearchLimitState* limit_state = nullptr);
+SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits,
+                               SearchOptions options, TranspositionTable* tt,
+                               SearchLimitState* limit_state = nullptr);
+SearchResult solve_exact_endgame_with_small_endgame_policy(board_core::Position position,
+                                                           SearchLimits limits,
+                                                           SearchOptions options,
+                                                           TranspositionTable* tt,
+                                                           SmallEndgamePolicy small_endgame_policy,
+                                                           SearchLimitState* limit_state = nullptr);
 SearchNodeResult exact_score_terminal(EndgameContext* context, std::uint8_t empties);
 SearchNodeResult search_exact_score_endgame_child(EndgameContext* context, board_core::Move move,
                                                   Score alpha, Score beta, std::uint8_t empties,
