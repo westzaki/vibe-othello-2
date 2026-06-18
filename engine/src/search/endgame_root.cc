@@ -1,4 +1,5 @@
 #include "endgame_policy_internal.h"
+#include "result_builder_internal.h"
 
 #include <chrono>
 #include <optional>
@@ -6,32 +7,12 @@
 namespace vibe_othello::search::internal {
 namespace {
 
-RootMoveInfo make_endgame_root_move(board_core::Move move, Score score, ScoreKind score_kind,
-                                    Depth depth, NodeCount nodes, Line pv) noexcept {
-  return RootMoveInfo{
-      .move = move,
-      .score = score,
-      .score_kind = score_kind,
-      .bound = BoundType::exact,
-      .depth = depth,
-      .nodes = nodes,
-      .pv = pv,
-      .exact = true,
-      .selective = false,
+RootResultMetadata metadata_from_context(const EndgameContext& context,
+                                         std::chrono::steady_clock::time_point start) {
+  return RootResultMetadata{
+      .stats = context.stats,
+      .start = start,
   };
-}
-
-void publish_elapsed(SearchResult* result, std::chrono::steady_clock::time_point start) {
-  result->elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - start);
-}
-
-void mark_stopped_non_exact(SearchResult* result) noexcept {
-  result->stopped = true;
-  result->exact = false;
-  result->bound = BoundType::lower;
-  result->score = kScoreLoss;
-  result->score_kind = ScoreKind::unavailable;
 }
 
 bool use_best_only_root_reporting(ResolvedSearchOptions options) noexcept {
@@ -156,36 +137,32 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   };
 
   if (note_endgame_node_visited(&context)) {
-    mark_stopped_non_exact(&result);
-    result.nodes = context.stats.nodes;
-    result.stats = context.stats;
-    publish_elapsed(&result, start);
+    publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
     return result;
   }
 
   if (board_core::is_terminal(context.position)) {
     ++context.stats.terminal_nodes;
-    result.completed_depth = completed_depth;
-    result.score = EndgamePolicy::terminal_score(context.position);
-    result.nodes = context.stats.nodes;
-    result.stats = context.stats;
+    const Score terminal = EndgamePolicy::terminal_score(context.position);
     if (should_stop_endgame(&context)) {
-      mark_stopped_non_exact(&result);
-      result.completed_depth = completed_depth;
-      result.score = EndgamePolicy::terminal_score(context.position);
-      result.score_kind = EndgamePolicy::kScoreKind;
+      publish_stopped_result(&result,
+                             StoppedRootResult{
+                                 .score = terminal,
+                                 .score_kind = EndgamePolicy::kScoreKind,
+                                 .bound = BoundType::lower,
+                                 .completed_depth = completed_depth,
+                                 .has_completed_score = true,
+                             },
+                             metadata_from_context(context, start));
     } else {
-      result.exact = true;
+      publish_terminal_result(&result, EndgamePolicy::kScoreKind, terminal, completed_depth,
+                              metadata_from_context(context, start));
     }
-    publish_elapsed(&result, start);
     return result;
   }
 
   if (should_stop_endgame(&context)) {
-    mark_stopped_non_exact(&result);
-    result.nodes = context.stats.nodes;
-    result.stats = context.stats;
-    publish_elapsed(&result, start);
+    publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
     return result;
   }
 
@@ -202,35 +179,40 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
         &context, board_core::make_pass(), EndgamePolicy::kInitialAlpha,
         EndgamePolicy::kInitialBeta, root_empties, Ply{0}, small_endgame_policy);
     if (pass.is_stopped()) {
-      mark_stopped_non_exact(&result);
-      result.nodes = context.stats.nodes;
-      result.stats = context.stats;
-      publish_elapsed(&result, start);
+      publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
       return result;
     }
     const SearchValue& pass_value = pass.value();
 
-    result.best_move = board_core::make_pass();
-    result.completed_depth = completed_depth;
-    result.score = pass_value.score;
-    result.pv = pass_value.pv;
-    result.root_moves.push_back(
-        make_endgame_root_move(board_core::make_pass(), pass_value.score, EndgamePolicy::kScoreKind,
-                               completed_depth, context.stats.nodes - before_nodes, pass_value.pv));
+    result.root_moves.push_back(make_root_move_info(
+        board_core::make_pass(), pass_value.score, EndgamePolicy::kScoreKind, BoundType::exact,
+        completed_depth, context.stats.nodes - before_nodes, pass_value.pv, true, false));
     context.stats.root_moves_searched = 1;
-    result.nodes = context.stats.nodes;
-    result.stats = context.stats;
     if (should_stop_endgame(&context)) {
-      mark_stopped_non_exact(&result);
-      result.best_move = board_core::make_pass();
-      result.completed_depth = completed_depth;
-      result.score = pass_value.score;
-      result.score_kind = EndgamePolicy::kScoreKind;
-      result.pv = pass_value.pv;
+      publish_stopped_result(&result,
+                             StoppedRootResult{
+                                 .best_move = board_core::make_pass(),
+                                 .score = pass_value.score,
+                                 .score_kind = EndgamePolicy::kScoreKind,
+                                 .bound = BoundType::lower,
+                                 .completed_depth = completed_depth,
+                                 .pv = pass_value.pv,
+                                 .has_completed_score = true,
+                             },
+                             metadata_from_context(context, start));
     } else {
-      result.exact = true;
+      publish_completed_root_result(&result,
+                                    CompletedRootResult{
+                                        .best_move = board_core::make_pass(),
+                                        .score = pass_value.score,
+                                        .score_kind = EndgamePolicy::kScoreKind,
+                                        .bound = BoundType::exact,
+                                        .completed_depth = completed_depth,
+                                        .pv = pass_value.pv,
+                                        .exact = true,
+                                    },
+                                    metadata_from_context(context, start));
     }
-    publish_elapsed(&result, start);
     return result;
   }
 
@@ -240,7 +222,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   const bool best_only_reporting = use_best_only_root_reporting(context.options);
   for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
     if (should_stop_endgame(&context)) {
-      mark_stopped_non_exact(&result);
+      result.stopped = true;
       break;
     }
 
@@ -252,14 +234,14 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
         &context, move, root_alpha, EndgamePolicy::kInitialBeta, root_empties, Ply{0},
         small_endgame_policy);
     if (child.is_stopped()) {
-      mark_stopped_non_exact(&result);
+      result.stopped = true;
       break;
     }
     const SearchValue& child_value = child.value();
 
-    RootMoveInfo root_move =
-        make_endgame_root_move(move, child_value.score, EndgamePolicy::kScoreKind, completed_depth,
-                               context.stats.nodes - before_nodes, child_value.pv);
+    RootMoveInfo root_move = make_root_move_info(
+        move, child_value.score, EndgamePolicy::kScoreKind, BoundType::exact, completed_depth,
+        context.stats.nodes - before_nodes, child_value.pv, true, false);
     ++context.stats.root_moves_searched;
     const bool improves_root =
         is_better_root_move(child_value.score, move, best_score, result.best_move);
@@ -281,29 +263,38 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   }
 
   if (should_stop_endgame(&context)) {
-    mark_stopped_non_exact(&result);
+    result.stopped = true;
   }
-  result.nodes = context.stats.nodes;
-  result.stats = context.stats;
-  publish_elapsed(&result, start);
   if (result.stopped) {
-    if (result.best_move.has_value()) {
-      result.bound = BoundType::lower;
-      result.completed_depth = completed_depth;
-      result.score = best_score;
-      result.score_kind = EndgamePolicy::kScoreKind;
-      result.pv = best_line;
-      if (best_only_reporting && best_root_move.has_value()) {
-        publish_best_only_root_move(&result, *best_root_move);
-      }
+    if (best_only_reporting && best_root_move.has_value()) {
+      publish_best_only_root_move(&result, *best_root_move);
     }
+    publish_stopped_result(
+        &result,
+        StoppedRootResult{
+            .best_move = result.best_move,
+            .score = best_score,
+            .score_kind = EndgamePolicy::kScoreKind,
+            .bound = BoundType::lower,
+            .completed_depth = result.best_move.has_value() ? completed_depth : Depth{0},
+            .pv = best_line,
+            .has_completed_score = result.best_move.has_value(),
+        },
+        metadata_from_context(context, start));
     return result;
   }
 
-  result.completed_depth = completed_depth;
-  result.score = best_score;
-  result.pv = best_line;
-  result.exact = true;
+  publish_completed_root_result(&result,
+                                CompletedRootResult{
+                                    .best_move = result.best_move,
+                                    .score = best_score,
+                                    .score_kind = EndgamePolicy::kScoreKind,
+                                    .bound = BoundType::exact,
+                                    .completed_depth = completed_depth,
+                                    .pv = best_line,
+                                    .exact = true,
+                                },
+                                metadata_from_context(context, start));
   return result;
 }
 
