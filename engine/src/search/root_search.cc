@@ -1,3 +1,4 @@
+#include "result_builder_internal.h"
 #include "search_internal.h"
 
 #include <chrono>
@@ -46,28 +47,12 @@ bool is_full_score_range(RootSearchWindow window) noexcept {
   return window.alpha == kScoreLoss && window.beta == kScoreWin;
 }
 
-std::chrono::milliseconds elapsed_since(std::chrono::steady_clock::time_point start) {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                               start);
-}
-
-void finish_result_from_context(SearchResult* result, const SearchContext& context,
-                                std::chrono::steady_clock::time_point start) {
-  result->nodes = context.stats.nodes;
-  result->stats = context.stats;
-  result->elapsed = elapsed_since(start);
-}
-
-void mark_stopped_and_finalize(SearchResult* result, const SearchContext& context,
-                               std::chrono::steady_clock::time_point start) {
-  result->stopped = true;
-  finish_result_from_context(result, context, start);
-}
-
-void publish_terminal_root_score(SearchResult* result, board_core::Position position) noexcept {
-  result->score = terminal_score(position);
-  result->score_kind = ScoreKind::exact_disc_diff;
-  result->exact = true;
+RootResultMetadata metadata_from_context(const SearchContext& context,
+                                         std::chrono::steady_clock::time_point start) {
+  return RootResultMetadata{
+      .stats = context.stats,
+      .start = start,
+  };
 }
 
 SearchResult interrupted_depth_zero_result(board_core::Position position, SearchStats stats,
@@ -82,7 +67,9 @@ SearchResult interrupted_depth_zero_result(board_core::Position position, Search
       .stopped = true,
   };
   if (result.exact) {
-    publish_terminal_root_score(&result, position);
+    publish_terminal_result(&result, ScoreKind::exact_disc_diff, terminal_score(position), Depth{0},
+                            RootResultMetadata{.stats = stats, .start = start});
+    result.stopped = true;
   }
   return result;
 }
@@ -103,13 +90,19 @@ BoundType bound_for_score(Score score, RootSearchWindow window) noexcept {
 void finish_depth_zero_or_terminal_result(SearchResult* result, const SearchContext& context,
                                           const SearchValue& root, RootSearchWindow root_window,
                                           std::chrono::steady_clock::time_point start) {
-  result->score = root.score;
-  result->score_kind =
-      board_core::is_terminal(context.position) ? ScoreKind::exact_disc_diff : ScoreKind::heuristic;
-  result->bound = bound_for_score(root.score, root_window);
-  result->pv = root.pv;
-  result->exact = board_core::is_terminal(context.position);
-  finish_result_from_context(result, context, start);
+  publish_completed_root_result(result,
+                                CompletedRootResult{
+                                    .best_move = result->best_move,
+                                    .score = root.score,
+                                    .score_kind = board_core::is_terminal(context.position)
+                                                      ? ScoreKind::exact_disc_diff
+                                                      : ScoreKind::heuristic,
+                                    .bound = bound_for_score(root.score, root_window),
+                                    .completed_depth = result->completed_depth,
+                                    .pv = root.pv,
+                                    .exact = board_core::is_terminal(context.position),
+                                },
+                                metadata_from_context(context, start));
 }
 
 RootSearchWindow root_window_for_move(RootSearchWindow root_window, Score alpha) noexcept {
@@ -149,16 +142,8 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   prepend_move(move, child_value.pv, &line);
   frame.pv = line;
 
-  return RootMoveInfo{
-      .move = move,
-      .score = score,
-      .bound = bound_for_score(score, move_window),
-      .depth = depth,
-      .nodes = context->stats.nodes - before_nodes,
-      .pv = line,
-      .exact = false,
-      .selective = false,
-  };
+  return make_root_move_info(move, score, ScoreKind::heuristic, bound_for_score(score, move_window),
+                             depth, context->stats.nodes - before_nodes, line, false, false);
 }
 
 void update_best_root_move(const RootMoveInfo& root_move, Score* best_score, Line* best_line,
@@ -228,10 +213,17 @@ void maybe_store_root_midgame_tt(SearchContext* context, Depth completed_depth, 
 void finalize_completed_root_result(SearchResult* result, const SearchContext& context,
                                     Score best_score, Line best_line, RootSearchWindow root_window,
                                     std::chrono::steady_clock::time_point start) {
-  result->score = best_score;
-  result->bound = bound_for_score(best_score, root_window);
-  result->pv = best_line;
-  finish_result_from_context(result, context, start);
+  publish_completed_root_result(result,
+                                CompletedRootResult{
+                                    .best_move = result->best_move,
+                                    .score = best_score,
+                                    .score_kind = ScoreKind::heuristic,
+                                    .bound = bound_for_score(best_score, root_window),
+                                    .completed_depth = result->completed_depth,
+                                    .pv = best_line,
+                                    .exact = false,
+                                },
+                                metadata_from_context(context, start));
 }
 
 SearchResult search_depth_with_aspiration(board_core::Position position, const Evaluator& evaluator,
@@ -336,11 +328,13 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
         full_window_search(&context, alpha, beta, completed_depth, Ply{0});
     if (root.is_stopped()) {
       if (board_core::is_terminal(context.position)) {
-        publish_terminal_root_score(&result, context.position);
+        publish_terminal_result(&result, ScoreKind::exact_disc_diff,
+                                terminal_score(context.position), completed_depth,
+                                metadata_from_context(context, start));
+        result.stopped = true;
       } else {
-        result.score_kind = ScoreKind::unavailable;
+        publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
       }
-      mark_stopped_and_finalize(&result, context, start);
       return result;
     }
     finish_depth_zero_or_terminal_result(&result, context, root.value(), root_window, start);
@@ -348,7 +342,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   if (note_node_visited(&context)) {
-    mark_stopped_and_finalize(&result, context, start);
+    publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
     return result;
   }
   if (context.options.ordering.use_tt_best_move_ordering && !root_hints.tt_best_move.has_value() &&
@@ -373,7 +367,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   const MoveList root_moves = root_frame.moves;
   if (root_moves.size == 0) {
     if (should_stop_search(&context)) {
-      mark_stopped_and_finalize(&result, context, start);
+      publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
       return result;
     }
     ++context.stats.pass_nodes;
@@ -391,29 +385,32 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                            static_cast<Depth>(completed_depth - 1), Ply{1});
     board_core::undo_move(&context.position, root_frame.delta);
     if (child.is_stopped()) {
-      mark_stopped_and_finalize(&result, context, start);
+      publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
       return result;
     }
     const SearchValue& child_value = child.value();
 
-    result.best_move = board_core::make_pass();
-    result.score = static_cast<Score>(-child_value.score);
-    result.bound = bound_for_score(result.score, root_window);
-    prepend_move(board_core::make_pass(), child_value.pv, &result.pv);
-    root_frame.pv = result.pv;
-    result.root_moves.push_back(RootMoveInfo{
-        .move = board_core::make_pass(),
-        .score = result.score,
-        .bound = bound_for_score(result.score, root_window),
-        .depth = completed_depth,
-        .nodes = context.stats.nodes - before_nodes,
-        .pv = result.pv,
-        .exact = false,
-        .selective = false,
-    });
+    const Score pass_score = static_cast<Score>(-child_value.score);
+    Line pass_line{};
+    prepend_move(board_core::make_pass(), child_value.pv, &pass_line);
+    root_frame.pv = pass_line;
+    result.root_moves.push_back(
+        make_root_move_info(board_core::make_pass(), pass_score, ScoreKind::heuristic,
+                            bound_for_score(pass_score, root_window), completed_depth,
+                            context.stats.nodes - before_nodes, pass_line, false, false));
     context.stats.root_moves_searched = 1;
 
-    finish_result_from_context(&result, context, start);
+    publish_completed_root_result(&result,
+                                  CompletedRootResult{
+                                      .best_move = board_core::make_pass(),
+                                      .score = pass_score,
+                                      .score_kind = ScoreKind::heuristic,
+                                      .bound = bound_for_score(pass_score, root_window),
+                                      .completed_depth = completed_depth,
+                                      .pv = pass_line,
+                                      .exact = false,
+                                  },
+                                  metadata_from_context(context, start));
     return result;
   }
 
@@ -447,7 +444,18 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   if (result.stopped) {
-    finish_result_from_context(&result, context, start);
+    publish_stopped_result(
+        &result,
+        StoppedRootResult{
+            .best_move = result.best_move,
+            .score = best_score,
+            .score_kind = ScoreKind::heuristic,
+            .bound = BoundType::lower,
+            .completed_depth = result.best_move.has_value() ? completed_depth : Depth{0},
+            .pv = best_line,
+            .has_completed_score = result.best_move.has_value(),
+        },
+        metadata_from_context(context, start));
     return result;
   }
 
@@ -457,7 +465,18 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   if (result.stopped) {
-    finish_result_from_context(&result, context, start);
+    publish_stopped_result(
+        &result,
+        StoppedRootResult{
+            .best_move = result.best_move,
+            .score = best_score,
+            .score_kind = ScoreKind::heuristic,
+            .bound = BoundType::lower,
+            .completed_depth = result.best_move.has_value() ? completed_depth : Depth{0},
+            .pv = best_line,
+            .has_completed_score = result.best_move.has_value(),
+        },
+        metadata_from_context(context, start));
     return result;
   }
 
