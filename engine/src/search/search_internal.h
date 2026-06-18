@@ -96,5 +96,11 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           RootSearchWindow root_window = {},
                                           MidgameOrderingState* ordering_state = nullptr,
                                           SearchLimitState* limit_state = nullptr);
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth, MoveOrderingHints root_hints,
+                                          ResolvedSearchOptions options, TranspositionTable* tt,
+                                          RootSearchWindow root_window = {},
+                                          MidgameOrderingState* ordering_state = nullptr,
+                                          SearchLimitState* limit_state = nullptr);
 
 } // namespace vibe_othello::search::internal

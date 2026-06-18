@@ -39,14 +39,17 @@ using vibe_othello::board_core::Square;
 using vibe_othello::board_core::square_from_file_rank;
 using vibe_othello::board_core::square_from_index;
 using vibe_othello::search::BoundType;
+using vibe_othello::search::EndgameSearchOptions;
 using vibe_othello::search::Evaluator;
 using vibe_othello::search::Line;
+using vibe_othello::search::MoveOrderingOptions;
 using vibe_othello::search::RootMoveInfo;
 using vibe_othello::search::ScoreKind;
 using vibe_othello::search::search_iterative;
 using vibe_othello::search::SearchLimits;
 using vibe_othello::search::SearchMode;
 using vibe_othello::search::SearchOptions;
+using vibe_othello::search::SearchReportingOptions;
 using vibe_othello::search::SearchResult;
 using vibe_othello::search::solve_exact_endgame;
 using vibe_othello::search::solve_wld_endgame;
@@ -889,12 +892,15 @@ TimedResult run_endgame(Position position, std::uint8_t empties, bool use_parity
                         bool use_tt, RootMode root_mode, SolveMode solve_mode, EntryMode entry_mode,
                         std::uint8_t endgame_wld_empties) {
   const SearchOptions options{
-      .use_endgame_tt = use_tt,
-      .exact_endgame = false,
-      .use_endgame_parity_ordering = use_parity_ordering,
-      .multi_pv = multi_pv_for_root_mode(root_mode),
-      .endgame_exact_empties = 0,
-      .endgame_wld_empties = endgame_wld_empties,
+      .ordering = MoveOrderingOptions{.use_endgame_parity_ordering = use_parity_ordering},
+      .endgame =
+          EndgameSearchOptions{
+              .exact_endgame = false,
+              .use_endgame_tt = use_tt,
+              .endgame_exact_empties = 0,
+              .endgame_wld_empties = endgame_wld_empties,
+          },
+      .reporting = SearchReportingOptions{.multi_pv = multi_pv_for_root_mode(root_mode)},
       .mode = solve_mode == SolveMode::wld ? SearchMode::win_loss_draw : SearchMode::exact_score,
   };
   const auto start = std::chrono::steady_clock::now();
