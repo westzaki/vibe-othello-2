@@ -358,6 +358,21 @@ before dispatch. During the compatibility period, legacy flat fields and typed
 sub-configs express the same behavior. Existing legacy callers keep working,
 and new call sites should prefer the typed sub-configs.
 
+The compatibility normalizer has an explicit conflict policy:
+
+| Field kind | Resolution rule |
+| --- | --- |
+| `mode` | Use `SearchOptions::mode`. |
+| Boolean enable flags | Use legacy flat `true` OR typed sub-config `true`. |
+| `ordering.use_endgame_parity_ordering` | Use legacy flat value AND typed sub-config value. This option defaults enabled, so either spelling can disable it during the compatibility period. |
+| Numeric option fields | Use the legacy flat value when it is nonzero; otherwise use the typed sub-config value. |
+
+The current public `bool` fields cannot distinguish "not specified" from an
+explicit `false`. New callers should therefore avoid mixing legacy flat fields
+with typed sub-configs. Code inside the search implementation should consume
+only `ResolvedSearchOptions` after the API boundary has normalized public
+options.
+
 `midgame.use_pvs` switches the recursive full-window search path from plain alpha-beta
 to Principal Variation Search. It is disabled by default.
 

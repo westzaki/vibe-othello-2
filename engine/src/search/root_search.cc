@@ -236,7 +236,7 @@ void finalize_completed_root_result(SearchResult* result, const SearchContext& c
 
 SearchResult search_depth_with_aspiration(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
-                                          SearchOptions options, TranspositionTable* tt,
+                                          ResolvedSearchOptions options, TranspositionTable* tt,
                                           Score previous_score,
                                           MidgameOrderingState* ordering_state,
                                           SearchLimitState* limit_state) {
@@ -300,6 +300,17 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           RootSearchWindow root_window,
                                           MidgameOrderingState* ordering_state,
                                           SearchLimitState* limit_state) {
+  return search_fixed_depth_with_hint(position, evaluator, depth, root_hints,
+                                      normalize_search_options(options), tt, root_window,
+                                      ordering_state, limit_state);
+}
+
+SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
+                                          Depth depth, MoveOrderingHints root_hints,
+                                          ResolvedSearchOptions options, TranspositionTable* tt,
+                                          RootSearchWindow root_window,
+                                          MidgameOrderingState* ordering_state,
+                                          SearchLimitState* limit_state) {
   require_invariant(!root_window.enabled || root_window.alpha < root_window.beta);
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
@@ -308,7 +319,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .position = position,
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = completed_depth},
-      .options = normalize_search_options(options),
+      .options = options,
       .transposition_table = tt,
       .ordering_state = ordering_state == nullptr ? &local_ordering_state : ordering_state,
       .limit_state = limit_state,
@@ -494,7 +505,7 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
   if (!limits.infinite && max_depth == 0) {
     SearchResult result = internal::search_fixed_depth_with_hint(
-        position, evaluator, Depth{0}, internal::MoveOrderingHints{}, options, nullptr,
+        position, evaluator, Depth{0}, internal::MoveOrderingHints{}, resolved_options, nullptr,
         internal::RootSearchWindow{}, nullptr, &limit_state);
     result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
@@ -547,11 +558,11 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
     SearchResult current =
         resolved_options.midgame.use_aspiration && depth >= 2 && previous_score.has_value()
             ? internal::search_depth_with_aspiration(position, evaluator, depth, root_hints,
-                                                     options, tt, *previous_score, &ordering_state,
-                                                     &limit_state)
-            : internal::search_fixed_depth_with_hint(position, evaluator, depth, root_hints,
-                                                     options, tt, internal::RootSearchWindow{},
-                                                     &ordering_state, &limit_state);
+                                                     resolved_options, tt, *previous_score,
+                                                     &ordering_state, &limit_state)
+            : internal::search_fixed_depth_with_hint(
+                  position, evaluator, depth, root_hints, resolved_options, tt,
+                  internal::RootSearchWindow{}, &ordering_state, &limit_state);
     internal::add_stats(&total_stats, current.stats);
     if (current.stopped) {
       if (best_completed.completed_depth == 0 && !best_completed.exact) {

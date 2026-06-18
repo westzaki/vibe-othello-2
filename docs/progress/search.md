@@ -112,6 +112,8 @@ Existing search tests include:
 * exact endgame tests
 * exact endgame reference differential tests
 * legacy flat-field and typed-config option equivalence tests
+* exhaustive search option normalization tests covering defaults, legacy fields,
+  typed sub-configs, and compatibility conflict rules
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
 

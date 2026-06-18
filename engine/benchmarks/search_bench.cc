@@ -418,26 +418,26 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant) noexcept {
   case TTMode::off:
     break;
   case TTMode::ordering:
-    options.use_tt_best_move_ordering = true;
+    options.ordering.use_tt_best_move_ordering = true;
     break;
   case TTMode::midgame:
-    options.use_midgame_tt = true;
+    options.midgame.use_midgame_tt = true;
     break;
   case TTMode::both:
-    options.use_midgame_tt = true;
-    options.use_tt_best_move_ordering = true;
+    options.midgame.use_midgame_tt = true;
+    options.ordering.use_tt_best_move_ordering = true;
     break;
   }
 
-  options.use_pvs = variant.use_pvs;
-  options.use_aspiration = variant.use_aspiration;
-  options.use_history = variant.use_history;
-  options.use_killers = variant.use_killers;
-  options.use_iid = variant.use_iid;
-  options.use_endgame_tt = variant.use_endgame_tt;
-  options.use_endgame_parity_ordering = variant.use_endgame_parity;
-  options.exact_endgame = variant.exact_endgame_empties > 0;
-  options.endgame_exact_empties = variant.exact_endgame_empties;
+  options.midgame.use_pvs = variant.use_pvs;
+  options.midgame.use_aspiration = variant.use_aspiration;
+  options.midgame.use_iid = variant.use_iid;
+  options.ordering.use_history = variant.use_history;
+  options.ordering.use_killers = variant.use_killers;
+  options.endgame.use_endgame_tt = variant.use_endgame_tt;
+  options.ordering.use_endgame_parity_ordering = variant.use_endgame_parity;
+  options.endgame.exact_endgame = variant.exact_endgame_empties > 0;
+  options.endgame.endgame_exact_empties = variant.exact_endgame_empties;
   return options;
 }
 
