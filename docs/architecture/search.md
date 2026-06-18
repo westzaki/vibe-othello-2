@@ -350,8 +350,11 @@ struct SearchOptions {
 
 Every non-baseline option must be independently disableable.
 
-All options default to the disabled value. Unimplemented options must be safely
-ignored or explicitly treated as disabled.
+Most options default to disabled. `ordering.use_endgame_parity_ordering` is the
+compatibility exception and defaults enabled because it is an ordering-only
+exact-endgame hint; either legacy or typed spelling can disable it during the
+compatibility period. Unimplemented options must be safely ignored or explicitly
+treated as disabled.
 
 Search internals normalize public `SearchOptions` into a resolved typed config
 before dispatch. During the compatibility period, legacy flat fields and typed
