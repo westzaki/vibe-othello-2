@@ -113,6 +113,16 @@ Existing foundations include:
   columns, preserves importer-provided `position_id` and `split`, keeps same
   position rows in one split, emits `ply` as `occupied_count - 4`, and retains
   exact duplicate records in input order
+* local-only Egaroucid subset training runner at
+  `tools/pattern/train/run_egaroucid_local_training.py` that runs importer or
+  normalized TSV input through deterministic position-id subset sampling,
+  dataset building, trainer v0b, v0b export, optional v0a baseline export,
+  fixed-position evaluation smoke, fixed-position search smoke, and a local
+  training run report JSON
+* CTest-backed local training runner smoke that uses only the checked-in tiny
+  Egaroucid fixture, checks deterministic report output, verifies sample split
+  and phase counts, confirms trainer/export checksums are present, and keeps
+  generated files under the test temporary directory
 
 The Egaroucid normalized dataset report currently records:
 
@@ -129,6 +139,35 @@ The Egaroucid normalized dataset report currently records:
 The dataset builder treats Egaroucid importer splits as authoritative. It does
 not recompute split from `record_id`; it validates that every repeated
 `position_id` stays in one importer-provided split.
+
+The local training runner sample report records:
+
+* `schema_version`
+* `input_rows` and `sampled_rows`
+* `source_dataset_ids`
+* `counts_by_split` and `counts_by_phase`
+* `label_min`, `label_max`, and `label_mean`
+* `checksum`
+* `sample_policy` with method, limits, seed, split policy, and memory policy
+
+The current sampler uses deterministic `sha256(seed, position_id)` top-k
+selection over `position_id` groups. `--max-examples` and `--max-per-phase`
+therefore limit selected position groups before duplicate-label expansion; any
+duplicate labels for a selected position are preserved so importer-provided
+split assignments are not broken.
+
+Example local run:
+
+```sh
+python3 tools/pattern/train/run_egaroucid_local_training.py \
+  --raw-input data/corpora/local/Egaroucid_Train_Data.zip \
+  --manifest data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json \
+  --max-examples 100000 \
+  --max-per-phase 10000 \
+  --epochs 8 \
+  --learning-rate 0.1 \
+  --output-dir data/corpora/local/runs/smoke-100k
+```
 
 These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, fixed-position search smoke checks, and later strength
@@ -156,10 +195,13 @@ trainer. The v0b local intermediate weights JSON can now be exported into a
 runtime-loader-compatible local smoke artifact, loaded by `PatternEvaluator`,
 measured by a fixed-position evaluation smoke in CTest, and measured in a
 fixed-position search smoke against the v0a phase-bias baseline. Production
-artifact publication, full Egaroucid training, self-play, ridge regression,
-match bench validation, production strength claims, and publishable learned
-artifacts remain for later PRs. Publication of Egaroucid-derived learned
-artifacts remains unknown and gated by provenance review.
+artifact publication, full Egaroucid training, committed learned weights,
+self-play, ridge regression, match bench validation, production strength
+claims, and publishable learned artifacts remain for later PRs. Local training
+run reports may contain Egaroucid-derived metrics and local artifact names, so
+they should stay under ignored local run directories. Publication of
+Egaroucid-derived learned artifacts remains unknown and gated by provenance
+review.
 
 ## Implementation Plan
 
@@ -191,6 +233,7 @@ Status values:
 | Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum; the tiny Egaroucid v0b path also round-trips importer -> dataset -> trainer v0b -> exporter -> runtime loader -> `PatternEvaluator` and verifies a score difference from the v0a phase-bias smoke artifact |
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, evaluates fixed positions with runtime `PatternEvaluator`, reports deterministic score rows, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
+| Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw or normalized local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, and a local run report; generated corpora, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
@@ -217,9 +260,9 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are a medium Egaroucid subset training runner or a
-local training run report for exported local smoke artifacts before any
-production artifact or publication work.
+Next implementation steps are medium local subset runs and measurement review
+before any production artifact, publication, match bench, or strength-claim
+work.
 
 ## Progress Update Rules
 
