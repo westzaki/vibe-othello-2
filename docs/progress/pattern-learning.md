@@ -123,6 +123,16 @@ Existing foundations include:
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
   generated files under the test temporary directory
+* local training run analyzer at
+  `tools/pattern/train/analyze_local_training_runs.py` that compares one or
+  more `local-training-run-report.json` files, emits stable JSON and optional
+  Markdown summaries, validates the runner report shape, extracts available
+  v0b trainer split/phase metrics, and records warning-only review flags for
+  small or incomplete local measurements
+* CTest-backed local training analyzer smoke that uses temp-only synthetic
+  report fixtures, checks deterministic JSON and Markdown output, fixes the
+  expected warning list, and keeps Egaroucid-derived generated reports out of
+  the repository
 
 The Egaroucid normalized dataset report currently records:
 
@@ -173,6 +183,14 @@ These pieces can later support import validation, teacher labels, fixed-position
 evaluation checks, fixed-position search smoke checks, and later strength
 comparisons.
 
+The analyzer is intended for local measurement review of 10k, 100k, 1M, and
+similar subset runs. It reports warnings for suspicious inputs, missing smoke
+summaries, missing artifact checksums, non-`egaroucid-local` reports, and zero
+v0a/v0b score-difference summaries, but these warnings do not fail the
+analysis. Egaroucid-derived `local-training-run-report.json` files may contain
+local artifact names and measurement results derived from external data, so
+they must remain under ignored local run directories and must not be committed.
+
 ## Current Gaps
 
 The current implementation does not yet have:
@@ -180,9 +198,11 @@ The current implementation does not yet have:
 * local-only corpus download scripts
 * production trainer with pattern weights
 * calibration tool
+* production-ish pattern set design for larger local measurements
 * production artifact exporter
 * production pattern-set symmetry enablement with a new pattern set id and any
   required artifact version changes
+* match bench or Elo/strength measurement
 * publication gate for license and provenance status
 
 No raw external corpora, derived datasets, or learned weights are currently
@@ -197,9 +217,10 @@ measured by a fixed-position evaluation smoke in CTest, and measured in a
 fixed-position search smoke against the v0a phase-bias baseline. Production
 artifact publication, full Egaroucid training, committed learned weights,
 self-play, ridge regression, match bench validation, production strength
-claims, and publishable learned artifacts remain for later PRs. Local training
-run reports may contain Egaroucid-derived metrics and local artifact names, so
-they should stay under ignored local run directories. Publication of
+claims, production-ish pattern set implementation, and publishable learned
+artifacts remain for later PRs. Local training run reports may contain
+Egaroucid-derived metrics and local artifact names, so they should stay under
+ignored local run directories and should not be committed. Publication of
 Egaroucid-derived learned artifacts remains unknown and gated by provenance
 review.
 
@@ -234,6 +255,7 @@ Status values:
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, evaluates fixed positions with runtime `PatternEvaluator`, reports deterministic score rows, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw or normalized local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, and a local run report; generated corpora, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
+| Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
@@ -260,9 +282,10 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are medium local subset runs and measurement review
-before any production artifact, publication, match bench, or strength-claim
-work.
+Next implementation steps are 10k, 100k, and 1M local subset runs, measurement
+review with the analyzer, and production-ish pattern set design before any
+production artifact publication, committed learned weights, match bench,
+strength-claim work, or production-ish pattern set implementation.
 
 ## Progress Update Rules
 
