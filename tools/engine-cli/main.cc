@@ -11,7 +11,6 @@
 
 namespace {
 
-using vibe_othello::board_core::Bitboard;
 using vibe_othello::board_core::Move;
 using vibe_othello::board_core::MoveDelta;
 using vibe_othello::board_core::MoveKind;
@@ -67,6 +66,13 @@ std::string format_move(Move move) {
   text.push_back(static_cast<char>('a' + file));
   text.push_back(static_cast<char>('1' + rank));
   return text;
+}
+
+std::string format_best_move(const std::optional<Move>& move) {
+  if (!move.has_value()) {
+    return "none";
+  }
+  return format_move(*move);
 }
 
 std::vector<std::string_view> split_words(std::string_view text) {
@@ -172,21 +178,11 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  const Bitboard legal_moves = vibe_othello::board_core::legal_moves(position);
-  if (legal_moves == 0) {
-    std::cout << "bestmove pass score 0 depth " << args->depth << '\n';
-    return 0;
-  }
-
   const DiscDifferenceEvaluator evaluator;
   const vibe_othello::search::SearchResult result =
       vibe_othello::search::search_fixed_depth(position, evaluator, args->depth);
-  if (!result.best_move.has_value()) {
-    std::cerr << "search did not return a move\n";
-    return 1;
-  }
 
-  std::cout << "bestmove " << format_move(*result.best_move) << " score " << result.score
+  std::cout << "bestmove " << format_best_move(result.best_move) << " score " << result.score
             << " depth " << result.completed_depth << '\n';
   return 0;
 }

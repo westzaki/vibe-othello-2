@@ -335,16 +335,16 @@ GameRecord play_game(int game_id, const Opening& opening, EngineRole black, Engi
     if (!response.has_value()) {
       return adjudicated_game(game_id, opening, moves, black, white, side_to_move, "parse_error");
     }
-    if (response->move.kind != MoveKind::normal ||
-        (legal_moves & vibe_othello::board_core::bit(response->move.square)) == 0) {
+    if (!response->move.has_value() || response->move->kind != MoveKind::normal ||
+        (legal_moves & vibe_othello::board_core::bit(response->move->square)) == 0) {
       return adjudicated_game(game_id, opening, moves, black, white, side_to_move, "illegal_move");
     }
 
     MoveDelta delta{};
-    if (!vibe_othello::board_core::apply_move(&position, response->move, &delta)) {
+    if (!vibe_othello::board_core::apply_move(&position, *response->move, &delta)) {
       return adjudicated_game(game_id, opening, moves, black, white, side_to_move, "illegal_move");
     }
-    moves.push_back(response->move);
+    moves.push_back(*response->move);
   }
 
   const int black_discs = disc_count(vibe_othello::board_core::black_discs(position));

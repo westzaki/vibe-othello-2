@@ -19,6 +19,10 @@ build/tools/arena/vibe-othello-arena \
 
 The baseline and candidate commands are shell command fragments. The arena
 appends `--moves "<move sequence>"` for each engine call.
+Engine commands return one line in the form
+`bestmove <coordinate|pass|none> score <score> depth <depth>`. `pass` means the
+searched root is a legal forced pass, while `none` means search found no root
+move, such as a terminal root or depth-zero query.
 
 ## Openings
 
