@@ -147,6 +147,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--l2", type=float, default=0.0)
+    parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     parser.add_argument("--skip-eval-smoke", action="store_true")
     parser.add_argument("--skip-search-smoke", action="store_true")
     parser.add_argument("--skip-v0a-baseline", action="store_true")
@@ -586,6 +587,8 @@ def run_dataset_builder(
                 str(normalized_tsv),
                 "--report",
                 str(dataset_report),
+                "--pattern-set",
+                args.pattern_set,
             ],
             check=False,
             stdout=output,
@@ -661,6 +664,8 @@ def run_v0a_baseline(
             str(artifact),
             "--manifest-out",
             str(manifest),
+            "--pattern-set",
+            args.pattern_set,
         ]
     )
     return (
@@ -688,6 +693,8 @@ def export_v0b(
             str(artifact),
             "--manifest-out",
             str(manifest),
+            "--pattern-set",
+            args.pattern_set,
         ]
     )
     return artifact, manifest, parse_key_values(export.stdout)
@@ -701,6 +708,7 @@ def run_smoke(
     v0a_checksum: str,
     v0b_checksum: str,
     report_path: Path,
+    pattern_set: str,
 ) -> dict[str, Any]:
     result = run_or_fail(
         [
@@ -717,6 +725,8 @@ def run_smoke(
             v0b_checksum,
             "--report-out",
             str(report_path),
+            "--pattern-set",
+            pattern_set,
         ]
     )
     return {
@@ -773,6 +783,7 @@ def write_run_report(
             "l2": args.l2,
             "seed": args.seed,
         },
+        "pattern_set_id": v0b_export_summary.get("pattern_set_id"),
         "trainer_report_checksum": trainer_report.get("checksum"),
         "weights_checksum": trainer_report.get("weights_checksum")
         or sha256_file(paths["v0b_weights_json"]),
@@ -864,6 +875,7 @@ def main() -> int:
                     v0a_checksum,
                     v0b_checksum,
                     output_dir / "evaluation-smoke-report.json",
+                    args.pattern_set,
                 )
             else:
                 eval_positions = {}
@@ -882,6 +894,7 @@ def main() -> int:
                     v0a_checksum,
                     v0b_checksum,
                     output_dir / "search-smoke-report.json",
+                    args.pattern_set,
                 )
             else:
                 search_positions = {}

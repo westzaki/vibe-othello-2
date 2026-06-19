@@ -1,4 +1,5 @@
 #include "vibe_othello/evaluation/pattern.h"
+#include "vibe_othello/evaluation/pattern_feature_set.h"
 
 #include <algorithm>
 #include <array>
@@ -102,6 +103,41 @@ TEST_CASE("symmetry-aware fixed pattern-set fixture opts in edge and corner poli
   REQUIRE(pattern_set.patterns[1].length == 9);
   REQUIRE(pattern_set.patterns[1].squares.size() == 9);
   REQUIRE(pattern_set.patterns[1].symmetry_policy == PatternSymmetryPolicy::square_d4);
+  REQUIRE(validate_pattern_set(pattern_set).ok());
+}
+
+TEST_CASE("buro-lite pattern set defines wider raw production-ish families",
+          "[evaluation][pattern_schema]") {
+  const PatternSet& pattern_set = buro_lite_pattern_set();
+  const PatternFeatureSet feature_set = buro_lite_pattern_feature_set();
+
+  REQUIRE(pattern_set.id == "pattern-v1-buro-lite");
+  REQUIRE(feature_set.id == pattern_set.id);
+  REQUIRE(pattern_set.patterns.size() == 6);
+  REQUIRE(feature_set.tables.size() == pattern_set.patterns.size());
+
+  const std::vector<std::string> expected_ids{"edge-8",     "near-edge-8", "diagonal-8",
+                                              "diagonal-7", "corner-2x5",  "corner-3x3"};
+  const std::vector<std::uint8_t> expected_lengths{8, 8, 8, 7, 10, 9};
+  const std::vector<std::size_t> expected_instances{4, 4, 2, 4, 8, 4};
+
+  std::size_t instance_count = 0;
+  std::uint32_t phase_stride = 1;
+  for (std::size_t index = 0; index < pattern_set.patterns.size(); ++index) {
+    const PatternDefinition& pattern = pattern_set.patterns[index];
+    const PatternFeatureTable& table = feature_set.tables[index];
+    REQUIRE(pattern.id == expected_ids[index]);
+    REQUIRE(pattern.length == expected_lengths[index]);
+    REQUIRE(pattern.symmetry_policy == PatternSymmetryPolicy::none);
+    REQUIRE(table.pattern_id == pattern.id);
+    REQUIRE(table.pattern_length == pattern.length);
+    REQUIRE(table.instances.size() == expected_instances[index]);
+    instance_count += table.instances.size();
+    phase_stride += pattern_size(pattern.length);
+  }
+
+  REQUIRE(instance_count == 26);
+  REQUIRE(phase_stride == 100603);
   REQUIRE(validate_pattern_set(pattern_set).ok());
 }
 

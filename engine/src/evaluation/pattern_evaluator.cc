@@ -79,6 +79,41 @@ std::vector<board_core::Square> to_vector(std::span<const board_core::Square> sq
   return std::vector<board_core::Square>{squares.begin(), squares.end()};
 }
 
+std::vector<board_core::Square> line(int file, int rank, int file_delta, int rank_delta,
+                                     std::uint8_t length) {
+  std::vector<board_core::Square> result;
+  result.reserve(length);
+  for (std::uint8_t index = 0; index < length; ++index) {
+    result.push_back(square_from_file_rank(file + file_delta * index, rank + rank_delta * index));
+  }
+  return result;
+}
+
+std::vector<board_core::Square> band(int file, int rank, int primary_file_delta,
+                                     int primary_rank_delta, int secondary_file_delta,
+                                     int secondary_rank_delta, std::uint8_t primary_length,
+                                     std::uint8_t secondary_length) {
+  std::vector<board_core::Square> result;
+  result.reserve(static_cast<std::size_t>(primary_length) * secondary_length);
+  for (std::uint8_t secondary = 0; secondary < secondary_length; ++secondary) {
+    for (std::uint8_t primary = 0; primary < primary_length; ++primary) {
+      result.push_back(square_from_file_rank(
+          file + primary_file_delta * primary + secondary_file_delta * secondary,
+          rank + primary_rank_delta * primary + secondary_rank_delta * secondary));
+    }
+  }
+  return result;
+}
+
+PatternFeatureTable table(std::string pattern_id, std::uint8_t length,
+                          std::vector<std::vector<board_core::Square>> instances) {
+  return PatternFeatureTable{
+      .pattern_id = std::move(pattern_id),
+      .pattern_length = length,
+      .instances = std::move(instances),
+  };
+}
+
 [[nodiscard]] std::optional<std::size_t>
 expected_table_weight_count(std::uint8_t phase_count, std::uint8_t pattern_length) noexcept {
   if (pattern_length == 0) {
@@ -220,6 +255,59 @@ PatternFeatureSet tiny_pattern_feature_set_fixture() {
                           to_vector(kH8Corner),
                       },
               },
+          },
+  };
+}
+
+PatternFeatureSet buro_lite_pattern_feature_set() {
+  return PatternFeatureSet{
+      .id = "pattern-v1-buro-lite",
+      .tables =
+          {
+              table("edge-8", 8,
+                    {
+                        line(0, 0, 1, 0, 8),
+                        line(0, 7, 1, 0, 8),
+                        line(0, 0, 0, 1, 8),
+                        line(7, 0, 0, 1, 8),
+                    }),
+              table("near-edge-8", 8,
+                    {
+                        line(0, 1, 1, 0, 8),
+                        line(0, 6, 1, 0, 8),
+                        line(1, 0, 0, 1, 8),
+                        line(6, 0, 0, 1, 8),
+                    }),
+              table("diagonal-8", 8,
+                    {
+                        line(0, 0, 1, 1, 8),
+                        line(7, 0, -1, 1, 8),
+                    }),
+              table("diagonal-7", 7,
+                    {
+                        line(1, 0, 1, 1, 7),
+                        line(0, 1, 1, 1, 7),
+                        line(6, 0, -1, 1, 7),
+                        line(7, 1, -1, 1, 7),
+                    }),
+              table("corner-2x5", 10,
+                    {
+                        band(0, 0, 1, 0, 0, 1, 5, 2),
+                        band(0, 0, 0, 1, 1, 0, 5, 2),
+                        band(7, 0, -1, 0, 0, 1, 5, 2),
+                        band(7, 0, 0, 1, -1, 0, 5, 2),
+                        band(0, 7, 1, 0, 0, -1, 5, 2),
+                        band(0, 7, 0, -1, 1, 0, 5, 2),
+                        band(7, 7, -1, 0, 0, -1, 5, 2),
+                        band(7, 7, 0, -1, -1, 0, 5, 2),
+                    }),
+              table("corner-3x3", 9,
+                    {
+                        band(0, 0, 1, 0, 0, 1, 3, 3),
+                        band(7, 0, -1, 0, 0, 1, 3, 3),
+                        band(0, 7, 1, 0, 0, -1, 3, 3),
+                        band(7, 7, -1, 0, 0, -1, 3, 3),
+                    }),
           },
   };
 }

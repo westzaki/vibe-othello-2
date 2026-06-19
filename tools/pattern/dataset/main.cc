@@ -1,4 +1,5 @@
 #include "index_mode.h"
+#include "pattern_set_options.h"
 #include "replay_records.h"
 #include "schema_validation.h"
 #include "smoke_fixture.h"
@@ -34,6 +35,7 @@ struct Args {
   std::string report_path;
   SplitPolicy split_policy = SplitPolicy::record_hash;
   vibe_othello::tools::pattern::IndexMode index_mode = vibe_othello::tools::pattern::IndexMode::raw;
+  std::string pattern_set = "tiny";
 };
 
 struct NormalizedRow {
@@ -140,6 +142,12 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.index_mode = *mode;
+    } else if (arg == "--pattern-set") {
+      if (index + 1 >= argc) {
+        std::cerr << "--pattern-set requires a value\n";
+        return std::nullopt;
+      }
+      args.pattern_set = argv[++index];
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -149,7 +157,8 @@ std::optional<Args> parse_args(int argc, char** argv) {
   if (args.records_path.empty() == args.normalized_tsv_path.empty()) {
     std::cerr << "usage: vibe-othello-pattern-dataset-smoke "
                  "(--records PATH [--manifest PATH] [--split-policy record-hash|tiny-cycle] | "
-                 "--normalized-tsv PATH --report PATH) [--index-mode raw|canonical]\n";
+                 "--normalized-tsv PATH --report PATH) [--index-mode raw|canonical] "
+                 "[--pattern-set tiny|buro-lite]\n";
     return std::nullopt;
   }
   if (!args.normalized_tsv_path.empty() && args.report_path.empty()) {
@@ -643,9 +652,14 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const eval::PatternSet& pattern_set =
-      pattern::smoke::pattern_set_for_index_mode(args->index_mode);
-  const eval::PatternFeatureSet feature_set = eval::tiny_pattern_feature_set_fixture();
+  const std::optional<pattern::PatternSetOption> selected_pattern_set =
+      pattern::select_pattern_set(args->pattern_set, args->index_mode);
+  if (!selected_pattern_set.has_value() || selected_pattern_set->pattern_set == nullptr) {
+    std::cerr << "--pattern-set must be " << pattern::pattern_set_option_names() << '\n';
+    return 2;
+  }
+  const eval::PatternSet& pattern_set = *selected_pattern_set->pattern_set;
+  const eval::PatternFeatureSet& feature_set = selected_pattern_set->feature_set;
   const pattern::FeatureSetValidationResult validation =
       pattern::validate_feature_set(feature_set, pattern_set);
   if (!validation.valid) {

@@ -47,7 +47,9 @@ def parse_import_rows(tsv_text: str) -> list[dict[str, str]]:
     return list(reader)
 
 
-def run_dataset(exe: Path, normalized_tsv: Path, report: Path) -> subprocess.CompletedProcess[str]:
+def run_dataset(
+    exe: Path, normalized_tsv: Path, report: Path, pattern_set: str = "tiny"
+) -> subprocess.CompletedProcess[str]:
     return run_capture(
         [
             str(exe),
@@ -55,11 +57,15 @@ def run_dataset(exe: Path, normalized_tsv: Path, report: Path) -> subprocess.Com
             str(normalized_tsv),
             "--report",
             str(report),
+            "--pattern-set",
+            pattern_set,
         ]
     )
 
 
-def dataset_lines(result: subprocess.CompletedProcess[str]) -> list[str] | None:
+def dataset_lines(
+    result: subprocess.CompletedProcess[str], expected_line_count: int
+) -> list[str] | None:
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
         sys.stderr.write(result.stdout)
@@ -68,7 +74,7 @@ def dataset_lines(result: subprocess.CompletedProcess[str]) -> list[str] | None:
     if not lines or lines[0] != EXPECTED_DATASET_HEADER:
         print("missing or invalid dataset TSV header", file=sys.stderr)
         return None
-    if len(lines) != 57:
+    if len(lines) != expected_line_count:
         print(f"unexpected dataset line count: {len(lines)}", file=sys.stderr)
         return None
     return lines
@@ -106,7 +112,9 @@ def check_report(report: dict[str, object]) -> bool:
     return True
 
 
-def check_repeated_positions(import_rows: list[dict[str, str]], dataset: list[str]) -> bool:
+def check_repeated_positions(
+    import_rows: list[dict[str, str]], dataset: list[str], expected_features_per_row: int
+) -> bool:
     dataset_rows = dataset[1:]
     for row in import_rows:
         expected_ply = int(row["occupied_count"]) - 4
@@ -115,9 +123,10 @@ def check_repeated_positions(import_rows: list[dict[str, str]], dataset: list[st
             f"{row['split']}\t{row['label_score_side_to_move']}\t"
         )
         matching = [line for line in dataset_rows if line.startswith(prefix)]
-        if len(matching) != 8:
+        if len(matching) != expected_features_per_row:
             print(
-                f"expected eight pattern rows with imported ply for {row['record_id']}",
+                f"expected {expected_features_per_row} pattern rows with imported ply for "
+                f"{row['record_id']}",
                 file=sys.stderr,
             )
             return False
@@ -201,13 +210,13 @@ def main() -> int:
         normalized_tsv.write_text(imported_tsv, encoding="utf-8")
 
         first = run_dataset(args.exe, normalized_tsv, first_report)
-        first_lines = dataset_lines(first)
+        first_lines = dataset_lines(first, expected_line_count=57)
         if first_lines is None:
             return 1
         first_report_text = first_report.read_text(encoding="utf-8")
 
         second = run_dataset(args.exe, normalized_tsv, second_report)
-        second_lines = dataset_lines(second)
+        second_lines = dataset_lines(second, expected_line_count=57)
         if second_lines is None:
             return 1
         second_report_text = second_report.read_text(encoding="utf-8")
@@ -226,9 +235,27 @@ def main() -> int:
             return 1
         if not check_report(report):
             return 1
-        if not check_repeated_positions(import_rows, first_lines):
+        if not check_repeated_positions(import_rows, first_lines, expected_features_per_row=8):
             return 1
         if not check_invalid_validation(args.exe, imported_tsv, temp_dir):
+            return 1
+
+        buro_report = temp_dir / "buro-lite-report.json"
+        buro = run_dataset(
+            args.exe, normalized_tsv, buro_report, pattern_set="pattern-v1-buro-lite"
+        )
+        buro_lines = dataset_lines(buro, expected_line_count=183)
+        if buro_lines is None:
+            return 1
+        if not any("\tnear-edge-8\t" in line for line in buro_lines[1:]):
+            print("buro-lite dataset rows are missing near-edge-8", file=sys.stderr)
+            return 1
+        if not any("\tcorner-2x5\t" in line for line in buro_lines[1:]):
+            print("buro-lite dataset rows are missing corner-2x5", file=sys.stderr)
+            return 1
+        if not check_repeated_positions(
+            import_rows, buro_lines, expected_features_per_row=26
+        ):
             return 1
 
     return 0

@@ -44,6 +44,10 @@ Existing foundations include:
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
   records using runtime tiny pattern geometry and ternary encoding; raw ternary
   indices remain the default, with opt-in canonical ternary index output
+* runtime-owned `pattern-v1-buro-lite` production-ish pattern schema and
+  feature geometry with raw `edge-8`, `near-edge-8`, `diagonal-8`,
+  `diagonal-7`, `corner-2x5`, and `corner-3x3` tables, 26 total feature
+  instances, and no learned weights committed
 * `tools/pattern/common` now keeps production-safe helpers separate from
   smoke-only fixture helpers: dataset and feature smoke tools share the same
   raw/canonical index policy and feature-set validation through production-safe
@@ -78,9 +82,11 @@ Existing foundations include:
   rejection, duplicate feature row reporting, and no train-metric regression
   versus the v0a phase-bias baseline on the tiny fixture
 * `tools/pattern/export/export_v0b.py` accepts trainer v0b local intermediate
-  JSON weights, validates schema/trainer versions, 13 phase biases, tiny fixture
-  pattern ids, phase ids, ternary index bounds, and numeric weights, then writes
-  a runtime-loader-compatible local smoke artifact
+  JSON weights, validates schema/trainer versions, 13 phase biases, selected
+  pattern-set ids, phase ids, ternary index bounds, and numeric weights, then
+  writes a runtime-loader-compatible local smoke artifact; the default remains
+  the tiny fixture set, while `--pattern-set pattern-v1-buro-lite` writes the
+  wider local artifact layout
 * CTest-backed tiny artifact exporter smoke that converts the deterministic
   trainer summary into a runtime-loader-compatible artifact with phase bias
   slots and zero-filled tiny fixture pattern tables
@@ -134,7 +140,8 @@ Existing foundations include:
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
-  generated files under the test temporary directory
+  generated files under the test temporary directory; an additional smoke runs
+  the same local runner path with `pattern-v1-buro-lite`
 * local training run analyzer at
   `tools/pattern/train/analyze_local_training_runs.py` that compares one or
   more `local-training-run-report.json` files, emits stable JSON and optional
@@ -234,7 +241,6 @@ The current implementation does not yet have:
 * local-only corpus download scripts
 * production trainer with pattern weights
 * calibration tool
-* production-ish pattern set design for larger local measurements
 * production artifact exporter
 * production pattern-set symmetry enablement with a new pattern set id and any
   required artifact version changes
@@ -292,6 +298,7 @@ Status values:
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw or normalized local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, and a local run report; generated corpora, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
 | Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
+| Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
@@ -319,11 +326,10 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are repeatable 10k, 100k, and 1M local sequence
-subset runs using capped search smoke, measurement review with the analyzer,
-and then trainer or production-ish pattern set design before any production
-artifact publication, committed learned weights, match bench, or strength-claim
-work.
+Next implementation steps are local 10k / 100k / 1M `pattern-v1-buro-lite`
+sequence subset measurements, then trainer improvements or production
+pattern-set symmetry enablement before any production artifact publication,
+committed learned weights, match bench, or strength-claim work.
 
 ## Progress Update Rules
 

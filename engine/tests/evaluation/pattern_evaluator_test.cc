@@ -128,6 +128,25 @@ PatternWeights make_single_square_bias_weights(search::Score early_bias, search:
   };
 }
 
+PatternWeights make_zero_weights_for_feature_set(const PatternFeatureSet& feature_set) {
+  std::vector<PatternWeightTable> tables;
+  tables.reserve(feature_set.tables.size());
+  for (const PatternFeatureTable& table : feature_set.tables) {
+    tables.push_back(PatternWeightTable{
+        .pattern_id = table.pattern_id,
+        .pattern_length = table.pattern_length,
+        .weights = std::vector<search::Score>(
+            static_cast<std::size_t>(kFixturePhaseCount) * pattern_size(table.pattern_length), 0),
+    });
+  }
+  return PatternWeights{
+      kFixturePhaseCount,
+      fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
+      std::move(tables),
+  };
+}
+
 PatternFeatureSet single_square_feature_set() {
   return PatternFeatureSet{
       .id = "single-square-fixture-v1",
@@ -212,6 +231,19 @@ TEST_CASE("pattern evaluator adds phase bias to pattern score", "[evaluation][pa
 
   REQUIRE(evaluator.evaluate(early) == 7);
   REQUIRE(evaluator.evaluate(late) == -11);
+}
+
+TEST_CASE("pattern evaluator accepts buro-lite feature geometry", "[evaluation][pattern]") {
+  const PatternFeatureSet feature_set = buro_lite_pattern_feature_set();
+  const PatternWeights weights = make_zero_weights_for_feature_set(feature_set);
+  const PatternEvaluator evaluator{weights, feature_set};
+  constexpr Position position{
+      .player = bit(square(0, 0)) | bit(square(4, 4)) | bit(square(7, 7)),
+      .opponent = bit(square(1, 0)) | bit(square(3, 3)) | bit(square(6, 7)),
+      .side_to_move = Color::black,
+  };
+
+  REQUIRE(evaluator.evaluate(position) == 0);
 }
 
 TEST_CASE("pattern evaluator matches existing tiny fixture scores", "[evaluation][pattern]") {

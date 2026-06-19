@@ -13,25 +13,18 @@ import zlib
 from pathlib import Path
 from typing import Any
 
+from pattern_sets import PatternSetSpec, resolve_pattern_set
+
 
 FORMAT_VERSION = 1
 SCORE_SCALE = 1
 PHASE_COUNT = 13
 SCHEMA_VERSION = 1
 TRAINER_VERSION = "pattern-sgd-v0b"
-PATTERN_SET_ID = "fixed-pattern-fixture-v1"
-PATTERNS = (
-    ("edge-8", 8),
-    ("corner-3x3", 9),
-)
-NOTE = "local smoke artifact; not production"
 
 
 def checked_pattern_size(length: int) -> int:
     return 3**length
-
-
-PATTERN_SIZES = {pattern_id: checked_pattern_size(length) for pattern_id, length in PATTERNS}
 
 
 def fail(message: str) -> None:
@@ -83,11 +76,16 @@ def validate_phase_bias(payload: dict[str, Any]) -> list[int]:
     return values
 
 
-def validate_pattern_weights(payload: dict[str, Any]) -> dict[tuple[int, str, int], int]:
+def validate_pattern_weights(
+    payload: dict[str, Any], pattern_set: PatternSetSpec
+) -> dict[tuple[int, str, int], int]:
     pattern_weights = payload.get("pattern_weights")
     if not isinstance(pattern_weights, list):
         fail("pattern_weights must be an array")
 
+    pattern_sizes = {
+        pattern_id: checked_pattern_size(length) for pattern_id, length in pattern_set.patterns
+    }
     weights: dict[tuple[int, str, int], int] = {}
     for row_index, row in enumerate(pattern_weights):
         if not isinstance(row, dict):
@@ -101,13 +99,13 @@ def validate_pattern_weights(payload: dict[str, Any]) -> dict[tuple[int, str, in
         weight = row["weight"]
         if not isinstance(phase, int) or isinstance(phase, bool) or phase < 0 or phase > 12:
             fail(f"pattern_weights[{row_index}].phase must be in [0, 12]")
-        if not isinstance(pattern_id, str) or pattern_id not in PATTERN_SIZES:
-            fail(f"pattern_weights[{row_index}].pattern_id is not in the tiny fixture set")
+        if not isinstance(pattern_id, str) or pattern_id not in pattern_sizes:
+            fail(f"pattern_weights[{row_index}].pattern_id is not in the selected pattern set")
         if (
             not isinstance(ternary_index, int)
             or isinstance(ternary_index, bool)
             or ternary_index < 0
-            or ternary_index >= PATTERN_SIZES[pattern_id]
+            or ternary_index >= pattern_sizes[pattern_id]
         ):
             fail(f"pattern_weights[{row_index}].ternary_index is outside the table range")
         if not is_number(weight):
@@ -120,15 +118,17 @@ def validate_pattern_weights(payload: dict[str, Any]) -> dict[tuple[int, str, in
     return weights
 
 
-def validate_weights(payload: dict[str, Any]) -> tuple[list[int], dict[tuple[int, str, int], int]]:
+def validate_weights(
+    payload: dict[str, Any], pattern_set: PatternSetSpec
+) -> tuple[list[int], dict[tuple[int, str, int], int]]:
     if payload.get("schema_version") != SCHEMA_VERSION:
         fail("schema_version must be 1")
     if payload.get("trainer_version") != TRAINER_VERSION:
         fail("trainer_version must be pattern-sgd-v0b")
-    return validate_phase_bias(payload), validate_pattern_weights(payload)
+    return validate_phase_bias(payload), validate_pattern_weights(payload, pattern_set)
 
 
-def append_header(output: bytearray, weight_count: int) -> None:
+def append_header(output: bytearray, weight_count: int, pattern_set: PatternSetSpec) -> None:
     output.extend(b"VOPWGT\0\0")
     output.extend(
         struct.pack(
@@ -138,28 +138,29 @@ def append_header(output: bytearray, weight_count: int) -> None:
             1,
             SCORE_SCALE,
             PHASE_COUNT,
-            len(PATTERNS),
-            len(PATTERN_SET_ID),
+            len(pattern_set.patterns),
+            len(pattern_set.pattern_set_id),
             0,
             weight_count,
         )
     )
-    output.extend(PATTERN_SET_ID.encode("utf-8"))
+    output.extend(pattern_set.pattern_set_id.encode("utf-8"))
 
 
 def make_artifact(
     phase_biases: list[int],
     pattern_weights: dict[tuple[int, str, int], int],
+    pattern_set: PatternSetSpec,
 ) -> tuple[bytes, int]:
     pattern_offsets: dict[str, int] = {}
     stride = 1
-    for pattern_id, length in PATTERNS:
+    for pattern_id, length in pattern_set.patterns:
         pattern_offsets[pattern_id] = stride
         stride += checked_pattern_size(length)
     weight_count = stride * PHASE_COUNT
 
     output = bytearray()
-    append_header(output, weight_count)
+    append_header(output, weight_count, pattern_set)
     weights = [0] * weight_count
     for phase, bias in enumerate(phase_biases):
         weights[phase * stride] = bias
@@ -181,28 +182,29 @@ def write_manifest(
     artifact_size: int,
     phase_biases: list[int],
     nonzero_pattern_weights: int,
+    pattern_set: PatternSetSpec,
 ) -> None:
     manifest = {
-        "artifact_id": "tiny-smoke-pattern-sgd-v0b-artifact-v1",
+        "artifact_id": pattern_set.v0b_artifact_id,
         "format": "vibe-othello-pattern-eval",
         "format_version": FORMAT_VERSION,
         "bit_order": "a1-lsb",
         "score_unit": "disc-diff",
         "score_scale": SCORE_SCALE,
         "phase_count": PHASE_COUNT,
-        "pattern_set_id": PATTERN_SET_ID,
+        "pattern_set_id": pattern_set.pattern_set_id,
         "weights_file": weights_path.name,
         "weights_size_bytes": artifact_size,
         "weights_checksum": f"0x{checksum:08x}",
         "trainer_version": TRAINER_VERSION,
         "source_weights_checksum": source_checksum,
         "nonzero_pattern_weights": nonzero_pattern_weights,
-        "notes": NOTE,
+        "notes": pattern_set.note,
         "quantization": "round-half-away-from-zero to int32 search::Score",
         "phase_bias": phase_biases,
         "patterns": [
             {"pattern_id": pattern_id, "length": length, "weights": "sparse-v0b-import"}
-            for pattern_id, length in PATTERNS
+            for pattern_id, length in pattern_set.patterns
         ],
     }
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -213,12 +215,14 @@ def main() -> int:
     parser.add_argument("--weights-json", required=True, type=Path)
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--manifest-out", required=True, type=Path)
+    parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     args = parser.parse_args()
 
     try:
+        pattern_set = resolve_pattern_set(args.pattern_set)
         payload, source_bytes = load_weights(args.weights_json)
-        phase_biases, pattern_weights = validate_weights(payload)
-        artifact, checksum = make_artifact(phase_biases, pattern_weights)
+        phase_biases, pattern_weights = validate_weights(payload, pattern_set)
+        artifact, checksum = make_artifact(phase_biases, pattern_weights, pattern_set)
         args.weights_out.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
         args.weights_out.write_bytes(artifact)
@@ -231,6 +235,7 @@ def main() -> int:
             len(artifact),
             phase_biases,
             len(pattern_weights),
+            pattern_set,
         )
     except (OSError, RuntimeError) as error:
         print(error, file=sys.stderr)
@@ -241,13 +246,13 @@ def main() -> int:
     print("score_unit=disc-diff")
     print(f"score_scale={SCORE_SCALE}")
     print(f"phase_count={PHASE_COUNT}")
-    print(f"pattern_set_id={PATTERN_SET_ID}")
+    print(f"pattern_set_id={pattern_set.pattern_set_id}")
     print(f"weights_checksum=0x{checksum:08x}")
     print(f"weights_size_bytes={len(artifact)}")
     print(f"trainer_version={TRAINER_VERSION}")
     print(f"source_weights_checksum={source_checksum}")
     print(f"nonzero_pattern_weights={len(pattern_weights)}")
-    print(f"notes={NOTE}")
+    print(f"notes={pattern_set.note}")
     return 0
 
 

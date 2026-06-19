@@ -1,3 +1,4 @@
+#include "pattern_set_options.h"
 #include "vibe_othello/board_core/coordinates.h"
 #include "vibe_othello/board_core/position.h"
 #include "vibe_othello/evaluation/pattern.h"
@@ -32,6 +33,7 @@ struct Args {
   std::string v0a_artifact_checksum;
   std::string v0b_artifact_checksum;
   std::string report_out_path;
+  std::string pattern_set = "tiny";
 };
 
 struct PositionFixture {
@@ -85,6 +87,10 @@ std::optional<Args> parse_args(int argc, char** argv) {
       if (!next_value(&args.report_out_path)) {
         return std::nullopt;
       }
+    } else if (arg == "--pattern-set") {
+      if (!next_value(&args.pattern_set)) {
+        return std::nullopt;
+      }
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -97,7 +103,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
     std::cerr << "usage: vibe-othello-pattern-evaluation-bench-smoke "
                  "--positions-tsv PATH --v0a-weights PATH --v0b-weights PATH "
                  "--v0a-artifact-checksum CHECKSUM --v0b-artifact-checksum CHECKSUM "
-                 "--report-out PATH\n";
+                 "--report-out PATH [--pattern-set tiny|buro-lite]\n";
     return std::nullopt;
   }
   return args;
@@ -190,7 +196,8 @@ std::optional<std::vector<std::uint8_t>> read_binary(const std::string& path) {
   return bytes;
 }
 
-std::optional<vibe_othello::evaluation::PatternWeights> load_weights(const std::string& path) {
+std::optional<vibe_othello::evaluation::PatternWeights>
+load_weights(const std::string& path, const vibe_othello::evaluation::PatternSet& pattern_set) {
   namespace eval = vibe_othello::evaluation;
 
   const std::optional<std::vector<std::uint8_t>> artifact = read_binary(path);
@@ -198,7 +205,6 @@ std::optional<vibe_othello::evaluation::PatternWeights> load_weights(const std::
     return std::nullopt;
   }
 
-  const eval::PatternSet& pattern_set = eval::fixed_pattern_set_fixture();
   const eval::PatternManifest manifest{
       .format_version = eval::kPatternWeightFormatVersion,
       .bit_order = eval::PatternBitOrder::a1_lsb,
@@ -320,16 +326,20 @@ bool score_in_search_range(vibe_othello::search::Score score) noexcept {
 }
 
 std::string report_without_checksum(const Args& args, std::span<const ScoreRow> rows,
-                                    int different_count) {
+                                    int different_count,
+                                    const vibe_othello::evaluation::PatternSet& pattern_set) {
+  const bool tiny_pattern_set = pattern_set.id == "fixed-pattern-fixture-v1";
+  const std::string_view source =
+      tiny_pattern_set ? "tiny-egaroucid-v0b-smoke" : "buro-lite-egaroucid-v0b-smoke";
   std::ostringstream output;
   output << "{\n";
   output << "  \"schema_version\": 1,\n";
-  output << "  \"source\": \"tiny-egaroucid-v0b-smoke\",\n";
+  output << "  \"source\": \"" << source << "\",\n";
   output << "  \"artifact_checksums\": {\n";
   output << "    \"v0a\": \"" << json_escape(args.v0a_artifact_checksum) << "\",\n";
   output << "    \"v0b\": \"" << json_escape(args.v0b_artifact_checksum) << "\"\n";
   output << "  },\n";
-  output << "  \"pattern_set_id\": \"fixed-pattern-fixture-v1\",\n";
+  output << "  \"pattern_set_id\": \"" << json_escape(pattern_set.id) << "\",\n";
   output << "  \"phase_count\": 13,\n";
   output << "  \"positions_count\": " << rows.size() << ",\n";
   output << "  \"score_rows\": [\n";
@@ -377,20 +387,30 @@ bool write_report(const std::string& path, std::string_view report_body,
 
 int main(int argc, char** argv) {
   namespace eval = vibe_othello::evaluation;
+  namespace pattern = vibe_othello::tools::pattern;
 
   const std::optional<Args> args = parse_args(argc, argv);
   if (!args.has_value()) {
     return 2;
   }
+  const std::optional<pattern::PatternSetOption> selected_pattern_set =
+      pattern::select_pattern_set(args->pattern_set, pattern::IndexMode::raw);
+  if (!selected_pattern_set.has_value() || selected_pattern_set->pattern_set == nullptr) {
+    std::cerr << "--pattern-set must be " << pattern::pattern_set_option_names() << '\n';
+    return 2;
+  }
+  const eval::PatternSet& pattern_set = *selected_pattern_set->pattern_set;
 
-  std::optional<eval::PatternWeights> v0a_weights = load_weights(args->v0a_weights_path);
-  std::optional<eval::PatternWeights> v0b_weights = load_weights(args->v0b_weights_path);
+  std::optional<eval::PatternWeights> v0a_weights =
+      load_weights(args->v0a_weights_path, pattern_set);
+  std::optional<eval::PatternWeights> v0b_weights =
+      load_weights(args->v0b_weights_path, pattern_set);
   std::optional<std::vector<PositionFixture>> positions = load_positions(args->positions_tsv_path);
   if (!v0a_weights.has_value() || !v0b_weights.has_value() || !positions.has_value()) {
     return 1;
   }
 
-  const eval::PatternFeatureSet feature_set = eval::tiny_pattern_feature_set_fixture();
+  const eval::PatternFeatureSet& feature_set = selected_pattern_set->feature_set;
   const eval::PatternEvaluator v0a_evaluator{std::move(*v0a_weights), feature_set};
   const eval::PatternEvaluator v0b_evaluator{std::move(*v0b_weights), feature_set};
 
@@ -428,15 +448,18 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const std::string body = report_without_checksum(*args, rows, different_count);
+  const std::string body = report_without_checksum(*args, rows, different_count, pattern_set);
   const std::string checksum = checksum_for(body);
   if (!write_report(args->report_out_path, body, checksum)) {
     return 1;
   }
 
   std::cout << "schema_version=1\n";
-  std::cout << "source=tiny-egaroucid-v0b-smoke\n";
-  std::cout << "pattern_set_id=fixed-pattern-fixture-v1\n";
+  std::cout << "source="
+            << (pattern_set.id == "fixed-pattern-fixture-v1" ? "tiny-egaroucid-v0b-smoke"
+                                                             : "buro-lite-egaroucid-v0b-smoke")
+            << '\n';
+  std::cout << "pattern_set_id=" << pattern_set.id << '\n';
   std::cout << "phase_count=13\n";
   std::cout << "positions_count=" << rows.size() << '\n';
   std::cout << "v0a_v0b_different_count=" << different_count << '\n';
