@@ -15,6 +15,7 @@ Read only the document needed for the current task.
 | Endgame architecture | `architecture/endgame.md` |
 | Endgame implementation status | `progress/endgame.md` |
 | 20-empty endgame experiment notes | `experiments/endgame-high-empty-20.md` |
+| Egaroucid local subset training review | `experiments/egaroucid-local-subset-training-review-2026-06-19.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
