@@ -2,7 +2,9 @@ add_executable(vibe_othello_pattern_features_smoke main.cc)
 
 target_link_libraries(vibe_othello_pattern_features_smoke
                       PRIVATE vibe_othello_data_import_replay_records
-                              vibe_othello_pattern_common)
+                              vibe_othello_pattern_index_mode
+                              vibe_othello_pattern_schema_validation
+                              vibe_othello_pattern_smoke_fixture)
 
 set_target_properties(vibe_othello_pattern_features_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-features-smoke)

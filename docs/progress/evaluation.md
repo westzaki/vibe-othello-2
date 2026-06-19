@@ -93,7 +93,9 @@ Existing evaluation tests cover:
 * isolated pattern symmetry canonicalization for none, reverse, square D4,
   determinism, player/opponent digit preservation, and malformed inputs
 * CTest-backed raw and opt-in canonical tiny feature/dataset smoke outputs,
-  including shared row counts and changed representative canonical indices
+  including shared row counts, changed representative canonical indices, and a
+  boundary check that production-safe pattern helper targets do not depend on
+  tiny smoke fixture helpers
 * artifact loader success and rejection paths
 * conversion from loaded artifact data to runtime `PatternWeights`
 * CTest-backed learning-pipeline round-trip from tiny trainer summary to

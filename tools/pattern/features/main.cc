@@ -1,5 +1,7 @@
-#include "pattern_common.h"
+#include "index_mode.h"
 #include "replay_records.h"
+#include "schema_validation.h"
+#include "smoke_fixture.h"
 #include "vibe_othello/evaluation/pattern_feature_set.h"
 
 #include <cstddef>
@@ -75,9 +77,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const eval::PatternSet& pattern_set = pattern::pattern_set_for_index_mode(args->index_mode);
+  const eval::PatternSet& pattern_set =
+      pattern::smoke::pattern_set_for_index_mode(args->index_mode);
   const eval::PatternFeatureSet feature_set = eval::tiny_pattern_feature_set_fixture();
-  if (!pattern::validate_feature_set(feature_set, pattern_set)) {
+  const pattern::FeatureSetValidationResult validation =
+      pattern::validate_feature_set(feature_set, pattern_set);
+  if (!validation.valid) {
+    std::cerr << validation.error << '\n';
     return 1;
   }
 
@@ -116,7 +122,7 @@ int main(int argc, char** argv) {
 
     for (std::size_t ply = 0; ply < result.positions.size(); ++ply) {
       const vibe_othello::board_core::Position position = result.positions[ply];
-      const std::uint8_t phase = pattern::tiny_fixture_phase(position);
+      const std::uint8_t phase = pattern::smoke::tiny_fixture_phase(position);
       for (std::size_t table_index = 0; table_index < feature_set.tables.size(); ++table_index) {
         const eval::PatternFeatureTable& table = feature_set.tables[table_index];
         const eval::PatternDefinition& definition = pattern_set.patterns[table_index];
