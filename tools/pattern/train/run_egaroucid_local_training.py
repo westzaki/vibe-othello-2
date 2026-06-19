@@ -204,7 +204,13 @@ def stable_json(data: Any) -> str:
 
 
 def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+    return subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
 
 
 def run_or_fail(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -277,17 +283,24 @@ def prepare_output_dir(args: argparse.Namespace, run_id: str) -> Path:
 
 def import_raw(args: argparse.Namespace, output_dir: Path) -> Path:
     normalized = output_dir / "normalized.tsv"
-    result = run_or_fail(
-        [
-            sys.executable,
-            str(args.importer),
-            "--input",
-            str(args.raw_input),
-            "--manifest",
-            str(args.manifest),
-        ]
-    )
-    normalized.write_text(result.stdout, encoding="utf-8")
+    with normalized.open("w", encoding="utf-8") as output:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(args.importer),
+                "--input",
+                str(args.raw_input),
+                "--manifest",
+                str(args.manifest),
+            ],
+            check=False,
+            stdout=output,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        raise RuntimeError(f"command failed: {sys.executable} {args.importer}")
     return normalized
 
 
@@ -427,16 +440,23 @@ def run_dataset_builder(
 ) -> tuple[Path, Path, dict[str, Any]]:
     dataset_tsv = output_dir / "pattern-dataset.tsv"
     dataset_report = output_dir / "dataset-report.json"
-    result = run_or_fail(
-        [
-            str(args.dataset_exe),
-            "--normalized-tsv",
-            str(normalized_tsv),
-            "--report",
-            str(dataset_report),
-        ]
-    )
-    dataset_tsv.write_text(result.stdout, encoding="utf-8")
+    with dataset_tsv.open("w", encoding="utf-8") as output:
+        result = subprocess.run(
+            [
+                str(args.dataset_exe),
+                "--normalized-tsv",
+                str(normalized_tsv),
+                "--report",
+                str(dataset_report),
+            ],
+            check=False,
+            stdout=output,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        raise RuntimeError(f"command failed: {args.dataset_exe}")
     return dataset_tsv, dataset_report, load_json(dataset_report)
 
 
