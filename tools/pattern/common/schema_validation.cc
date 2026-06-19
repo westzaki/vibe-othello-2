@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace vibe_othello::tools::pattern {
