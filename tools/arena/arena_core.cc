@@ -115,14 +115,20 @@ std::optional<BestMoveResponse> parse_bestmove_response(std::string_view line) {
     return std::nullopt;
   }
 
-  const std::optional<board_core::Move> move = parse_move_token(words[1]);
+  std::optional<board_core::Move> move;
+  if (words[1] != "none") {
+    move = parse_move_token(words[1]);
+    if (!move.has_value()) {
+      return std::nullopt;
+    }
+  }
   const std::optional<int> score = parse_int(words[3]);
   const std::optional<int> depth = parse_int(words[5]);
-  if (!move.has_value() || !score.has_value() || !depth.has_value() || *depth < 0) {
+  if (!score.has_value() || !depth.has_value() || *depth < 0) {
     return std::nullopt;
   }
   return BestMoveResponse{
-      .move = *move,
+      .move = move,
       .score = static_cast<search::Score>(*score),
       .depth = static_cast<search::Depth>(*depth),
   };

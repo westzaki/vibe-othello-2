@@ -27,7 +27,11 @@ TEST_CASE("bestmove parser accepts machine readable output", "[arena]") {
   const std::optional<BestMoveResponse> pass =
       parse_bestmove_response("bestmove pass score 0 depth 4");
   REQUIRE(pass.has_value());
-  REQUIRE(pass->move.kind == board_core::MoveKind::pass);
+  REQUIRE(pass->move == board_core::make_pass());
+  const std::optional<BestMoveResponse> none =
+      parse_bestmove_response("bestmove none score 58 depth 4");
+  REQUIRE(none.has_value());
+  REQUIRE_FALSE(none->move.has_value());
   REQUIRE_FALSE(parse_bestmove_response("info bestmove e6").has_value());
 }
 

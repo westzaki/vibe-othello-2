@@ -13,7 +13,7 @@
 namespace vibe_othello::tools::arena {
 
 struct BestMoveResponse {
-  board_core::Move move = board_core::make_pass();
+  std::optional<board_core::Move> move;
   search::Score score = 0;
   search::Depth depth = 0;
 };
