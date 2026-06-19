@@ -108,6 +108,14 @@ Existing foundations include:
   the payload; train/validation/test split ids are derived from
   `dataset_id + board`, while `record_id` is distinct from `position_id` so
   multiple labels for the same position stay in the same split
+* local-only Egaroucid v0002 sequence/transcript importer at
+  `tools/data-import/import_egaroucid_sequences.py` that accepts local files,
+  directories, and zip archives, replays Othello transcripts with legal move
+  validation plus explicit or implicit pass handling, emits the same normalized
+  TSV schema consumed by the pattern dataset builder, and writes an import
+  report with game, reject, pass, terminal, split, phase, label, checksum, and
+  provenance notes; checked-in coverage uses only a synthetic transcript
+  fixture, not raw Egaroucid data
 * CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
   the normalized TSV into `tools/pattern/dataset`, validates board/count/label
   columns, preserves importer-provided `position_id` and `split`, keeps same
@@ -118,7 +126,11 @@ Existing foundations include:
   normalized TSV input through deterministic position-id subset sampling,
   dataset building, trainer v0b, v0b export, optional v0a baseline export,
   fixed-position evaluation smoke, fixed-position search smoke, and a local
-  training run report JSON
+  training run report JSON; it also supports sequence/transcript input through
+  the local sequence importer, can bound sequence import/conversion itself with
+  ply and max-position controls before the normalized TSV is materialized, and
+  can cap evaluation/search smoke input rows independently from the training
+  sample for large local measurements
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
@@ -185,11 +197,35 @@ comparisons.
 
 The analyzer is intended for local measurement review of 10k, 100k, 1M, and
 similar subset runs. It reports warnings for suspicious inputs, missing smoke
-summaries, missing artifact checksums, non-`egaroucid-local` reports, and zero
-v0a/v0b score-difference summaries, but these warnings do not fail the
-analysis. Egaroucid-derived `local-training-run-report.json` files may contain
-local artifact names and measurement results derived from external data, so
-they must remain under ignored local run directories and must not be committed.
+summaries, missing artifact checksums, unknown source kinds, and zero v0a/v0b
+score-difference summaries, but these warnings do not fail the analysis.
+`egaroucid-local` and `egaroucid-sequence-local` are both recognized local
+Egaroucid source kinds. Egaroucid-derived `local-training-run-report.json`
+files may contain local artifact names and measurement results derived from
+external data, so they must remain under ignored local run directories and must
+not be committed.
+
+The board-score importer and sequence importer intentionally use different
+identity policies. The board-score importer uses `dataset_id + board` for
+`position_id` so repeated boards stay together. The sequence importer uses
+`dataset_id + game_id + ply + board hash` for `position_id` and derives split
+from `dataset_id + game_id`, keeping all emitted positions from one transcript
+in one split and avoiding game leakage across train/validation/test. This means
+cross-game duplicate boards keep separate sequence-derived position ids.
+
+Sequence-derived labels are final-disc-difference labels computed from the
+transcript final board and converted to side-to-move perspective at each
+emitted ply. They are not teacher-search scores. A local 10k / 100k / 1M review
+using Egaroucid v0002 sequence-derived normalized TSV showed trainer v0b
+held-out MAE improving as data increased (10k test MAE 11.616, 100k test MAE
+9.256, 1M partial test MAE 7.486) while v0a phase-bias baseline validation/test
+MAE stayed around 14. This is evidence that the tiny pattern set plus v0b
+trainer reacts to more data, but it is not a match bench, Elo result,
+self-play result, production artifact, or strength claim. The 1M local run was
+interrupted during uncapped search smoke, so large local runs should use the
+runner's sequence import cap plus search smoke cap, for example importing a
+bounded 1M sequence-derived position pool and using 10k search smoke positions,
+while keeping the training sample uncapped by smoke settings.
 
 ## Current Gaps
 
@@ -258,6 +294,7 @@ Status values:
 | Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
+| Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
 | Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
 | Add local-only external corpus scripts | deferred | Download automation remains out of scope; the importer expects a locally obtained payload |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |
@@ -282,10 +319,11 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are 10k, 100k, and 1M local subset runs, measurement
-review with the analyzer, and production-ish pattern set design before any
-production artifact publication, committed learned weights, match bench,
-strength-claim work, or production-ish pattern set implementation.
+Next implementation steps are repeatable 10k, 100k, and 1M local sequence
+subset runs using capped search smoke, measurement review with the analyzer,
+and then trainer or production-ish pattern set design before any production
+artifact publication, committed learned weights, match bench, or strength-claim
+work.
 
 ## Progress Update Rules
 

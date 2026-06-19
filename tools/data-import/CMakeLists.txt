@@ -39,4 +39,18 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
       --manifest
       ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json)
+
+  add_test(
+    NAME vibe_othello_egaroucid_sequence_import_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_sequence_smoke.py
+      --importer
+      ${CMAKE_CURRENT_SOURCE_DIR}/import_egaroucid_sequences.py
+      --fixture
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-sequences.txt
+      --manifest
+      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-sequence-v0002-local.manifest.json
+      --dataset-exe
+      $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>)
 endif()
