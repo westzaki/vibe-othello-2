@@ -44,9 +44,11 @@ Existing foundations include:
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
   records using runtime tiny pattern geometry and ternary encoding; raw ternary
   indices remain the default, with opt-in canonical ternary index output
-* shared `tools/pattern/common` helpers keep dataset and feature smoke tools on
-  the same tiny phase mapping, raw/canonical index policy, pattern-set selection,
-  and feature-set validation logic
+* `tools/pattern/common` now keeps production-safe helpers separate from
+  smoke-only fixture helpers: dataset and feature smoke tools share the same
+  raw/canonical index policy and feature-set validation through production-safe
+  targets, while tiny phase mapping and fixture pattern-set selection live in a
+  smoke-only helper target
 * runtime-owned opt-in pattern symmetry canonicalization primitives that future
   feature extraction, training, and export steps can share
 * a symmetry-aware tiny pattern-set fixture used only by canonical smoke tooling
@@ -166,7 +168,7 @@ Status values:
 | Add dataset manifest schema | done | `data/corpora/dataset-manifest.schema.json` plus CTest smoke validation |
 | Add tiny synthetic fixture records | done | `data/corpora/samples/tiny-local-synthetic.records.tsv` contains checked-in synthetic good and bad replay smoke records |
 | Add importer for one simple text format | done | Minimal `tools/data-import` replay smoke accepts expected-good rows and rejects malformed, illegal, or bad-pass rows through board-core move application |
-| Add dataset builder and deterministic splitter | done | Minimal `tools/pattern/dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, keeps duplicate input rows in deterministic input order, and supports opt-in canonical index output for smoke comparison |
+| Add dataset builder and deterministic splitter | done | Minimal `tools/pattern/dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, keeps duplicate input rows in deterministic input order, supports opt-in canonical index output for smoke comparison, and depends on smoke fixture helpers only through an explicit smoke-only target |
 | Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
 | Add symmetry canonicalization primitive | done | Evaluation exposes an isolated helper for raw, reverse, and square D4 canonical ternary indices; default tools still emit raw ternary indices, while canonical smoke mode opts in through the shared helper |
 | Add feature extractor | done | Minimal `tools/pattern/features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices, with opt-in canonical index output for smoke comparison |
