@@ -166,8 +166,8 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
     return result;
   }
 
-  StackFrame& root_frame = context.stack[0];
-  root_frame = StackFrame{};
+  EndgameStackFrame& root_frame = context.stack[0];
+  root_frame = EndgameStackFrame{};
   root_frame.moves = root_endgame_moves_with_policy<EndgamePolicy>(
       &context, completed_depth, root_empties, small_endgame_policy);
   const MoveList root_moves = root_frame.moves;

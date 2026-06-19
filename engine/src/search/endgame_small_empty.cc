@@ -24,7 +24,7 @@ SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score
                                      SmallEndgamePolicy small_endgame_policy, Score original_alpha,
                                      Score original_beta) {
   require_invariant(empties == 1);
-  StackFrame& frame = context->stack[ply];
+  EndgameStackFrame& frame = context->stack[ply];
   const Depth remaining_empties = static_cast<Depth>(empties);
   if (board_core::is_terminal(context->position)) {
     return exact_score_terminal(context, empties);
@@ -68,7 +68,7 @@ SearchNodeResult exact_score_direct_small_empty(EndgameContext* context, Score a
                                                 std::uint8_t empties, Ply ply,
                                                 SmallEndgamePolicy small_endgame_policy,
                                                 Score original_alpha, Score original_beta) {
-  StackFrame& frame = context->stack[ply];
+  EndgameStackFrame& frame = context->stack[ply];
   const Depth remaining_empties = static_cast<Depth>(empties);
   if (board_core::is_terminal(context->position)) {
     return exact_score_terminal(context, empties);

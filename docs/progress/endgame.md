@@ -57,6 +57,9 @@ The current exact endgame implementation includes:
 * split internal implementation files under `engine/src/search/`:
   `endgame_policy_internal.h`, `endgame_tt.cc`, `endgame_small_empty.cc`,
   `endgame_search.cc`, and `endgame_root.cc`
+* split endgame-only internal declarations under `engine/src/search/`:
+  `endgame_context_internal.h` for endgame context and stack state, and
+  `endgame_tt_internal.h` for endgame TT probe/store declarations
 * root-triggered integration through `search_iterative`
 * evaluator-free public direct exact-score solving through `solve_exact_endgame`
 * evaluator-free public direct WLD solving through `solve_wld_endgame`
@@ -71,6 +74,8 @@ The current exact endgame implementation includes:
   flat-field compatibility through internal normalization
 * dedicated endgame move-ordering entry points that currently preserve the
   existing static Othello ordering
+* dedicated endgame stack frames separate from the midgame `SearchContext`
+  stack frame type
 * generic exact final-disc-difference negamax with alpha-beta pruning
 * uses board-core positions and moves
 * handles pass through board-core move deltas

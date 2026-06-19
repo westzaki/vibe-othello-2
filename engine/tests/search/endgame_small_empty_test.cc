@@ -1,4 +1,4 @@
-#include "../../src/search/search_internal.h"
+#include "../../src/search/endgame_policy_internal.h"
 #include "search/endgame_positions.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/serialization.h"

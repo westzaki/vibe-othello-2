@@ -1,6 +1,7 @@
 #pragma once
 
 #include "move_ordering_internal.h"
+#include "search_limits_internal.h"
 #include "search_options_internal.h"
 #include "transposition_table_internal.h"
 #include "vibe_othello/board_core/board.h"
@@ -8,8 +9,6 @@
 #include "vibe_othello/search/search.h"
 
 #include <array>
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 
 namespace vibe_othello::search::internal {
@@ -44,22 +43,6 @@ struct MidgameOrderingState {
   std::array<int, board_core::kSquareCount> history{};
 };
 
-struct SearchLimitState {
-  std::chrono::steady_clock::time_point start{};
-  std::chrono::steady_clock::time_point deadline{};
-  const std::atomic_bool* stop_requested = nullptr;
-  NodeCount max_nodes = 0;
-  NodeCount nodes = 0;
-  NodeCount nodes_until_next_time_check = 0;
-  bool has_deadline = false;
-  bool stopped = false;
-};
-
-enum class SearchNodeAccounting : std::uint8_t {
-  normal,
-  endgame,
-};
-
 struct SearchContext {
   board_core::Position position;
   const Evaluator& evaluator;
@@ -71,21 +54,6 @@ struct SearchContext {
   SearchLimitState* limit_state = nullptr;
   bool in_iid = false;
   std::array<StackFrame, kMaxPly> stack{};
-};
-
-struct EndgameContext {
-  board_core::Position position;
-  SearchLimits limits{};
-  ResolvedSearchOptions options{};
-  TranspositionTable* transposition_table = nullptr;
-  SearchLimitState* limit_state = nullptr;
-  SearchStats stats{};
-  std::array<StackFrame, kMaxPly> stack{};
-};
-
-enum class SmallEndgamePolicy : std::uint8_t {
-  enabled,
-  generic_only,
 };
 
 } // namespace vibe_othello::search::internal
