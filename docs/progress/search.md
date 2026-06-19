@@ -200,6 +200,7 @@ Status values:
 | Add root-triggered WLD search path | done | `SearchMode::win_loss_draw` plus `endgame.endgame_wld_empties` routes `search_iterative` to WLD endgame solving without exposing final margins |
 | Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` compares temp-only v0a/v0b learned artifacts under explicitly configured deterministic depth-1 search and emits a checksum-stable JSON report; this is local smoke coverage for evaluator signal propagation, not a production benchmark or strength claim |
+| Add local training runner search smoke integration | done | The local-only Egaroucid subset training runner can include the fixed-position search smoke summary/checksum in its local run report after v0b export; this remains depth-1 evaluator propagation coverage, not match or Elo validation |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
