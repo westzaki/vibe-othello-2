@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import heapq
 import json
 import subprocess
 import sys
@@ -58,6 +59,22 @@ class TopKPositionIds:
     def __init__(self, capacity: int | None) -> None:
         self.capacity = capacity
         self.entries: dict[str, str] = {}
+        self.heap: list[tuple[int, str, str]] = []
+
+    @staticmethod
+    def heap_key(key: str) -> int:
+        return -int(key, 16)
+
+    def discard_stale_worst_entries(self) -> None:
+        while self.heap:
+            _, position_id, key = self.heap[0]
+            if self.entries.get(position_id) == key:
+                return
+            heapq.heappop(self.heap)
+
+    def push(self, position_id: str, key: str) -> None:
+        self.entries[position_id] = key
+        heapq.heappush(self.heap, (self.heap_key(key), position_id, key))
 
     def consider(self, position_id: str, key: str) -> None:
         if self.capacity is None:
@@ -67,18 +84,24 @@ class TopKPositionIds:
         current = self.entries.get(position_id)
         if current is not None:
             if key < current:
-                self.entries[position_id] = key
+                self.push(position_id, key)
             return
         if len(self.entries) < self.capacity:
-            self.entries[position_id] = key
+            self.push(position_id, key)
             return
-        worst_position_id, worst_key = max(self.entries.items(), key=lambda item: item[1])
+        self.discard_stale_worst_entries()
+        if not self.heap:
+            self.push(position_id, key)
+            return
+        _, worst_position_id, worst_key = self.heap[0]
         if key < worst_key:
             del self.entries[worst_position_id]
-            self.entries[position_id] = key
+            heapq.heappop(self.heap)
+            self.push(position_id, key)
 
     def allows(self, position_id: str) -> bool:
         return self.capacity is None or position_id in self.entries
+
 
 @dataclass
 class SampleSummary:
@@ -392,7 +415,7 @@ def write_sampled_normalized(
             "seed": args.seed,
             "split_policy": args.split_policy,
             "unit": "position_id groups; duplicate labels for a selected position are preserved",
-            "memory_policy": "stores only selected position_id candidates plus streaming row counters",
+            "memory_policy": "bounded position_id maps with heapq O(log K) candidate replacement",
         },
     }
     sample_report_path.write_text(stable_json(report), encoding="utf-8")
