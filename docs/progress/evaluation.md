@@ -107,6 +107,9 @@ Existing evaluation tests cover:
   phase-bias and v0b pattern-SGD artifacts from the checked-in tiny Egaroucid
   fixture, loads both through the runtime artifact path, evaluates a
   deterministic fixed position set, and reports v0a/v0b score deltas
+* CTest-backed fixed-position search smoke that reuses those local-only learned
+  artifacts through `PatternEvaluator` and measures v0a versus v0b under the
+  same explicitly configured deterministic depth-1 smoke search settings
 
 The current repository already documents that:
 
@@ -130,10 +133,10 @@ The current implementation does not yet have:
 * production trainer tooling
 * calibrated score scale
 
-Trainer v0b learned weights can now be exported, loaded, and measured by a
-fixed-position evaluation smoke, but full training, production artifact
-publication, fixed-position search bench validation, and strength validation
-remain unimplemented.
+Trainer v0b learned weights can now be exported, loaded, measured by a
+fixed-position evaluation smoke, and measured by a fixed-position search smoke.
+Full training, production artifact publication, match-bench validation,
+self-play, and production strength claims remain unimplemented.
 
 The existing `search::Evaluator` interface is the production boundary for
 heuristic evaluation today.
@@ -168,6 +171,7 @@ Status values:
 | Add production `PatternEvaluator` | done | Consumes runtime `PatternWeights` plus explicit `PatternFeatureSet` geometry and applies per-phase bias before pattern table contributions |
 | Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score; the tiny Egaroucid v0b smoke also exports learned pattern-SGD JSON into the existing artifact format and verifies loader/evaluator determinism |
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` compares local-only v0a phase-bias and v0b pattern-SGD artifacts over deterministic fixed positions, emits a checksum-stable JSON report, verifies at least one v0a/v0b score difference, and keeps Egaroucid-derived artifacts temp-only |
+| Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` injects local-only v0a/v0b artifacts through `PatternEvaluator`, compares depth-1 fixed-depth search best move, score, and nodes over deterministic fixed positions, explicitly disables TT/endgame search options, and keeps wall-time out of pass/fail semantics |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
@@ -197,10 +201,11 @@ Evaluation is strong enough to build on when:
 * evaluation benchmark baselines exist
 * UI calibration remains separate from search scoring
 
-Next evaluation steps for learned artifacts are a fixed-position search bench
-and medium training before any production publication decision. Learned
-Egaroucid-derived weights and artifacts remain uncommitted, local-only, and
-publication-gated until provenance review is resolved.
+Next evaluation steps for learned artifacts are a medium Egaroucid subset
+training runner or a local training run report before any production
+publication decision. Learned Egaroucid-derived weights and artifacts remain
+uncommitted, local-only, and publication-gated until provenance review is
+resolved.
 
 ## Progress Update Rules
 

@@ -75,6 +75,11 @@ The current search implementation includes:
   endgame-specific context/TT declarations, so the midgame internal header no
   longer owns endgame solver declarations
 * search benchmark coverage
+* CTest-backed fixed-position learned pattern search smoke that generates
+  local-only v0a phase-bias and v0b pattern-SGD artifacts from the checked-in
+  tiny Egaroucid fixture, injects them through `PatternEvaluator`, and compares
+  best move, score, and node counts under the same explicitly configured
+  depth-1 fixed-depth smoke settings
 * deterministic search golden-check tooling
 * root-triggered generic exact-score endgame solving through `search_iterative`
 * public direct exact-score endgame solving through `solve_exact_endgame`
@@ -129,6 +134,8 @@ The current implementation does not yet have:
 * ProbCut or calibrated selective pruning
 * parallel search
 * analysis and review-specific result adapters
+* match-bench, self-play, or production strength validation for learned
+  pattern artifacts
 
 The exact endgame path currently has root-triggered and internal leaf-triggered
 generic exact-score solving. Root exact search is entered before normal
@@ -192,6 +199,7 @@ Status values:
 | Add public direct WLD endgame solve API | done | `solve_wld_endgame` calls the WLD solver without an evaluator or threshold gate |
 | Add root-triggered WLD search path | done | `SearchMode::win_loss_draw` plus `endgame.endgame_wld_empties` routes `search_iterative` to WLD endgame solving without exposing final margins |
 | Add exact endgame best-only root reporting | done | `multi_pv == 1` returns only the exact best root move while preserving exact score and PV |
+| Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` compares temp-only v0a/v0b learned artifacts under explicitly configured deterministic depth-1 search and emits a checksum-stable JSON report; this is local smoke coverage for evaluator signal propagation, not a production benchmark or strength claim |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
@@ -232,3 +240,9 @@ Update this document when:
 
 Update `docs/architecture/search.md` only when the intended design, boundary,
 semantics, or correctness rules change.
+
+Next search-adjacent steps for learned artifacts are a medium Egaroucid subset
+training runner or a local training run report. The fixed-position learned
+artifact search smoke is not a production benchmark, match bench, self-play
+run, or strength claim, and learned Egaroucid-derived weights/artifacts remain
+uncommitted and publication-gated.
