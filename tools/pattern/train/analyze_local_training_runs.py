@@ -28,6 +28,7 @@ REQUIRED_REPORT_FIELDS = (
 )
 SPLITS = ("train", "validation", "test")
 PHASE_COVERAGE_RATIO_LIMIT = 10.0
+KNOWN_SOURCE_KINDS = {"egaroucid-local", "egaroucid-sequence-local"}
 
 
 @dataclass(frozen=True)
@@ -284,9 +285,9 @@ def warnings_for_run(data: dict[str, Any], min_train_rows: int) -> list[dict[str
         )
     if not validate_string(data.get("artifact_checksum")):
         warnings.append(warning("artifact_checksum_missing", "artifact checksum is missing"))
-    if data.get("source_kind") != "egaroucid-local":
+    if data.get("source_kind") not in KNOWN_SOURCE_KINDS:
         warnings.append(
-            warning("source_kind_not_egaroucid_local", "source_kind is not egaroucid-local")
+            warning("source_kind_unknown", "source_kind is not a known local Egaroucid source")
         )
     return warnings
 
@@ -314,6 +315,8 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
             "v0a_v0b_different_count": count_from_summary(
                 eval_summary, "v0a_v0b_different_count"
             ),
+            "input_positions": int_or_none(data.get("eval_smoke_input_positions")),
+            "used_positions": int_or_none(data.get("eval_smoke_used_positions")),
         },
         "metrics": extract_metrics(trainer_report),
         "path": str(run_report.path),
@@ -327,6 +330,8 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
             "v0a_v0b_score_different_count": count_from_summary(
                 search_summary, "v0a_v0b_score_different_count"
             ),
+            "input_positions": int_or_none(data.get("search_smoke_input_positions")),
+            "used_positions": int_or_none(data.get("search_smoke_used_positions")),
         },
         "source_kind": data.get("source_kind"),
         "train_rows": train_rows,
@@ -368,10 +373,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "search_positions",
                 "search_score_diff",
                 "search_best_move_diff",
+                "eval_used",
+                "search_used",
                 "warnings",
             ]
         ),
-        markdown_table_row(["---"] * 14),
+        markdown_table_row(["---"] * 16),
     ]
     for run in runs:
         counts = run.get("counts_by_split") or {}
@@ -393,6 +400,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
                     search_smoke.get("positions_count"),
                     search_smoke.get("v0a_v0b_score_different_count"),
                     search_smoke.get("v0a_v0b_best_move_different_count"),
+                    eval_smoke.get("used_positions"),
+                    search_smoke.get("used_positions"),
                     ", ".join(item["code"] for item in run.get("warnings", [])),
                 ]
             )

@@ -134,7 +134,9 @@ def parse_args() -> argparse.Namespace:
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--normalized-tsv", type=Path)
     input_group.add_argument("--raw-input", type=Path)
+    input_group.add_argument("--sequence-input", type=Path)
     parser.add_argument("--manifest", type=Path, help="Required with --raw-input.")
+    parser.add_argument("--sequence-manifest", type=Path, help="Required with --sequence-input.")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--run-id", help="Stable run id. Defaults to UTC timestamp plus input hash.")
     parser.add_argument("--created-at-utc", help="Override timestamp for deterministic smoke tests.")
@@ -148,10 +150,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-eval-smoke", action="store_true")
     parser.add_argument("--skip-search-smoke", action="store_true")
     parser.add_argument("--skip-v0a-baseline", action="store_true")
+    parser.add_argument("--sequence-min-ply", type=int, default=8)
+    parser.add_argument("--sequence-max-ply", type=int)
+    parser.add_argument("--sequence-ply-stride", type=int, default=1)
+    parser.add_argument("--sequence-max-positions", type=int)
+    parser.add_argument(
+        "--sequence-emit-terminal",
+        dest="sequence_emit_terminal",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument("--sequence-no-emit-terminal", dest="sequence_emit_terminal", action="store_false")
+    parser.add_argument("--eval-smoke-max-positions", type=int)
+    parser.add_argument("--search-smoke-max-positions", type=int)
     parser.add_argument(
         "--importer",
         type=Path,
         default=root / "tools/data-import/import_egaroucid_train_data.py",
+    )
+    parser.add_argument(
+        "--sequence-importer",
+        type=Path,
+        default=root / "tools/data-import/import_egaroucid_sequences.py",
     )
     parser.add_argument(
         "--trainer",
@@ -186,6 +206,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.raw_input is not None and args.manifest is None:
         parser.error("--raw-input requires --manifest")
+    if args.sequence_input is not None and args.sequence_manifest is None:
+        parser.error("--sequence-input requires --sequence-manifest")
     if args.max_examples is not None and args.max_examples <= 0:
         parser.error("--max-examples must be positive")
     if args.max_per_phase is not None and args.max_per_phase <= 0:
@@ -196,6 +218,18 @@ def parse_args() -> argparse.Namespace:
         parser.error("--learning-rate must be non-negative")
     if args.l2 < 0.0:
         parser.error("--l2 must be non-negative")
+    if args.sequence_min_ply < 0:
+        parser.error("--sequence-min-ply must be non-negative")
+    if args.sequence_max_ply is not None and args.sequence_max_ply < args.sequence_min_ply:
+        parser.error("--sequence-max-ply must be >= --sequence-min-ply")
+    if args.sequence_ply_stride <= 0:
+        parser.error("--sequence-ply-stride must be positive")
+    if args.sequence_max_positions is not None and args.sequence_max_positions <= 0:
+        parser.error("--sequence-max-positions must be positive")
+    if args.eval_smoke_max_positions is not None and args.eval_smoke_max_positions <= 0:
+        parser.error("--eval-smoke-max-positions must be positive")
+    if args.search_smoke_max_positions is not None and args.search_smoke_max_positions <= 0:
+        parser.error("--search-smoke-max-positions must be positive")
     return args
 
 
@@ -301,6 +335,44 @@ def import_raw(args: argparse.Namespace, output_dir: Path) -> Path:
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
         raise RuntimeError(f"command failed: {sys.executable} {args.importer}")
+    return normalized
+
+
+def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
+    normalized = output_dir / "sequence-normalized.tsv"
+    report = output_dir / "sequence-import-report.json"
+    command = [
+        sys.executable,
+        str(args.sequence_importer),
+        "--input",
+        str(args.sequence_input),
+        "--manifest",
+        str(args.sequence_manifest),
+        "--report",
+        str(report),
+        "--seed",
+        str(args.seed),
+        "--min-ply",
+        str(args.sequence_min_ply),
+        "--ply-stride",
+        str(args.sequence_ply_stride),
+    ]
+    if args.sequence_max_ply is not None:
+        command.extend(["--max-ply", str(args.sequence_max_ply)])
+    if args.sequence_max_positions is not None:
+        command.extend(["--max-positions", str(args.sequence_max_positions)])
+    command.append("--emit-terminal" if args.sequence_emit_terminal else "--no-emit-terminal")
+    with normalized.open("w", encoding="utf-8") as output:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=output,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        raise RuntimeError(f"command failed: {sys.executable} {args.sequence_importer}")
     return normalized
 
 
@@ -433,6 +505,72 @@ def write_sampled_normalized(
     }
     sample_report_path.write_text(stable_json(report), encoding="utf-8")
     return report
+
+
+def count_normalized_rows(path: Path) -> int:
+    count = 0
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if reader.fieldnames != NORMALIZED_HEADER:
+            raise RuntimeError("unexpected normalized TSV header")
+        for _ in reader:
+            count += 1
+    return count
+
+
+def write_smoke_positions_tsv(
+    input_path: Path,
+    output_path: Path,
+    max_positions: int | None,
+    seed: int,
+) -> dict[str, Any]:
+    input_rows = count_normalized_rows(input_path)
+    if max_positions is None or input_rows <= max_positions:
+        return {
+            "input_positions": input_rows,
+            "used_positions": input_rows,
+            "path": input_path,
+            "policy": {
+                "method": "all sampled positions",
+                "max_positions": max_positions,
+                "seed": seed,
+            },
+        }
+
+    selection = TopKPositionIds(max_positions)
+    with input_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if reader.fieldnames != NORMALIZED_HEADER:
+            raise RuntimeError("unexpected normalized TSV header")
+        for line_number, row in enumerate(reader, start=2):
+            parsed = parse_normalized_row(row, line_number)
+            selection.consider(parsed.position_id, sample_key(seed, parsed.position_id))
+
+    used_rows = 0
+    with input_path.open(newline="", encoding="utf-8") as input_handle:
+        reader = csv.DictReader(input_handle, delimiter="\t")
+        with output_path.open("w", newline="", encoding="utf-8") as output_handle:
+            writer = csv.writer(output_handle, delimiter="\t", lineterminator="\n")
+            writer.writerow(NORMALIZED_HEADER)
+            for line_number, row in enumerate(reader, start=2):
+                parsed = parse_normalized_row(row, line_number)
+                if selection.allows(parsed.position_id):
+                    writer.writerow(parsed.fields)
+                    used_rows += 1
+
+    if used_rows == 0:
+        raise RuntimeError("smoke position sampling produced no rows")
+    return {
+        "input_positions": input_rows,
+        "used_positions": used_rows,
+        "path": output_path,
+        "policy": {
+            "method": "deterministic position_id sha256 top-k",
+            "max_positions": max_positions,
+            "seed": seed,
+            "unit": "position rows",
+        },
+    }
 
 
 def run_dataset_builder(
@@ -605,6 +743,8 @@ def write_run_report(
     v0a_data: tuple[Path, Path, Path, Path, dict[str, Any], dict[str, str]] | None,
     eval_summary: dict[str, Any] | None,
     search_summary: dict[str, Any] | None,
+    source_kind: str,
+    smoke_positions: dict[str, dict[str, Any]],
 ) -> Path:
     source_ids = sample_report.get("source_dataset_ids")
     source_dataset_id = (
@@ -619,7 +759,7 @@ def write_run_report(
         "created_at_utc": timestamp,
         "git_commit": git_commit(),
         "source_dataset_id": source_dataset_id,
-        "source_kind": "egaroucid-local",
+        "source_kind": source_kind,
         "input_mode": input_mode,
         "sample_policy": sample_report.get("sample_policy"),
         "sample_counts_by_split": sample_report.get("counts_by_split"),
@@ -639,6 +779,16 @@ def write_run_report(
         "artifact_checksum": v0b_export_summary.get("weights_checksum"),
         "evaluation_smoke_summary": eval_summary,
         "search_smoke_summary": search_summary,
+        "eval_smoke_input_positions": smoke_positions.get("evaluation", {}).get(
+            "input_positions"
+        ),
+        "eval_smoke_used_positions": smoke_positions.get("evaluation", {}).get("used_positions"),
+        "search_smoke_input_positions": smoke_positions.get("search", {}).get("input_positions"),
+        "search_smoke_used_positions": smoke_positions.get("search", {}).get("used_positions"),
+        "smoke_position_sample_policy": {
+            "evaluation": smoke_positions.get("evaluation", {}).get("policy"),
+            "search": smoke_positions.get("search", {}).get("policy"),
+        },
         "v0a_baseline": None
         if v0a_data is None
         else {
@@ -659,10 +809,22 @@ def main() -> int:
         timestamp = created_at_utc(args)
         run_id = make_run_id(args, timestamp)
         output_dir = prepare_output_dir(args, run_id)
-        input_mode = "normalized-tsv" if args.normalized_tsv is not None else "raw-input"
+        if args.normalized_tsv is not None:
+            input_mode = "normalized-tsv"
+            source_kind = "egaroucid-local"
+        elif args.raw_input is not None:
+            input_mode = "raw-input"
+            source_kind = "egaroucid-local"
+        else:
+            input_mode = "sequence-input"
+            source_kind = "egaroucid-sequence-local"
 
         source_normalized = (
-            args.normalized_tsv if args.normalized_tsv is not None else import_raw(args, output_dir)
+            args.normalized_tsv
+            if args.normalized_tsv is not None
+            else import_raw(args, output_dir)
+            if args.raw_input is not None
+            else import_sequence(args, output_dir)
         )
         sampled_normalized = output_dir / "sampled-normalized.tsv"
         sample_report_path = output_dir / "sample-report.json"
@@ -688,25 +850,44 @@ def main() -> int:
             v0a_checksum = v0a_data[5]["weights_checksum"]
             v0b_checksum = v0b_export_summary["weights_checksum"]
             if not args.skip_eval_smoke:
+                eval_positions = write_smoke_positions_tsv(
+                    sampled_normalized,
+                    output_dir / "evaluation-smoke-positions.tsv",
+                    args.eval_smoke_max_positions,
+                    args.seed,
+                )
                 eval_summary = run_smoke(
                     args.eval_smoke_exe,
-                    sampled_normalized,
+                    eval_positions["path"],
                     v0a_artifact,
                     v0b_artifact,
                     v0a_checksum,
                     v0b_checksum,
                     output_dir / "evaluation-smoke-report.json",
                 )
+            else:
+                eval_positions = {}
             if not args.skip_search_smoke:
+                search_positions = write_smoke_positions_tsv(
+                    sampled_normalized,
+                    output_dir / "search-smoke-positions.tsv",
+                    args.search_smoke_max_positions,
+                    args.seed,
+                )
                 search_summary = run_smoke(
                     args.search_smoke_exe,
-                    sampled_normalized,
+                    search_positions["path"],
                     v0a_artifact,
                     v0b_artifact,
                     v0a_checksum,
                     v0b_checksum,
                     output_dir / "search-smoke-report.json",
                 )
+            else:
+                search_positions = {}
+        else:
+            eval_positions = {}
+            search_positions = {}
 
         paths = {
             "sampled_normalized_tsv": sampled_normalized,
@@ -718,8 +899,10 @@ def main() -> int:
             "v0b_artifact_weights": v0b_artifact,
             "v0b_artifact_manifest": v0b_manifest,
         }
-        if args.raw_input is not None:
+        if args.raw_input is not None or args.sequence_input is not None:
             paths["normalized_tsv"] = source_normalized
+        if args.sequence_input is not None:
+            paths["sequence_import_report_json"] = output_dir / "sequence-import-report.json"
         if v0a_data is not None:
             paths.update(
                 {
@@ -731,8 +914,12 @@ def main() -> int:
             )
         if eval_summary is not None:
             paths["evaluation_smoke_report_json"] = output_dir / "evaluation-smoke-report.json"
+            if eval_positions.get("path") != sampled_normalized:
+                paths["evaluation_smoke_positions_tsv"] = eval_positions["path"]
         if search_summary is not None:
             paths["search_smoke_report_json"] = output_dir / "search-smoke-report.json"
+            if search_positions.get("path") != sampled_normalized:
+                paths["search_smoke_positions_tsv"] = search_positions["path"]
 
         report_path = write_run_report(
             args,
@@ -748,6 +935,8 @@ def main() -> int:
             v0a_data,
             eval_summary,
             search_summary,
+            source_kind,
+            {"evaluation": eval_positions, "search": search_positions},
         )
     except RuntimeError as error:
         print(error, file=sys.stderr)

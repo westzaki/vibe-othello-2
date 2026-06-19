@@ -173,7 +173,7 @@ Status values:
 | Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score; the tiny Egaroucid v0b smoke also exports learned pattern-SGD JSON into the existing artifact format and verifies loader/evaluator determinism |
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` compares local-only v0a phase-bias and v0b pattern-SGD artifacts over deterministic fixed positions, emits a checksum-stable JSON report, verifies at least one v0a/v0b score difference, and keeps Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` injects local-only v0a/v0b artifacts through `PatternEvaluator`, compares depth-1 fixed-depth search best move, score, and nodes over deterministic fixed positions, explicitly disables TT/endgame search options, and keeps wall-time out of pass/fail semantics |
-| Add local training runner evaluation smoke integration | done | The local-only Egaroucid subset training runner can export local v0b artifacts and include the fixed-position evaluation smoke summary/checksum in its local run report; this remains smoke coverage, not a production benchmark |
+| Add local training runner evaluation smoke integration | done | The local-only Egaroucid subset training runner can export local v0b artifacts and include the fixed-position evaluation smoke summary/checksum in its local run report; sequence-derived local runs may cap evaluation smoke input rows independently from training rows; this remains smoke coverage, not a production benchmark |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
@@ -203,10 +203,11 @@ Evaluation is strong enough to build on when:
 * evaluation benchmark baselines exist
 * UI calibration remains separate from search scoring
 
-Next evaluation steps for learned artifacts are a medium Egaroucid subset
-training runner or a local training run report before any production
-publication decision. Learned Egaroucid-derived weights and artifacts remain
-uncommitted, local-only, and publication-gated until provenance review is
+Next evaluation steps for learned artifacts are repeatable local Egaroucid
+sequence subset reports with capped smoke inputs before any production
+publication decision. Sequence-derived labels are final-disc-difference labels,
+not teacher-search labels. Learned Egaroucid-derived weights and artifacts
+remain uncommitted, local-only, and publication-gated until provenance review is
 resolved.
 
 ## Progress Update Rules

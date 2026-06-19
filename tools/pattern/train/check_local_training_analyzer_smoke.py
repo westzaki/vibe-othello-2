@@ -101,8 +101,10 @@ def create_fixtures(root: Path) -> Path:
     runs_dir = root / "runs"
     first_dir = runs_dir / "01-good"
     second_dir = runs_dir / "02-warning"
+    third_dir = runs_dir / "03-sequence"
     write_json(first_dir / "v0b-trainer-report.json", trainer_report())
     write_json(second_dir / "v0b-trainer-report.json", trainer_report())
+    write_json(third_dir / "v0b-trainer-report.json", trainer_report())
     write_json(
         first_dir / "local-training-run-report.json",
         smoke_report(
@@ -146,6 +148,32 @@ def create_fixtures(root: Path) -> Path:
                 "report_checksum": "0xeval-zero",
             },
             None,
+        ),
+    )
+    write_json(
+        third_dir / "local-training-run-report.json",
+        smoke_report(
+            "smoke-sequence",
+            "2026-01-02T03:04:07Z",
+            "egaroucid-sequence-local",
+            {"train": 120, "validation": 10, "test": 10},
+            {"1": 50, "2": 45, "3": 45},
+            "0xsequence",
+            {
+                "summary": {
+                    "positions_count": "10",
+                    "v0a_v0b_different_count": "5",
+                },
+                "report_checksum": "0xeval-sequence",
+            },
+            {
+                "summary": {
+                    "positions_count": "8",
+                    "v0a_v0b_score_different_count": "3",
+                    "v0a_v0b_best_move_different_count": "1",
+                },
+                "report_checksum": "0xsearch-sequence",
+            },
         ),
     )
     return runs_dir
@@ -209,12 +237,13 @@ def main() -> int:
             print("analyzer Markdown output is not deterministic", file=sys.stderr)
             return 1
         summary = first["json"]
-        if summary.get("run_count") != 2:
+        if summary.get("run_count") != 3:
             print(f"unexpected run count: {summary.get('run_count')!r}", file=sys.stderr)
             return 1
         if [run.get("run_id") for run in summary.get("runs", [])] != [
             "smoke-10k",
             "smoke-warning",
+            "smoke-sequence",
         ]:
             print(f"unexpected run order: {summary.get('runs')!r}", file=sys.stderr)
             return 1
@@ -228,8 +257,9 @@ def main() -> int:
                 "evaluation_score_difference_zero",
                 "search_smoke_missing",
                 "artifact_checksum_missing",
-                "source_kind_not_egaroucid_local",
+                "source_kind_unknown",
             ],
+            "smoke-sequence": [],
         }
         if warning_codes(summary) != expected_warnings:
             print(f"unexpected warnings: {warning_codes(summary)!r}", file=sys.stderr)
