@@ -13,12 +13,14 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -41,6 +43,9 @@ struct Args {
 struct NormalizedRow {
   std::string record_id;
   std::string position_id;
+  std::string game_group_id;
+  std::string board_id;
+  std::string source_occurrence_id;
   std::string source_dataset_id;
   std::string split;
   std::string board;
@@ -56,12 +61,17 @@ struct NormalizedRow {
 };
 
 struct ReportSummary {
+  int schema_version = 1;
   int input_rows = 0;
   int accepted_rows = 0;
   int rejected_rows = 0;
   int repeated_position_count = 0;
   int exact_duplicate_record_count = 0;
+  int cross_split_board_collision_count = 0;
   std::set<std::string> source_dataset_ids;
+  std::set<std::string> game_group_ids;
+  std::set<std::string> board_ids;
+  std::map<std::string, int> cross_split_board_collision_counts_by_pair;
   std::map<std::string, int> counts_by_split;
   std::map<int, int> counts_by_phase;
   std::map<std::string, int> counts_by_label_kind;
@@ -279,8 +289,9 @@ bool validate_split(std::string_view split) noexcept {
   return split == "train" || split == "validation" || split == "test";
 }
 
-int egaroucid_phase_for_occupied_count(int occupied_count) noexcept {
-  return std::min(12, ((occupied_count - 4) * 13) / 60);
+int egaroucid_phase_for_occupied_count(int occupied_count, int schema_version) noexcept {
+  const int occupied_bucket_count = 60;
+  return std::min(12, ((occupied_count - 4) * 13) / occupied_bucket_count);
 }
 
 std::optional<vibe_othello::board_core::Position>
@@ -316,34 +327,60 @@ position_from_a1_to_h8_board(std::string_view board) noexcept {
   return position;
 }
 
-bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow* row,
+std::string split_pair(std::string_view left, std::string_view right) {
+  if (right < left) {
+    std::swap(left, right);
+  }
+  return std::string(left) + "__" + std::string(right);
+}
+
+bool parse_normalized_row(std::string_view line, int line_number, int schema_version,
+                          NormalizedRow* row,
                           std::string* error) {
-  static constexpr std::string_view kExpectedHeader =
+  static constexpr std::string_view kExpectedHeaderV1 =
       "record_id\tposition_id\tsource_dataset_id\tsplit\tboard_a1_to_h8\tlabel_kind\tlabel_"
       "unit\tlabel_perspective\tlabel_score_side_to_move\toccupied_count\tphase\tplayer_disc_"
       "count\topponent_disc_count\tempty_count";
+  static constexpr std::string_view kExpectedHeaderV2 =
+      "record_id\tposition_id\tgame_group_id\tboard_id\tsource_occurrence_id\tsource_dataset_id\t"
+      "split\tboard_a1_to_h8\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_"
+      "move\toccupied_count\tphase\tplayer_disc_count\topponent_disc_count\tempty_count";
 
   const std::vector<std::string_view> fields = split_tabs(trim_trailing_cr(line));
-  if (fields.size() != 14) {
-    *error = "expected 14 TSV fields";
+  const std::size_t expected_field_count = schema_version == 2 ? 17 : 14;
+  if (fields.size() != expected_field_count) {
+    *error = schema_version == 2 ? "expected 17 TSV fields" : "expected 14 TSV fields";
     return false;
   }
-  if (line_number == 1 && trim_trailing_cr(line) == kExpectedHeader) {
+  if (line_number == 1 &&
+      ((schema_version == 1 && trim_trailing_cr(line) == kExpectedHeaderV1) ||
+       (schema_version == 2 && trim_trailing_cr(line) == kExpectedHeaderV2))) {
     *error = "header";
     return false;
   }
 
   row->record_id = std::string(fields[0]);
   row->position_id = std::string(fields[1]);
-  row->source_dataset_id = std::string(fields[2]);
-  row->split = std::string(fields[3]);
-  row->board = std::string(fields[4]);
-  row->label_kind = std::string(fields[5]);
-  row->label_unit = std::string(fields[6]);
-  row->label_perspective = std::string(fields[7]);
+  std::size_t offset = 2;
+  if (schema_version == 2) {
+    row->game_group_id = std::string(fields[offset++]);
+    row->board_id = std::string(fields[offset++]);
+    row->source_occurrence_id = std::string(fields[offset++]);
+  }
+  row->source_dataset_id = std::string(fields[offset++]);
+  row->split = std::string(fields[offset++]);
+  row->board = std::string(fields[offset++]);
+  row->label_kind = std::string(fields[offset++]);
+  row->label_unit = std::string(fields[offset++]);
+  row->label_perspective = std::string(fields[offset++]);
 
   if (row->record_id.empty() || row->position_id.empty() || row->source_dataset_id.empty()) {
     *error = "record_id, position_id, and source_dataset_id must be non-empty";
+    return false;
+  }
+  if (schema_version == 2 &&
+      (row->game_group_id.empty() || row->board_id.empty() || row->source_occurrence_id.empty())) {
+    *error = "game_group_id, board_id, and source_occurrence_id must be non-empty";
     return false;
   }
   if (!validate_split(row->split)) {
@@ -359,8 +396,12 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
     *error = "board_a1_to_h8 contains invalid character";
     return false;
   }
-  if (row->label_kind != "engine_disc_estimate") {
-    *error = "label_kind must be engine_disc_estimate";
+  if (schema_version == 1 && row->label_kind != "engine_disc_estimate") {
+    *error = "v1 label_kind must be engine_disc_estimate";
+    return false;
+  }
+  if (schema_version == 2 && row->label_kind != "observed_final_disc_diff") {
+    *error = "v2 label_kind must be observed_final_disc_diff";
     return false;
   }
   if (row->label_unit != "final_disc_diff") {
@@ -372,12 +413,12 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
     return false;
   }
 
-  const std::optional<int> label = parse_int(fields[8]);
-  const std::optional<int> occupied = parse_int(fields[9]);
-  const std::optional<int> phase = parse_int(fields[10]);
-  const std::optional<int> player_count = parse_int(fields[11]);
-  const std::optional<int> opponent_count = parse_int(fields[12]);
-  const std::optional<int> empty_count = parse_int(fields[13]);
+  const std::optional<int> label = parse_int(fields[offset++]);
+  const std::optional<int> occupied = parse_int(fields[offset++]);
+  const std::optional<int> phase = parse_int(fields[offset++]);
+  const std::optional<int> player_count = parse_int(fields[offset++]);
+  const std::optional<int> opponent_count = parse_int(fields[offset++]);
+  const std::optional<int> empty_count = parse_int(fields[offset++]);
   if (!label.has_value() || !occupied.has_value() || !phase.has_value() ||
       !player_count.has_value() || !opponent_count.has_value() || !empty_count.has_value()) {
     *error = "numeric fields must be integers";
@@ -387,8 +428,10 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
     *error = "label_score_side_to_move must be in [-64, 64]";
     return false;
   }
-  if (*occupied < 4 || *occupied > 63) {
-    *error = "occupied_count must be in [4, 63]";
+  const int max_occupied = schema_version == 2 ? 64 : 63;
+  if (*occupied < 4 || *occupied > max_occupied) {
+    *error = schema_version == 2 ? "occupied_count must be in [4, 64]"
+                                 : "occupied_count must be in [4, 63]";
     return false;
   }
   if (*phase < 0 || *phase > 12) {
@@ -419,7 +462,7 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
     *error = "occupied_count plus empty_count must equal 64";
     return false;
   }
-  if (row->phase != egaroucid_phase_for_occupied_count(row->occupied_count)) {
+  if (row->phase != egaroucid_phase_for_occupied_count(row->occupied_count, schema_version)) {
     *error = "phase must match occupied_count";
     return false;
   }
@@ -428,10 +471,14 @@ bool parse_normalized_row(std::string_view line, int line_number, NormalizedRow*
 
 bool load_normalized_rows(const std::string& path, std::vector<NormalizedRow>* rows,
                           ReportSummary* report) {
-  static constexpr std::string_view kExpectedHeader =
+  static constexpr std::string_view kExpectedHeaderV1 =
       "record_id\tposition_id\tsource_dataset_id\tsplit\tboard_a1_to_h8\tlabel_kind\tlabel_"
       "unit\tlabel_perspective\tlabel_score_side_to_move\toccupied_count\tphase\tplayer_disc_"
       "count\topponent_disc_count\tempty_count";
+  static constexpr std::string_view kExpectedHeaderV2 =
+      "record_id\tposition_id\tgame_group_id\tboard_id\tsource_occurrence_id\tsource_dataset_id\t"
+      "split\tboard_a1_to_h8\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_"
+      "move\toccupied_count\tphase\tplayer_disc_count\topponent_disc_count\tempty_count";
 
   std::ifstream input(path);
   if (!input) {
@@ -440,6 +487,7 @@ bool load_normalized_rows(const std::string& path, std::vector<NormalizedRow>* r
   }
 
   std::map<std::string, std::string> split_by_position_id;
+  std::map<std::string, std::set<std::string>> splits_by_board_id;
   std::map<std::string, int> rows_by_position_id;
   std::set<std::string> exact_duplicate_keys;
   bool ok = true;
@@ -450,7 +498,11 @@ bool load_normalized_rows(const std::string& path, std::vector<NormalizedRow>* r
     ++line_number;
     if (!saw_header) {
       saw_header = true;
-      if (trim_trailing_cr(line) != kExpectedHeader) {
+      if (trim_trailing_cr(line) == kExpectedHeaderV1) {
+        report->schema_version = 1;
+      } else if (trim_trailing_cr(line) == kExpectedHeaderV2) {
+        report->schema_version = 2;
+      } else {
         std::cerr << "line " << line_number << ": unexpected normalized TSV header\n";
         return false;
       }
@@ -463,7 +515,7 @@ bool load_normalized_rows(const std::string& path, std::vector<NormalizedRow>* r
     ++report->input_rows;
     NormalizedRow row;
     std::string error;
-    if (!parse_normalized_row(line, line_number, &row, &error)) {
+    if (!parse_normalized_row(line, line_number, report->schema_version, &row, &error)) {
       ++report->rejected_rows;
       ok = false;
       std::cerr << "line " << line_number << ": " << error << '\n';
@@ -488,6 +540,11 @@ bool load_normalized_rows(const std::string& path, std::vector<NormalizedRow>* r
     }
 
     report->source_dataset_ids.insert(row.source_dataset_id);
+    if (report->schema_version == 2) {
+      report->game_group_ids.insert(row.game_group_id);
+      report->board_ids.insert(row.board_id);
+      splits_by_board_id[row.board_id].insert(row.split);
+    }
     ++report->counts_by_split[row.split];
     ++report->counts_by_phase[row.phase];
     ++report->counts_by_label_kind[row.label_kind];
@@ -510,6 +567,19 @@ bool load_normalized_rows(const std::string& path, std::vector<NormalizedRow>* r
   if (report->accepted_rows == 0) {
     std::cerr << "normalized TSV has no accepted rows\n";
     return false;
+  }
+  if (report->schema_version == 2) {
+    for (const auto& [board_id, splits] : splits_by_board_id) {
+      if (splits.size() < 2) {
+        continue;
+      }
+      ++report->cross_split_board_collision_count;
+      for (auto left = splits.begin(); left != splits.end(); ++left) {
+        for (auto right = std::next(left); right != splits.end(); ++right) {
+          ++report->cross_split_board_collision_counts_by_pair[split_pair(*left, *right)];
+        }
+      }
+    }
   }
   return ok;
 }
@@ -580,7 +650,7 @@ bool write_report(const std::string& path, const ReportSummary& report) {
                                 ? 0.0
                                 : static_cast<double>(report.label_sum) / report.accepted_rows;
   output << "{\n";
-  output << "  \"schema_version\": 1,\n";
+  output << "  \"schema_version\": " << report.schema_version << ",\n";
   output << "  \"source_dataset_ids\": ";
   write_string_array(output, report.source_dataset_ids);
   output << ",\n";
@@ -601,8 +671,20 @@ bool write_report(const std::string& path, const ReportSummary& report) {
   output << "  \"label_mean\": " << std::fixed << std::setprecision(6) << label_mean << ",\n";
   output << "  \"repeated_position_count\": " << report.repeated_position_count << ",\n";
   output << "  \"exact_duplicate_record_count\": " << report.exact_duplicate_record_count << ",\n";
+  if (report.schema_version == 2) {
+    output << "  \"game_group_count\": " << report.game_group_ids.size() << ",\n";
+    output << "  \"unique_board_count\": " << report.board_ids.size() << ",\n";
+    output << "  \"cross_split_board_collision_count\": "
+           << report.cross_split_board_collision_count << ",\n";
+    output << "  \"cross_split_board_collision_counts_by_pair\": ";
+    write_count_map(output, report.cross_split_board_collision_counts_by_pair);
+    output << ",\n";
+  }
   output << "  \"checksum\": \"" << checksum_string(report.checksum) << "\",\n";
-  output << "  \"split_policy\": \"position-sha256\",\n";
+  output << "  \"split_policy\": \""
+         << (report.schema_version == 2 ? "importer-preserved: dataset_id + game_group_id sha256"
+                                        : "position-sha256")
+         << "\",\n";
   output << "  \"duplicate_policy\": \"keep_all_input_order\"\n";
   output << "}\n";
   return true;
@@ -700,7 +782,10 @@ int main(int argc, char** argv) {
               << " train_rows=" << emit_summary.train_rows
               << " validation_rows=" << emit_summary.validation_rows
               << " test_rows=" << emit_summary.test_rows
-              << " split_policy=position-sha256 duplicate_policy=keep_all_input_order\n";
+              << " split_policy="
+              << (report.schema_version == 2 ? "importer-preserved:dataset_id+game_group_id-sha256"
+                                             : "position-sha256")
+              << " duplicate_policy=keep_all_input_order\n";
     if (emit_summary.rows == 0) {
       std::cerr << "no dataset rows emitted from normalized TSV\n";
       return 1;

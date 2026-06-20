@@ -127,6 +127,10 @@ def validate_report(report: LoadedReport) -> list[str]:
             errors.append(f"{key} must be a string or null")
     if not isinstance(data.get("notes"), list):
         errors.append("notes must be an array")
+    sample_policy = data.get("sample_policy")
+    if isinstance(sample_policy, dict) and "strict_board_disjoint_splits" in sample_policy:
+        if not isinstance(sample_policy.get("strict_board_disjoint_splits"), bool):
+            errors.append("sample_policy.strict_board_disjoint_splits must be a boolean")
     return errors
 
 
@@ -289,6 +293,14 @@ def warnings_for_run(data: dict[str, Any], min_train_rows: int) -> list[dict[str
         warnings.append(
             warning("source_kind_unknown", "source_kind is not a known local Egaroucid source")
         )
+    audit = data.get("board_leakage_audit")
+    if isinstance(audit, dict) and int_or_none(audit.get("cross_split_board_collision_count")):
+        warnings.append(
+            warning(
+                "exact_board_cross_split_collision",
+                "exact side-to-move-relative boards appear in more than one split",
+            )
+        )
     return warnings
 
 
@@ -305,8 +317,10 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
     )
     eval_summary = data.get("evaluation_smoke_summary")
     search_summary = data.get("search_smoke_summary")
+    board_leakage_audit = data.get("board_leakage_audit")
     return {
         "artifact_checksum": data.get("artifact_checksum"),
+        "board_leakage_audit": board_leakage_audit if isinstance(board_leakage_audit, dict) else None,
         "counts_by_phase": counts_by_phase if isinstance(counts_by_phase, dict) else None,
         "counts_by_split": counts_by_split if isinstance(counts_by_split, dict) else None,
         "created_at_utc": data.get("created_at_utc"),
@@ -376,14 +390,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "eval_used",
                 "search_used",
                 "warnings",
+                "board_collisions",
             ]
         ),
-        markdown_table_row(["---"] * 16),
+        markdown_table_row(["---"] * 17),
     ]
     for run in runs:
         counts = run.get("counts_by_split") or {}
         eval_smoke = run.get("evaluation_smoke") or {}
         search_smoke = run.get("search_smoke") or {}
+        audit = run.get("board_leakage_audit") or {}
         lines.append(
             markdown_table_row(
                 [
@@ -403,6 +419,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                     eval_smoke.get("used_positions"),
                     search_smoke.get("used_positions"),
                     ", ".join(item["code"] for item in run.get("warnings", [])),
+                    audit.get("cross_split_board_collision_count"),
                 ]
             )
         )

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-NORMALIZED_HEADER = [
+NORMALIZED_HEADER_V1 = [
     "record_id",
     "position_id",
     "source_dataset_id",
@@ -33,6 +33,26 @@ NORMALIZED_HEADER = [
     "opponent_disc_count",
     "empty_count",
 ]
+NORMALIZED_HEADER_V2 = [
+    "record_id",
+    "position_id",
+    "game_group_id",
+    "board_id",
+    "source_occurrence_id",
+    "source_dataset_id",
+    "split",
+    "board_a1_to_h8",
+    "label_kind",
+    "label_unit",
+    "label_perspective",
+    "label_score_side_to_move",
+    "occupied_count",
+    "phase",
+    "player_disc_count",
+    "opponent_disc_count",
+    "empty_count",
+]
+SUPPORTED_NORMALIZED_HEADERS = (NORMALIZED_HEADER_V1, NORMALIZED_HEADER_V2)
 SPLITS = ("train", "validation", "test")
 LOCAL_NOTES = [
     "local run only",
@@ -47,8 +67,11 @@ LOCAL_NOTES = [
 class NormalizedRow:
     fields: list[str]
     line_text: str
+    schema_version: int
     record_id: str
     position_id: str
+    game_group_id: str | None
+    board_id: str | None
     source_dataset_id: str
     split: str
     label: int
@@ -114,6 +137,7 @@ class SampleSummary:
     label_max: int | None = None
     label_sum: int = 0
     checksum: str = ""
+    board_splits: dict[str, set[str]] | None = None
 
     def __post_init__(self) -> None:
         if self.counts_by_split is None:
@@ -122,6 +146,8 @@ class SampleSummary:
             self.counts_by_phase = {}
         if self.source_dataset_ids is None:
             self.source_dataset_ids = set()
+        if self.board_splits is None:
+            self.board_splits = {}
 
 
 def repo_root() -> Path:
@@ -144,6 +170,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-per-phase", type=int)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--split-policy", choices=("preserve",), default="preserve")
+    parser.add_argument(
+        "--strict-board-disjoint-splits",
+        action="store_true",
+        help="Fail local measurement when a v2 board_id appears across train/validation/test.",
+    )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--l2", type=float, default=0.0)
@@ -155,6 +186,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sequence-max-ply", type=int)
     parser.add_argument("--sequence-ply-stride", type=int, default=1)
     parser.add_argument("--sequence-max-positions", type=int)
+    parser.add_argument(
+        "--sequence-sampling-mode",
+        choices=("full-scan-topk", "bounded-dev"),
+        default="full-scan-topk",
+    )
+    parser.add_argument("--sequence-max-files", type=int)
+    parser.add_argument("--sequence-max-games", type=int)
+    parser.add_argument("--sequence-file-sample-rate", type=float)
+    parser.add_argument("--sequence-game-sample-rate", type=float)
+    parser.add_argument("--sequence-file-order", choices=("path", "hash"), default="path")
+    parser.add_argument("--sequence-progress-every-games", type=int)
+    parser.add_argument("--sequence-progress-every-files", type=int)
     parser.add_argument(
         "--sequence-emit-terminal",
         dest="sequence_emit_terminal",
@@ -227,6 +270,29 @@ def parse_args() -> argparse.Namespace:
         parser.error("--sequence-ply-stride must be positive")
     if args.sequence_max_positions is not None and args.sequence_max_positions <= 0:
         parser.error("--sequence-max-positions must be positive")
+    if args.sequence_max_files is not None and args.sequence_max_files <= 0:
+        parser.error("--sequence-max-files must be positive")
+    if args.sequence_max_games is not None and args.sequence_max_games <= 0:
+        parser.error("--sequence-max-games must be positive")
+    for name in ("sequence_file_sample_rate", "sequence_game_sample_rate"):
+        value = getattr(args, name)
+        if value is not None and not (0.0 < value <= 1.0):
+            parser.error(f"--{name.replace('_', '-')} must be > 0.0 and <= 1.0")
+    bounded_sequence_controls = (
+        args.sequence_max_files is not None
+        or args.sequence_max_games is not None
+        or args.sequence_file_sample_rate is not None
+        or args.sequence_game_sample_rate is not None
+    )
+    if bounded_sequence_controls and args.sequence_sampling_mode != "bounded-dev":
+        parser.error(
+            "--sequence-max-files, --sequence-max-games, --sequence-file-sample-rate, "
+            "and --sequence-game-sample-rate require --sequence-sampling-mode bounded-dev"
+        )
+    if args.sequence_progress_every_games is not None and args.sequence_progress_every_games <= 0:
+        parser.error("--sequence-progress-every-games must be positive")
+    if args.sequence_progress_every_files is not None and args.sequence_progress_every_files <= 0:
+        parser.error("--sequence-progress-every-files must be positive")
     if args.eval_smoke_max_positions is not None and args.eval_smoke_max_positions <= 0:
         parser.error("--eval-smoke-max-positions must be positive")
     if args.search_smoke_max_positions is not None and args.search_smoke_max_positions <= 0:
@@ -303,7 +369,7 @@ def created_at_utc(args: argparse.Namespace) -> str:
 def make_run_id(args: argparse.Namespace, timestamp: str) -> str:
     if args.run_id:
         return args.run_id
-    source = str(args.normalized_tsv or args.raw_input)
+    source = str(args.normalized_tsv or args.raw_input or args.sequence_input)
     digest = hashlib.sha256(f"{args.seed}\t{source}".encode("utf-8")).hexdigest()[:10]
     compact_time = timestamp.replace("-", "").replace(":", "").replace("Z", "")
     return f"egaroucid-local-{compact_time}-{digest}"
@@ -341,7 +407,9 @@ def import_raw(args: argparse.Namespace, output_dir: Path) -> Path:
 
 def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
     normalized = output_dir / "sequence-normalized.tsv"
+    temp_normalized = output_dir / "sequence-normalized.tsv.tmp"
     report = output_dir / "sequence-import-report.json"
+    stderr_log = output_dir / "sequence-import-stderr.log"
     command = [
         sys.executable,
         str(args.sequence_importer),
@@ -357,30 +425,63 @@ def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
         str(args.sequence_min_ply),
         "--ply-stride",
         str(args.sequence_ply_stride),
+        "--sampling-mode",
+        args.sequence_sampling_mode,
+        "--file-order",
+        args.sequence_file_order,
     ]
     if args.sequence_max_ply is not None:
         command.extend(["--max-ply", str(args.sequence_max_ply)])
     if args.sequence_max_positions is not None:
         command.extend(["--max-positions", str(args.sequence_max_positions)])
+    if args.sequence_max_files is not None:
+        command.extend(["--max-files", str(args.sequence_max_files)])
+    if args.sequence_max_games is not None:
+        command.extend(["--max-games", str(args.sequence_max_games)])
+    if args.sequence_file_sample_rate is not None:
+        command.extend(["--file-sample-rate", str(args.sequence_file_sample_rate)])
+    if args.sequence_game_sample_rate is not None:
+        command.extend(["--game-sample-rate", str(args.sequence_game_sample_rate)])
+    if args.sequence_progress_every_games is not None:
+        command.extend(["--progress-every-games", str(args.sequence_progress_every_games)])
+    if args.sequence_progress_every_files is not None:
+        command.extend(["--progress-every-files", str(args.sequence_progress_every_files)])
+    if args.strict_board_disjoint_splits:
+        command.append("--strict-board-disjoint-splits")
     command.append("--emit-terminal" if args.sequence_emit_terminal else "--no-emit-terminal")
-    with normalized.open("w", encoding="utf-8") as output:
-        result = subprocess.run(
-            command,
-            check=False,
-            stdout=output,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
+    with temp_normalized.open("w", encoding="utf-8") as output:
+        with stderr_log.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                command,
+                stdout=output,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert process.stderr is not None
+            for line in process.stderr:
+                sys.stderr.write(line)
+                log.write(line)
+            returncode = process.wait()
+    if returncode != 0:
+        temp_normalized.unlink(missing_ok=True)
         raise RuntimeError(f"command failed: {sys.executable} {args.sequence_importer}")
+    temp_normalized.replace(normalized)
     return normalized
 
 
-def parse_normalized_row(row: dict[str, str], line_number: int) -> NormalizedRow:
-    if set(row) != set(NORMALIZED_HEADER) or None in row:
+def normalized_header_version(fieldnames: list[str] | None) -> int:
+    if fieldnames == NORMALIZED_HEADER_V1:
+        return 1
+    if fieldnames == NORMALIZED_HEADER_V2:
+        return 2
+    return 0
+
+
+def parse_normalized_row(row: dict[str, str], line_number: int, schema_version: int) -> NormalizedRow:
+    header = NORMALIZED_HEADER_V2 if schema_version == 2 else NORMALIZED_HEADER_V1
+    if set(row) != set(header) or None in row:
         raise RuntimeError(f"line {line_number}: unexpected normalized TSV shape")
-    fields = [row[field] for field in NORMALIZED_HEADER]
+    fields = [row[field] for field in header]
     try:
         label = int(row["label_score_side_to_move"])
         phase = int(row["phase"])
@@ -394,8 +495,11 @@ def parse_normalized_row(row: dict[str, str], line_number: int) -> NormalizedRow
     return NormalizedRow(
         fields=fields,
         line_text="\t".join(fields),
+        schema_version=schema_version,
         record_id=row["record_id"],
         position_id=row["position_id"],
+        game_group_id=row.get("game_group_id"),
+        board_id=row.get("board_id"),
         source_dataset_id=row["source_dataset_id"],
         split=split,
         label=label,
@@ -407,6 +511,29 @@ def sample_key(seed: int, position_id: str) -> str:
     return hashlib.sha256(f"{seed}\t{position_id}".encode("utf-8")).hexdigest()
 
 
+def split_pair(left: str, right: str) -> str:
+    return "__".join(sorted((left, right)))
+
+
+def board_leakage_audit(board_splits: dict[str, set[str]]) -> dict[str, Any]:
+    pair_counts: dict[str, int] = {}
+    collision_count = 0
+    for splits in board_splits.values():
+        if len(splits) < 2:
+            continue
+        collision_count += 1
+        ordered = sorted(splits)
+        for left_index, left in enumerate(ordered):
+            for right in ordered[left_index + 1 :]:
+                pair = split_pair(left, right)
+                pair_counts[pair] = pair_counts.get(pair, 0) + 1
+    return {
+        "unique_board_count": len(board_splits),
+        "cross_split_board_collision_count": collision_count,
+        "cross_split_board_collision_counts_by_pair": dict(sorted(pair_counts.items())),
+    }
+
+
 def build_position_selections(
     normalized_tsv: Path, max_examples: int | None, max_per_phase: int | None, seed: int
 ) -> tuple[TopKPositionIds, dict[int, TopKPositionIds], int]:
@@ -415,10 +542,11 @@ def build_position_selections(
     input_rows = 0
     with normalized_tsv.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != NORMALIZED_HEADER:
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version == 0:
             raise RuntimeError("unexpected normalized TSV header")
         for line_number, row in enumerate(reader, start=2):
-            parsed = parse_normalized_row(row, line_number)
+            parsed = parse_normalized_row(row, line_number, schema_version)
             input_rows += 1
             key = sample_key(seed, parsed.position_id)
             global_selection.consider(parsed.position_id, key)
@@ -442,11 +570,15 @@ def write_sampled_normalized(
 
     with input_path.open(newline="", encoding="utf-8") as input_handle:
         reader = csv.DictReader(input_handle, delimiter="\t")
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version == 0:
+            raise RuntimeError("unexpected normalized TSV header")
+        header = NORMALIZED_HEADER_V2 if schema_version == 2 else NORMALIZED_HEADER_V1
         with output_path.open("w", newline="", encoding="utf-8") as output_handle:
             writer = csv.writer(output_handle, delimiter="\t", lineterminator="\n")
-            writer.writerow(NORMALIZED_HEADER)
+            writer.writerow(header)
             for line_number, row in enumerate(reader, start=2):
-                parsed = parse_normalized_row(row, line_number)
+                parsed = parse_normalized_row(row, line_number, schema_version)
                 if not global_selection.allows(parsed.position_id):
                     continue
                 if not phase_selections[parsed.phase].allows(parsed.position_id):
@@ -467,6 +599,9 @@ def write_sampled_normalized(
                     summary.counts_by_phase.get(phase_key, 0) + 1
                 )
                 summary.source_dataset_ids.add(parsed.source_dataset_id)
+                if parsed.schema_version == 2 and parsed.board_id is not None:
+                    assert summary.board_splits is not None
+                    summary.board_splits.setdefault(parsed.board_id, set()).add(parsed.split)
                 summary.label_min = (
                     parsed.label
                     if summary.label_min is None
@@ -483,8 +618,20 @@ def write_sampled_normalized(
         raise RuntimeError("sampling produced no rows")
     label_mean = summary.label_sum / summary.sampled_rows
     summary.checksum = f"sha256:{digest.hexdigest()}"
+    assert summary.board_splits is not None
+    leakage_audit = board_leakage_audit(summary.board_splits) if schema_version == 2 else None
+    if (
+        args.strict_board_disjoint_splits
+        and leakage_audit is not None
+        and leakage_audit["cross_split_board_collision_count"] != 0
+    ):
+        raise RuntimeError(
+            "exact board leakage detected across sampled splits: "
+            f"{leakage_audit['cross_split_board_collision_count']} board_id collision(s)"
+        )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "normalized_schema_version": schema_version,
         "input_rows": summary.input_rows,
         "sampled_rows": summary.sampled_rows,
         "source_dataset_ids": sorted(summary.source_dataset_ids or []),
@@ -494,6 +641,7 @@ def write_sampled_normalized(
         "label_max": summary.label_max,
         "label_mean": float(f"{label_mean:.12g}"),
         "checksum": summary.checksum,
+        "board_leakage_audit": leakage_audit,
         "sample_policy": {
             "method": "deterministic position_id sha256 top-k",
             "max_examples": args.max_examples,
@@ -502,6 +650,7 @@ def write_sampled_normalized(
             "split_policy": args.split_policy,
             "unit": "position_id groups; duplicate labels for a selected position are preserved",
             "memory_policy": "bounded position_id maps with heapq O(log K) candidate replacement",
+            "strict_board_disjoint_splits": args.strict_board_disjoint_splits,
         },
     }
     sample_report_path.write_text(stable_json(report), encoding="utf-8")
@@ -512,7 +661,7 @@ def count_normalized_rows(path: Path) -> int:
     count = 0
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != NORMALIZED_HEADER:
+        if normalized_header_version(reader.fieldnames) == 0:
             raise RuntimeError("unexpected normalized TSV header")
         for _ in reader:
             count += 1
@@ -541,21 +690,26 @@ def write_smoke_positions_tsv(
     selection = TopKPositionIds(max_positions)
     with input_path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != NORMALIZED_HEADER:
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version == 0:
             raise RuntimeError("unexpected normalized TSV header")
         for line_number, row in enumerate(reader, start=2):
-            parsed = parse_normalized_row(row, line_number)
-            selection.consider(parsed.position_id, sample_key(seed, parsed.position_id))
+            parsed = parse_normalized_row(row, line_number, schema_version)
+            selection.consider(parsed.record_id, sample_key(seed, parsed.record_id))
 
     used_rows = 0
     with input_path.open(newline="", encoding="utf-8") as input_handle:
         reader = csv.DictReader(input_handle, delimiter="\t")
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version == 0:
+            raise RuntimeError("unexpected normalized TSV header")
+        header = NORMALIZED_HEADER_V2 if schema_version == 2 else NORMALIZED_HEADER_V1
         with output_path.open("w", newline="", encoding="utf-8") as output_handle:
             writer = csv.writer(output_handle, delimiter="\t", lineterminator="\n")
-            writer.writerow(NORMALIZED_HEADER)
+            writer.writerow(header)
             for line_number, row in enumerate(reader, start=2):
-                parsed = parse_normalized_row(row, line_number)
-                if selection.allows(parsed.position_id):
+                parsed = parse_normalized_row(row, line_number, schema_version)
+                if selection.allows(parsed.record_id):
                     writer.writerow(parsed.fields)
                     used_rows += 1
 
@@ -566,7 +720,8 @@ def write_smoke_positions_tsv(
         "used_positions": used_rows,
         "path": output_path,
         "policy": {
-            "method": "deterministic position_id sha256 top-k",
+            "method": "deterministic record_id sha256 top-k",
+            "selection_key": "record_id",
             "max_positions": max_positions,
             "seed": seed,
             "unit": "position rows",
@@ -774,6 +929,7 @@ def write_run_report(
         "sample_policy": sample_report.get("sample_policy"),
         "sample_counts_by_split": sample_report.get("counts_by_split"),
         "sample_counts_by_phase": sample_report.get("counts_by_phase"),
+        "board_leakage_audit": sample_report.get("board_leakage_audit"),
         "sample_report_checksum": sample_report.get("checksum"),
         "dataset_report_checksum": dataset_report.get("checksum"),
         "trainer_version": trainer_report.get("trainer_version"),

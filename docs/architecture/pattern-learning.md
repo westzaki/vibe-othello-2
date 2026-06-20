@@ -173,6 +173,13 @@ Rules:
 * pass moves are represented explicitly when the source format requires them
 * position text fixtures use canonical board-core serialization
 * duplicate handling is deterministic and recorded in the dataset report
+* sequence transcript identity separates semantic game groups from source
+  occurrences: split assignment is derived from `dataset_id + game_group_id`,
+  where `game_group_id` comes from canonical replayed move/pass content; local
+  path, archive member, and line number are provenance only
+* exact side-to-move-relative board identifiers are reported separately from
+  game grouping so local measurements can distinguish game-held-out metrics
+  from exact-board-disjoint metrics
 
 The feature extractor must not implement independent Othello rules.
 
@@ -185,12 +192,14 @@ Supported label types:
 | Label type | Meaning | First use |
 | --- | --- | --- |
 | `final_disc_diff` | final disc difference from side to move | human/self-play game records |
+| `observed_final_disc_diff` | observed transcript final disc difference from side to move, not searched | imported complete game transcripts |
 | `engine_disc_estimate` | searched engine estimate of final disc difference | teacher-generated positions |
 | `wld` | win/draw/loss only | exact or solved data |
 | `policy_move` | played/best move target | later policy or ordering experiments |
 
-Pattern-only evaluation should start with `final_disc_diff` and
-`engine_disc_estimate`.
+Pattern-only evaluation should start with observed final-disc-difference labels
+and `engine_disc_estimate`. Transcript-derived observed labels must not be
+reported as teacher-search estimates.
 
 Rules:
 
