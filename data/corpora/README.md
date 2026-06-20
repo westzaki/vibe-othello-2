@@ -40,6 +40,13 @@ reports, analyzer summaries, normalized TSVs, sequence replay caches, pattern
 datasets, trainer reports, learned weights, exported artifacts, and logs from
 those runs remain local-only and must not be committed.
 
+For sequence-derived normalized schema v2 measurements, use
+`--measurement-split-policy connected-board-game` when validation/test leakage
+hygiene matters. It keeps rows sharing a semantic game or identical
+side-to-move-relative board in the same local measurement split. This may change
+split counts and is only a measurement split policy, not a strength,
+publication, label-quality, or artifact-release claim.
+
 For long local measurements, keep a short operator note or progress journal in
 the same ignored tree, for example
 `$VIBE_OTHELLO_MEASUREMENTS/perf-notes/<run-id>.md`. Include the active suite

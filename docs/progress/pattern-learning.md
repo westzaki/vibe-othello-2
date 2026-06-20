@@ -178,7 +178,16 @@ Existing foundations include:
   zip member names), manifest bytes, importer identity, schema/policy versions,
   dataset id, and semantic importer options; cache hits, misses, invalidations,
   source fingerprints, file sizes, and per-stage wall/CPU/RSS telemetry are
-  recorded in the local run report.
+  recorded in the local run report. For sequence-derived normalized schema v2
+  measurements, `--measurement-split-policy connected-board-game` can rewrite
+  only the sampled `split` column into `resplit-normalized.tsv` before dataset
+  generation. This groups rows by connected components over `game_group_id`
+  and side-to-move-relative `board_id`, assigns each component with a
+  deterministic 80/10/10 hash of dataset id, policy version, and component
+  representative, and records before/after board and game leakage audits. The
+  policy is recommended for honest local validation/test diagnostics on
+  sequence-derived data, but it is not a strength, Elo, match bench, self-play,
+  production artifact, or noisy-label quality claim.
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
@@ -189,17 +198,20 @@ Existing foundations include:
   more `local-training-run-report.json` files, emits stable JSON and optional
   Markdown summaries, validates the runner report shape, extracts available
   v0b/v0c trainer metrics, surfaces v0c best/final validation MAE, test MAE,
-  weight diagnostics, optional sequence cache status, and stage telemetry, and
-  records warning-only review flags for small, incomplete,
+  weight diagnostics, optional measurement split policy and after-resplit
+  board/game collision counts, optional sequence cache status, and stage
+  telemetry, and records warning-only review flags for small, incomplete,
   mixed cache-hit/cache-miss, mixed trainer-mode, mixed expanded/compact
-  dataset, and suspicious split-by-phase local measurements
+  dataset, preserve-policy exact-board leakage, connected-policy residual
+  board/game leakage, and suspicious split-by-phase local measurements
 * local-only pattern measurement suite runner at
   `tools/pattern/train/run_pattern_measurement_suite.py` that orchestrates
   repeatable sequence-derived smoke, 10k, 100k, and 1M preset runs through the
   local sequence cache, compact dataset output, `pattern-v1-buro-lite`, trainer
   v0c diagnostics, scalable real-preset final-epoch diagnostics, trainer
-  progress stderr, per-run stdout/stderr logs, resume/skip handling, suite JSON
-  and Markdown reports, and analyzer comparison outputs without committing any
+  progress stderr, per-run stdout/stderr logs, resume/skip handling, optional
+  measurement split policy pass-through, suite JSON and Markdown reports, and
+  analyzer comparison outputs without committing any
   generated corpora, datasets, caches, weights, artifacts, or summaries
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the

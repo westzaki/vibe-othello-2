@@ -200,6 +200,7 @@ def check_report(
     required_files = {
         "normalized_tsv",
         "sampled_normalized_tsv",
+        "measurement_split_input_tsv",
         "sample_report_json",
         "pattern_dataset_tsv",
         "dataset_report_json",

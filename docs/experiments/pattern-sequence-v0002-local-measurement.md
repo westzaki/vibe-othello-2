@@ -32,6 +32,33 @@ python3 tools/pattern/train/run_pattern_measurement_suite.py \
   --resume
 ```
 
+For follow-up held-out diagnostics on sequence-derived data, prefer the
+leakage-safe measurement split mode:
+
+```sh
+python3 tools/pattern/train/run_pattern_measurement_suite.py \
+  --sequence-input "$VIBE_OTHELLO_LOCAL/corpora" \
+  --sequence-manifest data/corpora/manifests/egaroucid-sequence-v0002-local.manifest.json \
+  --preset all \
+  --run-prefix sequence-v0002-real-<date>-connected-split \
+  --measurement-split-policy connected-board-game \
+  --resume
+```
+
+`connected-board-game` groups sampled normalized schema v2 rows by connected
+components of `game_group_id` and side-to-move-relative `board_id`, then assigns
+each component to train/validation/test with a deterministic 80/10/10 hash. It
+may change split counts relative to importer-preserved splits. It improves
+holdout leakage hygiene for local validation/test diagnostics, but it does not
+fix noisy observed-final-disc-diff labels and is not a strength, Elo, match
+bench, self-play, production artifact, or publication claim.
+
+Do not add `--strict-board-disjoint-splits` to routine connected-split suite
+commands; `--measurement-split-policy connected-board-game` is the option that
+requests the leakage-safe resplit. The runner keeps strict board checks as an
+after-resplit guard when both options are supplied, but the practical rerun
+command only needs the measurement split policy.
+
 ## Measurement Results
 
 The first suite run was a cold-cache run, so every preset reported
@@ -108,6 +135,8 @@ metrics as clean generalization measurements.
    and early stopping are the first knobs to try.
 2. Add or use a split policy that prevents exact board leakage across
    train/validation/test for sequence-derived data, then rerun at least 100k.
+   The current recommended option is
+   `--measurement-split-policy connected-board-game`.
 3. Investigate early-phase regressions with phase-by-phase diagnostics and
    consider phase-specific weighting or feature/trainer changes.
 4. Rerun 1m only after the 100k sweep finds a better setting.

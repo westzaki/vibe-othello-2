@@ -325,14 +325,51 @@ def warnings_for_run(data: dict[str, Any], min_train_rows: int) -> list[dict[str
         warnings.append(
             warning("source_kind_unknown", "source_kind is not a known local Egaroucid source")
         )
-    audit = data.get("board_leakage_audit")
-    if isinstance(audit, dict) and int_or_none(audit.get("cross_split_board_collision_count")):
+    sample_policy = data.get("sample_policy")
+    measurement_split_policy = data.get("measurement_split_policy")
+    if measurement_split_policy is None and isinstance(sample_policy, dict):
+        measurement_split_policy = sample_policy.get("measurement_split_policy") or sample_policy.get(
+            "split_policy"
+        )
+    measurement_split_policy = measurement_split_policy or "preserve"
+    audit = data.get("board_leakage_audit_after")
+    if not isinstance(audit, dict):
+        audit = data.get("board_leakage_audit")
+    game_audit = data.get("game_group_leakage_audit_after")
+    if not isinstance(game_audit, dict):
+        game_audit = data.get("game_group_leakage_audit")
+    board_collisions = (
+        int_or_none(audit.get("cross_split_board_collision_count"))
+        if isinstance(audit, dict)
+        else None
+    )
+    game_collisions = (
+        int_or_none(game_audit.get("cross_split_game_group_collision_count"))
+        if isinstance(game_audit, dict)
+        else None
+    )
+    if measurement_split_policy == "preserve" and board_collisions:
         warnings.append(
             warning(
                 "exact_board_cross_split_collision",
                 "exact side-to-move-relative boards appear in more than one split",
             )
         )
+    if measurement_split_policy == "connected-board-game":
+        if board_collisions:
+            warnings.append(
+                warning(
+                    "connected_split_board_collision",
+                    "connected-board-game still has exact board cross-split collisions",
+                )
+            )
+        if game_collisions:
+            warnings.append(
+                warning(
+                    "connected_split_game_group_collision",
+                    "connected-board-game still has game group cross-split collisions",
+                )
+            )
     if "stage_timings" not in data:
         warnings.append(warning("telemetry_missing", "stage timing telemetry is missing"))
     elif not isinstance(data.get("stage_timings"), dict):
@@ -495,10 +532,19 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
     eval_summary = data.get("evaluation_smoke_summary")
     search_summary = data.get("search_smoke_summary")
     board_leakage_audit = data.get("board_leakage_audit")
+    board_leakage_audit_after = data.get("board_leakage_audit_after")
+    if not isinstance(board_leakage_audit_after, dict):
+        board_leakage_audit_after = board_leakage_audit
+    game_group_leakage_audit_after = data.get("game_group_leakage_audit_after")
     metrics = extract_metrics(trainer_report)
     return {
         "artifact_checksum": data.get("artifact_checksum"),
         "board_leakage_audit": board_leakage_audit if isinstance(board_leakage_audit, dict) else None,
+        "board_cross_split_collision_count_after": int_or_none(
+            board_leakage_audit_after.get("cross_split_board_collision_count")
+        )
+        if isinstance(board_leakage_audit_after, dict)
+        else None,
         "counts_by_phase": counts_by_phase if isinstance(counts_by_phase, dict) else None,
         "counts_by_split": counts_by_split if isinstance(counts_by_split, dict) else None,
         "created_at_utc": data.get("created_at_utc"),
@@ -512,6 +558,19 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
             "used_positions": int_or_none(data.get("eval_smoke_used_positions")),
         },
         "metrics": metrics,
+        "measurement_split_policy": data.get("measurement_split_policy")
+        or (
+            data.get("sample_policy", {}).get("measurement_split_policy")
+            if isinstance(data.get("sample_policy"), dict)
+            else None
+        )
+        or "preserve",
+        "game_group_cross_split_collision_count_after": int_or_none(
+            game_group_leakage_audit_after.get("cross_split_game_group_collision_count")
+        )
+        if isinstance(game_group_leakage_audit_after, dict)
+        else None,
+        "connected_component_count": int_or_none(data.get("connected_component_count")),
         "best_validation_MAE": metrics.get("best_validation_MAE"),
         "final_validation_MAE": metrics.get("final_validation_MAE"),
         "test_MAE": metrics.get("test_MAE"),
@@ -533,6 +592,7 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
                     ("sequence_cache_lookup",),
                     ("sequence_import_or_cache_restore",),
                     ("normalized_sampling",),
+                    ("measurement_split_policy",),
                     ("pattern_dataset_generation",),
                     ("trainer", "trainer_v0b"),
                     ("v0b_export",),
@@ -629,6 +689,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
             [
                 "run_id",
                 "sampled_rows",
+                "split_policy",
+                "board_collisions_after",
+                "game_collisions_after",
                 "trainer_mode",
                 "dataset_format",
                 "best_val_MAE",
@@ -645,7 +708,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "warnings",
             ]
         ),
-        markdown_table_row(["---"] * 16),
+        markdown_table_row(["---"] * 19),
     ]
     for run in runs:
         stage_times = run.get("stage_wall_times") or {}
@@ -655,6 +718,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 [
                     run.get("run_id"),
                     run.get("sampled_rows"),
+                    run.get("measurement_split_policy"),
+                    run.get("board_cross_split_collision_count_after"),
+                    run.get("game_group_cross_split_collision_count_after"),
                     run.get("trainer_mode"),
                     run.get("dataset_output_format"),
                     run.get("best_validation_MAE"),
