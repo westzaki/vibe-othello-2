@@ -123,7 +123,12 @@ Existing foundations include:
   game, duplicate occurrence, exact-board leakage, reject, pass, terminal,
   split, phase, label, checksum, bounded-dev sampling frame, and provenance
   notes; checked-in coverage uses only a synthetic transcript fixture, not raw
-  Egaroucid data
+  Egaroucid data. Direct raw zip full-scan import remains the accurate
+  full-corpus top-k path, but it can be slow for local iteration because every
+  selected transcript must be replayed. The opt-in `bounded-dev` sampling mode
+  deterministically bounds files and games before replay, reports progress and
+  sampling-frame fields, and is only for repeatable local measurement loops,
+  not full-corpus exact sampling or a production strength claim.
 * CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
   the normalized TSV into `tools/pattern/dataset`, validates board/count/label
   columns, preserves importer-provided `position_id` and `split`, keeps same
@@ -250,6 +255,16 @@ runner's sequence import cap plus search smoke cap, for example importing a
 bounded 1M sequence-derived position pool and using 10k search smoke positions,
 while keeping the training sample uncapped by smoke settings.
 
+For repeatable 10k / 100k / 1M raw sequence local runs, prefer either a
+prebuilt normalized local cache or the runner's bounded sequence sampling
+options, for example `--sequence-sampling-mode bounded-dev`,
+`--sequence-file-order hash`, `--sequence-max-games`, and
+`--sequence-max-positions`. Generated normalized caches, local run reports,
+weights, artifacts, and raw Egaroucid payloads remain ignored local-only files.
+Metrics from `bounded-dev` runs are useful measurement signals for iteration,
+but they are not full-corpus exact measurements, match bench results, Elo
+results, self-play results, production artifacts, or strength claims.
+
 ## Current Gaps
 
 The current implementation does not yet have:
@@ -317,7 +332,7 @@ Status values:
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
-| Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
+| Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
 | Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
 | Add local-only external corpus scripts | deferred | Download automation remains out of scope; the importer expects a locally obtained payload |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |

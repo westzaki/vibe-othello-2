@@ -918,6 +918,25 @@ def write_run_report(
     output_files: dict[str, str] = {
         name: rel(path, output_dir) for name, path in sorted(paths.items())
     }
+    sequence_import_report = None
+    sequence_import_policy = None
+    sequence_report_path = paths.get("sequence_import_report_json")
+    if sequence_report_path is not None:
+        sequence_import_report = load_json(sequence_report_path)
+        sequence_import_policy = {
+            "sampling_mode": sequence_import_report.get("sampling_mode"),
+            "file_order": sequence_import_report.get("file_order"),
+            "max_files": sequence_import_report.get("max_files"),
+            "max_games": sequence_import_report.get("max_games"),
+            "file_sample_rate": sequence_import_report.get("file_sample_rate"),
+            "game_sample_rate": sequence_import_report.get("game_sample_rate"),
+            "source_files_seen": sequence_import_report.get("source_files_seen"),
+            "source_files_processed": sequence_import_report.get("source_files_processed"),
+            "games_seen": sequence_import_report.get("games_seen"),
+            "games_replayed": sequence_import_report.get("games_replayed"),
+            "replay_skip_count": sequence_import_report.get("replay_skip_count"),
+            "sampling_frame_notes": sequence_import_report.get("sampling_frame_notes"),
+        }
     report = {
         "schema_version": 1,
         "run_id": run_id,
@@ -931,6 +950,7 @@ def write_run_report(
         "sample_counts_by_phase": sample_report.get("counts_by_phase"),
         "board_leakage_audit": sample_report.get("board_leakage_audit"),
         "sample_report_checksum": sample_report.get("checksum"),
+        "sequence_import_policy": sequence_import_policy,
         "dataset_report_checksum": dataset_report.get("checksum"),
         "trainer_version": trainer_report.get("trainer_version"),
         "trainer_args": {
@@ -1072,6 +1092,7 @@ def main() -> int:
             paths["normalized_tsv"] = source_normalized
         if args.sequence_input is not None:
             paths["sequence_import_report_json"] = output_dir / "sequence-import-report.json"
+            paths["sequence_import_stderr_log"] = output_dir / "sequence-import-stderr.log"
         if v0a_data is not None:
             paths.update(
                 {

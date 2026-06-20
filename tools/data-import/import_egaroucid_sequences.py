@@ -91,6 +91,11 @@ BOUNDED_DEV_NOTES = (
     "bounded-dev is not a full-corpus exact top-k sample",
     "bounded-dev is not a production strength claim",
 )
+BOUNDED_DEV_NOTES = (
+    "bounded-dev mode is for local measurement iteration",
+    "bounded-dev is not a full-corpus exact top-k sample",
+    "bounded-dev is not a production strength claim",
+)
 
 
 class ImportErrorWithLocation(ValueError):
@@ -194,6 +199,13 @@ class Summary:
     replay_skip_count: int = 0
     candidate_positions: int = 0
     game_group_occurrences: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class ProgressState:
+    start_time: float = field(default_factory=time.monotonic)
+    last_games_report: int = 0
+    last_files_report: int = 0
 
 
 @dataclass
@@ -896,6 +908,8 @@ def main() -> int:
                 f"--dataset-id {args.dataset_id!r}"
             )
         for input_path in args.input:
+            if replay_limit_reached(args, summary):
+                break
             process_input(args, input_path, summary, rows, progress)
         selected_rows = rows.rows()
         if not selected_rows:
@@ -919,6 +933,11 @@ def main() -> int:
     print(
         "summary "
         f"source_files={summary.source_files} "
+        f"source_files_seen={summary.source_files_seen} "
+        f"source_files_processed={summary.source_files_processed} "
+        f"games_seen={summary.games_seen} "
+        f"games_replayed={summary.games_replayed} "
+        f"replay_skip_count={summary.replay_skip_count} "
         f"input_games={summary.input_games} "
         f"accepted_games={summary.accepted_games} "
         f"rejected_games={summary.rejected_games} "
