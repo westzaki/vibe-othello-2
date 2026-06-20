@@ -31,7 +31,7 @@ import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, TextIO
+from typing import Callable, Iterable, TextIO
 
 
 DATASET_ID = "egaroucid-sequence-v0002-local"
@@ -94,7 +94,9 @@ BOUNDED_DEV_NOTES = (
 )
 STREAMING_TARGET_NOTES = (
     "streaming-target mode stops after the requested retained position target",
-    "streaming-target scales with target size and is not a full-corpus exact top-k sample",
+    "streaming-target source traversal is content-addressed and path/member-name independent",
+    "streaming-target fingerprints candidate sources before target-bounded replay",
+    "streaming-target replay cost scales with target size and is not a full-corpus exact top-k sample",
     "streaming-target is a local measurement sampling frame, not a production strength claim",
 )
 
@@ -364,6 +366,14 @@ class TextSource:
     size_bytes: int
 
 
+@dataclass(frozen=True)
+class TextSourceHandle:
+    provenance_ref: str
+    content_sha256: str
+    size_bytes: int
+    load_bytes: Callable[[], bytes]
+
+
 def canonical_sources(sources: list[TextSource]) -> list[TextSource]:
     canonical: list[TextSource] = []
     for index, source in enumerate(
@@ -401,22 +411,149 @@ def selected_sources(args: argparse.Namespace, sources: list[TextSource]) -> lis
 
 
 def can_stream_sources(args: argparse.Namespace) -> bool:
-    return args.sampling_mode in {"full-scan-topk", "streaming-target"}
+    return args.sampling_mode == "streaming-target"
 
 
-def text_source_from_bytes(display_ref: str, data: bytes, source_index: int) -> TextSource:
+def text_source_from_bytes(
+    display_ref: str,
+    data: bytes,
+    source_index: int,
+    *,
+    source_ref: str | None = None,
+) -> TextSource:
     content_sha256 = sha256_bytes(data)
     try:
         content = data.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ImportErrorWithLocation(f"{display_ref}: cannot decode UTF-8") from error
     return TextSource(
-        source_ref=f"content-source-{content_sha256[:16]}-{source_index:06d}",
+        source_ref=source_ref or f"content-source-{content_sha256[:16]}-{source_index:06d}",
         provenance_ref=display_ref,
         content=content,
         content_sha256=content_sha256,
         size_bytes=len(data),
     )
+
+
+def sha256_stream(stream: object) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    while True:
+        chunk = stream.read(1024 * 1024)  # type: ignore[attr-defined]
+        if not chunk:
+            break
+        digest.update(chunk)
+        size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def text_file_handle(path: Path, provenance_ref: str) -> TextSourceHandle:
+    with path.open("rb") as handle:
+        content_sha256, size_bytes = sha256_stream(handle)
+    return TextSourceHandle(
+        provenance_ref=provenance_ref,
+        content_sha256=content_sha256,
+        size_bytes=size_bytes,
+        load_bytes=lambda path=path: path.read_bytes(),
+    )
+
+
+def load_zip_member_bytes(path: Path, index: int) -> bytes:
+    with zipfile.ZipFile(path) as archive:
+        info = archive.infolist()[index]
+        with archive.open(info) as raw:
+            return raw.read()
+
+
+def zip_text_source_handles(path: Path, display_prefix: str) -> list[TextSourceHandle]:
+    try:
+        archive = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as error:
+        raise ImportErrorWithLocation(f"{path}: invalid zip archive") from error
+    handles: list[TextSourceHandle] = []
+    with archive:
+        for index, info in enumerate(archive.infolist()):
+            if info.is_dir() or not info.filename.lower().endswith(".txt"):
+                continue
+            with archive.open(info) as raw:
+                content_sha256, size_bytes = sha256_stream(raw)
+            handles.append(
+                TextSourceHandle(
+                    provenance_ref=f"{display_prefix}!{info.filename}",
+                    content_sha256=content_sha256,
+                    size_bytes=size_bytes,
+                    load_bytes=lambda path=path, index=index: load_zip_member_bytes(path, index),
+                )
+            )
+    if not handles:
+        raise ImportErrorWithLocation(f"{path}: zip archive contains no .txt files")
+    return handles
+
+
+def input_source_handles(path: Path) -> list[TextSourceHandle]:
+    if not path.exists():
+        raise ImportErrorWithLocation(f"{path}: input does not exist")
+    if path.is_dir():
+        handles: list[TextSourceHandle] = []
+        text_paths = [child for child in path.rglob("*.txt") if child.is_file()]
+        zip_paths = [child for child in path.rglob("*.zip") if child.is_file()]
+        if not text_paths and not zip_paths:
+            raise ImportErrorWithLocation(f"{path}: directory contains no .txt or .zip files")
+        for text_path in text_paths:
+            handles.append(text_file_handle(text_path, str(text_path.relative_to(path))))
+        for zip_path in zip_paths:
+            handles.extend(zip_text_source_handles(zip_path, str(zip_path.relative_to(path))))
+        return handles
+    if path.suffix.lower() == ".zip":
+        return zip_text_source_handles(path, path.name)
+    return [text_file_handle(path, path.name)]
+
+
+def selected_canonical_source_handles(
+    args: argparse.Namespace,
+    handles: list[TextSourceHandle],
+) -> list[tuple[str, TextSourceHandle]]:
+    canonical = [
+        (f"content-source-{handle.content_sha256[:16]}-{index:06d}", handle)
+        for index, handle in enumerate(
+            sorted(handles, key=lambda item: (item.content_sha256, item.size_bytes)),
+            start=1,
+        )
+    ]
+    ordered = sorted(
+        canonical,
+        key=lambda item: item[0] if args.file_order == "path" else file_digest(args, item[0]),
+    )
+    filtered = [
+        item for item in ordered if include_by_rate(file_digest(args, item[0]), args.file_sample_rate)
+    ]
+    if args.max_files is not None:
+        return filtered[: args.max_files]
+    return filtered
+
+
+def process_streaming_target_inputs(
+    args: argparse.Namespace,
+    input_paths: list[Path],
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+) -> None:
+    handles: list[TextSourceHandle] = []
+    for path in input_paths:
+        handles.extend(input_source_handles(path))
+    summary.source_files_seen += len(handles)
+    for source_ref, handle in selected_canonical_source_handles(args, handles):
+        if processing_limit_reached(args, summary, rows):
+            break
+        data = handle.load_bytes()
+        source = text_source_from_bytes(
+            handle.provenance_ref,
+            data,
+            summary.source_files_processed + 1,
+            source_ref=source_ref,
+        )
+        process_text_source(args, source, summary, rows, progress)
 
 
 def process_text_source(
@@ -1079,7 +1216,8 @@ def report_for(
         sampling_frame_notes = []
     if args.sampling_mode == "streaming-target":
         sample_policy = (
-            "deterministic source traversal until max_positions retained rows; "
+            "deterministic content-addressed source traversal after source fingerprinting "
+            "until max_positions retained rows; "
             "not full-corpus exact top-k"
         )
     else:
@@ -1186,10 +1324,13 @@ def main() -> int:
                 f"{args.manifest}: manifest dataset_id {manifest_dataset_id!r} does not match "
                 f"--dataset-id {args.dataset_id!r}"
             )
-        for input_path in args.input:
-            if processing_limit_reached(args, summary, rows):
-                break
-            process_input(args, input_path, summary, rows, progress)
+        if args.sampling_mode == "streaming-target":
+            process_streaming_target_inputs(args, args.input, summary, rows, progress)
+        else:
+            for input_path in args.input:
+                if processing_limit_reached(args, summary, rows):
+                    break
+                process_input(args, input_path, summary, rows, progress)
         selected_rows = rows.rows()
         if not selected_rows:
             raise ImportErrorWithLocation("no positions emitted")

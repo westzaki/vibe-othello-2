@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -66,7 +67,7 @@ LOCAL_NOTES = [
     "Egaroucid-derived artifacts are not committed",
     "publication remains gated / unknown",
 ]
-SEQUENCE_CACHE_SCHEMA_VERSION = 1
+SEQUENCE_CACHE_SCHEMA_VERSION = 2
 SEQUENCE_NORMALIZED_SCHEMA_VERSION = 2
 LOCAL_ONLY_CACHE_WARNING = "sequence replay cache is local-only and must not be committed"
 
@@ -596,7 +597,7 @@ def load_manifest_dataset_id(path: Path) -> str:
     return dataset_id
 
 
-def input_fingerprints(path: Path) -> list[dict[str, Any]]:
+def input_file_fingerprints(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise RuntimeError(f"sequence input does not exist: {path}")
     if path.is_dir():
@@ -624,6 +625,65 @@ def input_fingerprints(path: Path) -> list[dict[str, Any]]:
             "sha256": sha256_file_hex(path),
         }
     ]
+
+
+def source_fingerprint_for_bytes(data: bytes, path_display: str, source_kind: str) -> dict[str, Any]:
+    return {
+        "path_display": path_display,
+        "source_kind": source_kind,
+        "size_bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def zip_member_source_fingerprints(path: Path, display_prefix: str) -> list[dict[str, Any]]:
+    try:
+        archive = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as error:
+        raise RuntimeError(f"invalid sequence zip archive: {path}") from error
+    fingerprints: list[dict[str, Any]] = []
+    with archive:
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.lower().endswith(".txt"):
+                continue
+            with archive.open(info) as raw:
+                data = raw.read()
+            fingerprints.append(
+                source_fingerprint_for_bytes(
+                    data,
+                    f"{display_prefix}!{info.filename}",
+                    "zip-member",
+                )
+            )
+    if not fingerprints:
+        raise RuntimeError(f"sequence zip archive contains no .txt files: {path}")
+    return fingerprints
+
+
+def input_source_fingerprints(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise RuntimeError(f"sequence input does not exist: {path}")
+    if path.is_dir():
+        paths = sorted(
+            child
+            for child in path.rglob("*")
+            if child.is_file() and child.suffix.lower() in {".txt", ".zip"}
+        )
+        if not paths:
+            raise RuntimeError(f"sequence input directory contains no .txt or .zip files: {path}")
+        fingerprints: list[dict[str, Any]] = []
+        for child in paths:
+            display = str(child.relative_to(path))
+            if child.suffix.lower() == ".zip":
+                fingerprints.extend(zip_member_source_fingerprints(child, display))
+            else:
+                fingerprints.append(
+                    source_fingerprint_for_bytes(child.read_bytes(), display, "text-file")
+                )
+        return fingerprints
+    if path.suffix.lower() == ".zip":
+        return zip_member_source_fingerprints(path, path.name)
+    return [source_fingerprint_for_bytes(path.read_bytes(), path.name, "text-file")]
 
 
 def aggregate_input_sha256(fingerprints: list[dict[str, Any]]) -> str:
@@ -660,14 +720,16 @@ def sequence_cache_plan(args: argparse.Namespace) -> tuple[str, dict[str, Any], 
     assert args.sequence_manifest is not None
     assert args.sequence_input is not None
     constants = sequence_importer_constants(args.sequence_importer)
-    input_files = input_fingerprints(args.sequence_input)
+    input_files = input_file_fingerprints(args.sequence_input)
+    input_sources = input_source_fingerprints(args.sequence_input)
     manifest_sha = sha256_file_hex(args.sequence_manifest)
     importer_sha = sha256_file_hex(args.sequence_importer)
     options = sequence_importer_options(args)
     source_fingerprints = {
         "manifest_sha256": manifest_sha,
         "input_files": input_files,
-        "aggregate_input_sha256": aggregate_input_sha256(input_files),
+        "input_sources": input_sources,
+        "aggregate_input_sha256": aggregate_input_sha256(input_sources),
     }
     key_payload = {
         "cache_schema_version": SEQUENCE_CACHE_SCHEMA_VERSION,
@@ -676,13 +738,13 @@ def sequence_cache_plan(args: argparse.Namespace) -> tuple[str, dict[str, Any], 
         "identity_policy_version": constants.get("identity_policy_version"),
         "manifest_sha256": manifest_sha,
         "normalized_schema_version": SEQUENCE_NORMALIZED_SCHEMA_VERSION,
-        "input_file_sha256": sorted(
+        "input_source_sha256": sorted(
             (
                 {
                     "sha256": item["sha256"],
                     "size_bytes": item["size_bytes"],
                 }
-                for item in input_files
+                for item in input_sources
             ),
             key=lambda item: (item["sha256"], item["size_bytes"]),
         ),
@@ -699,6 +761,7 @@ def sequence_cache_plan(args: argparse.Namespace) -> tuple[str, dict[str, Any], 
         "manifest_sha256": manifest_sha,
         "importer_sha256": importer_sha,
         "input_files": input_files,
+        "input_sources": input_sources,
         "aggregate_input_sha256": source_fingerprints["aggregate_input_sha256"],
     }
 
@@ -791,6 +854,7 @@ def write_sequence_cache_metadata(
         "dataset_id": plan["importer_options"].get("dataset_id"),
         "manifest_sha256": plan["manifest_sha256"],
         "input_file_sha256": plan["input_files"],
+        "input_source_sha256": plan["input_sources"],
         "aggregate_input_sha256": plan["aggregate_input_sha256"],
         "importer_options": plan["importer_options"],
         "key_payload_sha256": plan["key_payload_sha256"],
