@@ -15,6 +15,7 @@ Read only the document needed for the current task.
 | Endgame architecture | `architecture/endgame.md` |
 | Endgame implementation status | `progress/endgame.md` |
 | 20-empty endgame experiment notes | `experiments/endgame-high-empty-20.md` |
+| Pattern sequence v0002 local measurement notes | `experiments/pattern-sequence-v0002-local-measurement.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
