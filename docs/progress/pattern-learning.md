@@ -117,17 +117,18 @@ Existing foundations include:
 * local-only Egaroucid v0002 sequence/transcript importer at
   `tools/data-import/import_egaroucid_sequences.py` that accepts local files,
   directories, and zip archives, replays Othello transcripts with legal move
-  validation plus explicit or implicit pass handling, emits the same normalized
-  TSV schema consumed by the pattern dataset builder, and writes an import
-  report with game, reject, pass, terminal, split, phase, label, checksum,
-  sampling-frame, and provenance notes; checked-in coverage uses only a
-  synthetic transcript fixture, not raw Egaroucid data. Direct raw zip
-  full-scan import remains the accurate full-corpus top-k path, but it can be
-  slow for local iteration because every selected transcript must be replayed.
-  The opt-in `bounded-dev` sampling mode deterministically bounds files and
-  games before replay, reports progress and sampling-frame fields, and is only
-  for repeatable local measurement loops, not full-corpus exact sampling or a
-  production strength claim.
+  validation plus explicit or implicit pass handling, emits normalized TSV
+  schema v2 with explicit `game_group_id`, `board_id`, and
+  `source_occurrence_id`, and writes an import report with identity policy,
+  game, duplicate occurrence, exact-board leakage, reject, pass, terminal,
+  split, phase, label, checksum, bounded-dev sampling frame, and provenance
+  notes; checked-in coverage uses only a synthetic transcript fixture, not raw
+  Egaroucid data. Direct raw zip full-scan import remains the accurate
+  full-corpus top-k path, but it can be slow for local iteration because every
+  selected transcript must be replayed. The opt-in `bounded-dev` sampling mode
+  deterministically bounds files and games before replay, reports progress and
+  sampling-frame fields, and is only for repeatable local measurement loops,
+  not full-corpus exact sampling or a production strength claim.
 * CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
   the normalized TSV into `tools/pattern/dataset`, validates board/count/label
   columns, preserves importer-provided `position_id` and `split`, keeps same
@@ -140,9 +141,12 @@ Existing foundations include:
   fixed-position evaluation smoke, fixed-position search smoke, and a local
   training run report JSON; it also supports sequence/transcript input through
   the local sequence importer, can bound sequence import/conversion itself with
-  ply, max-position, bounded file/game sampling, and progress controls before
-  the normalized TSV is materialized, and can cap evaluation/search smoke input
-  rows independently from the training sample for large local measurements
+  ply, max-position, file/game cap, sample-rate, hash file ordering, and
+  progress controls before the normalized TSV is materialized, can cap
+  evaluation/search smoke input rows independently from the training sample
+  for large local measurements, and can fail local measurement early with
+  `--strict-board-disjoint-splits` when schema v2 exact boards appear across
+  train/validation/test splits
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
@@ -167,8 +171,12 @@ The Egaroucid normalized dataset report currently records:
 * `counts_by_split`, `counts_by_phase`, and `counts_by_label_kind`
 * `label_min`, `label_max`, and `label_mean`
 * `repeated_position_count` and `exact_duplicate_record_count`
+* for sequence schema v2, `game_group_count`, `unique_board_count`,
+  `cross_split_board_collision_count`, and collision counts by split pair
 * `checksum`
-* `split_policy: position-sha256`
+* `split_policy`, which remains `position-sha256` for board-score v1 data and
+  records importer-preserved `dataset_id + game_group_id` splitting for
+  sequence schema v2
 * `duplicate_policy: keep_all_input_order`
 
 The dataset builder treats Egaroucid importer splits as authoritative. It does
@@ -183,7 +191,9 @@ The local training runner sample report records:
 * `counts_by_split` and `counts_by_phase`
 * `label_min`, `label_max`, and `label_mean`
 * `checksum`
-* `sample_policy` with method, limits, seed, split policy, and memory policy
+* `board_leakage_audit` for schema v2 inputs
+* `sample_policy` with method, limits, seed, split policy, memory policy, and
+  strict exact-board setting
 
 The current sampler uses deterministic `sha256(seed, position_id)` top-k
 selection over `position_id` groups. `--max-examples` and `--max-per-phase`
@@ -220,15 +230,20 @@ not be committed.
 
 The board-score importer and sequence importer intentionally use different
 identity policies. The board-score importer uses `dataset_id + board` for
-`position_id` so repeated boards stay together. The sequence importer uses
-`dataset_id + game_id + ply + board hash` for `position_id` and derives split
-from `dataset_id + game_id`, keeping all emitted positions from one transcript
-in one split and avoiding game leakage across train/validation/test. This means
-cross-game duplicate boards keep separate sequence-derived position ids.
+`position_id` so repeated boards stay together. The sequence importer derives
+`game_group_id` from canonical replayed move/pass content, keeps local path,
+archive member, and line number only in `source_occurrence_id`, derives split
+from `dataset_id + game_group_id`, and builds `position_id` from
+`dataset_id + game_group_id + ply + board_id`. Duplicate source copies of the
+same semantic game share `game_group_id`, `position_id`, `board_id`, and split,
+while `record_id` remains occurrence-scoped. Cross-game duplicate boards are
+reported through `board_id` leakage audit instead of being hidden by
+game-scoped position ids.
 
-Sequence-derived labels are final-disc-difference labels computed from the
-transcript final board and converted to side-to-move perspective at each
-emitted ply. They are not teacher-search scores. A local 10k / 100k / 1M review
+Sequence-derived labels use `observed_final_disc_diff`: final-disc-difference
+labels computed from the transcript final board and converted to side-to-move
+perspective at each emitted ply. They are not teacher-search scores. A local
+10k / 100k / 1M review
 using Egaroucid v0002 sequence-derived normalized TSV showed trainer v0b
 held-out MAE improving as data increased (10k test MAE 11.616, 100k test MAE
 9.256, 1M partial test MAE 7.486) while v0a phase-bias baseline validation/test

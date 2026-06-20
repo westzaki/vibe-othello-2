@@ -277,10 +277,14 @@ position_from_a1_to_h8_board(std::string_view board) noexcept {
 }
 
 std::optional<std::vector<PositionFixture>> load_positions(const std::string& path) {
-  static constexpr std::string_view kExpectedHeader =
+  static constexpr std::string_view kExpectedHeaderV1 =
       "record_id\tposition_id\tsource_dataset_id\tsplit\tboard_a1_to_h8\tlabel_kind\tlabel_"
       "unit\tlabel_perspective\tlabel_score_side_to_move\toccupied_count\tphase\tplayer_disc_"
       "count\topponent_disc_count\tempty_count";
+  static constexpr std::string_view kExpectedHeaderV2 =
+      "record_id\tposition_id\tgame_group_id\tboard_id\tsource_occurrence_id\tsource_dataset_id\t"
+      "split\tboard_a1_to_h8\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_"
+      "move\toccupied_count\tphase\tplayer_disc_count\topponent_disc_count\tempty_count";
 
   std::ifstream input(path);
   if (!input) {
@@ -292,11 +296,16 @@ std::optional<std::vector<PositionFixture>> load_positions(const std::string& pa
   std::set<std::string> seen_position_ids;
   std::string line;
   int line_number = 0;
+  int schema_version = 0;
   while (std::getline(input, line)) {
     ++line_number;
     const std::string_view trimmed = trim_trailing_cr(line);
     if (line_number == 1) {
-      if (trimmed != kExpectedHeader) {
+      if (trimmed == kExpectedHeaderV1) {
+        schema_version = 1;
+      } else if (trimmed == kExpectedHeaderV2) {
+        schema_version = 2;
+      } else {
         std::cerr << "line 1: unexpected normalized TSV header\n";
         return std::nullopt;
       }
@@ -307,16 +316,18 @@ std::optional<std::vector<PositionFixture>> load_positions(const std::string& pa
     }
 
     const std::vector<std::string_view> fields = split_tabs(trimmed);
-    if (fields.size() != 14) {
-      std::cerr << "line " << line_number << ": expected 14 TSV fields\n";
+    const std::size_t expected_fields = schema_version == 2 ? 17 : 14;
+    if (fields.size() != expected_fields) {
+      std::cerr << "line " << line_number << ": expected " << expected_fields << " TSV fields\n";
       return std::nullopt;
     }
     const std::string position_id{fields[1]};
     if (!seen_position_ids.insert(position_id).second) {
       continue;
     }
+    const std::size_t board_field = schema_version == 2 ? 7 : 4;
     const std::optional<vibe_othello::board_core::Position> position =
-        position_from_a1_to_h8_board(fields[4]);
+        position_from_a1_to_h8_board(fields[board_field]);
     if (!position.has_value()) {
       std::cerr << "line " << line_number << ": could not convert board to Position\n";
       return std::nullopt;

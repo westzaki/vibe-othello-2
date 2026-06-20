@@ -19,6 +19,9 @@ DATASET_ID = "egaroucid-sequence-v0002-local"
 EXPECTED_HEADER = [
     "record_id",
     "position_id",
+    "game_group_id",
+    "board_id",
+    "source_occurrence_id",
     "source_dataset_id",
     "split",
     "board_a1_to_h8",
@@ -39,6 +42,7 @@ def run_importer(
     fixture: Path,
     manifest: Path,
     report: Path,
+    seed: int = 7,
     extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -58,7 +62,7 @@ def run_importer(
             "--ply-stride",
             "4",
             "--seed",
-            "7",
+            str(seed),
             "--emit-terminal",
             *(extra_args or []),
         ],
@@ -104,7 +108,7 @@ def check_rows(rows: list[dict[str, str]]) -> bool:
     if source_ids != {DATASET_ID}:
         print(f"unexpected source ids: {source_ids}", file=sys.stderr)
         return False
-    if {row["label_kind"] for row in rows} != {"engine_disc_estimate"}:
+    if {row["label_kind"] for row in rows} != {"observed_final_disc_diff"}:
         print("unexpected label kind", file=sys.stderr)
         return False
     if {row["label_unit"] for row in rows} != {"final_disc_diff"}:
@@ -113,7 +117,7 @@ def check_rows(rows: list[dict[str, str]]) -> bool:
     if {row["label_perspective"] for row in rows} != {"side_to_move"}:
         print("unexpected label perspective", file=sys.stderr)
         return False
-    games_by_prefix: dict[str, set[str]] = {}
+    splits_by_game_group_id: dict[str, set[str]] = {}
     for row in rows:
         board = row["board_a1_to_h8"]
         if len(board) != 64 or set(board).difference({"X", "O", "-"}):
@@ -135,13 +139,21 @@ def check_rows(rows: list[dict[str, str]]) -> bool:
         if int(row["label_score_side_to_move"]) < -64 or int(row["label_score_side_to_move"]) > 64:
             print(f"unexpected label: {row}", file=sys.stderr)
             return False
-        prefix = f"{DATASET_ID}-"
+        if not row["game_group_id"].startswith("game-"):
+            print(f"unexpected game group id: {row['game_group_id']!r}", file=sys.stderr)
+            return False
+        if not row["board_id"].startswith("board-"):
+            print(f"unexpected board id: {row['board_id']!r}", file=sys.stderr)
+            return False
+        if not row["source_occurrence_id"].startswith("occ-"):
+            print(f"unexpected source occurrence id: {row['source_occurrence_id']!r}", file=sys.stderr)
+            return False
+        prefix = f"{DATASET_ID}-game-"
         if not row["position_id"].startswith(prefix):
             print(f"unexpected position id: {row['position_id']!r}", file=sys.stderr)
             return False
-        game_prefix = row["position_id"][len(prefix) :].split("-", 1)[0]
-        games_by_prefix.setdefault(game_prefix, set()).add(row["split"])
-    if any(len(splits) != 1 for splits in games_by_prefix.values()):
+        splits_by_game_group_id.setdefault(row["game_group_id"], set()).add(row["split"])
+    if any(len(splits) != 1 for splits in splits_by_game_group_id.values()):
         print("positions from one game did not stay in one split", file=sys.stderr)
         return False
     return True
@@ -149,8 +161,9 @@ def check_rows(rows: list[dict[str, str]]) -> bool:
 
 def check_report(report: dict[str, Any], rows: list[dict[str, str]]) -> bool:
     expected = {
-        "schema_version": 1,
-        "importer_version": "egaroucid-sequence-v0",
+        "schema_version": 2,
+        "importer_version": "egaroucid-sequence-v1",
+        "identity_policy_version": "egaroucid-sequence-identity-v1",
         "source_dataset_id": DATASET_ID,
         "source_kind": "egaroucid-sequence-local",
         "input_kind": "sequence-transcript",
@@ -160,6 +173,8 @@ def check_report(report: dict[str, Any], rows: list[dict[str, str]]) -> bool:
         "emitted_positions": len(rows),
         "invalid_move_count": 1,
         "terminal_count": 3,
+        "game_group_count": 2,
+        "duplicate_game_occurrence_count": 1,
     }
     for key, value in expected.items():
         if report.get(key) != value:
@@ -170,6 +185,12 @@ def check_report(report: dict[str, Any], rows: list[dict[str, str]]) -> bool:
         return False
     if not isinstance(report.get("pass_count"), int) or report["pass_count"] < 2:
         print(f"bad pass count: {report.get('pass_count')!r}", file=sys.stderr)
+        return False
+    if not isinstance(report.get("unique_board_count"), int) or report["unique_board_count"] <= 0:
+        print(f"bad unique board count: {report.get('unique_board_count')!r}", file=sys.stderr)
+        return False
+    if not isinstance(report.get("cross_split_board_collision_count"), int):
+        print("missing cross split collision count", file=sys.stderr)
         return False
     expected_sampling = {
         "sampling_mode": "full-scan-topk",
@@ -217,8 +238,8 @@ def check_bounded_sampling(importer: Path, fixture: Path, manifest: Path) -> boo
             "--progress-every-files",
             "1",
         ]
-        first = run_importer(importer, fixture, manifest, first_report, extra_args)
-        second = run_importer(importer, fixture, manifest, second_report, extra_args)
+        first = run_importer(importer, fixture, manifest, first_report, extra_args=extra_args)
+        second = run_importer(importer, fixture, manifest, second_report, extra_args=extra_args)
         if first.returncode != 0 or second.returncode != 0:
             sys.stderr.write(first.stderr)
             sys.stderr.write(first.stdout)
@@ -273,7 +294,7 @@ def check_sampling_mode_validation(importer: Path, fixture: Path, manifest: Path
             fixture,
             manifest,
             temp_path / "bounded-without-mode-report.json",
-            ["--max-games", "1"],
+            extra_args=["--max-games", "1"],
         )
         if result.returncode == 0:
             print("bounded controls without bounded-dev mode were not rejected", file=sys.stderr)
@@ -298,7 +319,7 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
             zip_path,
             manifest,
             zip_report,
-            ["--sampling-mode", "bounded-dev", "--max-files", "1"],
+            extra_args=["--sampling-mode", "bounded-dev", "--max-files", "1"],
         )
         zip_rows = parse_rows(zip_result.stdout) if zip_result.returncode == 0 else None
         zip_report_data = load_report(zip_report) if zip_result.returncode == 0 else None
@@ -326,7 +347,7 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
             temp_path / "extracted",
             manifest,
             dir_report,
-            ["--sampling-mode", "bounded-dev", "--max-files", "1"],
+            extra_args=["--sampling-mode", "bounded-dev", "--max-files", "1"],
         )
         dir_rows = parse_rows(dir_result.stdout) if dir_result.returncode == 0 else None
         dir_report_data = load_report(dir_report) if dir_result.returncode == 0 else None
@@ -342,6 +363,81 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
             sys.stderr.write(dir_result.stderr)
             sys.stderr.write(dir_result.stdout)
             print("directory import did not produce the expected rows/report", file=sys.stderr)
+            return False
+    return True
+
+
+def check_storage_independent_identity(importer: Path, fixture: Path, manifest: Path) -> bool:
+    fixture_text = fixture.read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        first_zip = temp_path / "first-name.zip"
+        second_zip = temp_path / "second-name.zip"
+        with zipfile.ZipFile(first_zip, "w") as archive:
+            archive.writestr("a/0000000.txt", fixture_text)
+        with zipfile.ZipFile(second_zip, "w") as archive:
+            archive.writestr("renamed/member.txt", "\n" + fixture_text)
+
+        first = run_importer(importer, first_zip, manifest, temp_path / "first-report.json")
+        second = run_importer(importer, second_zip, manifest, temp_path / "second-report.json")
+        if first.returncode != 0 or second.returncode != 0:
+            sys.stderr.write(first.stderr)
+            sys.stderr.write(second.stderr)
+            return False
+        first_rows = parse_rows(first.stdout)
+        second_rows = parse_rows(second.stdout)
+        if first_rows is None or second_rows is None:
+            return False
+
+        def stable_identity(rows: list[dict[str, str]]) -> list[tuple[str, str, str, str, str]]:
+            return sorted(
+                (
+                    row["game_group_id"],
+                    row["position_id"],
+                    row["board_id"],
+                    row["split"],
+                    row["label_score_side_to_move"],
+                )
+                for row in rows
+            )
+
+        if stable_identity(first_rows) != stable_identity(second_rows):
+            print("semantic identity changed after zip/member/path/line-number change", file=sys.stderr)
+            return False
+
+        if {
+            row["source_occurrence_id"] for row in first_rows
+        } == {row["source_occurrence_id"] for row in second_rows}:
+            print("source occurrence ids did not reflect provenance changes", file=sys.stderr)
+            return False
+    return True
+
+
+def check_seed_does_not_change_identity(importer: Path, fixture: Path, manifest: Path) -> bool:
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        first = run_importer(importer, fixture, manifest, temp_path / "seed-7.json", seed=7)
+        second = run_importer(importer, fixture, manifest, temp_path / "seed-99.json", seed=99)
+        if first.returncode != 0 or second.returncode != 0:
+            sys.stderr.write(first.stderr)
+            sys.stderr.write(second.stderr)
+            return False
+        first_rows = parse_rows(first.stdout)
+        second_rows = parse_rows(second.stdout)
+        if first_rows is None or second_rows is None:
+            return False
+        identity_fields = (
+            "record_id",
+            "position_id",
+            "game_group_id",
+            "board_id",
+            "source_occurrence_id",
+            "split",
+        )
+        if [
+            tuple(row[field] for field in identity_fields) for row in first_rows
+        ] != [tuple(row[field] for field in identity_fields) for row in second_rows]:
+            print("seed changed identity or split fields without bounded sampling", file=sys.stderr)
             return False
     return True
 
@@ -426,6 +522,10 @@ def main() -> int:
         if not check_bounded_sampling(args.importer, args.fixture, args.manifest):
             return 1
         if not check_sampling_mode_validation(args.importer, args.fixture, args.manifest):
+            return 1
+        if not check_storage_independent_identity(args.importer, args.fixture, args.manifest):
+            return 1
+        if not check_seed_does_not_change_identity(args.importer, args.fixture, args.manifest):
             return 1
         if not check_manifest_validation(args.importer, args.fixture, args.manifest):
             return 1

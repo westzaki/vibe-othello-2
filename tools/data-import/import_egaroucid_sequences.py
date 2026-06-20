@@ -34,20 +34,24 @@ from typing import Iterable, TextIO
 
 
 DATASET_ID = "egaroucid-sequence-v0002-local"
-IMPORTER_VERSION = "egaroucid-sequence-v0"
+IMPORTER_VERSION = "egaroucid-sequence-v1"
+IDENTITY_POLICY_VERSION = "egaroucid-sequence-identity-v1"
 SOURCE_KIND = "egaroucid-sequence-local"
-LABEL_KIND = "engine_disc_estimate"
+LABEL_KIND = "observed_final_disc_diff"
 LABEL_UNIT = "final_disc_diff"
 LABEL_PERSPECTIVE = "side_to_move"
 PHASE_COUNT = 13
 MIN_OCCUPIED_COUNT = 4
-MAX_EGAROUCID_OCCUPIED_COUNT = 63
+MAX_EGAROUCID_OCCUPIED_COUNT = 64
 SPLITS = ("train", "validation", "test")
 COORD_RE = re.compile(r"^[a-h][1-8]$", re.IGNORECASE)
 COMPACT_RE = re.compile(r"^(?:[a-h][1-8])+$", re.IGNORECASE)
 HEADER = (
     "record_id",
     "position_id",
+    "game_group_id",
+    "board_id",
+    "source_occurrence_id",
     "source_dataset_id",
     "split",
     "board_a1_to_h8",
@@ -77,7 +81,15 @@ NOTES = (
     "labels are final-disc-diff side-to-move derived from transcript final board",
     "not a teacher-search label",
     "not production strength evidence",
-    "sequence position_id includes game_id, ply, and board hash; split is game-hash based",
+    "game_group_id is derived from canonical replayed move/pass sequence",
+    "source paths, archive members, and line numbers only affect source_occurrence_id and record_id",
+    "split is derived from dataset_id + game_group_id",
+    "board_id is derived from the side-to-move-relative board only",
+)
+BOUNDED_DEV_NOTES = (
+    "bounded-dev mode is for local measurement iteration",
+    "bounded-dev is not a full-corpus exact top-k sample",
+    "bounded-dev is not a production strength claim",
 )
 BOUNDED_DEV_NOTES = (
     "bounded-dev mode is for local measurement iteration",
@@ -96,6 +108,9 @@ class CandidateRow:
     ordinal: int
     fields: tuple[str, ...]
     line_text: str
+    position_id: str
+    game_group_id: str
+    board_id: str
     split: str
     phase: int
     label: int
@@ -104,35 +119,61 @@ class CandidateRow:
 @dataclass
 class TopKRows:
     capacity: int | None
-    heap: list[tuple[int, int, CandidateRow]] = field(default_factory=list)
-    kept_all: list[CandidateRow] = field(default_factory=list)
+    heap: list[tuple[int, str, str]] = field(default_factory=list)
+    entries: dict[str, str] = field(default_factory=dict)
+    all_rows: list[CandidateRow] = field(default_factory=list)
 
     @staticmethod
     def heap_key(key: str) -> int:
         return -int(key, 16)
 
+    def discard_stale_worst_entries(self) -> None:
+        while self.heap:
+            _, position_id, key = self.heap[0]
+            if self.entries.get(position_id) == key:
+                return
+            heapq.heappop(self.heap)
+
+    def push(self, position_id: str, key: str) -> None:
+        self.entries[position_id] = key
+        heapq.heappush(self.heap, (self.heap_key(key), position_id, key))
+
     def consider(self, row: CandidateRow) -> None:
+        self.all_rows.append(row)
         if self.capacity is None:
-            self.kept_all.append(row)
             return
         if self.capacity <= 0:
             return
-        item = (self.heap_key(row.key), -row.ordinal, row)
-        if len(self.heap) < self.capacity:
-            heapq.heappush(self.heap, item)
+        current = self.entries.get(row.position_id)
+        if current is not None:
+            if row.key < current:
+                self.push(row.position_id, row.key)
             return
-        if item > self.heap[0]:
-            heapq.heapreplace(self.heap, item)
+        if len(self.entries) < self.capacity:
+            self.push(row.position_id, row.key)
+            return
+        self.discard_stale_worst_entries()
+        if not self.heap:
+            self.push(row.position_id, row.key)
+            return
+        _, worst_position_id, worst_key = self.heap[0]
+        if row.key < worst_key:
+            del self.entries[worst_position_id]
+            heapq.heappop(self.heap)
+            self.push(row.position_id, row.key)
 
     def rows(self) -> list[CandidateRow]:
         if self.capacity is None:
-            return sorted(self.kept_all, key=lambda row: row.ordinal)
-        return sorted((item[2] for item in self.heap), key=lambda row: row.ordinal)
+            return sorted(self.all_rows, key=lambda row: row.ordinal)
+        return sorted(
+            (row for row in self.all_rows if row.position_id in self.entries),
+            key=lambda row: row.ordinal,
+        )
 
     def kept_count(self) -> int:
         if self.capacity is None:
-            return len(self.kept_all)
-        return len(self.heap)
+            return len(self.all_rows)
+        return len(self.entries)
 
 
 @dataclass
@@ -157,6 +198,14 @@ class Summary:
     games_replayed: int = 0
     replay_skip_count: int = 0
     candidate_positions: int = 0
+    game_group_occurrences: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class ProgressState:
+    start_time: float = field(default_factory=time.monotonic)
+    last_games_report: int = 0
+    last_files_report: int = 0
 
 
 @dataclass
@@ -187,6 +236,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--emit-terminal", dest="emit_terminal", action="store_true", default=False)
     parser.add_argument("--no-emit-terminal", dest="emit_terminal", action="store_false")
+    parser.add_argument(
+        "--strict-board-disjoint-splits",
+        action="store_true",
+        help="Fail if an exact side-to-move-relative board appears in more than one split.",
+    )
     args = parser.parse_args()
     if args.min_ply < 0:
         parser.error("--min-ply must be non-negative")
@@ -243,12 +297,12 @@ def split_for_digest(digest: str) -> str:
     return "train"
 
 
+def prefixed_id(prefix: str, digest: str) -> str:
+    return f"{prefix}-{digest[:16]}"
+
+
 def phase_for_occupied_count(occupied_count: int) -> int:
-    phase = (
-        (occupied_count - MIN_OCCUPIED_COUNT)
-        * PHASE_COUNT
-        // (MAX_EGAROUCID_OCCUPIED_COUNT - MIN_OCCUPIED_COUNT + 1)
-    )
+    phase = (occupied_count - MIN_OCCUPIED_COUNT) * PHASE_COUNT // 60
     return min(PHASE_COUNT - 1, max(0, phase))
 
 
@@ -434,7 +488,8 @@ def relative_board(board: list[str], side_to_move: str) -> str:
 
 def make_row(
     args: argparse.Namespace,
-    game_id: str,
+    game_group_id: str,
+    source_occurrence_id: str,
     split: str,
     board: list[str],
     side_to_move: str,
@@ -444,10 +499,13 @@ def make_row(
 ) -> CandidateRow:
     board_text = relative_board(board, side_to_move)
     label = black_final_diff if side_to_move == "X" else -black_final_diff
-    board_digest = digest_for_parts(args.dataset_id, game_id, ply, board_text)
-    label_digest = digest_for_parts(args.dataset_id, game_id, ply, board_text, label, occurrence)
-    record_id = f"{args.dataset_id}-{label_digest[:16]}-{occurrence:06d}"
-    position_id = f"{args.dataset_id}-{game_id[:16]}-{ply:03d}-{board_digest[:16]}"
+    board_id = prefixed_id("board", digest_for_parts("board-v1", board_text))
+    position_digest = digest_for_parts(args.dataset_id, game_group_id, ply, board_id)
+    record_digest = digest_for_parts(
+        args.dataset_id, source_occurrence_id, game_group_id, ply, board_id, label, occurrence
+    )
+    record_id = f"{args.dataset_id}-{record_digest[:16]}-{occurrence:06d}"
+    position_id = f"{args.dataset_id}-{game_group_id}-{ply:03d}-{position_digest[:16]}"
     player_count = board_text.count("X")
     opponent_count = board_text.count("O")
     empty_count = board_text.count("-")
@@ -456,6 +514,9 @@ def make_row(
     fields = (
         record_id,
         position_id,
+        game_group_id,
+        board_id,
+        source_occurrence_id,
         args.dataset_id,
         split,
         board_text,
@@ -470,12 +531,15 @@ def make_row(
         str(empty_count),
     )
     line_text = "\t".join(fields)
-    sample_key = digest_for_parts(args.seed, position_id)
+    sample_key = digest_for_parts(args.seed, "sample-v1", game_group_id, position_id)
     return CandidateRow(
         key=sample_key,
         ordinal=occurrence,
         fields=fields,
         line_text=line_text,
+        position_id=position_id,
+        game_group_id=game_group_id,
+        board_id=board_id,
         split=split,
         phase=phase,
         label=label,
@@ -483,15 +547,18 @@ def make_row(
 
 
 def replay_game(
-    args: argparse.Namespace, game_id: str, text: str
-) -> tuple[list[CandidateRow], int, bool]:
+    args: argparse.Namespace, source_ref: str, line_number: int, text: str
+) -> tuple[list[CandidateRow], int, bool, str]:
     tokens = parse_transcript(text)
     if not tokens:
         raise ImportErrorWithLocation("transcript is empty")
-    split = split_for_digest(digest_for_parts(args.dataset_id, game_id))
+    source_occurrence_id = prefixed_id(
+        "occ", digest_for_parts(args.dataset_id, source_ref, line_number, text.strip())
+    )
     board = initial_board()
     side = "X"
     snapshots: list[tuple[int, list[str], str]] = []
+    canonical_moves: list[str] = []
     move_ply = 0
     pass_count = 0
 
@@ -503,6 +570,7 @@ def replay_game(
             if not legal_moves(board, opponent(side)):
                 raise ImportErrorWithLocation(f"token {token_index}: pass after terminal position")
             side = opponent(side)
+            canonical_moves.append("pass")
             pass_count += 1
             continue
 
@@ -513,11 +581,13 @@ def replay_game(
             other = opponent(side)
             if not side_moves and index in legal_moves(board, other):
                 side = other
+                canonical_moves.append("pass")
                 pass_count += 1
             else:
                 raise ImportErrorWithLocation(f"token {token_index}: illegal move {token!r}")
 
         apply_move(board, side, index)
+        canonical_moves.append(f"{chr(ord('a') + (index % 8))}{(index // 8) + 1}")
         move_ply += 1
         side = opponent(side)
         snapshots.append((move_ply, board.copy(), side))
@@ -529,6 +599,11 @@ def replay_game(
     if not terminal:
         raise ImportErrorWithLocation("transcript ended before terminal position")
 
+    canonical_game = " ".join(canonical_moves)
+    game_group_id = prefixed_id(
+        "game", digest_for_parts(args.dataset_id, IDENTITY_POLICY_VERSION, canonical_game)
+    )
+    split = split_for_digest(digest_for_parts(args.dataset_id, game_group_id))
     black_final_diff = board.count("X") - board.count("O")
     rows: list[CandidateRow] = []
     occurrence = 0
@@ -540,7 +615,8 @@ def replay_game(
         rows.append(
             make_row(
                 args,
-                game_id,
+                game_group_id,
+                source_occurrence_id,
                 split,
                 snapshot,
                 side_to_move,
@@ -549,7 +625,7 @@ def replay_game(
                 black_final_diff,
             )
         )
-    return rows, pass_count, terminal
+    return rows, pass_count, terminal, game_group_id
 
 
 def process_text_stream(
@@ -569,14 +645,16 @@ def process_text_stream(
         if not text:
             continue
         summary.games_seen += 1
-        game_id = game_digest(args, source_ref, line_number, text)
-        if not should_replay_game(args, summary, game_id):
+        game_key = game_digest(args, source_ref, line_number, text)
+        if not should_replay_game(args, summary, game_key):
             maybe_report_progress(args, summary, rows, progress)
             continue
         summary.input_games += 1
         summary.games_replayed += 1
         try:
-            emitted, pass_count, terminal = replay_game(args, game_id, text)
+            emitted, pass_count, terminal, game_group_id = replay_game(
+                args, source_ref, line_number, text
+            )
         except ImportErrorWithLocation as error:
             summary.rejected_games += 1
             summary.invalid_move_count += 1
@@ -584,6 +662,9 @@ def process_text_stream(
                 summary.rejected_reasons.append(f"{source_ref}:{line_number}: {error}")
             continue
         summary.accepted_games += 1
+        summary.game_group_occurrences[game_group_id] = (
+            summary.game_group_occurrences.get(game_group_id, 0) + 1
+        )
         summary.pass_count += pass_count
         if terminal:
             summary.terminal_count += 1
@@ -680,6 +761,32 @@ def process_input(
             process_plain_file(args, path, summary, rows, progress, counted=True)
 
 
+def split_pair(left: str, right: str) -> str:
+    return "__".join(sorted((left, right)))
+
+
+def leakage_audit(selected_rows: list[CandidateRow]) -> dict[str, object]:
+    board_splits: dict[str, set[str]] = {}
+    for row in selected_rows:
+        board_splits.setdefault(row.board_id, set()).add(row.split)
+    pair_counts: dict[str, int] = {}
+    collision_count = 0
+    for splits in board_splits.values():
+        if len(splits) < 2:
+            continue
+        collision_count += 1
+        ordered = sorted(splits)
+        for left_index, left in enumerate(ordered):
+            for right in ordered[left_index + 1 :]:
+                pair = split_pair(left, right)
+                pair_counts[pair] = pair_counts.get(pair, 0) + 1
+    return {
+        "unique_board_count": len(board_splits),
+        "cross_split_board_collision_count": collision_count,
+        "cross_split_board_collision_counts_by_pair": dict(sorted(pair_counts.items())),
+    }
+
+
 def write_rows(selected_rows: list[CandidateRow], output: TextIO, summary: Summary) -> str:
     writer = csv.writer(output, delimiter="\t", lineterminator="\n")
     writer.writerow(HEADER)
@@ -698,16 +805,22 @@ def write_rows(selected_rows: list[CandidateRow], output: TextIO, summary: Summa
     return f"sha256:{digest.hexdigest()}"
 
 
-def report_for(args: argparse.Namespace, summary: Summary, checksum: str) -> dict[str, object]:
+def report_for(
+    args: argparse.Namespace, summary: Summary, checksum: str, audit: dict[str, object]
+) -> dict[str, object]:
     label_mean = None
     if summary.emitted_positions:
         label_mean = float(f"{summary.label_sum / summary.emitted_positions:.12g}")
+    duplicate_game_occurrences = sum(
+        max(0, count - 1) for count in summary.game_group_occurrences.values()
+    )
     sampling_frame_notes = list(BOUNDED_DEV_NOTES) if args.sampling_mode == "bounded-dev" else []
     notes = list(NOTES)
     notes.extend(sampling_frame_notes)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "importer_version": IMPORTER_VERSION,
+        "identity_policy_version": IDENTITY_POLICY_VERSION,
         "source_dataset_id": args.dataset_id,
         "source_kind": SOURCE_KIND,
         "input_kind": "sequence-transcript",
@@ -737,6 +850,13 @@ def report_for(args: argparse.Namespace, summary: Summary, checksum: str) -> dic
         "label_mean": label_mean,
         "checksum": checksum,
         "source_files": summary.source_files,
+        "game_group_count": len(summary.game_group_occurrences),
+        "duplicate_game_occurrence_count": duplicate_game_occurrences,
+        "unique_board_count": audit["unique_board_count"],
+        "cross_split_board_collision_count": audit["cross_split_board_collision_count"],
+        "cross_split_board_collision_counts_by_pair": audit[
+            "cross_split_board_collision_counts_by_pair"
+        ],
         "rejected_reasons": summary.rejected_reasons,
         "sampling_policy": {
             "mode": args.sampling_mode,
@@ -755,14 +875,21 @@ def report_for(args: argparse.Namespace, summary: Summary, checksum: str) -> dic
             "max_positions": args.max_positions,
             "seed": args.seed,
             "emit_terminal": args.emit_terminal,
-            "sample_policy": "deterministic position_id sha256 top-k when max_positions is set",
+            "sample_policy": "deterministic position_id group sha256 top-k when max_positions is set; duplicate records for selected position_id are preserved",
         },
         "split_policy": {
-            "method": "dataset_id + game_id sha256",
+            "method": "dataset_id + game_group_id sha256",
             "ratio": "80/10/10 by hash bucket",
-            "position_id": "dataset_id + game_id + ply + board hash",
-            "game_leakage_policy": "all emitted positions from one transcript stay in one split",
-            "duplicate_position_policy": "same game/ply/board id is stable; cross-game duplicate boards intentionally keep game-scoped ids",
+            "game_group_id": "sha256 of dataset_id + identity_policy_version + canonical replayed move/pass sequence",
+            "source_occurrence_id": "sha256 of dataset_id + source path/member + line number + transcript text",
+            "position_id": "dataset_id + game_group_id + ply + board_id hash",
+            "board_id": "sha256 of side-to-move-relative 64-cell board only",
+            "game_leakage_policy": "all emitted positions from one semantic game stay in one split",
+            "duplicate_position_policy": "duplicate source occurrences share game_group_id, position_id, board_id, and split; record_id remains occurrence-scoped",
+        },
+        "leakage_policy": {
+            "exact_board_audit": "side-to-move-relative board_id collisions across splits are counted",
+            "strict_board_disjoint_splits": args.strict_board_disjoint_splits,
         },
         "notes": notes,
     }
@@ -787,12 +914,18 @@ def main() -> int:
         selected_rows = rows.rows()
         if not selected_rows:
             raise ImportErrorWithLocation("no positions emitted")
+        audit = leakage_audit(selected_rows)
+        if args.strict_board_disjoint_splits and audit["cross_split_board_collision_count"] != 0:
+            raise ImportErrorWithLocation(
+                "exact board leakage detected across splits: "
+                f"{audit['cross_split_board_collision_count']} board_id collision(s)"
+            )
         checksum = write_rows(selected_rows, sys.stdout, summary)
-        maybe_report_progress(args, summary, rows, progress, force=True)
-        report = report_for(args, summary, checksum)
+        report = report_for(args, summary, checksum, audit)
         if args.report is not None:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(stable_json(report), encoding="utf-8")
+        maybe_report_progress(args, summary, rows, progress, force=True)
     except (OSError, UnicodeDecodeError, ImportErrorWithLocation) as error:
         print(error, file=sys.stderr)
         return 1
