@@ -10,6 +10,7 @@ import json
 import math
 import random
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -172,6 +173,11 @@ def parse_args() -> argparse.Namespace:
         default="deterministic",
         help="v0c-only; deterministic shuffle is the only supported policy.",
     )
+    parser.add_argument(
+        "--progress-every-examples",
+        type=int,
+        help="v0c-only; write training progress to stderr after this many train examples.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--report-out", required=True, type=Path)
@@ -188,6 +194,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--gradient-clip must be positive")
     if args.early_stop_patience is not None and args.early_stop_patience < 0:
         parser.error("--early-stop-patience must be non-negative")
+    if args.progress_every_examples is not None and args.progress_every_examples <= 0:
+        parser.error("--progress-every-examples must be positive")
     return args
 
 
@@ -862,14 +870,17 @@ def train_pattern_sgd_v0c(
     epochs_without_improvement = 0
     early_stop_triggered = False
     weight_decay = v0c_weight_decay(args)
+    start_time = time.monotonic()
+    train_count = len(train_examples)
 
     for epoch in range(1, args.epochs + 1):
+        epoch_start_time = time.monotonic()
         epoch_examples = list(train_examples)
         random.Random(args.seed + epoch - 1).shuffle(epoch_examples)
         learning_rate = v0c_learning_rate(args.learning_rate, args.lr_schedule, epoch)
         gradient_clip_count = 0
         updated_feature_occurrence_count = 0
-        for example in epoch_examples:
+        for example_index, example in enumerate(epoch_examples, start=1):
             feature_count = len(example.features)
             if feature_count == 0:
                 continue
@@ -892,23 +903,47 @@ def train_pattern_sgd_v0c(
                     pattern_weights.pop(key, None)
                 else:
                     pattern_weights[key] = weight
+            if (
+                args.progress_every_examples is not None
+                and example_index % args.progress_every_examples == 0
+            ):
+                elapsed = max(time.monotonic() - start_time, 1e-9)
+                print(
+                    "trainer_progress "
+                    f"epoch={epoch} "
+                    f"examples={example_index}/{train_count} "
+                    f"updated_feature_occurrences={updated_feature_occurrence_count} "
+                    f"elapsed_sec={elapsed:.3f} "
+                    f"examples_per_sec={example_index / max(time.monotonic() - epoch_start_time, 1e-9):.3f}",
+                    file=sys.stderr,
+                )
 
-        train_metrics = v0c_metrics_for_examples(train_examples, phase_bias, pattern_weights)
-        validation_metrics = v0c_metrics_for_examples(
-            validation_examples, phase_bias, pattern_weights
+        needs_validation_metrics = (
+            args.eval_every_epoch
+            or epoch == args.epochs
+            or args.early_stop_patience is not None
         )
-        validation_mae = validation_metrics["MAE"]
-        if validation_mae is not None and (
-            best_validation_mae is None or validation_mae < best_validation_mae
-        ):
-            best_validation_mae = validation_mae
-            best_epoch = epoch
-            best_weights = dict(pattern_weights)
-            epochs_without_improvement = 0
-        elif validation_mae is not None:
-            epochs_without_improvement += 1
+        validation_metrics = (
+            v0c_metrics_for_examples(validation_examples, phase_bias, pattern_weights)
+            if needs_validation_metrics
+            else None
+        )
+        validation_mae = validation_metrics["MAE"] if validation_metrics is not None else None
+        if validation_mae is not None:
+            if best_validation_mae is None or validation_mae < best_validation_mae:
+                best_validation_mae = validation_mae
+                best_epoch = epoch
+                best_weights = dict(pattern_weights)
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
 
         if args.eval_every_epoch or epoch == args.epochs:
+            train_metrics = v0c_metrics_for_examples(train_examples, phase_bias, pattern_weights)
+            if validation_metrics is None:
+                validation_metrics = v0c_metrics_for_examples(
+                    validation_examples, phase_bias, pattern_weights
+                )
             metrics_by_epoch.append(
                 {
                     "epoch": epoch,
@@ -935,6 +970,17 @@ def train_pattern_sgd_v0c(
                     else None,
                     "updated_feature_occurrence_count": updated_feature_occurrence_count,
                 }
+            )
+        if args.progress_every_examples is not None:
+            elapsed = max(time.monotonic() - start_time, 1e-9)
+            print(
+                "trainer_epoch "
+                f"epoch={epoch} "
+                f"updated_feature_occurrences={updated_feature_occurrence_count} "
+                f"nonzero_weight_count={len(pattern_weights)} "
+                f"validation_MAE={validation_mae} "
+                f"elapsed_sec={elapsed:.3f}",
+                file=sys.stderr,
             )
 
         if (

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -252,6 +253,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--gradient-clip", type=float)
     parser.add_argument("--early-stop-patience", type=int)
+    parser.add_argument(
+        "--trainer-eval-every-epoch",
+        dest="trainer_eval_every_epoch",
+        action="store_true",
+        default=True,
+        help="v0c-only; ask the trainer to write metrics for every epoch.",
+    )
+    parser.add_argument(
+        "--trainer-no-eval-every-epoch",
+        dest="trainer_eval_every_epoch",
+        action="store_false",
+        help="v0c-only; keep only final epoch diagnostics.",
+    )
+    parser.add_argument("--trainer-progress-every-examples", type=int)
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     parser.add_argument(
         "--dataset-output-format",
@@ -267,7 +282,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sequence-max-positions", type=int)
     parser.add_argument(
         "--sequence-sampling-mode",
-        choices=("full-scan-topk", "bounded-dev"),
+        choices=("full-scan-topk", "streaming-target", "bounded-dev"),
         default="full-scan-topk",
     )
     parser.add_argument("--sequence-max-files", type=int)
@@ -354,6 +369,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--gradient-clip must be positive")
     if args.early_stop_patience is not None and args.early_stop_patience < 0:
         parser.error("--early-stop-patience must be non-negative")
+    if args.trainer_progress_every_examples is not None and args.trainer_progress_every_examples <= 0:
+        parser.error("--trainer-progress-every-examples must be positive")
     if args.sequence_min_ply < 0:
         parser.error("--sequence-min-ply must be non-negative")
     if args.sequence_max_ply is not None and args.sequence_max_ply < args.sequence_min_ply:
@@ -376,10 +393,11 @@ def parse_args() -> argparse.Namespace:
         or args.sequence_file_sample_rate is not None
         or args.sequence_game_sample_rate is not None
     )
-    if bounded_sequence_controls and args.sequence_sampling_mode != "bounded-dev":
+    if bounded_sequence_controls and args.sequence_sampling_mode not in {"bounded-dev", "streaming-target"}:
         parser.error(
             "--sequence-max-files, --sequence-max-games, --sequence-file-sample-rate, "
-            "and --sequence-game-sample-rate require --sequence-sampling-mode bounded-dev"
+            "and --sequence-game-sample-rate require --sequence-sampling-mode bounded-dev "
+            "or streaming-target"
         )
     if args.sequence_progress_every_games is not None and args.sequence_progress_every_games <= 0:
         parser.error("--sequence-progress-every-games must be positive")
@@ -477,6 +495,52 @@ def run_or_fail(command: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
+def collect_stream(stream: Any, chunks: list[str], mirror: Any | None = None) -> None:
+    try:
+        for line in stream:
+            chunks.append(line)
+            if mirror is not None:
+                mirror.write(line)
+                mirror.flush()
+    finally:
+        stream.close()
+
+
+def run_streaming_or_fail(command: list[str]) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    stdout_thread = threading.Thread(
+        target=collect_stream,
+        args=(process.stdout, stdout_chunks, None),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=collect_stream,
+        args=(process.stderr, stderr_chunks, sys.stderr),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    returncode = process.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+    stdout_text = "".join(stdout_chunks)
+    stderr_text = "".join(stderr_chunks)
+    if returncode != 0:
+        sys.stderr.write(stdout_text)
+        raise RuntimeError(f"command failed: {' '.join(command)}")
+    return subprocess.CompletedProcess(command, returncode, stdout_text, stderr_text)
+
+
 def parse_key_values(text: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for line in text.splitlines():
@@ -536,9 +600,13 @@ def input_fingerprints(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise RuntimeError(f"sequence input does not exist: {path}")
     if path.is_dir():
-        paths = sorted(child for child in path.rglob("*.txt") if child.is_file())
+        paths = sorted(
+            child
+            for child in path.rglob("*")
+            if child.is_file() and child.suffix.lower() in {".txt", ".zip"}
+        )
         if not paths:
-            raise RuntimeError(f"sequence input directory contains no .txt files: {path}")
+            raise RuntimeError(f"sequence input directory contains no .txt or .zip files: {path}")
         fingerprints = []
         for child in paths:
             fingerprints.append(
@@ -732,7 +800,10 @@ def write_sequence_cache_metadata(
         "import_report_size_bytes": report.stat().st_size,
         "source_kind": plan["constants"].get("source_kind", "egaroucid-sequence-local"),
         "sampling_mode": plan["importer_options"].get("sampling_mode"),
-        "sampling_notes": "full-scan-topk is a full replay path; bounded-dev is for local iteration only",
+        "sampling_notes": (
+            "full-scan-topk is a full replay path; streaming-target stops at the requested "
+            "position target for scalable local measurement; bounded-dev is for local iteration only"
+        ),
         "strict_board_disjoint_splits": plan["importer_options"].get("strict_board_disjoint_splits"),
         "warning": LOCAL_ONLY_CACHE_WARNING,
     }
@@ -1324,13 +1395,18 @@ def run_trainer(
     ]
     if args.trainer_mode == "pattern-sgd-v0c":
         command.extend(["--lr-schedule", args.lr_schedule])
+        command.append("--eval-every-epoch" if args.trainer_eval_every_epoch else "--no-eval-every-epoch")
         if args.weight_decay is not None:
             command.extend(["--weight-decay", str(args.weight_decay)])
         if args.gradient_clip is not None:
             command.extend(["--gradient-clip", str(args.gradient_clip)])
         if args.early_stop_patience is not None:
             command.extend(["--early-stop-patience", str(args.early_stop_patience)])
-    run_or_fail(command)
+        if args.trainer_progress_every_examples is not None:
+            command.extend(
+                ["--progress-every-examples", str(args.trainer_progress_every_examples)]
+            )
+    run_streaming_or_fail(command)
     return weights, report, load_json(report)
 
 
@@ -1502,6 +1578,8 @@ def write_run_report(
                 "lr_schedule": args.lr_schedule,
                 "gradient_clip": args.gradient_clip,
                 "early_stop_patience": args.early_stop_patience,
+                "eval_every_epoch": args.trainer_eval_every_epoch,
+                "progress_every_examples": args.trainer_progress_every_examples,
             }
         )
     report = {

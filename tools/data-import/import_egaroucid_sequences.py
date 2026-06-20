@@ -3,8 +3,9 @@
 
 Format assumptions:
 
-* inputs are local-only external transcript files, directories of ``.txt``
-  files, or zip archives containing ``.txt`` files
+* inputs are local-only external transcript files, directories containing
+  ``.txt`` files and/or ``.zip`` archives, or zip archives containing ``.txt``
+  files
 * each non-empty line is one Othello game transcript
 * moves are either whitespace-separated coordinates/tokens or a compact
   coordinate string such as ``d3c3b3...``
@@ -91,6 +92,11 @@ BOUNDED_DEV_NOTES = (
     "bounded-dev is not a full-corpus exact top-k sample",
     "bounded-dev is not a production strength claim",
 )
+STREAMING_TARGET_NOTES = (
+    "streaming-target mode stops after the requested retained position target",
+    "streaming-target scales with target size and is not a full-corpus exact top-k sample",
+    "streaming-target is a local measurement sampling frame, not a production strength claim",
+)
 
 
 class ImportErrorWithLocation(ValueError):
@@ -114,9 +120,11 @@ class CandidateRow:
 @dataclass
 class TopKRows:
     capacity: int | None
+    mode: str = "topk"
     heap: list[tuple[int, str, str]] = field(default_factory=list)
     entries: dict[str, str] = field(default_factory=dict)
     all_rows: list[CandidateRow] = field(default_factory=list)
+    retained_rows: dict[str, list[CandidateRow]] = field(default_factory=dict)
 
     @staticmethod
     def heap_key(key: str) -> int:
@@ -134,8 +142,12 @@ class TopKRows:
         heapq.heappush(self.heap, (self.heap_key(key), position_id, key))
 
     def consider(self, row: CandidateRow) -> None:
-        self.all_rows.append(row)
+        if self.mode == "streaming":
+            if self.capacity is None or len(self.all_rows) < self.capacity:
+                self.all_rows.append(row)
+            return
         if self.capacity is None:
+            self.all_rows.append(row)
             return
         if self.capacity <= 0:
             return
@@ -143,32 +155,47 @@ class TopKRows:
         if current is not None:
             if row.key < current:
                 self.push(row.position_id, row.key)
+            self.retained_rows.setdefault(row.position_id, []).append(row)
             return
         if len(self.entries) < self.capacity:
             self.push(row.position_id, row.key)
+            self.retained_rows[row.position_id] = [row]
             return
         self.discard_stale_worst_entries()
         if not self.heap:
             self.push(row.position_id, row.key)
+            self.retained_rows[row.position_id] = [row]
             return
         _, worst_position_id, worst_key = self.heap[0]
         if row.key < worst_key:
             del self.entries[worst_position_id]
+            self.retained_rows.pop(worst_position_id, None)
             heapq.heappop(self.heap)
             self.push(row.position_id, row.key)
+            self.retained_rows[row.position_id] = [row]
 
     def rows(self) -> list[CandidateRow]:
-        if self.capacity is None:
+        if self.mode == "streaming" or self.capacity is None:
             return sorted(self.all_rows, key=lambda row: row.ordinal)
         return sorted(
-            (row for row in self.all_rows if row.position_id in self.entries),
+            (
+                row
+                for position_id, rows in self.retained_rows.items()
+                if position_id in self.entries
+                for row in rows
+            ),
             key=lambda row: row.ordinal,
         )
 
     def kept_count(self) -> int:
+        if self.mode == "streaming":
+            return len(self.all_rows)
         if self.capacity is None:
             return len(self.all_rows)
         return len(self.entries)
+
+    def limit_reached(self) -> bool:
+        return self.capacity is not None and self.kept_count() >= self.capacity
 
 
 @dataclass
@@ -205,13 +232,6 @@ class ProgressState:
     last_files_report: int = 0
 
 
-@dataclass
-class ProgressState:
-    start_time: float = field(default_factory=time.monotonic)
-    last_games_report: int = 0
-    last_files_report: int = 0
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", action="append", required=True, type=Path)
@@ -222,7 +242,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-ply", type=int)
     parser.add_argument("--ply-stride", type=int, default=1)
     parser.add_argument("--max-positions", type=int)
-    parser.add_argument("--sampling-mode", choices=("full-scan-topk", "bounded-dev"), default="full-scan-topk")
+    parser.add_argument(
+        "--sampling-mode",
+        choices=("full-scan-topk", "streaming-target", "bounded-dev"),
+        default="full-scan-topk",
+    )
     parser.add_argument("--max-games", type=int)
     parser.add_argument("--max-files", type=int)
     parser.add_argument("--file-sample-rate", type=float)
@@ -261,10 +285,10 @@ def parse_args() -> argparse.Namespace:
         or args.file_sample_rate is not None
         or args.game_sample_rate is not None
     )
-    if bounded_controls and args.sampling_mode != "bounded-dev":
+    if bounded_controls and args.sampling_mode not in {"bounded-dev", "streaming-target"}:
         parser.error(
             "--max-games, --max-files, --file-sample-rate, and --game-sample-rate "
-            "require --sampling-mode bounded-dev"
+            "require --sampling-mode bounded-dev or streaming-target"
         )
     if args.progress_every_games is not None and args.progress_every_games <= 0:
         parser.error("--progress-every-games must be positive")
@@ -376,6 +400,42 @@ def selected_sources(args: argparse.Namespace, sources: list[TextSource]) -> lis
     return filtered
 
 
+def can_stream_sources(args: argparse.Namespace) -> bool:
+    return args.sampling_mode in {"full-scan-topk", "streaming-target"}
+
+
+def text_source_from_bytes(display_ref: str, data: bytes, source_index: int) -> TextSource:
+    content_sha256 = sha256_bytes(data)
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ImportErrorWithLocation(f"{display_ref}: cannot decode UTF-8") from error
+    return TextSource(
+        source_ref=f"content-source-{content_sha256[:16]}-{source_index:06d}",
+        provenance_ref=display_ref,
+        content=content,
+        content_sha256=content_sha256,
+        size_bytes=len(data),
+    )
+
+
+def process_text_source(
+    args: argparse.Namespace,
+    source: TextSource,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+) -> None:
+    process_text_stream(
+        args,
+        source.source_ref,
+        io.StringIO(source.content),
+        summary,
+        rows,
+        progress,
+    )
+
+
 def should_replay_game(args: argparse.Namespace, summary: Summary, game_key: str) -> bool:
     if not include_by_rate(game_key, args.game_sample_rate):
         summary.replay_skip_count += 1
@@ -385,6 +445,12 @@ def should_replay_game(args: argparse.Namespace, summary: Summary, game_key: str
 
 def replay_limit_reached(args: argparse.Namespace, summary: Summary) -> bool:
     return args.max_games is not None and summary.games_replayed >= args.max_games
+
+
+def processing_limit_reached(args: argparse.Namespace, summary: Summary, rows: TopKRows) -> bool:
+    if replay_limit_reached(args, summary):
+        return True
+    return args.sampling_mode == "streaming-target" and rows.limit_reached()
 
 
 def maybe_report_progress(
@@ -686,7 +752,7 @@ def process_text_stream(
     summary.source_files += 1
     summary.source_files_processed += 1
     for line_number, line in enumerate(lines, start=1):
-        if replay_limit_reached(args, summary):
+        if processing_limit_reached(args, summary, rows):
             break
         text = line.strip()
         if not text:
@@ -736,6 +802,8 @@ def process_text_stream(
         if terminal:
             summary.terminal_count += 1
         for row in emitted:
+            if processing_limit_reached(args, summary, rows):
+                break
             summary.candidate_positions += 1
             row.ordinal = summary.candidate_positions
             rows.consider(row)
@@ -750,6 +818,56 @@ def process_zip(
     rows: TopKRows,
     progress: ProgressState,
 ) -> None:
+    if can_stream_sources(args):
+        process_zip_streaming(args, path, path.name, summary, rows, progress)
+        return
+    sources = canonical_sources(zip_text_sources(path, path.name))
+    summary.source_files_seen += len(sources)
+    for source in selected_sources(args, sources):
+        if replay_limit_reached(args, summary):
+            break
+        process_text_stream(
+            args,
+            source.source_ref,
+            io.StringIO(source.content),
+            summary,
+            rows,
+            progress,
+        )
+
+
+def process_zip_streaming(
+    args: argparse.Namespace,
+    path: Path,
+    display_prefix: str,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+) -> None:
+    try:
+        archive = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as error:
+        raise ImportErrorWithLocation(f"{path}: invalid zip archive") from error
+    with archive:
+        text_entries = [
+            info for info in archive.infolist() if not info.is_dir() and info.filename.lower().endswith(".txt")
+        ]
+        if not text_entries:
+            raise ImportErrorWithLocation(f"{path}: zip archive contains no .txt files")
+        info_by_ref = {f"{display_prefix}!{info.filename}": info for info in text_entries}
+        selected_refs = selected_file_refs(args, list(info_by_ref))
+        for source_ref in selected_refs:
+            if processing_limit_reached(args, summary, rows):
+                break
+            info = info_by_ref[source_ref]
+            with archive.open(info) as raw:
+                data = raw.read()
+            summary.source_files_seen += 1
+            source = text_source_from_bytes(source_ref, data, summary.source_files_seen)
+            process_text_source(args, source, summary, rows, progress)
+
+
+def zip_text_sources(path: Path, display_prefix: str) -> list[TextSource]:
     try:
         archive = zipfile.ZipFile(path)
     except zipfile.BadZipFile as error:
@@ -769,25 +887,13 @@ def process_zip(
             raw_sources.append(
                 TextSource(
                     source_ref="",
-                    provenance_ref=f"{path.name}!{info.filename}",
+                    provenance_ref=f"{display_prefix}!{info.filename}",
                     content=content,
                     content_sha256=sha256_bytes(data),
                     size_bytes=len(data),
                 )
             )
-        sources = canonical_sources(raw_sources)
-        summary.source_files_seen += len(sources)
-        for source in selected_sources(args, sources):
-            if replay_limit_reached(args, summary):
-                break
-            process_text_stream(
-                args,
-                source.source_ref,
-                io.StringIO(source.content),
-                summary,
-                rows,
-                progress,
-            )
+    return raw_sources
 
 
 def process_plain_file(
@@ -802,29 +908,25 @@ def process_plain_file(
     if not counted:
         summary.source_files_seen += 1
     data = path.read_bytes()
-    try:
-        content = data.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise ImportErrorWithLocation(f"{path}: cannot decode UTF-8") from error
-    source = canonical_sources(
-        [
-            TextSource(
-                source_ref="",
-                provenance_ref=path.name,
-                content=content,
-                content_sha256=sha256_bytes(data),
-                size_bytes=len(data),
-            )
-        ]
-    )[0]
-    process_text_stream(
-        args,
-        source.source_ref,
-        io.StringIO(source.content),
-        summary,
-        rows,
-        progress,
-    )
+    if can_stream_sources(args):
+        source = text_source_from_bytes(path.name, data, summary.source_files_seen)
+    else:
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ImportErrorWithLocation(f"{path}: cannot decode UTF-8") from error
+        source = canonical_sources(
+            [
+                TextSource(
+                    source_ref="",
+                    provenance_ref=path.name,
+                    content=content,
+                    content_sha256=sha256_bytes(data),
+                    size_bytes=len(data),
+                )
+            ]
+        )[0]
+    process_text_source(args, source, summary, rows, progress)
 
 
 def process_directory(
@@ -835,8 +937,37 @@ def process_directory(
     progress: ProgressState,
 ) -> None:
     text_paths = [child for child in path.rglob("*.txt") if child.is_file()]
-    if not text_paths:
-        raise ImportErrorWithLocation(f"{path}: directory contains no .txt files")
+    zip_paths = [child for child in path.rglob("*.zip") if child.is_file()]
+    if not text_paths and not zip_paths:
+        raise ImportErrorWithLocation(f"{path}: directory contains no .txt or .zip files")
+    if can_stream_sources(args):
+        text_by_ref = {str(text_path.relative_to(path)): text_path for text_path in text_paths}
+        for source_ref in selected_file_refs(args, list(text_by_ref)):
+            if processing_limit_reached(args, summary, rows):
+                break
+            text_path = text_by_ref[source_ref]
+            data = text_path.read_bytes()
+            summary.source_files_seen += 1
+            source = text_source_from_bytes(
+                source_ref,
+                data,
+                summary.source_files_seen,
+            )
+            process_text_source(args, source, summary, rows, progress)
+        zip_by_ref = {str(zip_path.relative_to(path)): zip_path for zip_path in zip_paths}
+        for source_ref in selected_file_refs(args, list(zip_by_ref)):
+            if processing_limit_reached(args, summary, rows):
+                break
+            zip_path = zip_by_ref[source_ref]
+            process_zip_streaming(
+                args,
+                zip_path,
+                source_ref,
+                summary,
+                rows,
+                progress,
+            )
+        return
     raw_sources: list[TextSource] = []
     for text_path in text_paths:
         data = text_path.read_bytes()
@@ -853,6 +984,8 @@ def process_directory(
                 size_bytes=len(data),
             )
         )
+    for zip_path in zip_paths:
+        raw_sources.extend(zip_text_sources(zip_path, str(zip_path.relative_to(path))))
     sources = canonical_sources(raw_sources)
     summary.source_files_seen += len(sources)
     for source in selected_sources(args, sources):
@@ -938,7 +1071,22 @@ def report_for(
     duplicate_game_occurrences = sum(
         max(0, count - 1) for count in summary.game_group_occurrences.values()
     )
-    sampling_frame_notes = list(BOUNDED_DEV_NOTES) if args.sampling_mode == "bounded-dev" else []
+    if args.sampling_mode == "bounded-dev":
+        sampling_frame_notes = list(BOUNDED_DEV_NOTES)
+    elif args.sampling_mode == "streaming-target":
+        sampling_frame_notes = list(STREAMING_TARGET_NOTES)
+    else:
+        sampling_frame_notes = []
+    if args.sampling_mode == "streaming-target":
+        sample_policy = (
+            "deterministic source traversal until max_positions retained rows; "
+            "not full-corpus exact top-k"
+        )
+    else:
+        sample_policy = (
+            "deterministic position_id group sha256 top-k when max_positions is set; "
+            "duplicate records for selected position_id are preserved"
+        )
     notes = list(NOTES)
     notes.extend(sampling_frame_notes)
     return {
@@ -959,6 +1107,11 @@ def report_for(
         "games_seen": summary.games_seen,
         "games_replayed": summary.games_replayed,
         "replay_skip_count": summary.replay_skip_count,
+        "candidate_positions": summary.candidate_positions,
+        "retained_positions": summary.emitted_positions,
+        "target_limit_reached": args.sampling_mode == "streaming-target"
+        and args.max_positions is not None
+        and summary.emitted_positions >= args.max_positions,
         "sampling_frame_notes": sampling_frame_notes,
         "input_games": summary.input_games,
         "accepted_games": summary.accepted_games,
@@ -1000,7 +1153,7 @@ def report_for(
             "max_positions": args.max_positions,
             "seed": args.seed,
             "emit_terminal": args.emit_terminal,
-            "sample_policy": "deterministic position_id group sha256 top-k when max_positions is set; duplicate records for selected position_id are preserved",
+            "sample_policy": sample_policy,
         },
         "split_policy": {
             "method": "dataset_id + game_group_id sha256",
@@ -1023,7 +1176,8 @@ def report_for(
 def main() -> int:
     args = parse_args()
     summary = Summary()
-    rows = TopKRows(args.max_positions)
+    row_mode = "streaming" if args.sampling_mode == "streaming-target" else "topk"
+    rows = TopKRows(args.max_positions, mode=row_mode)
     progress = ProgressState()
     try:
         manifest_dataset_id = load_manifest_dataset_id(args.manifest)
@@ -1033,7 +1187,7 @@ def main() -> int:
                 f"--dataset-id {args.dataset_id!r}"
             )
         for input_path in args.input:
-            if replay_limit_reached(args, summary):
+            if processing_limit_reached(args, summary, rows):
                 break
             process_input(args, input_path, summary, rows, progress)
         selected_rows = rows.rows()
