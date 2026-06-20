@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,28 +15,43 @@ from typing import Any
 
 CREATED_AT = "2026-01-02T03:04:05Z"
 RUN_PREFIX = "suite-smoke"
+LOCAL_ENV_NAMES = (
+    "VIBE_OTHELLO_LOCAL",
+    "VIBE_OTHELLO_CORPORA",
+    "VIBE_OTHELLO_SEQUENCE_CACHE",
+    "VIBE_OTHELLO_MEASUREMENTS",
+)
 
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+def clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    env = os.environ.copy()
+    for name in LOCAL_ENV_NAMES:
+        env.pop(name, None)
+    if extra is not None:
+        env.update(extra)
+    return env
 
 
-def base_command(args: argparse.Namespace, output_dir: Path, cache_dir: Path) -> list[str]:
-    return [
+def run_capture(command: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=False, capture_output=True, text=True, env=env)
+
+
+def base_command(
+    args: argparse.Namespace,
+    output_dir: Path | None,
+    cache_dir: Path | None,
+) -> list[str]:
+    command = [
         sys.executable,
         str(args.suite_runner),
         "--sequence-input",
         str(args.sequence_fixture),
         "--sequence-manifest",
         str(args.sequence_manifest),
-        "--suite-output-dir",
-        str(output_dir),
-        "--sequence-cache-dir",
-        str(cache_dir),
         "--runner",
         str(args.runner),
         "--analyzer",
@@ -53,6 +69,11 @@ def base_command(args: argparse.Namespace, output_dir: Path, cache_dir: Path) ->
         "--seed",
         "7",
     ]
+    if output_dir is not None:
+        command.extend(["--suite-output-dir", str(output_dir)])
+    if cache_dir is not None:
+        command.extend(["--sequence-cache-dir", str(cache_dir)])
+    return command
 
 
 def run_suite(
@@ -63,7 +84,7 @@ def run_suite(
 ) -> subprocess.CompletedProcess[str]:
     command = base_command(args, output_dir, cache_dir)
     command.extend(extra_args)
-    result = run_capture(command)
+    result = run_capture(command, env=clean_env())
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
         sys.stderr.write(result.stdout)
@@ -72,6 +93,13 @@ def run_suite(
 
 def command_contains(command: list[str], *needles: str) -> bool:
     return all(needle in command for needle in needles)
+
+
+def command_value(command: list[str], flag: str) -> str | None:
+    try:
+        return command[command.index(flag) + 1]
+    except (ValueError, IndexError):
+        return None
 
 
 def check_dry_run(args: argparse.Namespace, root: Path) -> bool:
@@ -112,6 +140,109 @@ def check_dry_run(args: argparse.Namespace, root: Path) -> bool:
         return False
     if not (output_dir / "suite-summary.md").exists():
         print("dry-run did not write suite-summary.md", file=sys.stderr)
+        return False
+    return True
+
+
+def check_local_root_env_defaults(args: argparse.Namespace, root: Path) -> bool:
+    local_root = root / "local-root"
+    output_dir = local_root / "measurements" / RUN_PREFIX
+    cache_dir = local_root / "sequence-cache"
+    command = base_command(args, None, None)
+    command.extend(["--preset", "smoke", "--dry-run"])
+    result = run_capture(
+        command,
+        env=clean_env({"VIBE_OTHELLO_LOCAL": str(local_root)}),
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    report = load_json(output_dir / "suite-report.json")
+    if report.get("suite_output_dir") != str(output_dir):
+        print(f"VIBE_OTHELLO_LOCAL output mismatch: {report.get('suite_output_dir')!r}", file=sys.stderr)
+        return False
+    if report.get("sequence_cache_dir") != str(cache_dir):
+        print(f"VIBE_OTHELLO_LOCAL cache mismatch: {report.get('sequence_cache_dir')!r}", file=sys.stderr)
+        return False
+    run = report["runs"][0]
+    resolved_cache = command_value(run.get("command") or [], "--sequence-cache-dir")
+    if resolved_cache != str(cache_dir):
+        print(f"planned command did not use local-root cache: {run.get('command')!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_specific_env_overrides_local_root(args: argparse.Namespace, root: Path) -> bool:
+    local_root = root / "local-root-unused"
+    measurements_root = root / "specific-measurements"
+    output_dir = measurements_root / RUN_PREFIX
+    cache_dir = root / "specific-cache"
+    command = base_command(args, None, None)
+    command.extend(["--preset", "smoke", "--dry-run"])
+    result = run_capture(
+        command,
+        env=clean_env(
+            {
+                "VIBE_OTHELLO_LOCAL": str(local_root),
+                "VIBE_OTHELLO_SEQUENCE_CACHE": str(cache_dir),
+                "VIBE_OTHELLO_MEASUREMENTS": str(measurements_root),
+            }
+        ),
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    report = load_json(output_dir / "suite-report.json")
+    if report.get("suite_output_dir") != str(output_dir):
+        print(f"specific measurements env mismatch: {report.get('suite_output_dir')!r}", file=sys.stderr)
+        return False
+    if report.get("sequence_cache_dir") != str(cache_dir):
+        print(f"specific cache env mismatch: {report.get('sequence_cache_dir')!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_cli_overrides_env(args: argparse.Namespace, root: Path) -> bool:
+    output_dir = root / "cli-output"
+    cache_dir = root / "cli-cache"
+    command = base_command(args, output_dir, cache_dir)
+    command.extend(["--preset", "smoke", "--dry-run"])
+    result = run_capture(
+        command,
+        env=clean_env(
+            {
+                "VIBE_OTHELLO_LOCAL": str(root / "env-local"),
+                "VIBE_OTHELLO_SEQUENCE_CACHE": str(root / "env-cache"),
+                "VIBE_OTHELLO_MEASUREMENTS": str(root / "env-measurements"),
+            }
+        ),
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    report = load_json(output_dir / "suite-report.json")
+    if report.get("suite_output_dir") != str(output_dir):
+        print(f"CLI suite output did not override env: {report.get('suite_output_dir')!r}", file=sys.stderr)
+        return False
+    if report.get("sequence_cache_dir") != str(cache_dir):
+        print(f"CLI sequence cache did not override env: {report.get('sequence_cache_dir')!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_missing_output_location(args: argparse.Namespace) -> bool:
+    command = base_command(args, None, None)
+    command.extend(["--preset", "smoke", "--dry-run"])
+    result = run_capture(command, env=clean_env())
+    if result.returncode == 0:
+        print("missing output location unexpectedly succeeded", file=sys.stderr)
+        return False
+    expected = "either --suite-output-dir, VIBE_OTHELLO_MEASUREMENTS, or VIBE_OTHELLO_LOCAL is required"
+    if expected not in result.stderr:
+        print(f"missing output error was not helpful: {result.stderr!r}", file=sys.stderr)
         return False
     return True
 
@@ -199,7 +330,7 @@ def check_failure(args: argparse.Namespace, root: Path) -> bool:
     command = base_command(args, output_dir, root / "failure-cache")
     command[command.index("--sequence-input") + 1] = str(root / "does-not-exist.txt")
     command.extend(["--preset", "smoke"])
-    result = run_capture(command)
+    result = run_capture(command, env=clean_env())
     if result.returncode == 0:
         print("failure fixture unexpectedly succeeded", file=sys.stderr)
         return False
@@ -216,6 +347,23 @@ def check_failure(args: argparse.Namespace, root: Path) -> bool:
     if "not strength claim" not in notes or "no Elo" not in notes:
         print(f"failure suite report is missing local-only notes: {notes!r}", file=sys.stderr)
         return False
+    return True
+
+
+def check_docs_privacy_guard(args: argparse.Namespace) -> bool:
+    repo_root = args.suite_runner.resolve().parents[3]
+    docs = (
+        repo_root / "README.md",
+        repo_root / "data/corpora/README.md",
+        repo_root / "docs/progress/pattern-learning.md",
+    )
+    blocked = ("/Users/", "/home/", "~/Project/")
+    for path in docs:
+        text = path.read_text(encoding="utf-8")
+        for needle in blocked:
+            if needle in text:
+                print(f"{path} contains personal local path marker {needle!r}", file=sys.stderr)
+                return False
     return True
 
 
@@ -279,6 +427,9 @@ def main() -> int:
         root = Path(temp_dir_name)
         checks = (
             check_dry_run,
+            check_local_root_env_defaults,
+            check_specific_env_overrides_local_root,
+            check_cli_overrides_env,
             check_execute,
             check_resume,
             check_failure,
@@ -287,6 +438,10 @@ def main() -> int:
         for check in checks:
             if not check(args, root):
                 return 1
+        if not check_missing_output_location(args):
+            return 1
+        if not check_docs_privacy_guard(args):
+            return 1
     return 0
 
 

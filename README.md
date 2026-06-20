@@ -21,6 +21,28 @@ The release job runs the same configure, build, test, and smoke-tool checks.
 Benchmark executables are built in CI but run locally. The lint job enforces
 clang-format and runs clang-tidy as an advisory check.
 
+## Local-only Measurement Directories
+
+Generated corpora, sequence caches, measurements, TSVs, weights, artifacts,
+logs, and suite reports are local-only. Keep them outside the git repository
+and outside disposable worktrees so they survive worktree deletion and do not
+appear in git status.
+
+```sh
+export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
+export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
+export VIBE_OTHELLO_SEQUENCE_CACHE="${VIBE_OTHELLO_SEQUENCE_CACHE:-$VIBE_OTHELLO_LOCAL/sequence-cache}"
+export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$VIBE_OTHELLO_LOCAL/measurements}"
+
+mkdir -p "$VIBE_OTHELLO_CORPORA"
+mkdir -p "$VIBE_OTHELLO_SEQUENCE_CACHE"
+mkdir -p "$VIBE_OTHELLO_MEASUREMENTS"
+```
+
+Do not commit personal paths, `.env` files with real values, generated
+measurement outputs, or external corpus payloads. Worktree users should share
+`VIBE_OTHELLO_SEQUENCE_CACHE` across worktrees.
+
 Optional engine benchmarks can be built and run locally:
 
 ```sh

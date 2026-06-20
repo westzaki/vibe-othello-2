@@ -249,17 +249,37 @@ therefore limit selected position groups before duplicate-label expansion; any
 duplicate labels for a selected position are preserved so importer-provided
 split assignments are not broken.
 
+Local-only measurement directories should normally live outside the git
+repository and any disposable worktree:
+
+```sh
+export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
+export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
+export VIBE_OTHELLO_SEQUENCE_CACHE="${VIBE_OTHELLO_SEQUENCE_CACHE:-$VIBE_OTHELLO_LOCAL/sequence-cache}"
+export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$VIBE_OTHELLO_LOCAL/measurements}"
+
+mkdir -p "$VIBE_OTHELLO_CORPORA"
+mkdir -p "$VIBE_OTHELLO_SEQUENCE_CACHE"
+mkdir -p "$VIBE_OTHELLO_MEASUREMENTS"
+```
+
+`VIBE_OTHELLO_CORPORA` is a local-only input root, but corpus filenames and
+manifests are still explicit command inputs. Generated corpora, sequence
+caches, measurements, TSVs, weights, artifacts, logs, and reports remain
+local-only and must not be committed. Use generic paths in docs and examples;
+do not commit personal local paths.
+
 Example local run:
 
 ```sh
 python3 tools/pattern/train/run_egaroucid_local_training.py \
-  --raw-input data/corpora/local/Egaroucid_Train_Data.zip \
+  --raw-input "$VIBE_OTHELLO_CORPORA/<sequence-input>.zip" \
   --manifest data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json \
   --max-examples 100000 \
   --max-per-phase 10000 \
   --epochs 8 \
   --learning-rate 0.1 \
-  --output-dir data/corpora/local/runs/smoke-100k
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/local-training-smoke-100k"
 ```
 
 These pieces can later support import validation, teacher labels, fixed-position
@@ -322,11 +342,23 @@ The suite runner wraps the same local runner for comparable preset runs:
 
 ```sh
 python3 tools/pattern/train/run_pattern_measurement_suite.py \
-  --sequence-input data/corpora/local \
-  --sequence-manifest data/corpora/manifests/egaroucid-sequence-v0002-local.manifest.json \
-  --suite-output-dir data/corpora/local/measurements/sequence-v0002-suite \
+  --sequence-input "$VIBE_OTHELLO_CORPORA/<sequence-input>.zip" \
+  --sequence-manifest "$VIBE_OTHELLO_CORPORA/<sequence-manifest>.json" \
+  --sequence-cache-dir "$VIBE_OTHELLO_SEQUENCE_CACHE" \
+  --suite-output-dir "$VIBE_OTHELLO_MEASUREMENTS/<suite-name>" \
   --preset all \
   --resume
+```
+
+When `VIBE_OTHELLO_MEASUREMENTS` or `VIBE_OTHELLO_LOCAL` is set, the suite
+runner can derive a safe output root; when `VIBE_OTHELLO_SEQUENCE_CACHE` or
+`VIBE_OTHELLO_LOCAL` is set, it can derive the shared sequence cache:
+
+```sh
+python3 tools/pattern/train/run_pattern_measurement_suite.py \
+  --sequence-input "$VIBE_OTHELLO_CORPORA/<sequence-input>.zip" \
+  --sequence-manifest "$VIBE_OTHELLO_CORPORA/<sequence-manifest>.json" \
+  --preset smoke
 ```
 
 Use `--preset smoke --dry-run` to inspect planned commands without executing a

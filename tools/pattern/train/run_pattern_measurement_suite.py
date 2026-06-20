@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -117,7 +118,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sequence-input", required=True, type=Path)
     parser.add_argument("--sequence-manifest", required=True, type=Path)
-    parser.add_argument("--suite-output-dir", required=True, type=Path)
+    parser.add_argument(
+        "--suite-output-dir",
+        type=Path,
+        help=(
+            "Suite output directory. If omitted, use VIBE_OTHELLO_MEASUREMENTS/"
+            "<suite-prefix> or VIBE_OTHELLO_LOCAL/measurements/<suite-prefix>."
+        ),
+    )
     parser.add_argument("--sequence-cache-dir", type=Path)
     parser.add_argument(
         "--preset",
@@ -244,6 +252,45 @@ def selected_presets(preset: str) -> list[Preset]:
     if preset == "all":
         return [PRESETS[name] for name in ALL_PRESET_NAMES]
     return [PRESETS[preset]]
+
+
+def env_path(name: str) -> Path | None:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return None
+    return Path(value).expanduser()
+
+
+def suite_prefix_for(args: argparse.Namespace, created_at: str) -> str:
+    return sanitize_id(args.run_prefix or f"pattern-suite-{compact_timestamp(created_at)}")
+
+
+def resolve_suite_output_dir(args: argparse.Namespace, created_at: str) -> Path:
+    if args.suite_output_dir is not None:
+        return args.suite_output_dir
+    suite_prefix = suite_prefix_for(args, created_at)
+    measurements_root = env_path("VIBE_OTHELLO_MEASUREMENTS")
+    if measurements_root is not None:
+        return measurements_root / suite_prefix
+    local_root = env_path("VIBE_OTHELLO_LOCAL")
+    if local_root is not None:
+        return local_root / "measurements" / suite_prefix
+    raise RuntimeError(
+        "either --suite-output-dir, VIBE_OTHELLO_MEASUREMENTS, or "
+        "VIBE_OTHELLO_LOCAL is required for measurement suite output"
+    )
+
+
+def resolve_sequence_cache_dir(args: argparse.Namespace, suite_output_dir: Path) -> Path:
+    if args.sequence_cache_dir is not None:
+        return args.sequence_cache_dir
+    sequence_cache_root = env_path("VIBE_OTHELLO_SEQUENCE_CACHE")
+    if sequence_cache_root is not None:
+        return sequence_cache_root
+    local_root = env_path("VIBE_OTHELLO_LOCAL")
+    if local_root is not None:
+        return local_root / "sequence-cache"
+    return suite_output_dir / "sequence-cache"
 
 
 def git_commit() -> str | None:
@@ -760,10 +807,15 @@ def enrich_entries_from_analyzer(runs: list[dict[str, Any]], analyzer_summary: d
 def main() -> int:
     args = parse_args()
     created_at = args.created_at_utc or utc_now()
-    suite_prefix = sanitize_id(args.run_prefix or f"pattern-suite-{compact_timestamp(created_at)}")
+    suite_prefix = suite_prefix_for(args, created_at)
+    try:
+        args.suite_output_dir = resolve_suite_output_dir(args, created_at)
+        sequence_cache_dir = resolve_sequence_cache_dir(args, args.suite_output_dir)
+    except RuntimeError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     presets = selected_presets(args.preset)
     preset_names = [preset.name for preset in presets]
-    sequence_cache_dir = args.sequence_cache_dir or args.suite_output_dir / "sequence-cache"
     runs_dir = args.suite_output_dir / "runs"
     log_dir = args.suite_output_dir / "logs"
     args.suite_output_dir.mkdir(parents=True, exist_ok=True)
