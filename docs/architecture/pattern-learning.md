@@ -306,6 +306,20 @@ Recommended progression:
 Training must be deterministic when given the same input manifests, seed, and
 options.
 
+The local `pattern-sgd-v0c` trainer keeps the runtime-compatible v0b score
+shape while making optimizer semantics and diagnostics explicit. It learns
+train-split phase biases first, then keeps those biases fixed while SGD updates
+only pattern weights over residual labels. The per-example error gradient is
+distributed over feature occurrences, optional gradient clipping applies to
+that per-feature error gradient, and weight decay applies only to pattern
+weights. The learned weight key remains `phase + pattern_id + ternary_index`;
+`instance` is validated input metadata, not part of the runtime weight key.
+
+`pattern-sgd-v0c` is local research infrastructure. Its fitting reports may be
+used to compare train/validation/test behavior, residuals, optimizer behavior,
+and split-by-phase coverage, but they are not Elo, match bench, self-play, or
+production artifact claims.
+
 ## Metrics
 
 Every training run should emit a report.
@@ -324,6 +338,11 @@ Minimum fitting metrics:
 * score calibration curve when calibration exists
 * artifact size
 * evaluation speed with the exported artifact
+
+Research trainer reports should also include residual metrics against fixed
+phase bias, split-by-phase empty buckets, optimizer settings, epoch diagnostics,
+and weight diagnostics such as nonzero count, L2 norm, maximum absolute weight,
+phase/pattern counts, and largest absolute weights.
 
 Strength metrics are separate from fitting metrics.
 

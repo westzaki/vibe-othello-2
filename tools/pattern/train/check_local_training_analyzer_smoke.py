@@ -33,6 +33,7 @@ def smoke_report(
     sequence_cache: dict[str, Any] | None = None,
     stage_timings: dict[str, Any] | None = None,
     dataset_output_format: str | None = None,
+    trainer_version: str = "pattern-sgd-v0b",
 ) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -50,7 +51,8 @@ def smoke_report(
         "sample_counts_by_phase": counts_by_phase,
         "sample_report_checksum": "sha256:sample",
         "dataset_report_checksum": "sha256:dataset",
-        "trainer_version": "pattern-sgd-v0b",
+        "trainer_version": trainer_version,
+        "trainer_mode": trainer_version,
         "trainer_args": {
             "epochs": 8,
             "learning_rate": 0.1,
@@ -63,6 +65,7 @@ def smoke_report(
         "evaluation_smoke_summary": evaluation_smoke_summary,
         "search_smoke_summary": search_smoke_summary,
         "output_files": {
+            "trainer_report_json": "v0b-trainer-report.json",
             "v0b_trainer_report_json": "v0b-trainer-report.json",
         },
         "notes": [
@@ -99,6 +102,7 @@ def stage_timings() -> dict[str, Any]:
     return {
         "sequence_import_or_cache_restore": {"wall_time_sec": 1.25, "status": "hit"},
         "pattern_dataset_generation": {"wall_time_sec": 2.5, "status": "ok"},
+        "trainer": {"wall_time_sec": 3.75, "status": "ok"},
         "trainer_v0b": {"wall_time_sec": 3.75, "status": "ok"},
         "v0b_export": {"wall_time_sec": 0.5, "status": "ok"},
         "evaluation_smoke": {"wall_time_sec": 0.25, "status": "ok"},
@@ -131,16 +135,41 @@ def trainer_report() -> dict[str, Any]:
     }
 
 
+def trainer_report_v0c() -> dict[str, Any]:
+    report = trainer_report()
+    report["trainer_version"] = "pattern-sgd-v0c"
+    report["best_validation_MAE"] = 1.75
+    report["final_validation_MAE"] = 2.0
+    report["nonzero_weight_count"] = 4
+    report["weight_l2_norm"] = 2.5
+    report["max_abs_weight"] = 1.25
+    report["baseline_phase_bias_metrics"] = {
+        "metrics_by_split_phase": {
+            "train": {"0": {"examples": 12}, "1": {"examples": 0}},
+            "validation": {"0": {"examples": 2, "MAE": 2.5}, "1": {"examples": 1, "MAE": 1.0}},
+            "test": {"0": {"examples": 2, "MAE": 4.0}, "1": {"examples": 0, "MAE": None}},
+        }
+    }
+    report["final_pattern_sgd_metrics"]["metrics_by_split_phase"] = {
+        "train": {"0": {"examples": 12}, "1": {"examples": 0}},
+        "validation": {"0": {"examples": 2, "MAE": 2.0}, "1": {"examples": 1, "MAE": 1.5}},
+        "test": {"0": {"examples": 2, "MAE": 3.0}, "1": {"examples": 0, "MAE": None}},
+    }
+    return report
+
+
 def create_fixtures(root: Path) -> Path:
     runs_dir = root / "runs"
     first_dir = runs_dir / "01-good"
     second_dir = runs_dir / "02-warning"
     third_dir = runs_dir / "03-sequence"
     fourth_dir = runs_dir / "04-sequence-miss"
+    fifth_dir = runs_dir / "05-v0c"
     write_json(first_dir / "v0b-trainer-report.json", trainer_report())
     write_json(second_dir / "v0b-trainer-report.json", trainer_report())
     write_json(third_dir / "v0b-trainer-report.json", trainer_report())
     write_json(fourth_dir / "v0b-trainer-report.json", trainer_report())
+    write_json(fifth_dir / "v0b-trainer-report.json", trainer_report_v0c())
     write_json(
         first_dir / "local-training-run-report.json",
         smoke_report(
@@ -250,6 +279,36 @@ def create_fixtures(root: Path) -> Path:
             None,
         ),
     )
+    write_json(
+        fifth_dir / "local-training-run-report.json",
+        smoke_report(
+            "smoke-v0c",
+            "2026-01-02T03:04:09Z",
+            "egaroucid-local",
+            {"train": 120, "validation": 10, "test": 10},
+            {"0": 120, "1": 20},
+            "0xv0c",
+            {
+                "summary": {
+                    "positions_count": "10",
+                    "v0a_v0b_different_count": "5",
+                },
+                "report_checksum": "0xeval-v0c",
+            },
+            {
+                "summary": {
+                    "positions_count": "8",
+                    "v0a_v0b_score_different_count": "3",
+                    "v0a_v0b_best_move_different_count": "1",
+                },
+                "report_checksum": "0xsearch-v0c",
+            },
+            None,
+            stage_timings(),
+            "expanded-tsv",
+            "pattern-sgd-v0c",
+        ),
+    )
     return runs_dir
 
 
@@ -311,7 +370,7 @@ def main() -> int:
             print("analyzer Markdown output is not deterministic", file=sys.stderr)
             return 1
         summary = first["json"]
-        if summary.get("run_count") != 4:
+        if summary.get("run_count") != 5:
             print(f"unexpected run count: {summary.get('run_count')!r}", file=sys.stderr)
             return 1
         if [run.get("run_id") for run in summary.get("runs", [])] != [
@@ -319,6 +378,7 @@ def main() -> int:
             "smoke-warning",
             "smoke-sequence",
             "smoke-sequence-miss",
+            "smoke-v0c",
         ]:
             print(f"unexpected run order: {summary.get('runs')!r}", file=sys.stderr)
             return 1
@@ -327,6 +387,7 @@ def main() -> int:
                 "train_rows_too_small",
                 "phase_coverage_biased",
                 "dataset_output_format_mixed_comparison",
+                "trainer_mode_mixed_comparison",
             ],
             "smoke-warning": [
                 "train_rows_too_small",
@@ -339,12 +400,25 @@ def main() -> int:
                 "source_kind_unknown",
                 "telemetry_missing",
                 "dataset_output_format_mixed_comparison",
+                "trainer_mode_mixed_comparison",
             ],
             "smoke-sequence": [
                 "cache_status_mixed_comparison",
                 "dataset_output_format_mixed_comparison",
+                "trainer_mode_mixed_comparison",
             ],
-            "smoke-sequence-miss": ["cache_status_mixed_comparison"],
+            "smoke-sequence-miss": [
+                "cache_status_mixed_comparison",
+                "trainer_mode_mixed_comparison",
+            ],
+            "smoke-v0c": [
+                "phase_coverage_biased",
+                "validation_phase_count_tiny",
+                "phase_missing_train_examples",
+                "phase_mae_regressed_vs_phase_bias",
+                "dataset_output_format_mixed_comparison",
+                "trainer_mode_mixed_comparison",
+            ],
         }
         if warning_codes(summary) != expected_warnings:
             print(f"unexpected warnings: {warning_codes(summary)!r}", file=sys.stderr)
@@ -352,6 +426,13 @@ def main() -> int:
         first_run = summary["runs"][0]
         if first_run.get("metrics", {}).get("train", {}).get("MAE") != 1.25:
             print(f"trainer metrics were not extracted: {first_run!r}", file=sys.stderr)
+            return 1
+        v0c_run = summary["runs"][4]
+        if v0c_run.get("best_validation_MAE") != 1.75:
+            print(f"v0c best validation MAE was not extracted: {v0c_run!r}", file=sys.stderr)
+            return 1
+        if v0c_run.get("weight_diagnostics", {}).get("nonzero_weight_count") != 4:
+            print(f"v0c weight diagnostics were not extracted: {v0c_run!r}", file=sys.stderr)
             return 1
         sequence_run = summary["runs"][2]
         if sequence_run.get("cache_status") != "hit":

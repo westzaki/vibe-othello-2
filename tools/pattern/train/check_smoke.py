@@ -86,7 +86,24 @@ def run_trainer_v0b(script: Path, dataset: Path, weights: Path, report: Path) ->
     return run_trainer(script, "pattern-sgd-v0b", dataset, weights, report)
 
 
-def run_trainer(script: Path, mode: str, dataset: Path, weights: Path, report: Path) -> bool:
+def run_trainer_v0c(
+    script: Path,
+    dataset: Path,
+    weights: Path,
+    report: Path,
+    extra_args: list[str] | None = None,
+) -> bool:
+    return run_trainer(script, "pattern-sgd-v0c", dataset, weights, report, extra_args)
+
+
+def run_trainer(
+    script: Path,
+    mode: str,
+    dataset: Path,
+    weights: Path,
+    report: Path,
+    extra_args: list[str] | None = None,
+) -> bool:
     result = run_capture(
         [
             sys.executable,
@@ -107,6 +124,7 @@ def run_trainer(script: Path, mode: str, dataset: Path, weights: Path, report: P
             str(weights),
             "--report-out",
             str(report),
+            *(extra_args or []),
         ]
     )
     if result.returncode != 0:
@@ -122,6 +140,10 @@ def run_trainer_v0a_expect_failure(script: Path, dataset: Path, expected_error: 
 
 def run_trainer_v0b_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
     return run_trainer_expect_failure(script, "pattern-sgd-v0b", dataset, expected_error)
+
+
+def run_trainer_v0c_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
+    return run_trainer_expect_failure(script, "pattern-sgd-v0c", dataset, expected_error)
 
 
 def run_trainer_expect_failure(script: Path, mode: str, dataset: Path, expected_error: str) -> bool:
@@ -426,6 +448,158 @@ def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, objec
     return True
 
 
+def check_trainer_v0c_report(report: dict[str, object], weights: dict[str, object]) -> bool:
+    expected_scalars = {
+        "schema_version": 1,
+        "trainer_version": "pattern-sgd-v0c",
+        "input_format": "expanded-tsv",
+        "input_feature_rows": 56,
+        "example_count": 7,
+        "feature_occurrence_count": 56,
+        "feature_rows_by_example_min": 8,
+        "feature_rows_by_example_max": 8,
+        "duplicate_feature_rows": 0,
+        "epochs_requested": 8,
+        "epochs_completed": 8,
+        "learning_rate": 0.1,
+        "lr_schedule": "constant",
+        "weight_decay": 0.0,
+        "deterministic_seed": 7,
+    }
+    for key, expected in expected_scalars.items():
+        if report.get(key) != expected:
+            print(f"v0c report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
+            return False
+    if weights.get("trainer_version") != "pattern-sgd-v0b":
+        print("v0c weights JSON must remain v0b exporter compatible", file=sys.stderr)
+        return False
+    if not isinstance(weights.get("pattern_weights"), list) or not weights.get("pattern_weights"):
+        print(f"missing v0c learned pattern weights: {weights.get('pattern_weights')!r}", file=sys.stderr)
+        return False
+    if report.get("nonzero_weight_count") != len(weights["pattern_weights"]):
+        print("v0c nonzero weight count does not match weights JSON", file=sys.stderr)
+        return False
+    for key in ("best_validation_MAE", "final_validation_MAE", "weight_l2_norm", "max_abs_weight"):
+        if report.get(key) is None:
+            print(f"v0c report missing {key}", file=sys.stderr)
+            return False
+    baseline = report.get("baseline_phase_bias_metrics")
+    final = report.get("final_pattern_sgd_metrics")
+    if not isinstance(baseline, dict) or not isinstance(final, dict):
+        print("v0c report missing baseline/final metrics", file=sys.stderr)
+        return False
+    baseline_split = baseline.get("metrics_by_split")
+    final_split = final.get("metrics_by_split")
+    final_split_phase = final.get("metrics_by_split_phase")
+    if (
+        not isinstance(baseline_split, dict)
+        or not isinstance(final_split, dict)
+        or not isinstance(final_split_phase, dict)
+    ):
+        print("v0c report missing split or split-phase metrics", file=sys.stderr)
+        return False
+    for split in ("train", "validation", "test"):
+        split_metrics = final_split.get(split)
+        if not isinstance(split_metrics, dict):
+            print(f"v0c missing split metrics for {split}", file=sys.stderr)
+            return False
+        for key in ("examples", "feature_occurrences", "MAE", "RMSE", "sign_accuracy", "residual_MAE", "residual_RMSE", "label_mean", "residual_mean"):
+            if key not in split_metrics:
+                print(f"v0c split metrics missing {key}: {split_metrics!r}", file=sys.stderr)
+                return False
+        phase_metrics = final_split_phase.get(split)
+        if not isinstance(phase_metrics, dict) or set(phase_metrics) != {str(phase) for phase in range(13)}:
+            print(f"v0c split-phase metrics missing phases for {split}", file=sys.stderr)
+            return False
+        empty_phase = phase_metrics.get("1")
+        if not isinstance(empty_phase, dict) or empty_phase.get("examples") != 0 or empty_phase.get("MAE") is not None:
+            print(f"v0c empty phase bucket is not stable: {empty_phase!r}", file=sys.stderr)
+            return False
+    train_baseline = baseline_split.get("train")
+    train_final = final_split.get("train")
+    if not isinstance(train_baseline, dict) or not isinstance(train_final, dict):
+        print("v0c missing train metrics", file=sys.stderr)
+        return False
+    if train_final.get("MAE") > train_baseline.get("MAE"):
+        print(
+            f"v0c train MAE regressed: {train_final.get('MAE')} > {train_baseline.get('MAE')}",
+            file=sys.stderr,
+        )
+        return False
+    epochs = report.get("metrics_by_epoch")
+    if not isinstance(epochs, list) or len(epochs) != 8:
+        print(f"unexpected v0c epoch metrics: {epochs!r}", file=sys.stderr)
+        return False
+    if not all("updated_feature_occurrence_count" in epoch for epoch in epochs):
+        print("v0c epoch metrics missing optimizer behavior", file=sys.stderr)
+        return False
+    notes = report.get("notes")
+    if not isinstance(notes, list) or not any("not a production trainer" in str(note) for note in notes):
+        print(f"v0c report notes did not mark trainer as non-production: {notes!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_trainer_v0c_optimizer_controls(
+    trainer_script: Path, dataset_path: Path, temp_dir: Path
+) -> bool:
+    inverse_weights = temp_dir / "inverse-v0c-weights.json"
+    inverse_report_path = temp_dir / "inverse-v0c-report.json"
+    if not run_trainer_v0c(
+        trainer_script,
+        dataset_path,
+        inverse_weights,
+        inverse_report_path,
+        ["--lr-schedule", "inverse-sqrt"],
+    ):
+        return False
+    inverse_report = json.loads(inverse_report_path.read_text(encoding="utf-8"))
+    inverse_epochs = inverse_report.get("metrics_by_epoch")
+    if not isinstance(inverse_epochs, list) or len(inverse_epochs) < 2:
+        print("inverse-sqrt v0c report missing epoch metrics", file=sys.stderr)
+        return False
+    if inverse_epochs[1].get("learning_rate") >= inverse_epochs[0].get("learning_rate"):
+        print(f"inverse-sqrt learning rate did not decay: {inverse_epochs!r}", file=sys.stderr)
+        return False
+
+    clipped_weights = temp_dir / "clipped-v0c-weights.json"
+    clipped_report_path = temp_dir / "clipped-v0c-report.json"
+    if not run_trainer_v0c(
+        trainer_script,
+        dataset_path,
+        clipped_weights,
+        clipped_report_path,
+        ["--gradient-clip", "0.000000001"],
+    ):
+        return False
+    clipped_report = json.loads(clipped_report_path.read_text(encoding="utf-8"))
+    clipped_epochs = clipped_report.get("metrics_by_epoch")
+    if not isinstance(clipped_epochs, list) or not any(
+        epoch.get("gradient_clip_count", 0) > 0 for epoch in clipped_epochs
+    ):
+        print(f"v0c gradient clip counts were not recorded: {clipped_epochs!r}", file=sys.stderr)
+        return False
+
+    stopped_weights = temp_dir / "stopped-v0c-weights.json"
+    stopped_report_path = temp_dir / "stopped-v0c-report.json"
+    if not run_trainer_v0c(
+        trainer_script,
+        dataset_path,
+        stopped_weights,
+        stopped_report_path,
+        ["--early-stop-patience", "0"],
+    ):
+        return False
+    stopped_report = json.loads(stopped_report_path.read_text(encoding="utf-8"))
+    if stopped_report.get("early_stop_triggered") is not True:
+        print(f"v0c early stop was not triggered: {stopped_report!r}", file=sys.stderr)
+        return False
+    if stopped_report.get("epochs_completed") >= stopped_report.get("epochs_requested"):
+        print(f"v0c early stop did not stop before max epochs: {stopped_report!r}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_compact_v0b_equivalence(
     trainer_script: Path,
     dataset_exe: Path,
@@ -483,6 +657,44 @@ def check_compact_v0b_equivalence(
         trainer_script, empty, "pattern_features must be non-empty"
     ):
         return False
+    return True
+
+
+def check_compact_v0c_equivalence(
+    trainer_script: Path,
+    dataset_exe: Path,
+    normalized_tsv: Path,
+    expanded_dataset_text: str,
+    expanded_weights_text: str,
+    expanded_report: dict[str, object],
+    temp_dir: Path,
+) -> bool:
+    compact_report_path = temp_dir / "compact-v0c-dataset-report.json"
+    compact_dataset_text = run_dataset(
+        dataset_exe, normalized_tsv, compact_report_path, output_format="compact-tsv"
+    )
+    if compact_dataset_text is None:
+        return False
+    compact_dataset = temp_dir / "compact-v0c-pattern-dataset.tsv"
+    compact_dataset.write_text(compact_dataset_text, encoding="utf-8")
+    compact_weights = temp_dir / "compact-v0c-weights.json"
+    compact_trainer_report = temp_dir / "compact-v0c-report.json"
+    if not run_trainer_v0c(trainer_script, compact_dataset, compact_weights, compact_trainer_report):
+        return False
+    if compact_weights.read_text(encoding="utf-8") != expanded_weights_text:
+        print("compact v0c weights differ from expanded v0c weights", file=sys.stderr)
+        return False
+    compact_report = json.loads(compact_trainer_report.read_text(encoding="utf-8"))
+    if compact_report.get("input_format") != "compact-tsv":
+        print(f"unexpected compact v0c input format: {compact_report.get('input_format')!r}", file=sys.stderr)
+        return False
+    if compact_report.get("feature_occurrence_count") != len(expanded_dataset_text.splitlines()) - 1:
+        print("compact v0c feature occurrence count does not match expanded rows", file=sys.stderr)
+        return False
+    for key in ("baseline_phase_bias_metrics", "final_pattern_sgd_metrics", "metrics_by_epoch"):
+        if compact_report.get(key) != expanded_report.get(key):
+            print(f"compact v0c metrics differ for {key}", file=sys.stderr)
+            return False
     return True
 
 
@@ -660,6 +872,37 @@ def check_trainer_v0b(
             report,
             temp_dir,
         ):
+            return False
+
+        first_v0c_weights = temp_dir / "first-v0c-weights.json"
+        first_v0c_report = temp_dir / "first-v0c-report.json"
+        second_v0c_weights = temp_dir / "second-v0c-weights.json"
+        second_v0c_report = temp_dir / "second-v0c-report.json"
+        if not run_trainer_v0c(trainer_script, dataset_path, first_v0c_weights, first_v0c_report):
+            return False
+        if not run_trainer_v0c(trainer_script, dataset_path, second_v0c_weights, second_v0c_report):
+            return False
+        if first_v0c_weights.read_text(encoding="utf-8") != second_v0c_weights.read_text(encoding="utf-8"):
+            print("v0c weights are not deterministic across repeated runs", file=sys.stderr)
+            return False
+        if first_v0c_report.read_text(encoding="utf-8") != second_v0c_report.read_text(encoding="utf-8"):
+            print("v0c report is not deterministic across repeated runs", file=sys.stderr)
+            return False
+        v0c_report = json.loads(first_v0c_report.read_text(encoding="utf-8"))
+        v0c_weights = json.loads(first_v0c_weights.read_text(encoding="utf-8"))
+        if not check_trainer_v0c_report(v0c_report, v0c_weights):
+            return False
+        if not check_compact_v0c_equivalence(
+            trainer_script,
+            dataset_exe,
+            normalized_tsv,
+            dataset_text,
+            first_v0c_weights.read_text(encoding="utf-8"),
+            v0c_report,
+            temp_dir,
+        ):
+            return False
+        if not check_trainer_v0c_optimizer_controls(trainer_script, dataset_path, temp_dir):
             return False
 
         mutated_dataset = temp_dir / "mutated-validation-test.tsv"

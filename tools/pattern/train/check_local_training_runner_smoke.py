@@ -56,6 +56,8 @@ def check_report(
     expected_search_positions: int,
     expected_pattern_set_id: str,
     expected_learning_rate: float,
+    expected_trainer_mode: str,
+    expected_dataset_output_format: str,
 ) -> bool:
     expected_scalars: dict[str, Any] = {
         "schema_version": 1,
@@ -64,7 +66,6 @@ def check_report(
         "source_dataset_id": "egaroucid-train-data-board-score-v2025-02-02",
         "source_kind": "egaroucid-local",
         "input_mode": "raw-input",
-        "trainer_version": "pattern-sgd-v0b",
         "notes": [
             "local run only",
             "not production benchmark",
@@ -77,6 +78,15 @@ def check_report(
         if report.get(key) != expected:
             print(f"report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
             return False
+    if report.get("trainer_mode") != expected_trainer_mode:
+        print(f"unexpected trainer_mode: {report.get('trainer_mode')!r}", file=sys.stderr)
+        return False
+    if report.get("trainer_version") != expected_trainer_mode:
+        print(f"unexpected trainer_version: {report.get('trainer_version')!r}", file=sys.stderr)
+        return False
+    if report.get("dataset_output_format") != expected_dataset_output_format:
+        print(f"unexpected dataset_output_format: {report.get('dataset_output_format')!r}", file=sys.stderr)
+        return False
     if report.get("pattern_set_id") != expected_pattern_set_id:
         print(f"unexpected pattern_set_id: {report.get('pattern_set_id')!r}", file=sys.stderr)
         return False
@@ -133,6 +143,7 @@ def check_report(
         "raw_import",
         "normalized_sampling",
         "pattern_dataset_generation",
+        "trainer",
         "trainer_v0b",
         "v0b_export",
         "v0a_baseline_training_export",
@@ -149,7 +160,22 @@ def check_report(
         return False
 
     trainer_args = report.get("trainer_args")
-    if trainer_args != {"epochs": 8, "learning_rate": expected_learning_rate, "l2": 0.0, "seed": 7}:
+    expected_trainer_args: dict[str, Any] = {
+        "epochs": 8,
+        "learning_rate": expected_learning_rate,
+        "l2": 0.0,
+        "seed": 7,
+    }
+    if expected_trainer_mode == "pattern-sgd-v0c":
+        expected_trainer_args.update(
+            {
+                "weight_decay": None,
+                "lr_schedule": "constant",
+                "gradient_clip": None,
+                "early_stop_patience": None,
+            }
+        )
+    if trainer_args != expected_trainer_args:
         print(f"unexpected trainer_args: {trainer_args!r}", file=sys.stderr)
         return False
 
@@ -175,6 +201,8 @@ def check_report(
         "sample_report_json",
         "pattern_dataset_tsv",
         "dataset_report_json",
+        "trainer_weights_json",
+        "trainer_report_json",
         "v0b_weights_json",
         "v0b_trainer_report_json",
         "v0b_artifact_weights",
@@ -241,6 +269,10 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         "0.0",
         "--seed",
         "7",
+        "--trainer-mode",
+        args.trainer_mode,
+        "--dataset-output-format",
+        args.dataset_output_format,
         "--dataset-exe",
         str(args.dataset_exe),
         "--eval-smoke-exe",
@@ -279,6 +311,16 @@ def main() -> int:
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     parser.add_argument("--expected-pattern-set-id", default="fixed-pattern-fixture-v1")
     parser.add_argument("--learning-rate", type=float, default=0.9)
+    parser.add_argument(
+        "--trainer-mode",
+        choices=("pattern-sgd-v0b", "pattern-sgd-v0c"),
+        default="pattern-sgd-v0b",
+    )
+    parser.add_argument(
+        "--dataset-output-format",
+        choices=("expanded-tsv", "compact-tsv"),
+        default="expanded-tsv",
+    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
@@ -310,6 +352,8 @@ def main() -> int:
             expected_search_positions=1,
             expected_pattern_set_id=args.expected_pattern_set_id,
             expected_learning_rate=args.learning_rate,
+            expected_trainer_mode=args.trainer_mode,
+            expected_dataset_output_format=args.dataset_output_format,
         ):
             return 1
 
