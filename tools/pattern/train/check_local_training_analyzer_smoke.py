@@ -30,8 +30,10 @@ def smoke_report(
     artifact_checksum: str | None,
     evaluation_smoke_summary: dict[str, Any] | None,
     search_smoke_summary: dict[str, Any] | None,
+    sequence_cache: dict[str, Any] | None = None,
+    stage_timings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    report = {
         "schema_version": 1,
         "run_id": run_id,
         "created_at_utc": created_at,
@@ -70,6 +72,35 @@ def smoke_report(
             "publication remains gated / unknown",
         ],
     }
+    if sequence_cache is not None:
+        report["sequence_cache"] = sequence_cache
+    if stage_timings is not None:
+        report["stage_timings"] = stage_timings
+    return report
+
+
+def sequence_cache(status: str) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "cache_dir": "local-cache",
+        "cache_key": "abc123",
+        "status": status,
+        "metadata_path": "local-cache/abc123/metadata.json",
+        "normalized_tsv_sha256": "sha256:normalized",
+        "import_report_sha256": "sha256:report",
+        "notes": ["sequence replay cache is local-only and must not be committed"],
+    }
+
+
+def stage_timings() -> dict[str, Any]:
+    return {
+        "sequence_import_or_cache_restore": {"wall_time_sec": 1.25, "status": "hit"},
+        "pattern_dataset_generation": {"wall_time_sec": 2.5, "status": "ok"},
+        "trainer_v0b": {"wall_time_sec": 3.75, "status": "ok"},
+        "v0b_export": {"wall_time_sec": 0.5, "status": "ok"},
+        "evaluation_smoke": {"wall_time_sec": 0.25, "status": "ok"},
+        "search_smoke": {"wall_time_sec": 0.75, "status": "ok"},
+    }
 
 
 def trainer_report() -> dict[str, Any]:
@@ -102,9 +133,11 @@ def create_fixtures(root: Path) -> Path:
     first_dir = runs_dir / "01-good"
     second_dir = runs_dir / "02-warning"
     third_dir = runs_dir / "03-sequence"
+    fourth_dir = runs_dir / "04-sequence-miss"
     write_json(first_dir / "v0b-trainer-report.json", trainer_report())
     write_json(second_dir / "v0b-trainer-report.json", trainer_report())
     write_json(third_dir / "v0b-trainer-report.json", trainer_report())
+    write_json(fourth_dir / "v0b-trainer-report.json", trainer_report())
     write_json(
         first_dir / "local-training-run-report.json",
         smoke_report(
@@ -129,6 +162,8 @@ def create_fixtures(root: Path) -> Path:
                 },
                 "report_checksum": "0xsearch",
             },
+            None,
+            stage_timings(),
         ),
     )
     write_json(
@@ -174,6 +209,36 @@ def create_fixtures(root: Path) -> Path:
                 },
                 "report_checksum": "0xsearch-sequence",
             },
+            sequence_cache("hit"),
+            stage_timings(),
+        ),
+    )
+    write_json(
+        fourth_dir / "local-training-run-report.json",
+        smoke_report(
+            "smoke-sequence-miss",
+            "2026-01-02T03:04:08Z",
+            "egaroucid-sequence-local",
+            {"train": 120, "validation": 10, "test": 10},
+            {"1": 50, "2": 45, "3": 45},
+            "0xsequence-miss",
+            {
+                "summary": {
+                    "positions_count": "10",
+                    "v0a_v0b_different_count": "5",
+                },
+                "report_checksum": "0xeval-sequence-miss",
+            },
+            {
+                "summary": {
+                    "positions_count": "8",
+                    "v0a_v0b_score_different_count": "3",
+                    "v0a_v0b_best_move_different_count": "1",
+                },
+                "report_checksum": "0xsearch-sequence-miss",
+            },
+            sequence_cache("miss"),
+            stage_timings(),
         ),
     )
     return runs_dir
@@ -237,13 +302,14 @@ def main() -> int:
             print("analyzer Markdown output is not deterministic", file=sys.stderr)
             return 1
         summary = first["json"]
-        if summary.get("run_count") != 3:
+        if summary.get("run_count") != 4:
             print(f"unexpected run count: {summary.get('run_count')!r}", file=sys.stderr)
             return 1
         if [run.get("run_id") for run in summary.get("runs", [])] != [
             "smoke-10k",
             "smoke-warning",
             "smoke-sequence",
+            "smoke-sequence-miss",
         ]:
             print(f"unexpected run order: {summary.get('runs')!r}", file=sys.stderr)
             return 1
@@ -258,8 +324,10 @@ def main() -> int:
                 "search_smoke_missing",
                 "artifact_checksum_missing",
                 "source_kind_unknown",
+                "telemetry_missing",
             ],
-            "smoke-sequence": [],
+            "smoke-sequence": ["cache_status_mixed_comparison"],
+            "smoke-sequence-miss": ["cache_status_mixed_comparison"],
         }
         if warning_codes(summary) != expected_warnings:
             print(f"unexpected warnings: {warning_codes(summary)!r}", file=sys.stderr)
@@ -267,6 +335,16 @@ def main() -> int:
         first_run = summary["runs"][0]
         if first_run.get("metrics", {}).get("train", {}).get("MAE") != 1.25:
             print(f"trainer metrics were not extracted: {first_run!r}", file=sys.stderr)
+            return 1
+        sequence_run = summary["runs"][2]
+        if sequence_run.get("cache_status") != "hit":
+            print(f"cache status was not extracted: {sequence_run!r}", file=sys.stderr)
+            return 1
+        if sequence_run.get("stage_wall_times", {}).get("evaluation_search_smoke") != 1.0:
+            print(f"stage telemetry was not summarized: {sequence_run!r}", file=sys.stderr)
+            return 1
+        if "cache_status" not in first["markdown_text"]:
+            print("Markdown summary is missing cache status column", file=sys.stderr)
             return 1
         git_result = subprocess.run(
             [

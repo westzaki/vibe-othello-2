@@ -27,12 +27,19 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, str], dict[str, Any], str] | None:
+def run_runner(
+    args: argparse.Namespace,
+    output_dir: Path,
+    *,
+    cache_dir: Path | None = None,
+    sequence_fixture: Path | None = None,
+    extra_args: list[str] | None = None,
+) -> tuple[dict[str, str], dict[str, Any], str] | None:
     command = [
         sys.executable,
         str(args.runner),
         "--sequence-input",
-        str(args.sequence_fixture),
+        str(sequence_fixture or args.sequence_fixture),
         "--sequence-manifest",
         str(args.sequence_manifest),
         "--output-dir",
@@ -87,6 +94,9 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         "--search-smoke-exe",
         str(args.search_smoke_exe),
     ]
+    if cache_dir is not None:
+        command.extend(["--sequence-cache-dir", str(cache_dir)])
+    command.extend(extra_args or [])
     result = subprocess.run(command, check=False, capture_output=True, text=True)
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
@@ -100,7 +110,12 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
     return summary, load_json(output_dir / "local-training-run-report.json"), result.stderr
 
 
-def check_report(report: dict[str, Any], output_dir: Path, runner_stderr: str) -> bool:
+def check_report(
+    report: dict[str, Any],
+    output_dir: Path,
+    runner_stderr: str,
+    expected_cache_status: str,
+) -> bool:
     expected = {
         "schema_version": 1,
         "run_id": "local-sequence-runner-smoke",
@@ -138,6 +153,34 @@ def check_report(report: dict[str, Any], output_dir: Path, runner_stderr: str) -
     }
     if sequence_policy != expected_sequence_policy:
         print(f"unexpected sequence import policy: {sequence_policy!r}", file=sys.stderr)
+        return False
+    cache = report.get("sequence_cache")
+    if not isinstance(cache, dict) or cache.get("status") != expected_cache_status:
+        print(f"unexpected sequence cache summary: {cache!r}", file=sys.stderr)
+        return False
+    if expected_cache_status in {"miss", "hit"} and not cache.get("cache_key"):
+        print(f"missing cache key: {cache!r}", file=sys.stderr)
+        return False
+    stages = report.get("stage_timings")
+    if not isinstance(stages, dict):
+        print("missing stage timings", file=sys.stderr)
+        return False
+    for stage_name in (
+        "sequence_import_or_cache_restore",
+        "normalized_sampling",
+        "pattern_dataset_generation",
+        "trainer_v0b",
+        "v0b_export",
+        "evaluation_smoke",
+        "search_smoke",
+    ):
+        stage = stages.get(stage_name)
+        if not isinstance(stage, dict) or not isinstance(stage.get("wall_time_sec"), (int, float)):
+            print(f"missing stage telemetry for {stage_name}: {stage!r}", file=sys.stderr)
+            return False
+    fingerprints = report.get("source_fingerprints")
+    if not isinstance(fingerprints, dict) or not fingerprints.get("aggregate_input_sha256"):
+        print(f"missing source fingerprints: {fingerprints!r}", file=sys.stderr)
         return False
     sample_counts = report.get("sample_counts_by_split")
     if not isinstance(sample_counts, dict) or sum(sample_counts.values()) < 80:
@@ -190,10 +233,14 @@ def check_report(report: dict[str, Any], output_dir: Path, runner_stderr: str) -
     stderr_log = (output_dir / output_files["sequence_import_stderr_log"]).read_text(
         encoding="utf-8"
     )
-    if "progress elapsed_sec=" not in runner_stderr:
+    if expected_cache_status == "hit":
+        if "sequence cache hit" not in runner_stderr and "sequence cache hit" not in stderr_log:
+            print("cache hit was not recorded in stderr log", file=sys.stderr)
+            return False
+    elif "progress elapsed_sec=" not in runner_stderr:
         print(f"runner did not stream sequence importer progress: {runner_stderr!r}", file=sys.stderr)
         return False
-    if "progress elapsed_sec=" not in stderr_log:
+    if expected_cache_status != "hit" and "progress elapsed_sec=" not in stderr_log:
         print(f"sequence importer stderr log is missing progress: {stderr_log!r}", file=sys.stderr)
         return False
     if sequence_report.get("source_kind") != "egaroucid-sequence-local":
@@ -231,6 +278,236 @@ def check_report(report: dict[str, Any], output_dir: Path, runner_stderr: str) -
             return False
     if sequence_report.get("rejected_games") != 1 or sequence_report.get("pass_count", 0) < 3:
         print(f"sequence importer did not report expected reject/pass counts: {sequence_report!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def stable_report_projection(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "artifact_checksum": report.get("artifact_checksum"),
+        "dataset_report_checksum": report.get("dataset_report_checksum"),
+        "sample_report_checksum": report.get("sample_report_checksum"),
+        "sample_counts_by_split": report.get("sample_counts_by_split"),
+        "sample_counts_by_phase": report.get("sample_counts_by_phase"),
+        "trainer_report_checksum": report.get("trainer_report_checksum"),
+        "weights_checksum": report.get("weights_checksum"),
+    }
+
+
+def check_cache_path_independence(args: argparse.Namespace, temp_dir: Path, cache_dir: Path) -> bool:
+    first_output = temp_dir / "path-first"
+    second_output = temp_dir / "path-second"
+    fresh_output = temp_dir / "path-fresh"
+    copied_dir = temp_dir / "copied-input"
+    copied_dir.mkdir()
+    copied_fixture = copied_dir / args.sequence_fixture.name
+    copied_fixture.write_text(args.sequence_fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    first = run_runner(
+        args,
+        first_output,
+        cache_dir=cache_dir,
+        sequence_fixture=args.sequence_fixture,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    second = run_runner(
+        args,
+        second_output,
+        cache_dir=cache_dir,
+        sequence_fixture=copied_fixture,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    fresh = run_runner(
+        args,
+        fresh_output,
+        sequence_fixture=copied_fixture,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    if first is None or second is None or fresh is None:
+        return False
+    first_key = first[1].get("sequence_cache", {}).get("cache_key")
+    second_key = second[1].get("sequence_cache", {}).get("cache_key")
+    if first_key != second_key:
+        print(f"cache key changed across local paths: {first_key!r} != {second_key!r}", file=sys.stderr)
+        return False
+    second_files = second[1].get("output_files")
+    fresh_files = fresh[1].get("output_files")
+    if not isinstance(second_files, dict) or not isinstance(fresh_files, dict):
+        print("missing output files for path independence check", file=sys.stderr)
+        return False
+    cached_normalized = (second_output / second_files["normalized_tsv"]).read_text(encoding="utf-8")
+    fresh_normalized = (fresh_output / fresh_files["normalized_tsv"]).read_text(encoding="utf-8")
+    if cached_normalized != fresh_normalized:
+        print("cache hit normalized TSV differs from fresh import under another path", file=sys.stderr)
+        return False
+    cached_report = (second_output / second_files["sequence_import_report_json"]).read_text(encoding="utf-8")
+    fresh_report = (fresh_output / fresh_files["sequence_import_report_json"]).read_text(encoding="utf-8")
+    if cached_report != fresh_report:
+        print("cache hit import report differs from fresh import under another path", file=sys.stderr)
+        return False
+    return True
+
+
+def check_corrupt_cache_rebuild(args: argparse.Namespace, temp_dir: Path) -> bool:
+    cache_dir = temp_dir / "corrupt-cache"
+    first = run_runner(
+        args,
+        temp_dir / "corrupt-first",
+        cache_dir=cache_dir,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    if first is None:
+        return False
+    cache = first[1].get("sequence_cache")
+    if not isinstance(cache, dict) or cache.get("status") != "miss":
+        print(f"corrupt setup did not populate cache: {cache!r}", file=sys.stderr)
+        return False
+    key = cache.get("cache_key")
+    if not isinstance(key, str):
+        print(f"missing cache key for corrupt setup: {cache!r}", file=sys.stderr)
+        return False
+    cached_normalized = cache_dir / key / "sequence-normalized.tsv"
+    cached_normalized.write_text("corrupt\n", encoding="utf-8")
+    second = run_runner(
+        args,
+        temp_dir / "corrupt-second",
+        cache_dir=cache_dir,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    if second is None:
+        return False
+    second_cache = second[1].get("sequence_cache")
+    if not isinstance(second_cache, dict) or second_cache.get("status") != "invalidated":
+        print(f"corrupt cache was not invalidated: {second_cache!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_metadata_mismatch_rebuild(args: argparse.Namespace, temp_dir: Path) -> bool:
+    cache_dir = temp_dir / "metadata-cache"
+    first = run_runner(
+        args,
+        temp_dir / "metadata-first",
+        cache_dir=cache_dir,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    if first is None:
+        return False
+    cache = first[1].get("sequence_cache")
+    if not isinstance(cache, dict) or cache.get("status") != "miss":
+        print(f"metadata setup did not populate cache: {cache!r}", file=sys.stderr)
+        return False
+    key = cache.get("cache_key")
+    if not isinstance(key, str):
+        print(f"missing cache key for metadata setup: {cache!r}", file=sys.stderr)
+        return False
+    metadata_path = cache_dir / key / "metadata.json"
+    metadata = load_json(metadata_path)
+    metadata["cache_key"] = "wrong-key"
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    second = run_runner(
+        args,
+        temp_dir / "metadata-second",
+        cache_dir=cache_dir,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    if second is None:
+        return False
+    second_cache = second[1].get("sequence_cache")
+    if not isinstance(second_cache, dict) or second_cache.get("status") != "invalidated":
+        print(f"metadata mismatch was not invalidated: {second_cache!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_option_invalidation(args: argparse.Namespace, temp_dir: Path) -> bool:
+    cache_dir = temp_dir / "option-cache"
+    base = run_runner(
+        args,
+        temp_dir / "option-base",
+        cache_dir=cache_dir,
+        extra_args=["--skip-eval-smoke", "--skip-search-smoke", "--skip-v0a-baseline"],
+    )
+    changed = run_runner(
+        args,
+        temp_dir / "option-changed",
+        cache_dir=cache_dir,
+        extra_args=[
+            "--skip-eval-smoke",
+            "--skip-search-smoke",
+            "--skip-v0a-baseline",
+            "--sequence-max-ply",
+            "56",
+        ],
+    )
+    if base is None or changed is None:
+        return False
+    base_key = base[1].get("sequence_cache", {}).get("cache_key")
+    changed_key = changed[1].get("sequence_cache", {}).get("cache_key")
+    if base_key == changed_key:
+        print("cache key did not change when sequence max ply changed", file=sys.stderr)
+        return False
+    if changed[1].get("sequence_cache", {}).get("status") != "miss":
+        print(f"changed semantic option did not miss cache: {changed[1].get('sequence_cache')!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_cache_atomic_failure(args: argparse.Namespace, temp_dir: Path) -> bool:
+    invalid_input = temp_dir / "invalid-sequence.txt"
+    invalid_input.write_text("a1\n", encoding="utf-8")
+    cache_dir = temp_dir / "failure-cache"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(args.runner),
+            "--sequence-input",
+            str(invalid_input),
+            "--sequence-manifest",
+            str(args.sequence_manifest),
+            "--output-dir",
+            str(temp_dir / "failure-output"),
+            "--run-id",
+            "failure-sequence-runner-smoke",
+            "--created-at-utc",
+            "2026-01-02T03:04:05Z",
+            "--max-examples",
+            "10",
+            "--max-per-phase",
+            "10",
+            "--epochs",
+            "1",
+            "--seed",
+            "7",
+            "--sequence-cache-dir",
+            str(cache_dir),
+            "--sequence-min-ply",
+            "4",
+            "--sequence-sampling-mode",
+            "bounded-dev",
+            "--sequence-max-games",
+            "1",
+            "--sequence-file-order",
+            "hash",
+            "--sequence-no-emit-terminal",
+            "--skip-eval-smoke",
+            "--skip-search-smoke",
+            "--skip-v0a-baseline",
+            "--dataset-exe",
+            str(args.dataset_exe),
+            "--eval-smoke-exe",
+            str(args.eval_smoke_exe),
+            "--search-smoke-exe",
+            str(args.search_smoke_exe),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("invalid sequence cache run unexpectedly succeeded", file=sys.stderr)
+        return False
+    if cache_dir.exists() and list(cache_dir.rglob("metadata.json")):
+        print("failed import left a valid cache metadata marker", file=sys.stderr)
         return False
     return True
 
@@ -394,8 +671,9 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        first = run_runner(args, temp_dir / "first")
-        second = run_runner(args, temp_dir / "second")
+        cache_dir = temp_dir / "sequence-cache"
+        first = run_runner(args, temp_dir / "first", cache_dir=cache_dir)
+        second = run_runner(args, temp_dir / "second", cache_dir=cache_dir)
         if first is None or second is None:
             return 1
         first_summary, first_report, first_stderr = first
@@ -408,14 +686,26 @@ def main() -> int:
         if first_summary.get("artifact_checksum") != second_summary.get("artifact_checksum"):
             print("artifact checksum is not deterministic", file=sys.stderr)
             return 1
-        if first_report != second_report:
-            print("local sequence run report is not deterministic", file=sys.stderr)
+        if stable_report_projection(first_report) != stable_report_projection(second_report):
+            print("local sequence run stable report fields are not deterministic", file=sys.stderr)
             return 1
-        if not check_report(first_report, temp_dir / "first", first_stderr):
+        if not check_report(first_report, temp_dir / "first", first_stderr, "miss"):
+            return 1
+        if not check_report(second_report, temp_dir / "second", _second_stderr, "hit"):
             return 1
         if not check_strict_board_leakage_failure(args, temp_dir / "first"):
             return 1
         if not check_bounded_sequence_pass_through(args, temp_dir):
+            return 1
+        if not check_cache_path_independence(args, temp_dir, temp_dir / "path-cache"):
+            return 1
+        if not check_corrupt_cache_rebuild(args, temp_dir):
+            return 1
+        if not check_metadata_mismatch_rebuild(args, temp_dir):
+            return 1
+        if not check_option_invalidation(args, temp_dir):
+            return 1
+        if not check_cache_atomic_failure(args, temp_dir):
             return 1
     return 0
 
