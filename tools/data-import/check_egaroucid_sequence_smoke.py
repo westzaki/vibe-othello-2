@@ -286,6 +286,55 @@ def check_bounded_sampling(importer: Path, fixture: Path, manifest: Path) -> boo
     return True
 
 
+def check_streaming_target(importer: Path, fixture: Path, manifest: Path) -> bool:
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        report_path = temp_path / "streaming-target-report.json"
+        result = run_importer(
+            importer,
+            fixture,
+            manifest,
+            report_path,
+            extra_args=[
+                "--sampling-mode",
+                "streaming-target",
+                "--max-positions",
+                "5",
+                "--file-order",
+                "hash",
+                "--progress-every-games",
+                "1",
+                "--progress-every-files",
+                "1",
+            ],
+        )
+        if result.returncode != 0:
+            sys.stderr.write(result.stderr)
+            sys.stderr.write(result.stdout)
+            return False
+        rows = parse_rows(result.stdout)
+        data = load_report(report_path)
+        if rows is None or data is None:
+            return False
+        if len(rows) != 5 or data.get("emitted_positions") != 5:
+            print(
+                f"streaming-target did not stop at target: rows={len(rows)} report={data!r}",
+                file=sys.stderr,
+            )
+            return False
+        if data.get("sampling_mode") != "streaming-target" or data.get("target_limit_reached") is not True:
+            print(f"streaming-target policy mismatch: {data!r}", file=sys.stderr)
+            return False
+        notes = data.get("sampling_frame_notes")
+        if not isinstance(notes, list) or "not a full-corpus exact top-k sample" not in " ".join(notes):
+            print(f"missing streaming-target notes: {notes!r}", file=sys.stderr)
+            return False
+        if "progress elapsed_sec=" not in result.stderr:
+            print(f"missing streaming-target progress output: {result.stderr!r}", file=sys.stderr)
+            return False
+    return True
+
+
 def check_sampling_mode_validation(importer: Path, fixture: Path, manifest: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
@@ -363,6 +412,36 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
             sys.stderr.write(dir_result.stderr)
             sys.stderr.write(dir_result.stdout)
             print("directory import did not produce the expected rows/report", file=sys.stderr)
+            return False
+
+        zip_dir = temp_path / "zip-directory"
+        zip_dir.mkdir()
+        nested_zip_path = zip_dir / "nested-sequences.zip"
+        with zipfile.ZipFile(nested_zip_path, "w") as archive:
+            archive.writestr("0002/10/0000000.txt", fixture_text)
+            archive.writestr("0002/10/0000001.txt", fixture_text)
+        zip_dir_report = temp_path / "zip-dir-report.json"
+        zip_dir_result = run_importer(
+            importer,
+            zip_dir,
+            manifest,
+            zip_dir_report,
+            extra_args=["--sampling-mode", "bounded-dev", "--max-files", "1"],
+        )
+        zip_dir_rows = parse_rows(zip_dir_result.stdout) if zip_dir_result.returncode == 0 else None
+        zip_dir_report_data = load_report(zip_dir_report) if zip_dir_result.returncode == 0 else None
+        if (
+            zip_dir_result.returncode != 0
+            or zip_dir_rows is None
+            or zip_dir_report_data is None
+            or len(zip_dir_rows) != expected_rows
+            or zip_dir_report_data.get("source_files_seen") != 2
+            or zip_dir_report_data.get("source_files_processed") != 1
+            or zip_dir_report_data.get("accepted_games") != 3
+        ):
+            sys.stderr.write(zip_dir_result.stderr)
+            sys.stderr.write(zip_dir_result.stdout)
+            print("zip-directory import did not produce the expected rows/report", file=sys.stderr)
             return False
     return True
 
@@ -525,6 +604,8 @@ def main() -> int:
         if not check_zip_and_directory(args.importer, args.fixture, args.manifest, len(rows)):
             return 1
         if not check_bounded_sampling(args.importer, args.fixture, args.manifest):
+            return 1
+        if not check_streaming_target(args.importer, args.fixture, args.manifest):
             return 1
         if not check_sampling_mode_validation(args.importer, args.fixture, args.manifest):
             return 1

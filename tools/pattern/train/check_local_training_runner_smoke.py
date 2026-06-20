@@ -173,6 +173,8 @@ def check_report(
                 "lr_schedule": "constant",
                 "gradient_clip": None,
                 "early_stop_patience": None,
+                "eval_every_epoch": True,
+                "progress_every_examples": None,
             }
         )
     if trainer_args != expected_trainer_args:

@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 import csv
@@ -302,6 +303,20 @@ def stable_report_projection(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def stable_sequence_report_projection(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "accepted_games": report.get("accepted_games"),
+        "checksum": report.get("checksum"),
+        "emitted_positions": report.get("emitted_positions"),
+        "games_replayed": report.get("games_replayed"),
+        "retained_positions": report.get("retained_positions"),
+        "sampling_mode": report.get("sampling_mode"),
+        "split_counts": report.get("split_counts"),
+        "source_files_processed": report.get("source_files_processed"),
+        "source_files_seen": report.get("source_files_seen"),
+    }
+
+
 def check_cache_path_independence(args: argparse.Namespace, temp_dir: Path, cache_dir: Path) -> bool:
     first_output = temp_dir / "path-first"
     second_output = temp_dir / "path-second"
@@ -351,6 +366,124 @@ def check_cache_path_independence(args: argparse.Namespace, temp_dir: Path, cach
     fresh_report = (fresh_output / fresh_files["sequence_import_report_json"]).read_text(encoding="utf-8")
     if cached_report != fresh_report:
         print("cache hit import report differs from fresh import under another path", file=sys.stderr)
+        return False
+    return True
+
+
+def check_streaming_target_cache_path_independence(args: argparse.Namespace, temp_dir: Path) -> bool:
+    cache_dir = temp_dir / "streaming-target-path-cache"
+    first_input = temp_dir / "streaming-first-input"
+    second_input = temp_dir / "streaming-second-input"
+    first_input.mkdir()
+    second_input.mkdir()
+    lines = [
+        line for line in args.sequence_fixture.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    if len(lines) < 3:
+        print("streaming-target path independence fixture needs at least three lines", file=sys.stderr)
+        return False
+    first_text = "\n".join(lines[:2]) + "\n"
+    second_text = lines[2] + "\n"
+    with zipfile.ZipFile(first_input / "bundle-a.zip", "w") as archive:
+        archive.writestr("a-first.txt", first_text)
+        archive.writestr("z-second.txt", second_text)
+    with zipfile.ZipFile(second_input / "renamed-bundle.zip", "w") as archive:
+        archive.writestr("a-renamed.txt", second_text)
+        archive.writestr("z-renamed.txt", first_text)
+
+    extra_args = [
+        "--skip-eval-smoke",
+        "--skip-search-smoke",
+        "--skip-v0a-baseline",
+        "--sequence-sampling-mode",
+        "streaming-target",
+        "--sequence-file-order",
+        "path",
+        "--sequence-max-files",
+        "2",
+        "--sequence-max-games",
+        "100",
+        "--sequence-max-positions",
+        "160",
+    ]
+    first = run_runner(
+        args,
+        temp_dir / "streaming-first",
+        cache_dir=cache_dir,
+        sequence_fixture=first_input,
+        extra_args=extra_args,
+    )
+    second = run_runner(
+        args,
+        temp_dir / "streaming-second-hit",
+        cache_dir=cache_dir,
+        sequence_fixture=second_input,
+        extra_args=extra_args,
+    )
+    fresh = run_runner(
+        args,
+        temp_dir / "streaming-second-fresh",
+        sequence_fixture=second_input,
+        extra_args=extra_args,
+    )
+    if first is None or second is None or fresh is None:
+        return False
+    first_report = first[1]
+    second_report = second[1]
+    fresh_report = fresh[1]
+    first_key = first_report.get("sequence_cache", {}).get("cache_key")
+    second_key = second_report.get("sequence_cache", {}).get("cache_key")
+    if first_key != second_key:
+        print(
+            f"streaming-target cache key changed across renamed inputs: {first_key!r} != {second_key!r}",
+            file=sys.stderr,
+        )
+        return False
+    if second_report.get("sequence_cache", {}).get("status") != "hit":
+        print(f"streaming-target renamed input did not hit cache: {second_report.get('sequence_cache')!r}", file=sys.stderr)
+        return False
+    if fresh_report.get("sequence_cache", {}).get("status") != "bypassed":
+        print(f"streaming-target fresh check unexpectedly used cache: {fresh_report.get('sequence_cache')!r}", file=sys.stderr)
+        return False
+
+    second_files = second_report.get("output_files")
+    fresh_files = fresh_report.get("output_files")
+    if not isinstance(second_files, dict) or not isinstance(fresh_files, dict):
+        print("missing output files for streaming-target path independence check", file=sys.stderr)
+        return False
+    cached_normalized = (temp_dir / "streaming-second-hit" / second_files["normalized_tsv"]).read_text(
+        encoding="utf-8"
+    )
+    fresh_normalized = (temp_dir / "streaming-second-fresh" / fresh_files["normalized_tsv"]).read_text(
+        encoding="utf-8"
+    )
+    if cached_normalized != fresh_normalized:
+        print("streaming-target cached normalized TSV differs from fresh renamed import", file=sys.stderr)
+        return False
+    cached_sequence_report = load_json(
+        temp_dir / "streaming-second-hit" / second_files["sequence_import_report_json"]
+    )
+    fresh_sequence_report = load_json(
+        temp_dir / "streaming-second-fresh" / fresh_files["sequence_import_report_json"]
+    )
+    if stable_sequence_report_projection(cached_sequence_report) != stable_sequence_report_projection(
+        fresh_sequence_report
+    ):
+        print("streaming-target cached import report content summary differs from fresh renamed import", file=sys.stderr)
+        return False
+    second_sources = second_report.get("source_fingerprints", {}).get("input_sources")
+    fresh_sources = fresh_report.get("source_fingerprints", {}).get("input_sources")
+    if not isinstance(second_sources, list) or not isinstance(fresh_sources, list):
+        print("streaming-target source fingerprints missing input source details", file=sys.stderr)
+        return False
+    second_source_key = sorted((item.get("sha256"), item.get("size_bytes")) for item in second_sources)
+    fresh_source_key = sorted((item.get("sha256"), item.get("size_bytes")) for item in fresh_sources)
+    if second_source_key != fresh_source_key:
+        print("streaming-target source content fingerprints differ across renamed zip members", file=sys.stderr)
+        return False
+    policy = fresh_report.get("sequence_import_policy")
+    if not isinstance(policy, dict) or policy.get("sampling_mode") != "streaming-target":
+        print(f"fresh run did not use streaming-target policy: {policy!r}", file=sys.stderr)
         return False
     return True
 
@@ -723,6 +856,8 @@ def main() -> int:
         if not check_bounded_sequence_pass_through(args, temp_dir):
             return 1
         if not check_cache_path_independence(args, temp_dir, temp_dir / "path-cache"):
+            return 1
+        if not check_streaming_target_cache_path_independence(args, temp_dir):
             return 1
         if not check_corrupt_cache_rebuild(args, temp_dir):
             return 1

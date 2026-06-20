@@ -133,19 +133,27 @@ Existing foundations include:
   multiple labels for the same position stay in the same split
 * local-only Egaroucid v0002 sequence/transcript importer at
   `tools/data-import/import_egaroucid_sequences.py` that accepts local files,
-  directories, and zip archives, replays Othello transcripts with legal move
+  directories containing `.txt` files and/or `.zip` archives, and zip archives,
+  replays Othello transcripts with legal move
   validation plus explicit or implicit pass handling, emits normalized TSV
   schema v2 with explicit `game_group_id`, `board_id`, and
   `source_occurrence_id`, and writes an import report with identity policy,
   game, duplicate occurrence, exact-board leakage, reject, pass, terminal,
-  split, phase, label, checksum, bounded-dev sampling frame, and provenance
+  split, phase, label, checksum, streaming-target / bounded-dev sampling
+  frames, and provenance
   notes; checked-in coverage uses only a synthetic transcript fixture, not raw
   Egaroucid data. Direct raw zip full-scan import remains the accurate
   full-corpus top-k path, but it can be slow for local iteration because every
-  selected transcript must be replayed. The opt-in `bounded-dev` sampling mode
-  deterministically bounds files and games before replay, reports progress and
-  sampling-frame fields, and is only for repeatable local measurement loops,
-  not full-corpus exact sampling or a production strength claim.
+  selected transcript must be replayed. The `streaming-target` sampling mode
+  fingerprints candidate sources, deterministically walks content-addressed
+  source order until the requested retained position target is reached, reports
+  progress, keeps traversal independent of local paths and zip member names,
+  and bounds replay cost by target size; it is not a full-corpus exact top-k
+  sample. The opt-in
+  `bounded-dev` sampling mode deterministically bounds files and games before
+  replay, reports progress and sampling-frame fields, and is only for
+  repeatable local measurement loops, not full-corpus exact sampling or a
+  production strength claim.
 * CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
   the normalized TSV into `tools/pattern/dataset`, validates board/count/label
   columns, preserves importer-provided `position_id` and `split`, keeps same
@@ -165,11 +173,12 @@ Existing foundations include:
   for large local measurements, and can fail local measurement early with
   `--strict-board-disjoint-splits` when schema v2 exact boards appear across
   train/validation/test splits. The sequence-input path can also use an
-  opt-in local-only content-addressed replay cache keyed by source bytes,
-  manifest bytes, importer identity, schema/policy versions, dataset id, and
-  semantic importer options; cache hits, misses, invalidations, source
-  fingerprints, file sizes, and per-stage wall/CPU/RSS telemetry are recorded
-  in the local run report.
+  opt-in local-only content-addressed replay cache keyed by canonical source
+  content bytes (including zip member text bytes, independent of local paths or
+  zip member names), manifest bytes, importer identity, schema/policy versions,
+  dataset id, and semantic importer options; cache hits, misses, invalidations,
+  source fingerprints, file sizes, and per-stage wall/CPU/RSS telemetry are
+  recorded in the local run report.
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
@@ -184,6 +193,14 @@ Existing foundations include:
   records warning-only review flags for small, incomplete,
   mixed cache-hit/cache-miss, mixed trainer-mode, mixed expanded/compact
   dataset, and suspicious split-by-phase local measurements
+* local-only pattern measurement suite runner at
+  `tools/pattern/train/run_pattern_measurement_suite.py` that orchestrates
+  repeatable sequence-derived smoke, 10k, 100k, and 1M preset runs through the
+  local sequence cache, compact dataset output, `pattern-v1-buro-lite`, trainer
+  v0c diagnostics, scalable real-preset final-epoch diagnostics, trainer
+  progress stderr, per-run stdout/stderr logs, resume/skip handling, suite JSON
+  and Markdown reports, and analyzer comparison outputs without committing any
+  generated corpora, datasets, caches, weights, artifacts, or summaries
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of
@@ -289,14 +306,42 @@ while keeping the training sample uncapped by smoke settings.
 
 For repeatable 10k / 100k / 1M raw sequence local runs, prefer either a
 prebuilt normalized local cache, the runner's `--sequence-cache-dir`, or the
-runner's bounded sequence sampling options, for example
-`--sequence-sampling-mode bounded-dev`, `--sequence-file-order hash`,
-`--sequence-max-games`, and `--sequence-max-positions`. Generated normalized
-caches, local run reports, weights, artifacts, and raw Egaroucid payloads
-remain ignored local-only files.
-Metrics from `bounded-dev` runs are useful measurement signals for iteration,
-but they are not full-corpus exact measurements, match bench results, Elo
-results, self-play results, production artifacts, or strength claims.
+runner's scalable sequence sampling options, for example
+`--sequence-sampling-mode streaming-target`, `--sequence-file-order hash`,
+`--sequence-max-positions`, `--sequence-progress-every-games`, and
+`--sequence-progress-every-files`. Use `--sequence-sampling-mode
+full-scan-topk` only when an exact full-corpus top-k import is required and the
+full replay cost is acceptable. Generated normalized caches, local run reports,
+weights, artifacts, and raw Egaroucid payloads remain ignored local-only files.
+Metrics from `streaming-target` and `bounded-dev` runs are useful measurement
+signals for iteration, but they are not full-corpus exact measurements, match
+bench results, Elo results, self-play results, production artifacts, or
+strength claims.
+
+The suite runner wraps the same local runner for comparable preset runs:
+
+```sh
+python3 tools/pattern/train/run_pattern_measurement_suite.py \
+  --sequence-input data/corpora/local \
+  --sequence-manifest data/corpora/manifests/egaroucid-sequence-v0002-local.manifest.json \
+  --suite-output-dir data/corpora/local/measurements/sequence-v0002-suite \
+  --preset all \
+  --resume
+```
+
+Use `--preset smoke --dry-run` to inspect planned commands without executing a
+training run. `--preset all` expands to the stable 10k, 100k, and 1M local
+measurement presets. Those presets use `streaming-target`, hash file ordering,
+importer progress logging, trainer progress logging, and final-epoch-only v0c
+diagnostics by default so replay stops at the target after canonical source
+fingerprinting, and repeated diagnostic passes do not dominate 1M training;
+pass `--sequence-sampling-mode full-scan-topk` to intentionally run the exact
+full replay path, or `--trainer-eval-every-epoch` to restore per-epoch v0c
+metrics.
+Smoke remains an explicit CTest/local iteration preset. Suite reports, per-run
+stdout/stderr logs, and analyzer summaries are local-only measurement
+diagnostics, not strength, Elo, match bench, self-play, production artifact, or
+publication claims.
 
 ## Current Gaps
 
@@ -360,13 +405,14 @@ Status values:
 | Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum; the tiny Egaroucid v0b path also round-trips importer -> dataset -> trainer v0b -> exporter -> runtime loader -> `PatternEvaluator` and verifies a score difference from the v0a phase-bias smoke artifact |
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, evaluates fixed positions with runtime `PatternEvaluator`, reports deterministic score rows, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
-| Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw, normalized, or sequence local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, optional local-only sequence replay cache restore/import, and a local run report with cache/source/stage telemetry; generated corpora, caches, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
+| Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw, normalized, or sequence local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, optional local-only sequence replay cache restore/import keyed by canonical source content bytes, and a local run report with cache/source/stage telemetry; generated corpora, caches, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
 | Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, surfaces cache hit/miss and major stage timings, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
 | Add compact pattern example dataset format | done | Dataset builder `--output-format compact-tsv` emits one row per normalized example with deterministic feature occurrence lists, trainer v0a/v0b accepts compact input by header detection, local runner can request compact datasets, analyzer surfaces dataset format, and synthetic smoke coverage checks compact/expanded equivalence without changing runtime evaluation, exporter format, pattern definitions, or training semantics |
+| Add local pattern measurement suite runner | done | `tools/pattern/train/run_pattern_measurement_suite.py` runs named smoke/10k/100k/1M sequence presets through local cache, scalable `streaming-target` sequence import by default for real presets, compact dataset output, trainer v0c diagnostics with real-preset final-epoch diagnostics and trainer progress, live per-run logs, resume/skip handling, suite reports, and analyzer comparison; synthetic CTest coverage checks dry-run, execute, resume, failure, and all-preset expansion without committing generated measurement outputs |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
-| Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
+| Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
 | Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
 | Add local-only external corpus scripts | deferred | Download automation remains out of scope; the importer expects a locally obtained payload |
 | Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |

@@ -7,6 +7,19 @@ source archives, derived intermediate datasets, and source-specific scratch
 files in local-only paths such as `data/corpora/local/`, `data/corpora/raw/`,
 or an external cache.
 
+Local measurement suites for external corpora should also write under ignored
+local paths, for example `data/corpora/local/measurements/<suite-id>/`.
+Suite reports, analyzer summaries, normalized TSVs, sequence replay caches,
+pattern datasets, trainer reports, learned weights, exported artifacts, and
+logs from those runs remain local-only and must not be committed.
+
+For long local measurements, keep a short operator note or progress journal in
+the same ignored tree, for example
+`data/corpora/local/measurements/perf-notes/<run-id>.md`. Prefer absolute paths
+inside the note for the active suite output directory, shared sequence cache,
+stderr log, suite report, and resume command so another Codex workspace can
+pick up the run without rediscovering local state.
+
 ## Dataset Manifests
 
 Every dataset used for pattern learning must have a manifest before importer,
