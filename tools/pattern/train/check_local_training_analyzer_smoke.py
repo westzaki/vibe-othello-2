@@ -32,6 +32,7 @@ def smoke_report(
     search_smoke_summary: dict[str, Any] | None,
     sequence_cache: dict[str, Any] | None = None,
     stage_timings: dict[str, Any] | None = None,
+    dataset_output_format: str | None = None,
 ) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -76,6 +77,8 @@ def smoke_report(
         report["sequence_cache"] = sequence_cache
     if stage_timings is not None:
         report["stage_timings"] = stage_timings
+    if dataset_output_format is not None:
+        report["dataset_output_format"] = dataset_output_format
     return report
 
 
@@ -164,6 +167,7 @@ def create_fixtures(root: Path) -> Path:
             },
             None,
             stage_timings(),
+            "expanded-tsv",
         ),
     )
     write_json(
@@ -183,6 +187,9 @@ def create_fixtures(root: Path) -> Path:
                 "report_checksum": "0xeval-zero",
             },
             None,
+            None,
+            None,
+            "expanded-tsv",
         ),
     )
     write_json(
@@ -211,6 +218,7 @@ def create_fixtures(root: Path) -> Path:
             },
             sequence_cache("hit"),
             stage_timings(),
+            "compact-tsv",
         ),
     )
     write_json(
@@ -239,6 +247,7 @@ def create_fixtures(root: Path) -> Path:
             },
             sequence_cache("miss"),
             stage_timings(),
+            None,
         ),
     )
     return runs_dir
@@ -314,7 +323,11 @@ def main() -> int:
             print(f"unexpected run order: {summary.get('runs')!r}", file=sys.stderr)
             return 1
         expected_warnings = {
-            "smoke-10k": ["train_rows_too_small", "phase_coverage_biased"],
+            "smoke-10k": [
+                "train_rows_too_small",
+                "phase_coverage_biased",
+                "dataset_output_format_mixed_comparison",
+            ],
             "smoke-warning": [
                 "train_rows_too_small",
                 "validation_empty",
@@ -325,8 +338,12 @@ def main() -> int:
                 "artifact_checksum_missing",
                 "source_kind_unknown",
                 "telemetry_missing",
+                "dataset_output_format_mixed_comparison",
             ],
-            "smoke-sequence": ["cache_status_mixed_comparison"],
+            "smoke-sequence": [
+                "cache_status_mixed_comparison",
+                "dataset_output_format_mixed_comparison",
+            ],
             "smoke-sequence-miss": ["cache_status_mixed_comparison"],
         }
         if warning_codes(summary) != expected_warnings:

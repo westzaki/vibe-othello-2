@@ -30,6 +30,11 @@ enum class SplitPolicy {
   tiny_cycle,
 };
 
+enum class OutputFormat {
+  expanded_tsv,
+  compact_tsv,
+};
+
 struct Args {
   std::string records_path;
   std::string normalized_tsv_path;
@@ -38,6 +43,7 @@ struct Args {
   SplitPolicy split_policy = SplitPolicy::record_hash;
   vibe_othello::tools::pattern::IndexMode index_mode = vibe_othello::tools::pattern::IndexMode::raw;
   std::string pattern_set = "tiny";
+  OutputFormat output_format = OutputFormat::expanded_tsv;
 };
 
 struct NormalizedRow {
@@ -65,9 +71,15 @@ struct ReportSummary {
   int input_rows = 0;
   int accepted_rows = 0;
   int rejected_rows = 0;
+  int example_rows = 0;
+  int feature_occurrence_count = 0;
+  int max_features_per_example = 0;
   int repeated_position_count = 0;
   int exact_duplicate_record_count = 0;
   int cross_split_board_collision_count = 0;
+  OutputFormat output_format = OutputFormat::expanded_tsv;
+  std::string pattern_set_id;
+  vibe_othello::tools::pattern::IndexMode index_mode = vibe_othello::tools::pattern::IndexMode::raw;
   std::set<std::string> source_dataset_ids;
   std::set<std::string> game_group_ids;
   std::set<std::string> board_ids;
@@ -97,6 +109,36 @@ std::string_view split_policy_name(SplitPolicy policy) noexcept {
     return "record-hash";
   case SplitPolicy::tiny_cycle:
     return "tiny-cycle";
+  }
+  return "unknown";
+}
+
+std::optional<OutputFormat> parse_output_format(std::string_view text) {
+  if (text == "expanded-tsv") {
+    return OutputFormat::expanded_tsv;
+  }
+  if (text == "compact-tsv") {
+    return OutputFormat::compact_tsv;
+  }
+  return std::nullopt;
+}
+
+std::string_view output_format_name(OutputFormat format) noexcept {
+  switch (format) {
+  case OutputFormat::expanded_tsv:
+    return "expanded-tsv";
+  case OutputFormat::compact_tsv:
+    return "compact-tsv";
+  }
+  return "unknown";
+}
+
+std::string_view index_mode_name(vibe_othello::tools::pattern::IndexMode mode) noexcept {
+  switch (mode) {
+  case vibe_othello::tools::pattern::IndexMode::raw:
+    return "raw";
+  case vibe_othello::tools::pattern::IndexMode::canonical:
+    return "canonical";
   }
   return "unknown";
 }
@@ -158,6 +200,17 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.pattern_set = argv[++index];
+    } else if (arg == "--output-format") {
+      if (index + 1 >= argc) {
+        std::cerr << "--output-format requires a value\n";
+        return std::nullopt;
+      }
+      const std::optional<OutputFormat> format = parse_output_format(argv[++index]);
+      if (!format.has_value()) {
+        std::cerr << "--output-format must be expanded-tsv or compact-tsv\n";
+        return std::nullopt;
+      }
+      args.output_format = *format;
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -168,7 +221,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
     std::cerr << "usage: vibe-othello-pattern-dataset-smoke "
                  "(--records PATH [--manifest PATH] [--split-policy record-hash|tiny-cycle] | "
                  "--normalized-tsv PATH --report PATH) [--index-mode raw|canonical] "
-                 "[--pattern-set tiny|buro-lite]\n";
+                 "[--pattern-set tiny|buro-lite] [--output-format expanded-tsv|compact-tsv]\n";
     return std::nullopt;
   }
   if (!args.normalized_tsv_path.empty() && args.report_path.empty()) {
@@ -222,6 +275,9 @@ std::string_view split_for(SplitPolicy policy, std::string_view record_id,
 
 struct EmitSummary {
   int rows = 0;
+  int example_rows = 0;
+  int feature_occurrence_count = 0;
+  int max_features_per_example = 0;
   int train_rows = 0;
   int validation_rows = 0;
   int test_rows = 0;
@@ -647,8 +703,21 @@ bool write_report(const std::string& path, const ReportSummary& report) {
   const double label_mean = report.accepted_rows == 0
                                 ? 0.0
                                 : static_cast<double>(report.label_sum) / report.accepted_rows;
+  const double average_features =
+      report.example_rows == 0
+          ? 0.0
+          : static_cast<double>(report.feature_occurrence_count) / report.example_rows;
   output << "{\n";
   output << "  \"schema_version\": " << report.schema_version << ",\n";
+  output << "  \"normalized_schema_version\": " << report.schema_version << ",\n";
+  output << "  \"output_format\": \"" << output_format_name(report.output_format) << "\",\n";
+  output << "  \"example_rows\": " << report.example_rows << ",\n";
+  output << "  \"feature_occurrence_count\": " << report.feature_occurrence_count << ",\n";
+  output << "  \"average_features_per_example\": " << std::fixed << std::setprecision(6)
+         << average_features << ",\n";
+  output << "  \"max_features_per_example\": " << report.max_features_per_example << ",\n";
+  output << "  \"pattern_set_id\": \"" << json_escape(report.pattern_set_id) << "\",\n";
+  output << "  \"index_mode\": \"" << index_mode_name(report.index_mode) << "\",\n";
   output << "  \"source_dataset_ids\": ";
   write_string_array(output, report.source_dataset_ids);
   output << ",\n";
@@ -688,15 +757,21 @@ bool write_report(const std::string& path, const ReportSummary& report) {
   return true;
 }
 
-bool emit_pattern_rows_for_position(const NormalizedRow& row,
-                                    vibe_othello::board_core::Position position,
-                                    const vibe_othello::evaluation::PatternFeatureSet& feature_set,
-                                    const vibe_othello::evaluation::PatternSet& pattern_set,
-                                    vibe_othello::tools::pattern::IndexMode index_mode,
-                                    EmitSummary* emit_summary) {
+struct FeatureOccurrence {
+  std::string pattern_id;
+  std::size_t instance = 0;
+  std::uint32_t ternary_index = 0;
+};
+
+std::optional<std::vector<FeatureOccurrence>>
+feature_occurrences_for_position(vibe_othello::board_core::Position position,
+                                 const vibe_othello::evaluation::PatternFeatureSet& feature_set,
+                                 const vibe_othello::evaluation::PatternSet& pattern_set,
+                                 vibe_othello::tools::pattern::IndexMode index_mode) {
   namespace eval = vibe_othello::evaluation;
   namespace pattern = vibe_othello::tools::pattern;
 
+  std::vector<FeatureOccurrence> occurrences;
   for (std::size_t table_index = 0; table_index < feature_set.tables.size(); ++table_index) {
     const eval::PatternFeatureTable& table = feature_set.tables[table_index];
     const eval::PatternDefinition& definition = pattern_set.patterns[table_index];
@@ -705,16 +780,85 @@ bool emit_pattern_rows_for_position(const NormalizedRow& row,
           position, table.instances[instance], definition.symmetry_policy, index_mode);
       if (!index.has_value()) {
         std::cerr << "failed to encode pattern index: " << table.pattern_id << '\n';
-        return false;
+        return std::nullopt;
       }
-      std::cout << row.record_id << '\t' << (row.occupied_count - 4) << '\t' << row.split << '\t'
-                << row.label_score_side_to_move << '\t' << row.phase << '\t' << table.pattern_id
-                << '\t' << instance << '\t' << *index << '\n';
-      ++emit_summary->rows;
-      count_split(row.split, emit_summary);
+      occurrences.push_back(FeatureOccurrence{
+          .pattern_id = table.pattern_id,
+          .instance = instance,
+          .ternary_index = *index,
+      });
     }
   }
-  return true;
+  return occurrences;
+}
+
+void record_example_summary(std::string_view split, int feature_count, EmitSummary* summary) {
+  (void)split;
+  ++summary->example_rows;
+  summary->feature_occurrence_count += feature_count;
+  summary->max_features_per_example = std::max(summary->max_features_per_example, feature_count);
+}
+
+void emit_expanded_rows(std::string_view record_id, int ply, std::string_view split, int label,
+                        int phase, const std::vector<FeatureOccurrence>& features,
+                        EmitSummary* emit_summary) {
+  for (const FeatureOccurrence& feature : features) {
+    std::cout << record_id << '\t' << ply << '\t' << split << '\t' << label << '\t' << phase << '\t'
+              << feature.pattern_id << '\t' << feature.instance << '\t' << feature.ternary_index
+              << '\n';
+    ++emit_summary->rows;
+    count_split(split, emit_summary);
+  }
+  record_example_summary(split, static_cast<int>(features.size()), emit_summary);
+}
+
+std::string compact_feature_string(const std::vector<FeatureOccurrence>& features) {
+  std::ostringstream output;
+  bool first = true;
+  for (const FeatureOccurrence& feature : features) {
+    if (!first) {
+      output << ',';
+    }
+    first = false;
+    output << feature.pattern_id << ':' << feature.instance << ':' << feature.ternary_index;
+  }
+  return output.str();
+}
+
+void emit_compact_row(std::string_view record_id, int ply, std::string_view split, int label,
+                      int phase, const std::vector<FeatureOccurrence>& features,
+                      EmitSummary* emit_summary) {
+  std::cout << record_id << '\t' << ply << '\t' << split << '\t' << label << '\t' << phase << '\t'
+            << compact_feature_string(features) << '\n';
+  ++emit_summary->rows;
+  count_split(split, emit_summary);
+  record_example_summary(split, static_cast<int>(features.size()), emit_summary);
+}
+
+void emit_example(std::string_view record_id, int ply, std::string_view split, int label, int phase,
+                  const std::vector<FeatureOccurrence>& features, OutputFormat output_format,
+                  EmitSummary* emit_summary) {
+  switch (output_format) {
+  case OutputFormat::expanded_tsv:
+    emit_expanded_rows(record_id, ply, split, label, phase, features, emit_summary);
+    return;
+  case OutputFormat::compact_tsv:
+    emit_compact_row(record_id, ply, split, label, phase, features, emit_summary);
+    return;
+  }
+}
+
+void write_header(OutputFormat output_format) {
+  switch (output_format) {
+  case OutputFormat::expanded_tsv:
+    std::cout
+        << "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_"
+           "index\n";
+    return;
+  case OutputFormat::compact_tsv:
+    std::cout << "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features\n";
+    return;
+  }
 }
 
 } // namespace
@@ -749,12 +893,13 @@ int main(int argc, char** argv) {
 
   if (!args->normalized_tsv_path.empty()) {
     ReportSummary report;
+    report.output_format = args->output_format;
+    report.pattern_set_id = args->pattern_set;
+    report.index_mode = args->index_mode;
     std::vector<NormalizedRow> rows;
     const bool loaded = load_normalized_rows(args->normalized_tsv_path, &rows, &report);
 
-    std::cout
-        << "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_"
-           "index\n";
+    write_header(args->output_format);
 
     EmitSummary emit_summary;
     bool emitted = true;
@@ -766,10 +911,23 @@ int main(int argc, char** argv) {
         emitted = false;
         continue;
       }
-      emitted = emit_pattern_rows_for_position(row, *position, feature_set, pattern_set,
-                                               args->index_mode, &emit_summary) &&
-                emitted;
+      const std::optional<std::vector<FeatureOccurrence>> features =
+          feature_occurrences_for_position(*position, feature_set, pattern_set, args->index_mode);
+      if (!features.has_value()) {
+        emitted = false;
+        continue;
+      }
+      if (features->empty()) {
+        std::cerr << row.record_id << ": pattern feature list is empty\n";
+        emitted = false;
+        continue;
+      }
+      emit_example(row.record_id, row.occupied_count - 4, row.split, row.label_score_side_to_move,
+                   row.phase, *features, args->output_format, &emit_summary);
     }
+    report.example_rows = emit_summary.example_rows;
+    report.feature_occurrence_count = emit_summary.feature_occurrence_count;
+    report.max_features_per_example = emit_summary.max_features_per_example;
 
     if (!write_report(args->report_path, report)) {
       return 1;
@@ -777,6 +935,7 @@ int main(int argc, char** argv) {
     std::cerr << "summary input_rows=" << report.input_rows
               << " accepted_rows=" << report.accepted_rows
               << " rejected_rows=" << report.rejected_rows << " emitted_rows=" << emit_summary.rows
+              << " output_format=" << output_format_name(args->output_format)
               << " train_rows=" << emit_summary.train_rows
               << " validation_rows=" << emit_summary.validation_rows
               << " test_rows=" << emit_summary.test_rows << " split_policy="
@@ -796,8 +955,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::cout << "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_"
-               "index\n";
+  write_header(args->output_format);
 
   EmitSummary emit_summary;
   std::size_t accepted_ply_ordinal = 0;
@@ -836,30 +994,26 @@ int main(int argc, char** argv) {
 
       const vibe_othello::board_core::Position position = result.positions[ply];
       const std::uint8_t phase = pattern::smoke::tiny_fixture_phase(position);
-      for (std::size_t table_index = 0; table_index < feature_set.tables.size(); ++table_index) {
-        const eval::PatternFeatureTable& table = feature_set.tables[table_index];
-        const eval::PatternDefinition& definition = pattern_set.patterns[table_index];
-        for (std::size_t instance = 0; instance < table.instances.size(); ++instance) {
-          const std::optional<std::uint32_t> index = pattern::index_for_mode(
-              position, table.instances[instance], definition.symmetry_policy, args->index_mode);
-          if (!index.has_value()) {
-            std::cerr << "failed to encode pattern index: " << table.pattern_id << '\n';
-            return 1;
-          }
-          std::cout << record.id << '\t' << (ply + 1) << '\t' << split << '\t'
-                    << *record.expected_final_disc_diff << '\t' << static_cast<int>(phase) << '\t'
-                    << table.pattern_id << '\t' << instance << '\t' << *index << '\n';
-          ++emit_summary.rows;
-          count_split(split, &emit_summary);
-        }
+      const std::optional<std::vector<FeatureOccurrence>> features =
+          feature_occurrences_for_position(position, feature_set, pattern_set, args->index_mode);
+      if (!features.has_value()) {
+        return 1;
       }
+      if (features->empty()) {
+        std::cerr << record.id << ": pattern feature list is empty\n";
+        return 1;
+      }
+      emit_example(record.id, static_cast<int>(ply + 1), split, *record.expected_final_disc_diff,
+                   static_cast<int>(phase), *features, args->output_format, &emit_summary);
     }
   }
 
   std::cerr << "summary total_records=" << summary.total_records
             << " accepted_records=" << summary.accepted_records
             << " rejected_records=" << summary.rejected_records
-            << " emitted_rows=" << emit_summary.rows << " train_rows=" << emit_summary.train_rows
+            << " emitted_rows=" << emit_summary.rows
+            << " output_format=" << output_format_name(args->output_format)
+            << " train_rows=" << emit_summary.train_rows
             << " validation_rows=" << emit_summary.validation_rows
             << " test_rows=" << emit_summary.test_rows
             << " split_policy=" << split_policy_name(args->split_policy)

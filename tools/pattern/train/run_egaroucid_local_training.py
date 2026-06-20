@@ -240,6 +240,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--l2", type=float, default=0.0)
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
+    parser.add_argument(
+        "--dataset-output-format",
+        choices=("expanded-tsv", "compact-tsv"),
+        default="expanded-tsv",
+    )
     parser.add_argument("--skip-eval-smoke", action="store_true")
     parser.add_argument("--skip-search-smoke", action="store_true")
     parser.add_argument("--skip-v0a-baseline", action="store_true")
@@ -1258,6 +1263,8 @@ def run_dataset_builder(
                 str(dataset_report),
                 "--pattern-set",
                 args.pattern_set,
+                "--output-format",
+                args.dataset_output_format,
             ],
             check=False,
             stdout=output,
@@ -1482,6 +1489,11 @@ def write_run_report(
         "source_fingerprints": source_fingerprints,
         "stage_timings": stages,
         "file_sizes": file_sizes,
+        "dataset_output_format": dataset_report.get(
+            "output_format", args.dataset_output_format
+        ),
+        "dataset_feature_occurrence_count": dataset_report.get("feature_occurrence_count"),
+        "dataset_example_rows": dataset_report.get("example_rows"),
         "dataset_report_checksum": dataset_report.get("checksum"),
         "trainer_version": trainer_report.get("trainer_version"),
         "trainer_args": {
@@ -1489,6 +1501,10 @@ def write_run_report(
             "learning_rate": args.learning_rate,
             "l2": args.l2,
             "seed": args.seed,
+        },
+        "dataset_args": {
+            "output_format": args.dataset_output_format,
+            "pattern_set": args.pattern_set,
         },
         "pattern_set_id": v0b_export_summary.get("pattern_set_id"),
         "trainer_report_checksum": trainer_report.get("checksum"),
@@ -1598,6 +1614,9 @@ def main() -> int:
             "pattern_dataset_generation",
             input_rows=sample_report.get("sampled_rows"),
             output_rows=count_lines_after_header(dataset_tsv),
+            output_format=dataset_report.get("output_format", args.dataset_output_format),
+            output_examples=dataset_report.get("example_rows"),
+            output_feature_occurrences=dataset_report.get("feature_occurrence_count"),
             output_bytes=file_size(dataset_tsv),
             return_code=0,
         )
@@ -1735,6 +1754,7 @@ def main() -> int:
             "source_normalized_tsv": file_size(source_normalized),
             "sampled_normalized_tsv": file_size(sampled_normalized),
             "pattern_dataset_tsv": file_size(dataset_tsv),
+            "pattern_dataset": file_size(dataset_tsv),
             "v0b_weights_json": file_size(v0b_weights_json),
             "v0b_artifact_weights": file_size(v0b_artifact),
             "reports": sum(file_size(path) or 0 for name, path in paths.items() if name.endswith("_json")),

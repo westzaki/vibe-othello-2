@@ -131,6 +131,9 @@ def validate_report(report: LoadedReport) -> list[str]:
                 wall = stage_data.get("wall_time_sec")
                 if wall is not None and not isinstance(wall, (int, float)):
                     errors.append(f"stage_timings.{stage_name}.wall_time_sec must be numeric or null")
+    if "dataset_output_format" in data and data.get("dataset_output_format") is not None:
+        if data.get("dataset_output_format") not in ("expanded-tsv", "compact-tsv"):
+            errors.append("dataset_output_format must be expanded-tsv or compact-tsv")
     if not isinstance(data.get("schema_version"), int):
         errors.append("schema_version must be an integer")
     for key in ("run_id", "source_kind", "input_mode", "trainer_version"):
@@ -338,6 +341,11 @@ def cache_status(data: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def dataset_output_format(data: dict[str, Any]) -> str:
+    value = data.get("dataset_output_format")
+    return value if value in ("expanded-tsv", "compact-tsv") else "unknown"
+
+
 def stage_wall(data: dict[str, Any], *names: str) -> float | None:
     stages = data.get("stage_timings")
     if not isinstance(stages, dict):
@@ -377,6 +385,7 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
         "counts_by_phase": counts_by_phase if isinstance(counts_by_phase, dict) else None,
         "counts_by_split": counts_by_split if isinstance(counts_by_split, dict) else None,
         "created_at_utc": data.get("created_at_utc"),
+        "dataset_output_format": dataset_output_format(data),
         "evaluation_smoke": {
             "positions_count": count_from_summary(eval_summary, "positions_count"),
             "v0a_v0b_different_count": count_from_summary(
@@ -448,6 +457,20 @@ def add_comparison_warnings(runs: list[dict[str, Any]]) -> None:
                         "cache-hit and cache-miss/invalidated runs are being compared directly",
                     )
                 )
+    dataset_formats = {
+        run.get("dataset_output_format")
+        for run in runs
+        if run.get("dataset_output_format") in {"expanded-tsv", "compact-tsv"}
+    }
+    if len(dataset_formats) > 1:
+        for run in runs:
+            if run.get("dataset_output_format") in dataset_formats:
+                run.setdefault("warnings", []).append(
+                    warning(
+                        "dataset_output_format_mixed_comparison",
+                        "expanded and compact pattern datasets are being compared directly",
+                    )
+                )
 
 
 def markdown_table_row(values: list[Any]) -> str:
@@ -467,6 +490,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             [
                 "run_id",
                 "sampled_rows",
+                "dataset_format",
                 "cache_status",
                 "import/cache_restore_sec",
                 "dataset_sec",
@@ -477,7 +501,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "warnings",
             ]
         ),
-        markdown_table_row(["---"] * 10),
+        markdown_table_row(["---"] * 11),
     ]
     for run in runs:
         stage_times = run.get("stage_wall_times") or {}
@@ -486,6 +510,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 [
                     run.get("run_id"),
                     run.get("sampled_rows"),
+                    run.get("dataset_output_format"),
                     run.get("cache_status"),
                     stage_times.get("import_or_cache_restore"),
                     stage_times.get("dataset"),

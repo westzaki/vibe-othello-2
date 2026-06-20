@@ -40,7 +40,10 @@ Existing foundations include:
 * CTest-backed pattern dataset builder smoke over accepted tiny synthetic TSV
   records using deterministic split ids, runtime pattern feature indices, and
   final-disc-difference labels; raw ternary indices remain the default, with
-  opt-in canonical ternary index output for smoke comparison
+  opt-in canonical ternary index output for smoke comparison; expanded
+  one-feature-row-per-occurrence TSV remains the default, and explicit
+  `--output-format compact-tsv` emits one row per normalized example with
+  deterministic `pattern_id:instance:ternary_index` feature lists
 * CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
   records using runtime tiny pattern geometry and ternary encoding; raw ternary
   indices remain the default, with opt-in canonical ternary index output
@@ -65,13 +68,16 @@ Existing foundations include:
   examples with inconsistent `ply`, split, label, or phase metadata, learns only
   13-phase train-split example label means, writes `phase,bias` weights TSV, and
   reports example-level train/validation/test plus phase-level MAE, RMSE, and
-  sign accuracy
+  sign accuracy; it detects compact example-row TSV by header and preserves the
+  same feature occurrence semantics as expanded input
 * `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0b` adds the first
   example-level pattern weight learning path on top of the same grouped
   examples: it initializes fixed per-phase train label means, learns
   `phase + pattern_id + ternary_index` weights with deterministic train-only
   SGD, writes local intermediate JSON weights, and reports baseline vs final
-  split, phase, and epoch metrics with deterministic checksums
+  split, phase, and epoch metrics with deterministic checksums; `instance` is
+  validated and duplicate occurrences are reported, while learned weight keys
+  continue to ignore `instance`
 * CTest-backed Egaroucid importer -> dataset builder -> trainer v0a smoke checks
   deterministic report/weights output, train-only bias fitting, held-out
   validation/test metrics, invalid-row rejection counts, malformed example
@@ -163,7 +169,8 @@ Existing foundations include:
   Markdown summaries, validates the runner report shape, extracts available
   v0b trainer split/phase metrics, surfaces optional sequence cache status and
   stage telemetry, and records warning-only review flags for small,
-  incomplete, or mixed cache-hit/cache-miss local measurements
+  incomplete, mixed cache-hit/cache-miss, or mixed expanded/compact dataset
+  local measurements
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of
@@ -172,6 +179,11 @@ Existing foundations include:
 The Egaroucid normalized dataset report currently records:
 
 * `schema_version`
+* `normalized_schema_version`
+* `output_format`
+* `example_rows`, `feature_occurrence_count`,
+  `average_features_per_example`, and `max_features_per_example`
+* `pattern_set_id` and `index_mode`
 * `source_dataset_ids`
 * `input_rows`, `accepted_rows`, and `rejected_rows`
 * `counts_by_split`, `counts_by_phase`, and `counts_by_label_kind`
@@ -227,7 +239,8 @@ comparisons.
 The analyzer is intended for local measurement review of 10k, 100k, 1M, and
 similar subset runs. It reports warnings for suspicious inputs, missing smoke
 summaries, missing artifact checksums, unknown source kinds, and zero v0a/v0b
-score-difference summaries, but these warnings do not fail the analysis.
+score-difference summaries, plus mixed expanded/compact pattern dataset
+comparisons, but these warnings do not fail the analysis.
 `egaroucid-local` and `egaroucid-sequence-local` are both recognized local
 Egaroucid source kinds. Egaroucid-derived `local-training-run-report.json`
 files may contain local artifact names and measurement results derived from
@@ -336,6 +349,7 @@ Status values:
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw, normalized, or sequence local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, optional local-only sequence replay cache restore/import, and a local run report with cache/source/stage telemetry; generated corpora, caches, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
 | Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, surfaces cache hit/miss and major stage timings, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
+| Add compact pattern example dataset format | done | Dataset builder `--output-format compact-tsv` emits one row per normalized example with deterministic feature occurrence lists, trainer v0a/v0b accepts compact input by header detection, local runner can request compact datasets, analyzer surfaces dataset format, and synthetic smoke coverage checks compact/expanded equivalence without changing runtime evaluation, exporter format, pattern definitions, or training semantics |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |

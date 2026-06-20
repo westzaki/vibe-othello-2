@@ -115,6 +115,7 @@ def check_report(
     output_dir: Path,
     runner_stderr: str,
     expected_cache_status: str,
+    expected_dataset_output_format: str = "expanded-tsv",
 ) -> bool:
     expected = {
         "schema_version": 1,
@@ -131,6 +132,9 @@ def check_report(
             return False
     if report.get("trainer_args") != {"epochs": 8, "learning_rate": 0.2, "l2": 0.0, "seed": 7}:
         print(f"unexpected trainer args: {report.get('trainer_args')!r}", file=sys.stderr)
+        return False
+    if report.get("dataset_output_format") != expected_dataset_output_format:
+        print(f"unexpected dataset output format: {report.get('dataset_output_format')!r}", file=sys.stderr)
         return False
     sequence_policy = report.get("sequence_import_policy")
     expected_sequence_policy = {
@@ -227,6 +231,9 @@ def check_report(
             return False
     sequence_report = load_json(output_dir / output_files["sequence_import_report_json"])
     dataset_report = load_json(output_dir / output_files["dataset_report_json"])
+    if dataset_report.get("output_format") != expected_dataset_output_format:
+        print(f"unexpected dataset report output format: {dataset_report.get('output_format')!r}", file=sys.stderr)
+        return False
     if dataset_report.get("split_policy") != "importer-preserved: dataset_id + game_group_id sha256":
         print(f"unexpected dataset split policy: {dataset_report.get('split_policy')!r}", file=sys.stderr)
         return False
@@ -692,6 +699,23 @@ def main() -> int:
         if not check_report(first_report, temp_dir / "first", first_stderr, "miss"):
             return 1
         if not check_report(second_report, temp_dir / "second", _second_stderr, "hit"):
+            return 1
+        compact = run_runner(
+            args,
+            temp_dir / "compact",
+            cache_dir=cache_dir,
+            extra_args=["--dataset-output-format", "compact-tsv"],
+        )
+        if compact is None:
+            return 1
+        _compact_summary, compact_report, compact_stderr = compact
+        if not check_report(
+            compact_report,
+            temp_dir / "compact",
+            compact_stderr,
+            "hit",
+            expected_dataset_output_format="compact-tsv",
+        ):
             return 1
         if not check_strict_board_leakage_failure(args, temp_dir / "first"):
             return 1
