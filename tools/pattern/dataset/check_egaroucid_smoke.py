@@ -18,6 +18,9 @@ REPEATED_BOARD = "XXOOO---------------------------------------------------------
 EXPECTED_DATASET_HEADER = (
     "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_index"
 )
+EXPECTED_COMPACT_HEADER = (
+    "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features"
+)
 
 
 def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -48,7 +51,11 @@ def parse_import_rows(tsv_text: str) -> list[dict[str, str]]:
 
 
 def run_dataset(
-    exe: Path, normalized_tsv: Path, report: Path, pattern_set: str = "tiny"
+    exe: Path,
+    normalized_tsv: Path,
+    report: Path,
+    pattern_set: str = "tiny",
+    output_format: str = "expanded-tsv",
 ) -> subprocess.CompletedProcess[str]:
     return run_capture(
         [
@@ -59,6 +66,8 @@ def run_dataset(
             str(report),
             "--pattern-set",
             pattern_set,
+            "--output-format",
+            output_format,
         ]
     )
 
@@ -76,6 +85,23 @@ def dataset_lines(
         return None
     if len(lines) != expected_line_count:
         print(f"unexpected dataset line count: {len(lines)}", file=sys.stderr)
+        return None
+    return lines
+
+
+def compact_dataset_lines(
+    result: subprocess.CompletedProcess[str], expected_line_count: int
+) -> list[str] | None:
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return None
+    lines = result.stdout.splitlines()
+    if not lines or lines[0] != EXPECTED_COMPACT_HEADER:
+        print("missing or invalid compact dataset TSV header", file=sys.stderr)
+        return None
+    if len(lines) != expected_line_count:
+        print(f"unexpected compact dataset line count: {len(lines)}", file=sys.stderr)
         return None
     return lines
 
@@ -109,6 +135,46 @@ def check_report(report: dict[str, object]) -> bool:
     if not isinstance(checksum, str) or not checksum.startswith("0x") or len(checksum) != 18:
         print(f"invalid report checksum: {checksum!r}", file=sys.stderr)
         return False
+    return True
+
+
+def check_compact_output(
+    compact_lines: list[str],
+    compact_report: dict[str, object],
+    expanded_feature_rows: int,
+    expected_examples: int,
+    expected_features_per_row: int,
+) -> bool:
+    if compact_report.get("output_format") != "compact-tsv":
+        print(f"unexpected compact output format: {compact_report.get('output_format')!r}", file=sys.stderr)
+        return False
+    if compact_report.get("example_rows") != expected_examples:
+        print(f"unexpected compact example rows: {compact_report.get('example_rows')!r}", file=sys.stderr)
+        return False
+    if compact_report.get("feature_occurrence_count") != expanded_feature_rows:
+        print(
+            f"compact feature occurrence count mismatch: {compact_report.get('feature_occurrence_count')!r}",
+            file=sys.stderr,
+        )
+        return False
+    if compact_report.get("max_features_per_example") != expected_features_per_row:
+        print(
+            f"unexpected compact max features: {compact_report.get('max_features_per_example')!r}",
+            file=sys.stderr,
+        )
+        return False
+    for line in compact_lines[1:]:
+        fields = line.split("\t")
+        if len(fields) != 6:
+            print(f"compact line did not have 6 fields: {line!r}", file=sys.stderr)
+            return False
+        tokens = fields[5].split(",")
+        if len(tokens) != expected_features_per_row:
+            print(f"unexpected compact token count: {len(tokens)}", file=sys.stderr)
+            return False
+        if any(len(token.split(":")) != 3 for token in tokens):
+            print(f"malformed compact token list: {fields[5]!r}", file=sys.stderr)
+            return False
     return True
 
 
@@ -189,6 +255,31 @@ def check_invalid_validation(exe: Path, valid_tsv: str, temp_dir: Path) -> bool:
     return True
 
 
+def check_unknown_output_format(exe: Path, valid_tsv: str, temp_dir: Path) -> bool:
+    tsv_path = temp_dir / "valid-for-format.tsv"
+    report_path = temp_dir / "bad-format-report.json"
+    tsv_path.write_text(valid_tsv, encoding="utf-8")
+    result = run_capture(
+        [
+            str(exe),
+            "--normalized-tsv",
+            str(tsv_path),
+            "--report",
+            str(report_path),
+            "--output-format",
+            "binary",
+        ]
+    )
+    if result.returncode == 0:
+        print("dataset builder unexpectedly accepted unknown output format", file=sys.stderr)
+        return False
+    if "--output-format must be expanded-tsv or compact-tsv" not in result.stderr:
+        print("unknown output format error was not clear", file=sys.stderr)
+        sys.stderr.write(result.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", required=True, type=Path)
@@ -237,7 +328,34 @@ def main() -> int:
             return 1
         if not check_repeated_positions(import_rows, first_lines, expected_features_per_row=8):
             return 1
+        compact_report_path = temp_dir / "compact-report.json"
+        compact = run_dataset(
+            args.exe,
+            normalized_tsv,
+            compact_report_path,
+            output_format="compact-tsv",
+        )
+        compact_lines = compact_dataset_lines(compact, expected_line_count=8)
+        if compact_lines is None:
+            return 1
+        compact_report = json.loads(compact_report_path.read_text(encoding="utf-8"))
+        if compact_report.get("counts_by_split") != report.get("counts_by_split"):
+            print("compact split counts do not match expanded report", file=sys.stderr)
+            return 1
+        if compact_report.get("counts_by_phase") != report.get("counts_by_phase"):
+            print("compact phase counts do not match expanded report", file=sys.stderr)
+            return 1
+        if not check_compact_output(
+            compact_lines,
+            compact_report,
+            expanded_feature_rows=len(first_lines) - 1,
+            expected_examples=7,
+            expected_features_per_row=8,
+        ):
+            return 1
         if not check_invalid_validation(args.exe, imported_tsv, temp_dir):
+            return 1
+        if not check_unknown_output_format(args.exe, imported_tsv, temp_dir):
             return 1
 
         buro_report = temp_dir / "buro-lite-report.json"
@@ -255,6 +373,25 @@ def main() -> int:
             return 1
         if not check_repeated_positions(
             import_rows, buro_lines, expected_features_per_row=26
+        ):
+            return 1
+        compact_buro_report = temp_dir / "buro-lite-compact-report.json"
+        compact_buro = run_dataset(
+            args.exe,
+            normalized_tsv,
+            compact_buro_report,
+            pattern_set="pattern-v1-buro-lite",
+            output_format="compact-tsv",
+        )
+        compact_buro_lines = compact_dataset_lines(compact_buro, expected_line_count=8)
+        if compact_buro_lines is None:
+            return 1
+        if not check_compact_output(
+            compact_buro_lines,
+            json.loads(compact_buro_report.read_text(encoding="utf-8")),
+            expanded_feature_rows=len(buro_lines) - 1,
+            expected_examples=7,
+            expected_features_per_row=26,
         ):
             return 1
 

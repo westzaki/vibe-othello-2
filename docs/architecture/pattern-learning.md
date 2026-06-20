@@ -272,6 +272,21 @@ Rules:
 * missing or invalid squares are impossible by construction
 * phase is computed from occupied disc count using artifact metadata
 
+The pattern dataset builder supports two TSV layouts for local training input:
+
+* `expanded-tsv` emits one row per feature occurrence and remains the default
+  compatibility format.
+* `compact-tsv` emits one row per normalized position/example with
+  `pattern_features` encoded as
+  `pattern_id:instance:ternary_index,pattern_id:instance:ternary_index,...`.
+
+Compact feature order is deterministic and matches expanded emission order:
+pattern table order, then feature instance order. Duplicate feature occurrences
+are preserved. Trainer weight keys continue to ignore `instance`, so repeated
+feature occurrences remain repeated contributions rather than distinct weights.
+The compact format is local measurement infrastructure for reducing dataset
+row count and trainer input overhead; it is not strength evidence by itself.
+
 ## Learning Algorithm
 
 Start with regularized linear regression or SGD over pattern indices.

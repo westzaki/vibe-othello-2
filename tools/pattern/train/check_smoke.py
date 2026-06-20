@@ -57,7 +57,9 @@ def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str
     return result.stdout
 
 
-def run_dataset(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
+def run_dataset(
+    exe: Path, normalized_tsv: Path, report: Path, output_format: str = "expanded-tsv"
+) -> str | None:
     result = run_capture(
         [
             str(exe),
@@ -65,6 +67,8 @@ def run_dataset(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
             str(normalized_tsv),
             "--report",
             str(report),
+            "--output-format",
+            output_format,
         ]
     )
     if result.returncode != 0:
@@ -422,6 +426,66 @@ def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, objec
     return True
 
 
+def check_compact_v0b_equivalence(
+    trainer_script: Path,
+    dataset_exe: Path,
+    normalized_tsv: Path,
+    expanded_dataset_text: str,
+    expanded_weights_text: str,
+    expanded_report: dict[str, object],
+    temp_dir: Path,
+) -> bool:
+    compact_report_path = temp_dir / "compact-dataset-report.json"
+    compact_dataset_text = run_dataset(
+        dataset_exe, normalized_tsv, compact_report_path, output_format="compact-tsv"
+    )
+    if compact_dataset_text is None:
+        return False
+    compact_dataset = temp_dir / "compact-pattern-dataset.tsv"
+    compact_dataset.write_text(compact_dataset_text, encoding="utf-8")
+    compact_weights = temp_dir / "compact-v0b-weights.json"
+    compact_trainer_report = temp_dir / "compact-v0b-report.json"
+    if not run_trainer_v0b(trainer_script, compact_dataset, compact_weights, compact_trainer_report):
+        return False
+    if compact_weights.read_text(encoding="utf-8") != expanded_weights_text:
+        print("compact v0b weights differ from expanded v0b weights", file=sys.stderr)
+        return False
+    compact_report = json.loads(compact_trainer_report.read_text(encoding="utf-8"))
+    if compact_report.get("input_format") != "compact-tsv":
+        print(f"unexpected compact trainer input format: {compact_report.get('input_format')!r}", file=sys.stderr)
+        return False
+    if compact_report.get("feature_occurrence_count") != len(expanded_dataset_text.splitlines()) - 1:
+        print("compact trainer feature occurrence count does not match expanded rows", file=sys.stderr)
+        return False
+    for key in ("baseline_phase_bias_metrics", "final_pattern_sgd_metrics", "metrics_by_epoch"):
+        if compact_report.get(key) != expanded_report.get(key):
+            print(f"compact trainer metrics differ for {key}", file=sys.stderr)
+            return False
+    malformed = temp_dir / "malformed-compact.tsv"
+    malformed.write_text(
+        "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features\n"
+        "bad-compact\t0\ttrain\t1\t0\tedge-8:0\n",
+        encoding="utf-8",
+    )
+    if not run_trainer_v0b_expect_failure(
+        trainer_script,
+        malformed,
+        "pattern_features token must be pattern_id:instance:ternary_index",
+    ):
+        return False
+    empty = temp_dir / "empty-compact.tsv"
+    empty.write_text(
+        "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features\n"
+        "empty-compact\t0\ttrain\t1\t0\t\n",
+        encoding="utf-8",
+    )
+    if not run_trainer_v0b_expect_failure(
+        trainer_script, empty, "pattern_features must be non-empty"
+    ):
+        return False
+    return True
+
+
 def check_trainer_v0a(
     trainer_script: Path, dataset_exe: Path, importer: Path, fixture: Path, manifest: Path
 ) -> bool:
@@ -586,6 +650,16 @@ def check_trainer_v0b(
         report = json.loads(first_report.read_text(encoding="utf-8"))
         weights = json.loads(first_weights.read_text(encoding="utf-8"))
         if not check_trainer_v0b_report(report, weights):
+            return False
+        if not check_compact_v0b_equivalence(
+            trainer_script,
+            dataset_exe,
+            normalized_tsv,
+            dataset_text,
+            first_weights.read_text(encoding="utf-8"),
+            report,
+            temp_dir,
+        ):
             return False
 
         mutated_dataset = temp_dir / "mutated-validation-test.tsv"
