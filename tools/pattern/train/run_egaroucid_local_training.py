@@ -247,6 +247,17 @@ def parse_args() -> argparse.Namespace:
         value = getattr(args, name)
         if value is not None and not (0.0 < value <= 1.0):
             parser.error(f"--{name.replace('_', '-')} must be > 0.0 and <= 1.0")
+    bounded_sequence_controls = (
+        args.sequence_max_files is not None
+        or args.sequence_max_games is not None
+        or args.sequence_file_sample_rate is not None
+        or args.sequence_game_sample_rate is not None
+    )
+    if bounded_sequence_controls and args.sequence_sampling_mode != "bounded-dev":
+        parser.error(
+            "--sequence-max-files, --sequence-max-games, --sequence-file-sample-rate, "
+            "and --sequence-game-sample-rate require --sequence-sampling-mode bounded-dev"
+        )
     if args.sequence_progress_every_games is not None and args.sequence_progress_every_games <= 0:
         parser.error("--sequence-progress-every-games must be positive")
     if args.sequence_progress_every_files is not None and args.sequence_progress_every_files <= 0:
@@ -366,6 +377,7 @@ def import_raw(args: argparse.Namespace, output_dir: Path) -> Path:
 def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
     normalized = output_dir / "sequence-normalized.tsv"
     report = output_dir / "sequence-import-report.json"
+    stderr_log = output_dir / "sequence-import-stderr.log"
     command = [
         sys.executable,
         str(args.sequence_importer),
@@ -404,15 +416,19 @@ def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
         command.extend(["--progress-every-files", str(args.sequence_progress_every_files)])
     command.append("--emit-terminal" if args.sequence_emit_terminal else "--no-emit-terminal")
     with normalized.open("w", encoding="utf-8") as output:
-        result = subprocess.run(
-            command,
-            check=False,
-            stdout=output,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
+        with stderr_log.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                command,
+                stdout=output,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert process.stderr is not None
+            for line in process.stderr:
+                sys.stderr.write(line)
+                log.write(line)
+            returncode = process.wait()
+    if returncode != 0:
         raise RuntimeError(f"command failed: {sys.executable} {args.sequence_importer}")
     return normalized
 
@@ -976,6 +992,7 @@ def main() -> int:
             paths["normalized_tsv"] = source_normalized
         if args.sequence_input is not None:
             paths["sequence_import_report_json"] = output_dir / "sequence-import-report.json"
+            paths["sequence_import_stderr_log"] = output_dir / "sequence-import-stderr.log"
         if v0a_data is not None:
             paths.update(
                 {

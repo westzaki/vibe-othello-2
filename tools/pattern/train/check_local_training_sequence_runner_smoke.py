@@ -26,7 +26,7 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, str], dict[str, Any]] | None:
+def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, str], dict[str, Any], str] | None:
     command = [
         sys.executable,
         str(args.runner),
@@ -96,10 +96,10 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
     except ValueError as error:
         print(error, file=sys.stderr)
         return None
-    return summary, load_json(output_dir / "local-training-run-report.json")
+    return summary, load_json(output_dir / "local-training-run-report.json"), result.stderr
 
 
-def check_report(report: dict[str, Any], output_dir: Path) -> bool:
+def check_report(report: dict[str, Any], output_dir: Path, runner_stderr: str) -> bool:
     expected = {
         "schema_version": 1,
         "run_id": "local-sequence-runner-smoke",
@@ -167,6 +167,7 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
     output_files = report.get("output_files")
     required = {
         "sequence_import_report_json",
+        "sequence_import_stderr_log",
         "evaluation_smoke_positions_tsv",
         "search_smoke_positions_tsv",
         "evaluation_smoke_report_json",
@@ -181,6 +182,15 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
             print(f"missing generated file: {path}", file=sys.stderr)
             return False
     sequence_report = load_json(output_dir / output_files["sequence_import_report_json"])
+    stderr_log = (output_dir / output_files["sequence_import_stderr_log"]).read_text(
+        encoding="utf-8"
+    )
+    if "progress elapsed_sec=" not in runner_stderr:
+        print(f"runner did not stream sequence importer progress: {runner_stderr!r}", file=sys.stderr)
+        return False
+    if "progress elapsed_sec=" not in stderr_log:
+        print(f"sequence importer stderr log is missing progress: {stderr_log!r}", file=sys.stderr)
+        return False
     if sequence_report.get("source_kind") != "egaroucid-sequence-local":
         print(f"bad sequence import report: {sequence_report!r}", file=sys.stderr)
         return False
@@ -226,8 +236,8 @@ def main() -> int:
         second = run_runner(args, temp_dir / "second")
         if first is None or second is None:
             return 1
-        first_summary, first_report = first
-        second_summary, second_report = second
+        first_summary, first_report, first_stderr = first
+        second_summary, second_report, _second_stderr = second
         if first_summary.get("trainer_report_checksum") != second_summary.get(
             "trainer_report_checksum"
         ):
@@ -239,7 +249,7 @@ def main() -> int:
         if first_report != second_report:
             print("local sequence run report is not deterministic", file=sys.stderr)
             return 1
-        if not check_report(first_report, temp_dir / "first"):
+        if not check_report(first_report, temp_dir / "first", first_stderr):
             return 1
     return 0
 

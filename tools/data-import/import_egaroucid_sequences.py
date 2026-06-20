@@ -204,6 +204,17 @@ def parse_args() -> argparse.Namespace:
         value = getattr(args, name)
         if value is not None and not (0.0 < value <= 1.0):
             parser.error(f"--{name.replace('_', '-')} must be > 0.0 and <= 1.0")
+    bounded_controls = (
+        args.max_games is not None
+        or args.max_files is not None
+        or args.file_sample_rate is not None
+        or args.game_sample_rate is not None
+    )
+    if bounded_controls and args.sampling_mode != "bounded-dev":
+        parser.error(
+            "--max-games, --max-files, --file-sample-rate, and --game-sample-rate "
+            "require --sampling-mode bounded-dev"
+        )
     if args.progress_every_games is not None and args.progress_every_games <= 0:
         parser.error("--progress-every-games must be positive")
     if args.progress_every_files is not None and args.progress_every_files <= 0:

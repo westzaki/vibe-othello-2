@@ -265,6 +265,25 @@ def check_bounded_sampling(importer: Path, fixture: Path, manifest: Path) -> boo
     return True
 
 
+def check_sampling_mode_validation(importer: Path, fixture: Path, manifest: Path) -> bool:
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        result = run_importer(
+            importer,
+            fixture,
+            manifest,
+            temp_path / "bounded-without-mode-report.json",
+            ["--max-games", "1"],
+        )
+        if result.returncode == 0:
+            print("bounded controls without bounded-dev mode were not rejected", file=sys.stderr)
+            return False
+        if "require --sampling-mode bounded-dev" not in result.stderr:
+            print(f"unexpected validation error: {result.stderr!r}", file=sys.stderr)
+            return False
+    return True
+
+
 def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expected_rows: int) -> bool:
     fixture_text = fixture.read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory() as temp:
@@ -274,7 +293,13 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
             archive.writestr("0002/10/0000000.txt", fixture_text)
             archive.writestr("0002/10/0000001.txt", fixture_text)
         zip_report = temp_path / "zip-report.json"
-        zip_result = run_importer(importer, zip_path, manifest, zip_report, ["--max-files", "1"])
+        zip_result = run_importer(
+            importer,
+            zip_path,
+            manifest,
+            zip_report,
+            ["--sampling-mode", "bounded-dev", "--max-files", "1"],
+        )
         zip_rows = parse_rows(zip_result.stdout) if zip_result.returncode == 0 else None
         zip_report_data = load_report(zip_report) if zip_result.returncode == 0 else None
         if (
@@ -296,7 +321,13 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
         (nested / "0000000.txt").write_text(fixture_text, encoding="utf-8")
         (nested / "0000001.txt").write_text(fixture_text, encoding="utf-8")
         dir_report = temp_path / "dir-report.json"
-        dir_result = run_importer(importer, temp_path / "extracted", manifest, dir_report, ["--max-files", "1"])
+        dir_result = run_importer(
+            importer,
+            temp_path / "extracted",
+            manifest,
+            dir_report,
+            ["--sampling-mode", "bounded-dev", "--max-files", "1"],
+        )
         dir_rows = parse_rows(dir_result.stdout) if dir_result.returncode == 0 else None
         dir_report_data = load_report(dir_report) if dir_result.returncode == 0 else None
         if (
@@ -393,6 +424,8 @@ def main() -> int:
         if not check_zip_and_directory(args.importer, args.fixture, args.manifest, len(rows)):
             return 1
         if not check_bounded_sampling(args.importer, args.fixture, args.manifest):
+            return 1
+        if not check_sampling_mode_validation(args.importer, args.fixture, args.manifest):
             return 1
         if not check_manifest_validation(args.importer, args.fixture, args.manifest):
             return 1
