@@ -8,10 +8,14 @@ import csv
 import hashlib
 import heapq
 import json
+import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -61,6 +65,14 @@ LOCAL_NOTES = [
     "Egaroucid-derived artifacts are not committed",
     "publication remains gated / unknown",
 ]
+SEQUENCE_CACHE_SCHEMA_VERSION = 1
+SEQUENCE_NORMALIZED_SCHEMA_VERSION = 2
+LOCAL_ONLY_CACHE_WARNING = "sequence replay cache is local-only and must not be committed"
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows fallback for local-only tooling.
+    resource = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -150,6 +162,55 @@ class SampleSummary:
             self.board_splits = {}
 
 
+@dataclass
+class StageRecorder:
+    stages: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def begin(self, name: str, **fields: Any) -> "StageTimer":
+        stage = self.stages.setdefault(name, {})
+        stage.update(fields)
+        return StageTimer(self, name)
+
+    def update(self, name: str, **fields: Any) -> None:
+        stage = self.stages.setdefault(name, {})
+        stage.update(fields)
+
+
+class StageTimer:
+    def __init__(self, recorder: StageRecorder, name: str) -> None:
+        self.recorder = recorder
+        self.name = name
+        self.start_wall = 0.0
+        self.start_cpu = 0.0
+
+    def __enter__(self) -> "StageTimer":
+        self.start_wall = time.perf_counter()
+        self.start_cpu = time.process_time()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.recorder.update(
+            self.name,
+            wall_time_sec=round(time.perf_counter() - self.start_wall, 6),
+            process_cpu_time_sec=round(time.process_time() - self.start_cpu, 6),
+            peak_rss_bytes=peak_rss_bytes(),
+            peak_rss_note=peak_rss_note(),
+            status="failed" if exc_type is not None else self.recorder.stages[self.name].get("status", "ok"),
+        )
+
+
+@dataclass(frozen=True)
+class SequenceCacheInfo:
+    enabled: bool
+    cache_dir: str | None
+    cache_key: str | None
+    status: str
+    metadata_path: str | None = None
+    normalized_tsv_sha256: str | None = None
+    import_report_sha256: str | None = None
+    notes: list[str] = field(default_factory=list)
+
+
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -198,6 +259,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sequence-file-order", choices=("path", "hash"), default="path")
     parser.add_argument("--sequence-progress-every-games", type=int)
     parser.add_argument("--sequence-progress-every-files", type=int)
+    parser.add_argument(
+        "--sequence-cache-dir",
+        type=Path,
+        help="Local-only content-addressed cache for sequence normalized TSV imports.",
+    )
     parser.add_argument(
         "--sequence-emit-terminal",
         dest="sequence_emit_terminal",
@@ -252,6 +318,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--raw-input requires --manifest")
     if args.sequence_input is not None and args.sequence_manifest is None:
         parser.error("--sequence-input requires --sequence-manifest")
+    if args.sequence_cache_dir is not None and args.sequence_input is None:
+        parser.error("--sequence-cache-dir requires --sequence-input")
     if args.max_examples is not None and args.max_examples <= 0:
         parser.error("--max-examples must be positive")
     if args.max_per_phase is not None and args.max_per_phase <= 0:
@@ -302,6 +370,68 @@ def parse_args() -> argparse.Namespace:
 
 def stable_json(data: Any) -> str:
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+
+def peak_rss_bytes() -> int | None:
+    if resource is None:
+        return None
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    scale = 1024 if sys.platform != "darwin" else 1
+    return max(usage.ru_maxrss, child_usage.ru_maxrss) * scale
+
+
+def peak_rss_note() -> str | None:
+    if resource is None:
+        return "resource module unavailable"
+    return "process maximum resident set size observed by resource.getrusage"
+
+
+def file_size(path: Path | None) -> int | None:
+    if path is None or not path.exists():
+        return None
+    return path.stat().st_size
+
+
+def sum_file_sizes(paths: list[Path] | tuple[Path, ...]) -> int:
+    return sum(file_size(path) or 0 for path in paths)
+
+
+def throughput(count: Any, wall_time_sec: Any) -> float | None:
+    if isinstance(count, bool) or not isinstance(count, (int, float)):
+        return None
+    if isinstance(wall_time_sec, bool) or not isinstance(wall_time_sec, (int, float)):
+        return None
+    if wall_time_sec <= 0:
+        return None
+    return round(count / wall_time_sec, 6)
+
+
+def count_lines_after_header(path: Path | None) -> int | None:
+    if path is None or not path.exists():
+        return None
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        count = sum(1 for _ in handle)
+    return max(0, count - 1)
+
+
+def repo_relative_or_name(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(repo_root()))
+    except ValueError:
+        return path.name
+
+
+def sha256_file_hex(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha256_text_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -360,6 +490,232 @@ def git_commit() -> str | None:
     return result.stdout.strip() or None
 
 
+def sequence_importer_constants(importer: Path) -> dict[str, str]:
+    text = importer.read_text(encoding="utf-8")
+    values: dict[str, str] = {}
+    for name in ("IMPORTER_VERSION", "IDENTITY_POLICY_VERSION", "SOURCE_KIND"):
+        match = re.search(rf"^{name}\s*=\s*['\"]([^'\"]+)['\"]", text, flags=re.MULTILINE)
+        if match is not None:
+            values[name.lower()] = match.group(1)
+    return values
+
+
+def load_manifest_dataset_id(path: Path) -> str:
+    data = load_json(path)
+    dataset_id = data.get("dataset_id")
+    if not isinstance(dataset_id, str) or not dataset_id:
+        raise RuntimeError(f"manifest dataset_id must be a non-empty string: {path}")
+    return dataset_id
+
+
+def input_fingerprints(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise RuntimeError(f"sequence input does not exist: {path}")
+    if path.is_dir():
+        paths = sorted(child for child in path.rglob("*.txt") if child.is_file())
+        if not paths:
+            raise RuntimeError(f"sequence input directory contains no .txt files: {path}")
+        fingerprints = []
+        for child in paths:
+            fingerprints.append(
+                {
+                    "path_display": str(child.relative_to(path)),
+                    "size_bytes": child.stat().st_size,
+                    "sha256": sha256_file_hex(child),
+                }
+            )
+        return fingerprints
+    return [
+        {
+            "path_display": path.name,
+            "size_bytes": path.stat().st_size,
+            "sha256": sha256_file_hex(path),
+        }
+    ]
+
+
+def aggregate_input_sha256(fingerprints: list[dict[str, Any]]) -> str:
+    canonical = [
+        {
+            "sha256": item["sha256"],
+            "size_bytes": item["size_bytes"],
+        }
+        for item in fingerprints
+    ]
+    return sha256_text_hex(stable_json(sorted(canonical, key=lambda item: (item["sha256"], item["size_bytes"]))))
+
+
+def sequence_importer_options(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "dataset_id": load_manifest_dataset_id(args.sequence_manifest),
+        "emit_terminal": args.sequence_emit_terminal,
+        "file_order": args.sequence_file_order,
+        "file_sample_rate": args.sequence_file_sample_rate,
+        "game_sample_rate": args.sequence_game_sample_rate,
+        "max_files": args.sequence_max_files,
+        "max_games": args.sequence_max_games,
+        "max_ply": args.sequence_max_ply,
+        "max_positions": args.sequence_max_positions,
+        "min_ply": args.sequence_min_ply,
+        "ply_stride": args.sequence_ply_stride,
+        "sampling_mode": args.sequence_sampling_mode,
+        "seed": args.seed,
+        "strict_board_disjoint_splits": args.strict_board_disjoint_splits,
+    }
+
+
+def sequence_cache_plan(args: argparse.Namespace) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    assert args.sequence_manifest is not None
+    assert args.sequence_input is not None
+    constants = sequence_importer_constants(args.sequence_importer)
+    input_files = input_fingerprints(args.sequence_input)
+    manifest_sha = sha256_file_hex(args.sequence_manifest)
+    importer_sha = sha256_file_hex(args.sequence_importer)
+    options = sequence_importer_options(args)
+    source_fingerprints = {
+        "manifest_sha256": manifest_sha,
+        "input_files": input_files,
+        "aggregate_input_sha256": aggregate_input_sha256(input_files),
+    }
+    key_payload = {
+        "cache_schema_version": SEQUENCE_CACHE_SCHEMA_VERSION,
+        "importer_script_sha256": importer_sha,
+        "importer_version": constants.get("importer_version"),
+        "identity_policy_version": constants.get("identity_policy_version"),
+        "manifest_sha256": manifest_sha,
+        "normalized_schema_version": SEQUENCE_NORMALIZED_SCHEMA_VERSION,
+        "input_file_sha256": sorted(
+            (
+                {
+                    "sha256": item["sha256"],
+                    "size_bytes": item["size_bytes"],
+                }
+                for item in input_files
+            ),
+            key=lambda item: (item["sha256"], item["size_bytes"]),
+        ),
+        "aggregate_input_sha256": source_fingerprints["aggregate_input_sha256"],
+        "importer_options": options,
+    }
+    key_payload_digest = sha256_text_hex(stable_json(key_payload))
+    cache_key = key_payload_digest
+    return cache_key, source_fingerprints, {
+        "constants": constants,
+        "importer_options": options,
+        "key_payload": key_payload,
+        "key_payload_sha256": key_payload_digest,
+        "manifest_sha256": manifest_sha,
+        "importer_sha256": importer_sha,
+        "input_files": input_files,
+        "aggregate_input_sha256": source_fingerprints["aggregate_input_sha256"],
+    }
+
+
+def cache_entry_paths(cache_dir: Path, cache_key: str) -> dict[str, Path]:
+    entry_dir = cache_dir / cache_key
+    return {
+        "dir": entry_dir,
+        "normalized": entry_dir / "sequence-normalized.tsv",
+        "report": entry_dir / "sequence-import-report.json",
+        "metadata": entry_dir / "metadata.json",
+    }
+
+
+def cache_metadata_valid(
+    paths: dict[str, Path],
+    expected_cache_key: str,
+    plan: dict[str, Any],
+) -> tuple[bool, dict[str, Any] | None]:
+    try:
+        metadata = load_json(paths["metadata"])
+    except RuntimeError:
+        return False, None
+    expected_fields = {
+        "cache_key": expected_cache_key,
+        "cache_schema_version": SEQUENCE_CACHE_SCHEMA_VERSION,
+        "dataset_id": plan["importer_options"].get("dataset_id"),
+        "identity_policy_version": plan["constants"].get("identity_policy_version"),
+        "importer_version": plan["constants"].get("importer_version"),
+        "key_payload_sha256": plan["key_payload_sha256"],
+        "manifest_sha256": plan["manifest_sha256"],
+        "normalized_schema_version": SEQUENCE_NORMALIZED_SCHEMA_VERSION,
+    }
+    for key, expected in expected_fields.items():
+        if metadata.get(key) != expected:
+            return False, metadata
+    if metadata.get("importer_options") != plan["importer_options"]:
+        return False, metadata
+    normalized = paths["normalized"]
+    report = paths["report"]
+    if not normalized.exists() or not report.exists():
+        return False, metadata
+    if metadata.get("normalized_tsv_sha256") != sha256_file(normalized):
+        return False, metadata
+    if metadata.get("import_report_sha256") != sha256_file(report):
+        return False, metadata
+    if metadata.get("normalized_tsv_size_bytes") != normalized.stat().st_size:
+        return False, metadata
+    if metadata.get("import_report_size_bytes") != report.stat().st_size:
+        return False, metadata
+    return True, metadata
+
+
+def install_sequence_cache_entry(temp_entry: dict[str, Path], entry: dict[str, Path]) -> None:
+    entry["dir"].mkdir(parents=True, exist_ok=True)
+    for name in ("normalized", "report"):
+        temp_target = entry["dir"] / f".{entry[name].name}.tmp-{os.getpid()}"
+        shutil.copyfile(temp_entry[name], temp_target)
+        os.replace(temp_target, entry[name])
+    temp_metadata = entry["dir"] / f".{entry['metadata'].name}.tmp-{os.getpid()}"
+    shutil.copyfile(temp_entry["metadata"], temp_metadata)
+    os.replace(temp_metadata, entry["metadata"])
+
+
+def restore_sequence_cache_entry(paths: dict[str, Path], output_dir: Path) -> tuple[Path, Path]:
+    normalized = output_dir / "sequence-normalized.tsv"
+    report = output_dir / "sequence-import-report.json"
+    shutil.copyfile(paths["normalized"], normalized)
+    shutil.copyfile(paths["report"], report)
+    return normalized, report
+
+
+def write_sequence_cache_metadata(
+    metadata_path: Path,
+    cache_key: str,
+    args: argparse.Namespace,
+    plan: dict[str, Any],
+    normalized: Path,
+    report: Path,
+) -> dict[str, Any]:
+    metadata = {
+        "cache_schema_version": SEQUENCE_CACHE_SCHEMA_VERSION,
+        "cache_key": cache_key,
+        "created_at_utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "repo_git_commit": git_commit(),
+        "importer_path": repo_relative_or_name(args.sequence_importer),
+        "importer_version": plan["constants"].get("importer_version"),
+        "identity_policy_version": plan["constants"].get("identity_policy_version"),
+        "normalized_schema_version": SEQUENCE_NORMALIZED_SCHEMA_VERSION,
+        "dataset_id": plan["importer_options"].get("dataset_id"),
+        "manifest_sha256": plan["manifest_sha256"],
+        "input_file_sha256": plan["input_files"],
+        "aggregate_input_sha256": plan["aggregate_input_sha256"],
+        "importer_options": plan["importer_options"],
+        "key_payload_sha256": plan["key_payload_sha256"],
+        "normalized_tsv_sha256": sha256_file(normalized),
+        "import_report_sha256": sha256_file(report),
+        "normalized_tsv_size_bytes": normalized.stat().st_size,
+        "import_report_size_bytes": report.stat().st_size,
+        "source_kind": plan["constants"].get("source_kind", "egaroucid-sequence-local"),
+        "sampling_mode": plan["importer_options"].get("sampling_mode"),
+        "sampling_notes": "full-scan-topk is a full replay path; bounded-dev is for local iteration only",
+        "strict_board_disjoint_splits": plan["importer_options"].get("strict_board_disjoint_splits"),
+        "warning": LOCAL_ONLY_CACHE_WARNING,
+    }
+    metadata_path.write_text(stable_json(metadata), encoding="utf-8")
+    return metadata
+
+
 def created_at_utc(args: argparse.Namespace) -> str:
     if args.created_at_utc:
         return args.created_at_utc
@@ -405,11 +761,10 @@ def import_raw(args: argparse.Namespace, output_dir: Path) -> Path:
     return normalized
 
 
-def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
-    normalized = output_dir / "sequence-normalized.tsv"
-    temp_normalized = output_dir / "sequence-normalized.tsv.tmp"
-    report = output_dir / "sequence-import-report.json"
-    stderr_log = output_dir / "sequence-import-stderr.log"
+def sequence_import_command(
+    args: argparse.Namespace,
+    normalized_report: Path,
+) -> list[str]:
     command = [
         sys.executable,
         str(args.sequence_importer),
@@ -418,7 +773,7 @@ def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
         "--manifest",
         str(args.sequence_manifest),
         "--report",
-        str(report),
+        str(normalized_report),
         "--seed",
         str(args.seed),
         "--min-ply",
@@ -449,24 +804,183 @@ def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
     if args.strict_board_disjoint_splits:
         command.append("--strict-board-disjoint-splits")
     command.append("--emit-terminal" if args.sequence_emit_terminal else "--no-emit-terminal")
+    return command
+
+
+def run_sequence_import_command(
+    command: list[str],
+    temp_normalized: Path,
+    stderr_log: Path,
+    stage: StageRecorder | None,
+    stage_name: str,
+) -> None:
     with temp_normalized.open("w", encoding="utf-8") as output:
         with stderr_log.open("w", encoding="utf-8") as log:
-            process = subprocess.Popen(
-                command,
-                stdout=output,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            assert process.stderr is not None
-            for line in process.stderr:
-                sys.stderr.write(line)
-                log.write(line)
-            returncode = process.wait()
+            with stage.begin(stage_name) if stage is not None else null_stage():
+                process = subprocess.Popen(
+                    command,
+                    stdout=output,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                assert process.stderr is not None
+                for line in process.stderr:
+                    sys.stderr.write(line)
+                    log.write(line)
+                returncode = process.wait()
+            if stage is not None:
+                stage.update(stage_name, return_code=returncode)
     if returncode != 0:
         temp_normalized.unlink(missing_ok=True)
-        raise RuntimeError(f"command failed: {sys.executable} {args.sequence_importer}")
+        if stage is not None:
+            stage.update(stage_name, status="failed")
+        raise RuntimeError(f"command failed: {command[0]} {command[1]}")
+
+
+class null_stage:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        return None
+
+
+def import_sequence(
+    args: argparse.Namespace,
+    output_dir: Path,
+    stage: StageRecorder | None = None,
+) -> tuple[Path, SequenceCacheInfo, dict[str, Any] | None]:
+    normalized = output_dir / "sequence-normalized.tsv"
+    temp_normalized = output_dir / "sequence-normalized.tsv.tmp"
+    report = output_dir / "sequence-import-report.json"
+    temp_report = output_dir / "sequence-import-report.json.tmp"
+    stderr_log = output_dir / "sequence-import-stderr.log"
+    cache_info = SequenceCacheInfo(
+        enabled=args.sequence_cache_dir is not None,
+        cache_dir=str(args.sequence_cache_dir) if args.sequence_cache_dir is not None else None,
+        cache_key=None,
+        status="bypassed",
+        notes=[LOCAL_ONLY_CACHE_WARNING] if args.sequence_cache_dir is not None else [],
+    )
+    source_fingerprints = None
+    cache_key = None
+    plan = None
+
+    if stage is not None:
+        with stage.begin("source_hashing"):
+            cache_key, source_fingerprints, plan = sequence_cache_plan(args)
+    else:
+        cache_key, source_fingerprints, plan = sequence_cache_plan(args)
+
+    if args.sequence_cache_dir is not None:
+        args.sequence_cache_dir.mkdir(parents=True, exist_ok=True)
+        entry = cache_entry_paths(args.sequence_cache_dir, cache_key)
+        metadata = None
+        status = "miss"
+        if stage is not None:
+            with stage.begin("sequence_cache_lookup"):
+                valid, metadata = cache_metadata_valid(entry, cache_key, plan)
+        else:
+            valid, metadata = cache_metadata_valid(entry, cache_key, plan)
+        if valid:
+            if stage is not None:
+                with stage.begin("sequence_import_or_cache_restore", status="cache-hit"):
+                    restore_sequence_cache_entry(entry, output_dir)
+                    stderr_log.write_text("sequence cache hit; importer was not run\n", encoding="utf-8")
+            else:
+                restore_sequence_cache_entry(entry, output_dir)
+                stderr_log.write_text("sequence cache hit; importer was not run\n", encoding="utf-8")
+            cache_info = SequenceCacheInfo(
+                enabled=True,
+                cache_dir=str(args.sequence_cache_dir),
+                cache_key=cache_key,
+                status="hit",
+                metadata_path=str(entry["metadata"]),
+                normalized_tsv_sha256=metadata.get("normalized_tsv_sha256") if metadata else None,
+                import_report_sha256=metadata.get("import_report_sha256") if metadata else None,
+                notes=[LOCAL_ONLY_CACHE_WARNING],
+            )
+            if stage is not None:
+                stage.update(
+                    "sequence_import_or_cache_restore",
+                    status="cache-hit",
+                    input_bytes=entry["normalized"].stat().st_size + entry["report"].stat().st_size,
+                    output_bytes=normalized.stat().st_size + report.stat().st_size,
+                    output_rows=count_lines_after_header(normalized),
+                )
+            return normalized, cache_info, source_fingerprints
+        if metadata is not None:
+            status = "invalidated"
+
+        temp_entry_dir = Path(
+            tempfile.mkdtemp(prefix=f".{cache_key}.tmp-", dir=str(args.sequence_cache_dir))
+        )
+        temp_entry = {
+            "dir": temp_entry_dir,
+            "normalized": temp_entry_dir / "sequence-normalized.tsv",
+            "report": temp_entry_dir / "sequence-import-report.json",
+            "metadata": temp_entry_dir / "metadata.json",
+        }
+        try:
+            command = sequence_import_command(args, temp_entry["report"])
+            run_sequence_import_command(
+                command,
+                temp_entry["normalized"],
+                stderr_log,
+                stage,
+                "sequence_import_or_cache_restore",
+            )
+            write_sequence_cache_metadata(
+                temp_entry["metadata"],
+                cache_key,
+                args,
+                plan,
+                temp_entry["normalized"],
+                temp_entry["report"],
+            )
+            valid, metadata = cache_metadata_valid(temp_entry, cache_key, plan)
+            if not valid or metadata is None:
+                raise RuntimeError("sequence cache metadata validation failed after import")
+            install_sequence_cache_entry(temp_entry, entry)
+            restore_sequence_cache_entry(entry, output_dir)
+            cache_info = SequenceCacheInfo(
+                enabled=True,
+                cache_dir=str(args.sequence_cache_dir),
+                cache_key=cache_key,
+                status=status,
+                metadata_path=str(entry["metadata"]),
+                normalized_tsv_sha256=metadata.get("normalized_tsv_sha256"),
+                import_report_sha256=metadata.get("import_report_sha256"),
+                notes=[LOCAL_ONLY_CACHE_WARNING],
+            )
+            if stage is not None:
+                stage.update(
+                    "sequence_import_or_cache_restore",
+                    status=status,
+                    output_bytes=normalized.stat().st_size + report.stat().st_size,
+                    output_rows=count_lines_after_header(normalized),
+                )
+            return normalized, cache_info, source_fingerprints
+        except Exception:
+            shutil.rmtree(temp_entry_dir, ignore_errors=True)
+            temp_normalized.unlink(missing_ok=True)
+            temp_report.unlink(missing_ok=True)
+            raise
+
+    command = sequence_import_command(args, report)
+    if stage is not None:
+        stage.update("sequence_cache_lookup", status="bypassed")
+    run_sequence_import_command(command, temp_normalized, stderr_log, stage, "sequence_import_or_cache_restore")
     temp_normalized.replace(normalized)
-    return normalized
+    cache_info = SequenceCacheInfo(enabled=False, cache_dir=None, cache_key=None, status="bypassed")
+    if stage is not None:
+        stage.update(
+            "sequence_import_or_cache_restore",
+            status="bypassed",
+            output_bytes=normalized.stat().st_size + report.stat().st_size,
+            output_rows=count_lines_after_header(normalized),
+        )
+    return normalized, cache_info, source_fingerprints
 
 
 def normalized_header_version(fieldnames: list[str] | None) -> int:
@@ -910,6 +1424,10 @@ def write_run_report(
     search_summary: dict[str, Any] | None,
     source_kind: str,
     smoke_positions: dict[str, dict[str, Any]],
+    sequence_cache: SequenceCacheInfo,
+    source_fingerprints: dict[str, Any] | None,
+    stages: dict[str, dict[str, Any]],
+    file_sizes: dict[str, int | None],
 ) -> Path:
     source_ids = sample_report.get("source_dataset_ids")
     source_dataset_id = (
@@ -951,6 +1469,19 @@ def write_run_report(
         "board_leakage_audit": sample_report.get("board_leakage_audit"),
         "sample_report_checksum": sample_report.get("checksum"),
         "sequence_import_policy": sequence_import_policy,
+        "sequence_cache": {
+            "enabled": sequence_cache.enabled,
+            "cache_dir": sequence_cache.cache_dir,
+            "cache_key": sequence_cache.cache_key,
+            "status": sequence_cache.status,
+            "metadata_path": sequence_cache.metadata_path,
+            "normalized_tsv_sha256": sequence_cache.normalized_tsv_sha256,
+            "import_report_sha256": sequence_cache.import_report_sha256,
+            "notes": sequence_cache.notes,
+        },
+        "source_fingerprints": source_fingerprints,
+        "stage_timings": stages,
+        "file_sizes": file_sizes,
         "dataset_report_checksum": dataset_report.get("checksum"),
         "trainer_version": trainer_report.get("trainer_version"),
         "trainer_args": {
@@ -992,6 +1523,14 @@ def write_run_report(
 
 def main() -> int:
     args = parse_args()
+    stages = StageRecorder()
+    sequence_cache = SequenceCacheInfo(
+        enabled=args.sequence_cache_dir is not None,
+        cache_dir=str(args.sequence_cache_dir) if args.sequence_cache_dir is not None else None,
+        cache_key=None,
+        status="bypassed",
+    )
+    source_fingerprints = None
     try:
         timestamp = created_at_utc(args)
         run_id = make_run_id(args, timestamp)
@@ -1006,29 +1545,92 @@ def main() -> int:
             input_mode = "sequence-input"
             source_kind = "egaroucid-sequence-local"
 
-        source_normalized = (
-            args.normalized_tsv
-            if args.normalized_tsv is not None
-            else import_raw(args, output_dir)
-            if args.raw_input is not None
-            else import_sequence(args, output_dir)
-        )
+        if args.normalized_tsv is not None:
+            source_normalized = args.normalized_tsv
+            stages.update(
+                "source_hashing",
+                status="skipped",
+                wall_time_sec=0.0,
+                process_cpu_time_sec=0.0,
+                peak_rss_bytes=peak_rss_bytes(),
+                peak_rss_note=peak_rss_note(),
+                input_bytes=file_size(source_normalized),
+            )
+            stages.update("sequence_cache_lookup", status="skipped")
+            stages.update("sequence_import_or_cache_restore", status="skipped")
+        elif args.raw_input is not None:
+            stages.update("source_hashing", status="skipped")
+            stages.update("sequence_cache_lookup", status="skipped")
+            with stages.begin("raw_import"):
+                source_normalized = import_raw(args, output_dir)
+            stages.update(
+                "raw_import",
+                output_bytes=file_size(source_normalized),
+                output_rows=count_lines_after_header(source_normalized),
+            )
+            stages.update("sequence_import_or_cache_restore", status="skipped")
+        else:
+            source_normalized, sequence_cache, source_fingerprints = import_sequence(
+                args, output_dir, stages
+            )
         sampled_normalized = output_dir / "sampled-normalized.tsv"
         sample_report_path = output_dir / "sample-report.json"
-        sample_report = write_sampled_normalized(
-            source_normalized, sampled_normalized, sample_report_path, args
+        with stages.begin("normalized_sampling", input_bytes=file_size(source_normalized)):
+            sample_report = write_sampled_normalized(
+                source_normalized, sampled_normalized, sample_report_path, args
+            )
+        stages.update(
+            "normalized_sampling",
+            input_rows=sample_report.get("input_rows"),
+            output_rows=sample_report.get("sampled_rows"),
+            output_bytes=file_size(sampled_normalized),
+            throughput_rows_per_sec=throughput(
+                sample_report.get("sampled_rows"),
+                stages.stages["normalized_sampling"].get("wall_time_sec"),
+            ),
         )
 
-        dataset_tsv, dataset_report_path, dataset_report = run_dataset_builder(
-            args, sampled_normalized, output_dir
+        with stages.begin("pattern_dataset_generation", input_bytes=file_size(sampled_normalized)):
+            dataset_tsv, dataset_report_path, dataset_report = run_dataset_builder(
+                args, sampled_normalized, output_dir
+            )
+        stages.update(
+            "pattern_dataset_generation",
+            input_rows=sample_report.get("sampled_rows"),
+            output_rows=count_lines_after_header(dataset_tsv),
+            output_bytes=file_size(dataset_tsv),
+            return_code=0,
         )
-        v0b_weights_json, v0b_trainer_report_path, trainer_report = run_trainer(
-            args, dataset_tsv, output_dir
+        with stages.begin("trainer_v0b", input_bytes=file_size(dataset_tsv)):
+            v0b_weights_json, v0b_trainer_report_path, trainer_report = run_trainer(
+                args, dataset_tsv, output_dir
+            )
+        stages.update(
+            "trainer_v0b",
+            output_bytes=sum_file_sizes((v0b_weights_json, v0b_trainer_report_path)),
+            return_code=0,
         )
-        v0b_artifact, v0b_manifest, v0b_export_summary = export_v0b(
-            args, v0b_weights_json, output_dir
+        with stages.begin("v0b_export", input_bytes=file_size(v0b_weights_json)):
+            v0b_artifact, v0b_manifest, v0b_export_summary = export_v0b(
+                args, v0b_weights_json, output_dir
+            )
+        stages.update(
+            "v0b_export",
+            output_bytes=sum_file_sizes((v0b_artifact, v0b_manifest)),
+            return_code=0,
         )
-        v0a_data = run_v0a_baseline(args, dataset_tsv, output_dir)
+        if args.skip_v0a_baseline:
+            stages.update("v0a_baseline_training_export", status="skipped")
+            v0a_data = None
+        else:
+            with stages.begin("v0a_baseline_training_export", input_bytes=file_size(dataset_tsv)):
+                v0a_data = run_v0a_baseline(args, dataset_tsv, output_dir)
+            if v0a_data is not None:
+                stages.update(
+                    "v0a_baseline_training_export",
+                    output_bytes=sum_file_sizes(v0a_data[:4]),
+                    return_code=0,
+                )
 
         eval_summary = None
         search_summary = None
@@ -1037,44 +1639,62 @@ def main() -> int:
             v0a_checksum = v0a_data[5]["weights_checksum"]
             v0b_checksum = v0b_export_summary["weights_checksum"]
             if not args.skip_eval_smoke:
-                eval_positions = write_smoke_positions_tsv(
-                    sampled_normalized,
-                    output_dir / "evaluation-smoke-positions.tsv",
-                    args.eval_smoke_max_positions,
-                    args.seed,
-                )
-                eval_summary = run_smoke(
-                    args.eval_smoke_exe,
-                    eval_positions["path"],
-                    v0a_artifact,
-                    v0b_artifact,
-                    v0a_checksum,
-                    v0b_checksum,
-                    output_dir / "evaluation-smoke-report.json",
-                    args.pattern_set,
+                with stages.begin("evaluation_smoke", input_bytes=file_size(sampled_normalized)):
+                    eval_positions = write_smoke_positions_tsv(
+                        sampled_normalized,
+                        output_dir / "evaluation-smoke-positions.tsv",
+                        args.eval_smoke_max_positions,
+                        args.seed,
+                    )
+                    eval_summary = run_smoke(
+                        args.eval_smoke_exe,
+                        eval_positions["path"],
+                        v0a_artifact,
+                        v0b_artifact,
+                        v0a_checksum,
+                        v0b_checksum,
+                        output_dir / "evaluation-smoke-report.json",
+                        args.pattern_set,
+                    )
+                stages.update(
+                    "evaluation_smoke",
+                    input_rows=eval_positions.get("input_positions"),
+                    output_rows=eval_positions.get("used_positions"),
+                    return_code=0,
                 )
             else:
+                stages.update("evaluation_smoke", status="skipped")
                 eval_positions = {}
             if not args.skip_search_smoke:
-                search_positions = write_smoke_positions_tsv(
-                    sampled_normalized,
-                    output_dir / "search-smoke-positions.tsv",
-                    args.search_smoke_max_positions,
-                    args.seed,
-                )
-                search_summary = run_smoke(
-                    args.search_smoke_exe,
-                    search_positions["path"],
-                    v0a_artifact,
-                    v0b_artifact,
-                    v0a_checksum,
-                    v0b_checksum,
-                    output_dir / "search-smoke-report.json",
-                    args.pattern_set,
+                with stages.begin("search_smoke", input_bytes=file_size(sampled_normalized)):
+                    search_positions = write_smoke_positions_tsv(
+                        sampled_normalized,
+                        output_dir / "search-smoke-positions.tsv",
+                        args.search_smoke_max_positions,
+                        args.seed,
+                    )
+                    search_summary = run_smoke(
+                        args.search_smoke_exe,
+                        search_positions["path"],
+                        v0a_artifact,
+                        v0b_artifact,
+                        v0a_checksum,
+                        v0b_checksum,
+                        output_dir / "search-smoke-report.json",
+                        args.pattern_set,
+                    )
+                stages.update(
+                    "search_smoke",
+                    input_rows=search_positions.get("input_positions"),
+                    output_rows=search_positions.get("used_positions"),
+                    return_code=0,
                 )
             else:
+                stages.update("search_smoke", status="skipped")
                 search_positions = {}
         else:
+            stages.update("evaluation_smoke", status="skipped")
+            stages.update("search_smoke", status="skipped")
             eval_positions = {}
             search_positions = {}
 
@@ -1111,23 +1731,36 @@ def main() -> int:
             if search_positions.get("path") != sampled_normalized:
                 paths["search_smoke_positions_tsv"] = search_positions["path"]
 
-        report_path = write_run_report(
-            args,
-            output_dir,
-            run_id,
-            timestamp,
-            input_mode,
-            sample_report,
-            dataset_report,
-            trainer_report,
-            v0b_export_summary,
-            paths,
-            v0a_data,
-            eval_summary,
-            search_summary,
-            source_kind,
-            {"evaluation": eval_positions, "search": search_positions},
-        )
+        file_sizes = {
+            "source_normalized_tsv": file_size(source_normalized),
+            "sampled_normalized_tsv": file_size(sampled_normalized),
+            "pattern_dataset_tsv": file_size(dataset_tsv),
+            "v0b_weights_json": file_size(v0b_weights_json),
+            "v0b_artifact_weights": file_size(v0b_artifact),
+            "reports": sum(file_size(path) or 0 for name, path in paths.items() if name.endswith("_json")),
+        }
+        with stages.begin("run_report_writing"):
+            report_path = write_run_report(
+                args,
+                output_dir,
+                run_id,
+                timestamp,
+                input_mode,
+                sample_report,
+                dataset_report,
+                trainer_report,
+                v0b_export_summary,
+                paths,
+                v0a_data,
+                eval_summary,
+                search_summary,
+                source_kind,
+                {"evaluation": eval_positions, "search": search_positions},
+                sequence_cache,
+                source_fingerprints,
+                stages.stages,
+                file_sizes,
+            )
     except RuntimeError as error:
         print(error, file=sys.stderr)
         return 1

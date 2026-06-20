@@ -389,12 +389,14 @@ def check_storage_independent_identity(importer: Path, fixture: Path, manifest: 
         if first_rows is None or second_rows is None:
             return False
 
-        def stable_identity(rows: list[dict[str, str]]) -> list[tuple[str, str, str, str, str]]:
+        def stable_identity(rows: list[dict[str, str]]) -> list[tuple[str, str, str, str, str, str, str]]:
             return sorted(
                 (
+                    row["record_id"],
                     row["game_group_id"],
                     row["position_id"],
                     row["board_id"],
+                    row["source_occurrence_id"],
                     row["split"],
                     row["label_score_side_to_move"],
                 )
@@ -407,8 +409,11 @@ def check_storage_independent_identity(importer: Path, fixture: Path, manifest: 
 
         if {
             row["source_occurrence_id"] for row in first_rows
-        } == {row["source_occurrence_id"] for row in second_rows}:
-            print("source occurrence ids did not reflect provenance changes", file=sys.stderr)
+        } != {row["source_occurrence_id"] for row in second_rows}:
+            print("source occurrence ids changed after provenance-only changes", file=sys.stderr)
+            return False
+        if first.stdout != second.stdout:
+            print("normalized TSV changed after provenance-only changes", file=sys.stderr)
             return False
     return True
 

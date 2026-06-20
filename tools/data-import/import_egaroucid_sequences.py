@@ -82,14 +82,9 @@ NOTES = (
     "not a teacher-search label",
     "not production strength evidence",
     "game_group_id is derived from canonical replayed move/pass sequence",
-    "source paths, archive members, and line numbers only affect source_occurrence_id and record_id",
+    "source paths, archive members, and line numbers are provenance only and do not affect normalized identity",
     "split is derived from dataset_id + game_group_id",
     "board_id is derived from the side-to-move-relative board only",
-)
-BOUNDED_DEV_NOTES = (
-    "bounded-dev mode is for local measurement iteration",
-    "bounded-dev is not a full-corpus exact top-k sample",
-    "bounded-dev is not a production strength claim",
 )
 BOUNDED_DEV_NOTES = (
     "bounded-dev mode is for local measurement iteration",
@@ -199,6 +194,8 @@ class Summary:
     replay_skip_count: int = 0
     candidate_positions: int = 0
     game_group_occurrences: dict[str, int] = field(default_factory=dict)
+    transcript_occurrences: dict[str, int] = field(default_factory=dict)
+    provenance_samples: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass
@@ -284,6 +281,14 @@ def digest_for_parts(*parts: object) -> str:
     return hashlib.sha256("\t".join(str(part) for part in parts).encode("ascii")).hexdigest()
 
 
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def digest_fraction(digest: str) -> float:
     return int(digest, 16) / float(1 << 256)
 
@@ -321,6 +326,51 @@ def include_by_rate(digest: str, rate: float | None) -> bool:
 def selected_file_refs(args: argparse.Namespace, refs: list[str]) -> list[str]:
     ordered = sorted(refs, key=lambda ref: ref if args.file_order == "path" else file_digest(args, ref))
     filtered = [ref for ref in ordered if include_by_rate(file_digest(args, ref), args.file_sample_rate)]
+    if args.max_files is not None:
+        return filtered[: args.max_files]
+    return filtered
+
+
+@dataclass(frozen=True)
+class TextSource:
+    source_ref: str
+    provenance_ref: str
+    content: str
+    content_sha256: str
+    size_bytes: int
+
+
+def canonical_sources(sources: list[TextSource]) -> list[TextSource]:
+    canonical: list[TextSource] = []
+    for index, source in enumerate(
+        sorted(sources, key=lambda item: (item.content_sha256, item.size_bytes, item.content)),
+        start=1,
+    ):
+        canonical.append(
+            TextSource(
+                source_ref=f"content-source-{source.content_sha256[:16]}-{index:06d}",
+                provenance_ref=source.provenance_ref,
+                content=source.content,
+                content_sha256=source.content_sha256,
+                size_bytes=source.size_bytes,
+            )
+        )
+    return canonical
+
+
+def selected_sources(args: argparse.Namespace, sources: list[TextSource]) -> list[TextSource]:
+    ordered = sorted(
+        sources,
+        key=lambda source: (
+            source.source_ref if args.file_order == "path" else file_digest(args, source.source_ref),
+            source.content_sha256,
+        ),
+    )
+    filtered = [
+        source
+        for source in ordered
+        if include_by_rate(file_digest(args, source.source_ref), args.file_sample_rate)
+    ]
     if args.max_files is not None:
         return filtered[: args.max_files]
     return filtered
@@ -547,14 +597,11 @@ def make_row(
 
 
 def replay_game(
-    args: argparse.Namespace, source_ref: str, line_number: int, text: str
+    args: argparse.Namespace, source_occurrence_id: str, text: str
 ) -> tuple[list[CandidateRow], int, bool, str]:
     tokens = parse_transcript(text)
     if not tokens:
         raise ImportErrorWithLocation("transcript is empty")
-    source_occurrence_id = prefixed_id(
-        "occ", digest_for_parts(args.dataset_id, source_ref, line_number, text.strip())
-    )
     board = initial_board()
     side = "X"
     snapshots: list[tuple[int, list[str], str]] = []
@@ -645,16 +692,36 @@ def process_text_stream(
         if not text:
             continue
         summary.games_seen += 1
-        game_key = game_digest(args, source_ref, line_number, text)
+        transcript_sha = sha256_text(text)
+        transcript_key = digest_for_parts(args.dataset_id, "transcript-v1", transcript_sha, text)
+        game_key = digest_for_parts(args.seed, "game", transcript_key)
         if not should_replay_game(args, summary, game_key):
             maybe_report_progress(args, summary, rows, progress)
             continue
         summary.input_games += 1
         summary.games_replayed += 1
-        try:
-            emitted, pass_count, terminal, game_group_id = replay_game(
-                args, source_ref, line_number, text
+        occurrence_index = summary.transcript_occurrences.get(transcript_key, 0) + 1
+        summary.transcript_occurrences[transcript_key] = occurrence_index
+        source_occurrence_id = prefixed_id(
+            "occ",
+            digest_for_parts(
+                args.dataset_id,
+                "content-occurrence-v1",
+                transcript_key,
+                occurrence_index,
+            ),
+        )
+        if len(summary.provenance_samples) < 20:
+            summary.provenance_samples.append(
+                {
+                    "source_occurrence_id": source_occurrence_id,
+                    "source_ref": source_ref,
+                    "line_number": line_number,
+                    "transcript_sha256": transcript_sha,
+                }
             )
+        try:
+            emitted, pass_count, terminal, game_group_id = replay_game(args, source_occurrence_id, text)
         except ImportErrorWithLocation as error:
             summary.rejected_games += 1
             summary.invalid_move_count += 1
@@ -688,23 +755,39 @@ def process_zip(
     except zipfile.BadZipFile as error:
         raise ImportErrorWithLocation(f"{path}: invalid zip archive") from error
     with archive:
-        text_entries = [
-            info
-            for info in archive.infolist()
-            if not info.is_dir() and info.filename.lower().endswith(".txt")
-        ]
+        text_entries = [info for info in archive.infolist() if not info.is_dir() and info.filename.lower().endswith(".txt")]
         if not text_entries:
             raise ImportErrorWithLocation(f"{path}: zip archive contains no .txt files")
-        source_refs = [f"{path}!{info.filename}" for info in text_entries]
-        summary.source_files_seen += len(source_refs)
-        info_by_ref = {f"{path}!{info.filename}": info for info in text_entries}
-        for source_ref in selected_file_refs(args, source_refs):
+        raw_sources: list[TextSource] = []
+        for info in text_entries:
+            with archive.open(info) as raw:
+                data = raw.read()
+            try:
+                content = data.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise ImportErrorWithLocation(f"{path}!{info.filename}: cannot decode UTF-8") from error
+            raw_sources.append(
+                TextSource(
+                    source_ref="",
+                    provenance_ref=f"{path.name}!{info.filename}",
+                    content=content,
+                    content_sha256=sha256_bytes(data),
+                    size_bytes=len(data),
+                )
+            )
+        sources = canonical_sources(raw_sources)
+        summary.source_files_seen += len(sources)
+        for source in selected_sources(args, sources):
             if replay_limit_reached(args, summary):
                 break
-            info = info_by_ref[source_ref]
-            with archive.open(info) as raw:
-                with io.TextIOWrapper(raw, encoding="utf-8", newline="") as text:
-                    process_text_stream(args, source_ref, text, summary, rows, progress)
+            process_text_stream(
+                args,
+                source.source_ref,
+                io.StringIO(source.content),
+                summary,
+                rows,
+                progress,
+            )
 
 
 def process_plain_file(
@@ -718,8 +801,30 @@ def process_plain_file(
 ) -> None:
     if not counted:
         summary.source_files_seen += 1
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        process_text_stream(args, str(path), handle, summary, rows, progress)
+    data = path.read_bytes()
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ImportErrorWithLocation(f"{path}: cannot decode UTF-8") from error
+    source = canonical_sources(
+        [
+            TextSource(
+                source_ref="",
+                provenance_ref=path.name,
+                content=content,
+                content_sha256=sha256_bytes(data),
+                size_bytes=len(data),
+            )
+        ]
+    )[0]
+    process_text_stream(
+        args,
+        source.source_ref,
+        io.StringIO(source.content),
+        summary,
+        rows,
+        progress,
+    )
 
 
 def process_directory(
@@ -732,13 +837,35 @@ def process_directory(
     text_paths = [child for child in path.rglob("*.txt") if child.is_file()]
     if not text_paths:
         raise ImportErrorWithLocation(f"{path}: directory contains no .txt files")
-    source_refs = [str(text_path) for text_path in text_paths]
-    summary.source_files_seen += len(source_refs)
-    path_by_ref = {str(text_path): text_path for text_path in text_paths}
-    for source_ref in selected_file_refs(args, source_refs):
+    raw_sources: list[TextSource] = []
+    for text_path in text_paths:
+        data = text_path.read_bytes()
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ImportErrorWithLocation(f"{text_path}: cannot decode UTF-8") from error
+        raw_sources.append(
+            TextSource(
+                source_ref="",
+                provenance_ref=str(text_path.relative_to(path)),
+                content=content,
+                content_sha256=sha256_bytes(data),
+                size_bytes=len(data),
+            )
+        )
+    sources = canonical_sources(raw_sources)
+    summary.source_files_seen += len(sources)
+    for source in selected_sources(args, sources):
         if replay_limit_reached(args, summary):
             break
-        process_plain_file(args, path_by_ref[source_ref], summary, rows, progress, counted=True)
+        process_text_stream(
+            args,
+            source.source_ref,
+            io.StringIO(source.content),
+            summary,
+            rows,
+            progress,
+        )
 
 
 def process_input(
@@ -755,10 +882,7 @@ def process_input(
     elif path.suffix.lower() == ".zip":
         process_zip(args, path, summary, rows, progress)
     else:
-        source_refs = [str(path)]
-        summary.source_files_seen += 1
-        if str(path) in selected_file_refs(args, source_refs):
-            process_plain_file(args, path, summary, rows, progress, counted=True)
+        process_plain_file(args, path, summary, rows, progress)
 
 
 def split_pair(left: str, right: str) -> str:
@@ -858,6 +982,7 @@ def report_for(
             "cross_split_board_collision_counts_by_pair"
         ],
         "rejected_reasons": summary.rejected_reasons,
+        "source_provenance_samples": summary.provenance_samples,
         "sampling_policy": {
             "mode": args.sampling_mode,
             "file_order": args.file_order,
@@ -881,11 +1006,11 @@ def report_for(
             "method": "dataset_id + game_group_id sha256",
             "ratio": "80/10/10 by hash bucket",
             "game_group_id": "sha256 of dataset_id + identity_policy_version + canonical replayed move/pass sequence",
-            "source_occurrence_id": "sha256 of dataset_id + source path/member + line number + transcript text",
+            "source_occurrence_id": "sha256 of dataset_id + transcript content digest + content occurrence index",
             "position_id": "dataset_id + game_group_id + ply + board_id hash",
             "board_id": "sha256 of side-to-move-relative 64-cell board only",
             "game_leakage_policy": "all emitted positions from one semantic game stay in one split",
-            "duplicate_position_policy": "duplicate source occurrences share game_group_id, position_id, board_id, and split; record_id remains occurrence-scoped",
+            "duplicate_position_policy": "duplicate semantic games share game_group_id, position_id, board_id, and split; content occurrences keep distinct source_occurrence_id and record_id",
         },
         "leakage_policy": {
             "exact_board_audit": "side-to-move-relative board_id collisions across splits are counted",

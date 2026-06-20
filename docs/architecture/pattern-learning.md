@@ -105,6 +105,14 @@ The repository may store small synthetic fixtures.
 Large or restricted corpora should be downloaded locally by scripts and
 described by manifests.
 
+Local sequence replay caches are allowed only as uncommitted measurement
+accelerators. Cache keys must be content-addressed from source bytes, manifest
+bytes, importer identity, normalized schema identity, dataset id, identity
+policy, and semantic importer options. They must not include local absolute
+paths, output directories, run ids, timestamps, or temporary paths. Cached
+normalized TSVs and import reports must be checksum-validated before reuse and
+rebuilt when metadata or payload validation fails.
+
 ## Source Data Policy
 
 Every dataset must have a manifest before it can be used for training.
@@ -137,6 +145,8 @@ Rules:
 * trained weights derived from restricted data require a release decision before
   publication
 * every training run records the exact dataset manifests used
+* local measurement reports may include stage telemetry and cache hit/miss
+  status so repeated runs can distinguish replay cost from training cost
 * unknown license means internal experiment only
 * GPL engine code, GPL evaluation weights, and GPL-derived code are not copied
   into this repository

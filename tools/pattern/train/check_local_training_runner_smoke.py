@@ -113,6 +113,41 @@ def check_report(
             print(f"missing checksum-like field {key}: {value!r}", file=sys.stderr)
             return False
 
+    if report.get("sequence_cache") != {
+        "enabled": False,
+        "cache_dir": None,
+        "cache_key": None,
+        "status": "bypassed",
+        "metadata_path": None,
+        "normalized_tsv_sha256": None,
+        "import_report_sha256": None,
+        "notes": [],
+    }:
+        print(f"unexpected sequence cache summary: {report.get('sequence_cache')!r}", file=sys.stderr)
+        return False
+    stages = report.get("stage_timings")
+    if not isinstance(stages, dict):
+        print("missing stage timings", file=sys.stderr)
+        return False
+    for stage_name in (
+        "raw_import",
+        "normalized_sampling",
+        "pattern_dataset_generation",
+        "trainer_v0b",
+        "v0b_export",
+        "v0a_baseline_training_export",
+        "evaluation_smoke",
+        "search_smoke",
+    ):
+        stage = stages.get(stage_name)
+        if not isinstance(stage, dict) or not isinstance(stage.get("wall_time_sec"), (int, float)):
+            print(f"missing stage telemetry for {stage_name}: {stage!r}", file=sys.stderr)
+            return False
+    file_sizes = report.get("file_sizes")
+    if not isinstance(file_sizes, dict) or file_sizes.get("sampled_normalized_tsv", 0) <= 0:
+        print(f"missing file size telemetry: {file_sizes!r}", file=sys.stderr)
+        return False
+
     trainer_args = report.get("trainer_args")
     if trainer_args != {"epochs": 8, "learning_rate": expected_learning_rate, "l2": 0.0, "seed": 7}:
         print(f"unexpected trainer_args: {trainer_args!r}", file=sys.stderr)
@@ -164,6 +199,20 @@ def check_report(
             print(f"generated file is not under output dir: {full_path}", file=sys.stderr)
             return False
     return True
+
+
+def stable_report_projection(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "artifact_checksum": report.get("artifact_checksum"),
+        "dataset_report_checksum": report.get("dataset_report_checksum"),
+        "pattern_set_id": report.get("pattern_set_id"),
+        "sample_counts_by_phase": report.get("sample_counts_by_phase"),
+        "sample_counts_by_split": report.get("sample_counts_by_split"),
+        "sample_report_checksum": report.get("sample_report_checksum"),
+        "trainer_args": report.get("trainer_args"),
+        "trainer_report_checksum": report.get("trainer_report_checksum"),
+        "weights_checksum": report.get("weights_checksum"),
+    }
 
 
 def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, str], dict[str, Any]] | None:
@@ -251,8 +300,8 @@ def main() -> int:
         if first_summary.get("artifact_checksum") != second_summary.get("artifact_checksum"):
             print("artifact checksum is not deterministic", file=sys.stderr)
             return 1
-        if first_report != second_report:
-            print("local training run report JSON is not deterministic", file=sys.stderr)
+        if stable_report_projection(first_report) != stable_report_projection(second_report):
+            print("stable local training run report fields are not deterministic", file=sys.stderr)
             return 1
         if not check_report(
             first_report,

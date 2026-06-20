@@ -146,7 +146,12 @@ Existing foundations include:
   evaluation/search smoke input rows independently from the training sample
   for large local measurements, and can fail local measurement early with
   `--strict-board-disjoint-splits` when schema v2 exact boards appear across
-  train/validation/test splits
+  train/validation/test splits. The sequence-input path can also use an
+  opt-in local-only content-addressed replay cache keyed by source bytes,
+  manifest bytes, importer identity, schema/policy versions, dataset id, and
+  semantic importer options; cache hits, misses, invalidations, source
+  fingerprints, file sizes, and per-stage wall/CPU/RSS telemetry are recorded
+  in the local run report.
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
@@ -156,8 +161,9 @@ Existing foundations include:
   `tools/pattern/train/analyze_local_training_runs.py` that compares one or
   more `local-training-run-report.json` files, emits stable JSON and optional
   Markdown summaries, validates the runner report shape, extracts available
-  v0b trainer split/phase metrics, and records warning-only review flags for
-  small or incomplete local measurements
+  v0b trainer split/phase metrics, surfaces optional sequence cache status and
+  stage telemetry, and records warning-only review flags for small,
+  incomplete, or mixed cache-hit/cache-miss local measurements
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of
@@ -256,11 +262,12 @@ bounded 1M sequence-derived position pool and using 10k search smoke positions,
 while keeping the training sample uncapped by smoke settings.
 
 For repeatable 10k / 100k / 1M raw sequence local runs, prefer either a
-prebuilt normalized local cache or the runner's bounded sequence sampling
-options, for example `--sequence-sampling-mode bounded-dev`,
-`--sequence-file-order hash`, `--sequence-max-games`, and
-`--sequence-max-positions`. Generated normalized caches, local run reports,
-weights, artifacts, and raw Egaroucid payloads remain ignored local-only files.
+prebuilt normalized local cache, the runner's `--sequence-cache-dir`, or the
+runner's bounded sequence sampling options, for example
+`--sequence-sampling-mode bounded-dev`, `--sequence-file-order hash`,
+`--sequence-max-games`, and `--sequence-max-positions`. Generated normalized
+caches, local run reports, weights, artifacts, and raw Egaroucid payloads
+remain ignored local-only files.
 Metrics from `bounded-dev` runs are useful measurement signals for iteration,
 but they are not full-corpus exact measurements, match bench results, Elo
 results, self-play results, production artifacts, or strength claims.
@@ -327,8 +334,8 @@ Status values:
 | Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum; the tiny Egaroucid v0b path also round-trips importer -> dataset -> trainer v0b -> exporter -> runtime loader -> `PatternEvaluator` and verifies a score difference from the v0a phase-bias smoke artifact |
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, evaluates fixed positions with runtime `PatternEvaluator`, reports deterministic score rows, and keeps learned Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
-| Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw or normalized local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, and a local run report; generated corpora, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
-| Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
+| Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw, normalized, or sequence local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, optional local-only sequence replay cache restore/import, and a local run report with cache/source/stage telemetry; generated corpora, caches, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
+| Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, surfaces cache hit/miss and major stage timings, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |

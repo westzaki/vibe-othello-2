@@ -113,6 +113,24 @@ def validate_report(report: LoadedReport) -> list[str]:
     if "search_smoke_summary" in data and data.get("search_smoke_summary") is not None:
         if not isinstance(data.get("search_smoke_summary"), dict):
             errors.append("search_smoke_summary must be an object or null")
+    if "sequence_cache" in data and data.get("sequence_cache") is not None:
+        cache = data.get("sequence_cache")
+        if not isinstance(cache, dict):
+            errors.append("sequence_cache must be an object or null")
+        elif cache.get("status") not in (None, "hit", "miss", "invalidated", "bypassed"):
+            errors.append("sequence_cache.status must be hit, miss, invalidated, or bypassed")
+    if "stage_timings" in data and data.get("stage_timings") is not None:
+        stages = data.get("stage_timings")
+        if not isinstance(stages, dict):
+            errors.append("stage_timings must be an object or null")
+        else:
+            for stage_name, stage_data in stages.items():
+                if not isinstance(stage_name, str) or not isinstance(stage_data, dict):
+                    errors.append("stage_timings entries must be named objects")
+                    break
+                wall = stage_data.get("wall_time_sec")
+                if wall is not None and not isinstance(wall, (int, float)):
+                    errors.append(f"stage_timings.{stage_name}.wall_time_sec must be numeric or null")
     if not isinstance(data.get("schema_version"), int):
         errors.append("schema_version must be an integer")
     for key in ("run_id", "source_kind", "input_mode", "trainer_version"):
@@ -301,7 +319,42 @@ def warnings_for_run(data: dict[str, Any], min_train_rows: int) -> list[dict[str
                 "exact side-to-move-relative boards appear in more than one split",
             )
         )
+    if "stage_timings" not in data:
+        warnings.append(warning("telemetry_missing", "stage timing telemetry is missing"))
+    elif not isinstance(data.get("stage_timings"), dict):
+        warnings.append(warning("telemetry_invalid", "stage timing telemetry is not an object"))
+    if data.get("input_mode") == "sequence-input":
+        cache = data.get("sequence_cache")
+        if not isinstance(cache, dict):
+            warnings.append(warning("sequence_cache_missing", "sequence cache summary is missing"))
     return warnings
+
+
+def cache_status(data: dict[str, Any]) -> str | None:
+    cache = data.get("sequence_cache")
+    if not isinstance(cache, dict):
+        return None
+    value = cache.get("status")
+    return value if isinstance(value, str) else None
+
+
+def stage_wall(data: dict[str, Any], *names: str) -> float | None:
+    stages = data.get("stage_timings")
+    if not isinstance(stages, dict):
+        return None
+    total = 0.0
+    seen = False
+    for name in names:
+        stage = stages.get(name)
+        if not isinstance(stage, dict):
+            continue
+        value = stage.get("wall_time_sec")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            total += float(value)
+            seen = True
+    if not seen:
+        return None
+    return float(f"{total:.6g}")
 
 
 def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]:
@@ -336,6 +389,27 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
         "path": str(run_report.path),
         "run_id": data.get("run_id"),
         "sampled_rows": sampled_rows,
+        "cache_status": cache_status(data),
+        "stage_wall_times": {
+            "import_or_cache_restore": stage_wall(data, "sequence_import_or_cache_restore"),
+            "dataset": stage_wall(data, "pattern_dataset_generation"),
+            "trainer": stage_wall(data, "trainer_v0b"),
+            "export": stage_wall(data, "v0b_export"),
+            "evaluation_search_smoke": stage_wall(data, "evaluation_smoke", "search_smoke"),
+            "total_recorded": stage_wall(
+                data,
+                "source_hashing",
+                "sequence_cache_lookup",
+                "sequence_import_or_cache_restore",
+                "normalized_sampling",
+                "pattern_dataset_generation",
+                "trainer_v0b",
+                "v0b_export",
+                "v0a_baseline_training_export",
+                "evaluation_smoke",
+                "search_smoke",
+            ),
+        },
         "search_smoke": {
             "positions_count": count_from_summary(search_summary, "positions_count"),
             "v0a_v0b_best_move_different_count": count_from_summary(
@@ -359,6 +433,23 @@ def sort_run_summaries(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(summaries, key=lambda item: (str(item.get("path", "")), str(item.get("run_id", ""))))
 
 
+def add_comparison_warnings(runs: list[dict[str, Any]]) -> None:
+    statuses = {
+        run.get("cache_status")
+        for run in runs
+        if run.get("cache_status") in {"hit", "miss", "invalidated"}
+    }
+    if "hit" in statuses and ("miss" in statuses or "invalidated" in statuses):
+        for run in runs:
+            if run.get("cache_status") in {"hit", "miss", "invalidated"}:
+                run.setdefault("warnings", []).append(
+                    warning(
+                        "cache_status_mixed_comparison",
+                        "cache-hit and cache-miss/invalidated runs are being compared directly",
+                    )
+                )
+
+
 def markdown_table_row(values: list[Any]) -> str:
     return "| " + " | ".join("" if value is None else str(value) for value in values) + " |"
 
@@ -375,51 +466,34 @@ def render_markdown(summary: dict[str, Any]) -> str:
         markdown_table_row(
             [
                 "run_id",
-                "created_at_utc",
                 "sampled_rows",
-                "train",
-                "validation",
-                "test",
-                "trainer_checksum",
+                "cache_status",
+                "import/cache_restore_sec",
+                "dataset_sec",
+                "trainer_sec",
+                "export_sec",
+                "eval/search_sec",
                 "artifact_checksum",
-                "eval_positions",
-                "eval_diff",
-                "search_positions",
-                "search_score_diff",
-                "search_best_move_diff",
-                "eval_used",
-                "search_used",
                 "warnings",
-                "board_collisions",
             ]
         ),
-        markdown_table_row(["---"] * 17),
+        markdown_table_row(["---"] * 10),
     ]
     for run in runs:
-        counts = run.get("counts_by_split") or {}
-        eval_smoke = run.get("evaluation_smoke") or {}
-        search_smoke = run.get("search_smoke") or {}
-        audit = run.get("board_leakage_audit") or {}
+        stage_times = run.get("stage_wall_times") or {}
         lines.append(
             markdown_table_row(
                 [
                     run.get("run_id"),
-                    run.get("created_at_utc"),
                     run.get("sampled_rows"),
-                    counts.get("train"),
-                    counts.get("validation"),
-                    counts.get("test"),
-                    run.get("trainer_report_checksum"),
+                    run.get("cache_status"),
+                    stage_times.get("import_or_cache_restore"),
+                    stage_times.get("dataset"),
+                    stage_times.get("trainer"),
+                    stage_times.get("export"),
+                    stage_times.get("evaluation_search_smoke"),
                     run.get("artifact_checksum"),
-                    eval_smoke.get("positions_count"),
-                    eval_smoke.get("v0a_v0b_different_count"),
-                    search_smoke.get("positions_count"),
-                    search_smoke.get("v0a_v0b_score_different_count"),
-                    search_smoke.get("v0a_v0b_best_move_different_count"),
-                    eval_smoke.get("used_positions"),
-                    search_smoke.get("used_positions"),
                     ", ".join(item["code"] for item in run.get("warnings", [])),
-                    audit.get("cross_split_board_collision_count"),
                 ]
             )
         )
@@ -468,6 +542,7 @@ def main() -> int:
         runs = sort_run_summaries(
             [run_summary(report, args.min_train_rows) for report in reports]
         )
+        add_comparison_warnings(runs)
         summary = {
             "run_count": len(runs),
             "runs": runs,
