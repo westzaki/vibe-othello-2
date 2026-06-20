@@ -22,6 +22,8 @@ struct PatternFeatureSet {
 
 [[nodiscard]] PatternFeatureSet tiny_pattern_feature_set_fixture();
 
+[[nodiscard]] PatternFeatureSet buro_lite_pattern_feature_set();
+
 } // namespace vibe_othello::evaluation
 
 #endif // VIBE_OTHELLO_EVALUATION_PATTERN_FEATURE_SET_H_

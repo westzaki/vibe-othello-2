@@ -6,8 +6,10 @@ add_executable(vibe_othello_pattern_search_bench_smoke search_bench_smoke.cc)
 target_link_libraries(vibe_othello_pattern_export_smoke PRIVATE vibe_othello::engine)
 target_link_libraries(vibe_othello_pattern_evaluation_roundtrip_smoke
                       PRIVATE vibe_othello::engine)
-target_link_libraries(vibe_othello_pattern_evaluation_bench_smoke PRIVATE vibe_othello::engine)
-target_link_libraries(vibe_othello_pattern_search_bench_smoke PRIVATE vibe_othello::engine)
+target_link_libraries(vibe_othello_pattern_evaluation_bench_smoke
+                      PRIVATE vibe_othello_pattern_set_options)
+target_link_libraries(vibe_othello_pattern_search_bench_smoke
+                      PRIVATE vibe_othello_pattern_set_options)
 
 set_target_properties(vibe_othello_pattern_export_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-export-smoke)
@@ -138,6 +140,30 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
       --egaroucid-manifest
       ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json)
+
+  add_test(
+    NAME vibe_othello_pattern_local_training_buro_lite_runner_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/check_local_training_runner_smoke.py
+      --runner
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/run_egaroucid_local_training.py
+      --dataset-exe
+      $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
+      --eval-smoke-exe
+      $<TARGET_FILE:vibe_othello_pattern_evaluation_bench_smoke>
+      --search-smoke-exe
+      $<TARGET_FILE:vibe_othello_pattern_search_bench_smoke>
+      --egaroucid-fixture
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
+      --egaroucid-manifest
+      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json
+      --pattern-set
+      pattern-v1-buro-lite
+      --expected-pattern-set-id
+      pattern-v1-buro-lite
+      --learning-rate
+      0.8)
 
   add_test(
     NAME vibe_othello_pattern_local_training_sequence_runner_smoke

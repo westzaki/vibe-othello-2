@@ -37,6 +37,31 @@ to_vector(std::span<const board_core::Square> squares) {
   return std::vector<board_core::Square>{squares.begin(), squares.end()};
 }
 
+[[nodiscard]] std::vector<board_core::Square> line(int file, int rank, int file_delta,
+                                                   int rank_delta, std::uint8_t length) {
+  std::vector<board_core::Square> result;
+  result.reserve(length);
+  for (std::uint8_t index = 0; index < length; ++index) {
+    result.push_back(square_from_file_rank(file + file_delta * index, rank + rank_delta * index));
+  }
+  return result;
+}
+
+[[nodiscard]] std::vector<board_core::Square>
+band(int file, int rank, int primary_file_delta, int primary_rank_delta, int secondary_file_delta,
+     int secondary_rank_delta, std::uint8_t primary_length, std::uint8_t secondary_length) {
+  std::vector<board_core::Square> result;
+  result.reserve(static_cast<std::size_t>(primary_length) * secondary_length);
+  for (std::uint8_t secondary = 0; secondary < secondary_length; ++secondary) {
+    for (std::uint8_t primary = 0; primary < primary_length; ++primary) {
+      result.push_back(square_from_file_rank(
+          file + primary_file_delta * primary + secondary_file_delta * secondary,
+          rank + primary_rank_delta * primary + secondary_rank_delta * secondary));
+    }
+  }
+  return result;
+}
+
 [[nodiscard]] std::vector<PatternDefinition>
 make_fixed_pattern_definitions(PatternSymmetryPolicy edge_symmetry,
                                PatternSymmetryPolicy corner_symmetry) {
@@ -52,6 +77,41 @@ make_fixed_pattern_definitions(PatternSymmetryPolicy edge_symmetry,
           .length = 9,
           .squares = to_vector(kCorner3x3Squares),
           .symmetry_policy = corner_symmetry,
+      },
+  };
+}
+
+[[nodiscard]] std::vector<PatternDefinition> make_buro_lite_pattern_definitions() {
+  return {
+      PatternDefinition{
+          .id = "edge-8",
+          .length = 8,
+          .squares = line(0, 0, 1, 0, 8),
+      },
+      PatternDefinition{
+          .id = "near-edge-8",
+          .length = 8,
+          .squares = line(0, 1, 1, 0, 8),
+      },
+      PatternDefinition{
+          .id = "diagonal-8",
+          .length = 8,
+          .squares = line(0, 0, 1, 1, 8),
+      },
+      PatternDefinition{
+          .id = "diagonal-7",
+          .length = 7,
+          .squares = line(1, 0, 1, 1, 7),
+      },
+      PatternDefinition{
+          .id = "corner-2x5",
+          .length = 10,
+          .squares = band(0, 0, 1, 0, 0, 1, 5, 2),
+      },
+      PatternDefinition{
+          .id = "corner-3x3",
+          .length = 9,
+          .squares = band(0, 0, 1, 0, 0, 1, 3, 3),
       },
   };
 }
@@ -199,6 +259,14 @@ const PatternSet& symmetry_aware_fixed_pattern_set_fixture() noexcept {
       .id = "fixed-pattern-fixture-v1-symmetry-aware",
       .patterns = make_fixed_pattern_definitions(PatternSymmetryPolicy::reverse,
                                                  PatternSymmetryPolicy::square_d4),
+  };
+  return pattern_set;
+}
+
+const PatternSet& buro_lite_pattern_set() noexcept {
+  static const PatternSet pattern_set{
+      .id = "pattern-v1-buro-lite",
+      .patterns = make_buro_lite_pattern_definitions(),
   };
   return pattern_set;
 }

@@ -54,6 +54,8 @@ def check_report(
     output_dir: Path,
     expected_eval_positions: int,
     expected_search_positions: int,
+    expected_pattern_set_id: str,
+    expected_learning_rate: float,
 ) -> bool:
     expected_scalars: dict[str, Any] = {
         "schema_version": 1,
@@ -75,6 +77,9 @@ def check_report(
         if report.get(key) != expected:
             print(f"report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
             return False
+    if report.get("pattern_set_id") != expected_pattern_set_id:
+        print(f"unexpected pattern_set_id: {report.get('pattern_set_id')!r}", file=sys.stderr)
+        return False
 
     sample_policy = report.get("sample_policy")
     if not isinstance(sample_policy, dict):
@@ -109,7 +114,7 @@ def check_report(
             return False
 
     trainer_args = report.get("trainer_args")
-    if trainer_args != {"epochs": 8, "learning_rate": 0.9, "l2": 0.0, "seed": 7}:
+    if trainer_args != {"epochs": 8, "learning_rate": expected_learning_rate, "l2": 0.0, "seed": 7}:
         print(f"unexpected trainer_args: {trainer_args!r}", file=sys.stderr)
         return False
 
@@ -182,7 +187,7 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         "--epochs",
         "8",
         "--learning-rate",
-        "0.9",
+        str(args.learning_rate),
         "--l2",
         "0.0",
         "--seed",
@@ -193,6 +198,8 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         str(args.eval_smoke_exe),
         "--search-smoke-exe",
         str(args.search_smoke_exe),
+        "--pattern-set",
+        args.pattern_set,
     ]
     result = run_or_report(command)
     if result is None:
@@ -220,6 +227,9 @@ def main() -> int:
     parser.add_argument("--search-smoke-exe", required=True, type=Path)
     parser.add_argument("--egaroucid-fixture", required=True, type=Path)
     parser.add_argument("--egaroucid-manifest", required=True, type=Path)
+    parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
+    parser.add_argument("--expected-pattern-set-id", default="fixed-pattern-fixture-v1")
+    parser.add_argument("--learning-rate", type=float, default=0.9)
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
@@ -249,6 +259,8 @@ def main() -> int:
             temp_dir / "first",
             expected_eval_positions=5,
             expected_search_positions=1,
+            expected_pattern_set_id=args.expected_pattern_set_id,
+            expected_learning_rate=args.learning_rate,
         ):
             return 1
 

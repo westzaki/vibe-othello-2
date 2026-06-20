@@ -12,16 +12,12 @@ import sys
 import zlib
 from pathlib import Path
 
+from pattern_sets import PatternSetSpec, resolve_pattern_set
+
 
 FORMAT_VERSION = 1
 SCORE_SCALE = 1
 PHASE_COUNT = 13
-PATTERN_SET_ID = "fixed-pattern-fixture-v1"
-PATTERNS = (
-    ("edge-8", 8),
-    ("corner-3x3", 9),
-)
-NOTE = "local smoke artifact; not production"
 
 
 def fail(message: str) -> None:
@@ -74,7 +70,7 @@ def load_phase_biases(path: Path) -> list[int]:
     return [values[phase] for phase in range(PHASE_COUNT)]
 
 
-def append_header(output: bytearray, weight_count: int) -> None:
+def append_header(output: bytearray, weight_count: int, pattern_set: PatternSetSpec) -> None:
     output.extend(b"VOPWGT\0\0")
     output.extend(
         struct.pack(
@@ -84,21 +80,21 @@ def append_header(output: bytearray, weight_count: int) -> None:
             1,
             SCORE_SCALE,
             PHASE_COUNT,
-            len(PATTERNS),
-            len(PATTERN_SET_ID),
+            len(pattern_set.patterns),
+            len(pattern_set.pattern_set_id),
             0,
             weight_count,
         )
     )
-    output.extend(PATTERN_SET_ID.encode("utf-8"))
+    output.extend(pattern_set.pattern_set_id.encode("utf-8"))
 
 
-def make_artifact(phase_biases: list[int]) -> tuple[bytes, int]:
-    stride = 1 + sum(checked_pattern_size(length) for _, length in PATTERNS)
+def make_artifact(phase_biases: list[int], pattern_set: PatternSetSpec) -> tuple[bytes, int]:
+    stride = 1 + sum(checked_pattern_size(length) for _, length in pattern_set.patterns)
     weight_count = stride * PHASE_COUNT
 
     output = bytearray()
-    append_header(output, weight_count)
+    append_header(output, weight_count, pattern_set)
     for phase in range(PHASE_COUNT):
         output.extend(struct.pack("<i", phase_biases[phase]))
         for _ in range(1, stride):
@@ -115,26 +111,27 @@ def write_manifest(
     checksum: int,
     artifact_size: int,
     phase_biases: list[int],
+    pattern_set: PatternSetSpec,
 ) -> None:
     manifest = {
-        "artifact_id": "tiny-smoke-phase-bias-v0a-artifact-v1",
+        "artifact_id": pattern_set.v0a_artifact_id,
         "format": "vibe-othello-pattern-eval",
         "format_version": FORMAT_VERSION,
         "bit_order": "a1-lsb",
         "score_unit": "disc-diff",
         "score_scale": SCORE_SCALE,
         "phase_count": PHASE_COUNT,
-        "pattern_set_id": PATTERN_SET_ID,
+        "pattern_set_id": pattern_set.pattern_set_id,
         "weights_file": weights_path.name,
         "weights_size_bytes": artifact_size,
         "weights_checksum": f"0x{checksum:08x}",
         "trainer_version": "phase-bias-v0a",
-        "notes": NOTE,
+        "notes": pattern_set.note,
         "quantization": "round-half-away-from-zero to int32 search::Score",
         "phase_bias": phase_biases,
         "patterns": [
             {"pattern_id": pattern_id, "length": length, "weights": "all-zero"}
-            for pattern_id, length in PATTERNS
+            for pattern_id, length in pattern_set.patterns
         ],
     }
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -145,15 +142,24 @@ def main() -> int:
     parser.add_argument("--weights-tsv", required=True, type=Path)
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--manifest-out", required=True, type=Path)
+    parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     args = parser.parse_args()
 
     try:
+        pattern_set = resolve_pattern_set(args.pattern_set)
         phase_biases = load_phase_biases(args.weights_tsv)
-        artifact, checksum = make_artifact(phase_biases)
+        artifact, checksum = make_artifact(phase_biases, pattern_set)
         args.weights_out.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
         args.weights_out.write_bytes(artifact)
-        write_manifest(args.manifest_out, args.weights_out, checksum, len(artifact), phase_biases)
+        write_manifest(
+            args.manifest_out,
+            args.weights_out,
+            checksum,
+            len(artifact),
+            phase_biases,
+            pattern_set,
+        )
     except (OSError, RuntimeError) as error:
         print(error, file=sys.stderr)
         return 1
@@ -163,11 +169,11 @@ def main() -> int:
     print("score_unit=disc-diff")
     print(f"score_scale={SCORE_SCALE}")
     print(f"phase_count={PHASE_COUNT}")
-    print(f"pattern_set_id={PATTERN_SET_ID}")
+    print(f"pattern_set_id={pattern_set.pattern_set_id}")
     print(f"weights_checksum=0x{checksum:08x}")
     print(f"weights_size_bytes={len(artifact)}")
     print("trainer_version=phase-bias-v0a")
-    print(f"notes={NOTE}")
+    print(f"notes={pattern_set.note}")
     return 0
 
 
