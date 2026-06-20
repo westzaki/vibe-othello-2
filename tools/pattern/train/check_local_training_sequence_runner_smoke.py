@@ -60,6 +60,20 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         "1",
         "--sequence-max-positions",
         "80",
+        "--sequence-sampling-mode",
+        "bounded-dev",
+        "--sequence-file-order",
+        "hash",
+        "--sequence-max-files",
+        "1",
+        "--sequence-max-games",
+        "4",
+        "--sequence-game-sample-rate",
+        "1.0",
+        "--sequence-progress-every-games",
+        "2",
+        "--sequence-progress-every-files",
+        "1",
         "--sequence-no-emit-terminal",
         "--eval-smoke-max-positions",
         "10",
@@ -101,6 +115,28 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
             return False
     if report.get("trainer_args") != {"epochs": 8, "learning_rate": 0.2, "l2": 0.0, "seed": 7}:
         print(f"unexpected trainer args: {report.get('trainer_args')!r}", file=sys.stderr)
+        return False
+    sequence_policy = report.get("sequence_import_policy")
+    expected_sequence_policy = {
+        "sampling_mode": "bounded-dev",
+        "file_order": "hash",
+        "max_files": 1,
+        "max_games": 4,
+        "file_sample_rate": None,
+        "game_sample_rate": 1.0,
+        "source_files_seen": 1,
+        "source_files_processed": 1,
+        "games_seen": 4,
+        "games_replayed": 4,
+        "replay_skip_count": 0,
+        "sampling_frame_notes": [
+            "bounded-dev mode is for local measurement iteration",
+            "bounded-dev is not a full-corpus exact top-k sample",
+            "bounded-dev is not a production strength claim",
+        ],
+    }
+    if sequence_policy != expected_sequence_policy:
+        print(f"unexpected sequence import policy: {sequence_policy!r}", file=sys.stderr)
         return False
     sample_counts = report.get("sample_counts_by_split")
     if not isinstance(sample_counts, dict) or sum(sample_counts.values()) != 80:
@@ -164,6 +200,10 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
     if sequence_report.get("emitted_positions") != 80:
         print(f"sequence import cap did not bound emitted positions: {sequence_report!r}", file=sys.stderr)
         return False
+    for key, value in expected_sequence_policy.items():
+        if sequence_report.get(key) != value:
+            print(f"sequence report sampling mismatch for {key}: {sequence_report.get(key)!r}", file=sys.stderr)
+            return False
     if sequence_report.get("rejected_games") != 1 or sequence_report.get("pass_count", 0) < 3:
         print(f"sequence importer did not report expected reject/pass counts: {sequence_report!r}", file=sys.stderr)
         return False

@@ -26,6 +26,7 @@ import io
 import json
 import re
 import sys
+import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -78,6 +79,11 @@ NOTES = (
     "not production strength evidence",
     "sequence position_id includes game_id, ply, and board hash; split is game-hash based",
 )
+BOUNDED_DEV_NOTES = (
+    "bounded-dev mode is for local measurement iteration",
+    "bounded-dev is not a full-corpus exact top-k sample",
+    "bounded-dev is not a production strength claim",
+)
 
 
 class ImportErrorWithLocation(ValueError):
@@ -123,6 +129,11 @@ class TopKRows:
             return sorted(self.kept_all, key=lambda row: row.ordinal)
         return sorted((item[2] for item in self.heap), key=lambda row: row.ordinal)
 
+    def kept_count(self) -> int:
+        if self.capacity is None:
+            return len(self.kept_all)
+        return len(self.heap)
+
 
 @dataclass
 class Summary:
@@ -140,7 +151,19 @@ class Summary:
     label_sum: int = 0
     rejected_reasons: list[str] = field(default_factory=list)
     source_files: int = 0
+    source_files_seen: int = 0
+    source_files_processed: int = 0
+    games_seen: int = 0
+    games_replayed: int = 0
+    replay_skip_count: int = 0
     candidate_positions: int = 0
+
+
+@dataclass
+class ProgressState:
+    start_time: float = field(default_factory=time.monotonic)
+    last_games_report: int = 0
+    last_files_report: int = 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,6 +176,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-ply", type=int)
     parser.add_argument("--ply-stride", type=int, default=1)
     parser.add_argument("--max-positions", type=int)
+    parser.add_argument("--sampling-mode", choices=("full-scan-topk", "bounded-dev"), default="full-scan-topk")
+    parser.add_argument("--max-games", type=int)
+    parser.add_argument("--max-files", type=int)
+    parser.add_argument("--file-sample-rate", type=float)
+    parser.add_argument("--game-sample-rate", type=float)
+    parser.add_argument("--file-order", choices=("path", "hash"), default="path")
+    parser.add_argument("--progress-every-games", type=int)
+    parser.add_argument("--progress-every-files", type=int)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--emit-terminal", dest="emit_terminal", action="store_true", default=False)
     parser.add_argument("--no-emit-terminal", dest="emit_terminal", action="store_false")
@@ -165,6 +196,18 @@ def parse_args() -> argparse.Namespace:
         parser.error("--ply-stride must be positive")
     if args.max_positions is not None and args.max_positions <= 0:
         parser.error("--max-positions must be positive")
+    if args.max_games is not None and args.max_games <= 0:
+        parser.error("--max-games must be positive")
+    if args.max_files is not None and args.max_files <= 0:
+        parser.error("--max-files must be positive")
+    for name in ("file_sample_rate", "game_sample_rate"):
+        value = getattr(args, name)
+        if value is not None and not (0.0 < value <= 1.0):
+            parser.error(f"--{name.replace('_', '-')} must be > 0.0 and <= 1.0")
+    if args.progress_every_games is not None and args.progress_every_games <= 0:
+        parser.error("--progress-every-games must be positive")
+    if args.progress_every_files is not None and args.progress_every_files <= 0:
+        parser.error("--progress-every-files must be positive")
     return args
 
 
@@ -174,6 +217,10 @@ def stable_json(data: object) -> str:
 
 def digest_for_parts(*parts: object) -> str:
     return hashlib.sha256("\t".join(str(part) for part in parts).encode("ascii")).hexdigest()
+
+
+def digest_fraction(digest: str) -> float:
+    return int(digest, 16) / float(1 << 256)
 
 
 def split_for_digest(digest: str) -> str:
@@ -192,6 +239,77 @@ def phase_for_occupied_count(occupied_count: int) -> int:
         // (MAX_EGAROUCID_OCCUPIED_COUNT - MIN_OCCUPIED_COUNT + 1)
     )
     return min(PHASE_COUNT - 1, max(0, phase))
+
+
+def file_digest(args: argparse.Namespace, source_ref: str) -> str:
+    return digest_for_parts(args.seed, "file", source_ref)
+
+
+def game_digest(args: argparse.Namespace, source_ref: str, line_number: int, text: str) -> str:
+    return digest_for_parts(args.dataset_id, source_ref, line_number, text.strip())
+
+
+def include_by_rate(digest: str, rate: float | None) -> bool:
+    return rate is None or digest_fraction(digest) < rate
+
+
+def selected_file_refs(args: argparse.Namespace, refs: list[str]) -> list[str]:
+    ordered = sorted(refs, key=lambda ref: ref if args.file_order == "path" else file_digest(args, ref))
+    filtered = [ref for ref in ordered if include_by_rate(file_digest(args, ref), args.file_sample_rate)]
+    if args.max_files is not None:
+        return filtered[: args.max_files]
+    return filtered
+
+
+def should_replay_game(args: argparse.Namespace, summary: Summary, game_key: str) -> bool:
+    if not include_by_rate(game_key, args.game_sample_rate):
+        summary.replay_skip_count += 1
+        return False
+    return True
+
+
+def replay_limit_reached(args: argparse.Namespace, summary: Summary) -> bool:
+    return args.max_games is not None and summary.games_replayed >= args.max_games
+
+
+def maybe_report_progress(
+    args: argparse.Namespace,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+    *,
+    force: bool = False,
+) -> None:
+    if args.progress_every_games is None and args.progress_every_files is None:
+        return
+    games_due = (
+        args.progress_every_games is not None
+        and summary.games_seen - progress.last_games_report >= args.progress_every_games
+    )
+    files_due = (
+        args.progress_every_files is not None
+        and summary.source_files_processed - progress.last_files_report >= args.progress_every_files
+    )
+    if not force and not games_due and not files_due:
+        return
+    elapsed = max(time.monotonic() - progress.start_time, 1e-9)
+    games_per_sec = summary.games_replayed / elapsed
+    print(
+        "progress "
+        f"elapsed_sec={elapsed:.3f} "
+        f"source_files_seen={summary.source_files_seen} "
+        f"source_files_processed={summary.source_files_processed} "
+        f"games_seen={summary.games_seen} "
+        f"games_replayed={summary.games_replayed} "
+        f"accepted_games={summary.accepted_games} "
+        f"rejected_games={summary.rejected_games} "
+        f"candidate_positions={summary.candidate_positions} "
+        f"kept_positions={rows.kept_count()} "
+        f"games_per_sec={games_per_sec:.3f}",
+        file=sys.stderr,
+    )
+    progress.last_games_report = summary.games_seen
+    progress.last_files_report = summary.source_files_processed
 
 
 def load_manifest_dataset_id(path: Path) -> str:
@@ -354,12 +472,11 @@ def make_row(
 
 
 def replay_game(
-    args: argparse.Namespace, source_ref: str, line_number: int, text: str
+    args: argparse.Namespace, game_id: str, text: str
 ) -> tuple[list[CandidateRow], int, bool]:
     tokens = parse_transcript(text)
     if not tokens:
         raise ImportErrorWithLocation("transcript is empty")
-    game_id = digest_for_parts(args.dataset_id, source_ref, line_number, text.strip())
     split = split_for_digest(digest_for_parts(args.dataset_id, game_id))
     board = initial_board()
     side = "X"
@@ -430,15 +547,25 @@ def process_text_stream(
     lines: Iterable[str],
     summary: Summary,
     rows: TopKRows,
+    progress: ProgressState,
 ) -> None:
     summary.source_files += 1
+    summary.source_files_processed += 1
     for line_number, line in enumerate(lines, start=1):
+        if replay_limit_reached(args, summary):
+            break
         text = line.strip()
         if not text:
             continue
+        summary.games_seen += 1
+        game_id = game_digest(args, source_ref, line_number, text)
+        if not should_replay_game(args, summary, game_id):
+            maybe_report_progress(args, summary, rows, progress)
+            continue
         summary.input_games += 1
+        summary.games_replayed += 1
         try:
-            emitted, pass_count, terminal = replay_game(args, source_ref, line_number, text)
+            emitted, pass_count, terminal = replay_game(args, game_id, text)
         except ImportErrorWithLocation as error:
             summary.rejected_games += 1
             summary.invalid_move_count += 1
@@ -453,9 +580,17 @@ def process_text_stream(
             summary.candidate_positions += 1
             row.ordinal = summary.candidate_positions
             rows.consider(row)
+        maybe_report_progress(args, summary, rows, progress)
+    maybe_report_progress(args, summary, rows, progress)
 
 
-def process_zip(args: argparse.Namespace, path: Path, summary: Summary, rows: TopKRows) -> None:
+def process_zip(
+    args: argparse.Namespace,
+    path: Path,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+) -> None:
     try:
         archive = zipfile.ZipFile(path)
     except zipfile.BadZipFile as error:
@@ -468,34 +603,70 @@ def process_zip(args: argparse.Namespace, path: Path, summary: Summary, rows: To
         ]
         if not text_entries:
             raise ImportErrorWithLocation(f"{path}: zip archive contains no .txt files")
-        for info in sorted(text_entries, key=lambda item: item.filename):
+        source_refs = [f"{path}!{info.filename}" for info in text_entries]
+        summary.source_files_seen += len(source_refs)
+        info_by_ref = {f"{path}!{info.filename}": info for info in text_entries}
+        for source_ref in selected_file_refs(args, source_refs):
+            if replay_limit_reached(args, summary):
+                break
+            info = info_by_ref[source_ref]
             with archive.open(info) as raw:
                 with io.TextIOWrapper(raw, encoding="utf-8", newline="") as text:
-                    process_text_stream(args, f"{path}!{info.filename}", text, summary, rows)
+                    process_text_stream(args, source_ref, text, summary, rows, progress)
 
 
-def process_plain_file(args: argparse.Namespace, path: Path, summary: Summary, rows: TopKRows) -> None:
+def process_plain_file(
+    args: argparse.Namespace,
+    path: Path,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+    *,
+    counted: bool = False,
+) -> None:
+    if not counted:
+        summary.source_files_seen += 1
     with path.open("r", encoding="utf-8", newline="") as handle:
-        process_text_stream(args, str(path), handle, summary, rows)
+        process_text_stream(args, str(path), handle, summary, rows, progress)
 
 
-def process_directory(args: argparse.Namespace, path: Path, summary: Summary, rows: TopKRows) -> None:
-    text_paths = sorted(child for child in path.rglob("*.txt") if child.is_file())
+def process_directory(
+    args: argparse.Namespace,
+    path: Path,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+) -> None:
+    text_paths = [child for child in path.rglob("*.txt") if child.is_file()]
     if not text_paths:
         raise ImportErrorWithLocation(f"{path}: directory contains no .txt files")
-    for text_path in text_paths:
-        process_plain_file(args, text_path, summary, rows)
+    source_refs = [str(text_path) for text_path in text_paths]
+    summary.source_files_seen += len(source_refs)
+    path_by_ref = {str(text_path): text_path for text_path in text_paths}
+    for source_ref in selected_file_refs(args, source_refs):
+        if replay_limit_reached(args, summary):
+            break
+        process_plain_file(args, path_by_ref[source_ref], summary, rows, progress, counted=True)
 
 
-def process_input(args: argparse.Namespace, path: Path, summary: Summary, rows: TopKRows) -> None:
+def process_input(
+    args: argparse.Namespace,
+    path: Path,
+    summary: Summary,
+    rows: TopKRows,
+    progress: ProgressState,
+) -> None:
     if not path.exists():
         raise ImportErrorWithLocation(f"{path}: input does not exist")
     if path.is_dir():
-        process_directory(args, path, summary, rows)
+        process_directory(args, path, summary, rows, progress)
     elif path.suffix.lower() == ".zip":
-        process_zip(args, path, summary, rows)
+        process_zip(args, path, summary, rows, progress)
     else:
-        process_plain_file(args, path, summary, rows)
+        source_refs = [str(path)]
+        summary.source_files_seen += 1
+        if str(path) in selected_file_refs(args, source_refs):
+            process_plain_file(args, path, summary, rows, progress, counted=True)
 
 
 def write_rows(selected_rows: list[CandidateRow], output: TextIO, summary: Summary) -> str:
@@ -520,12 +691,27 @@ def report_for(args: argparse.Namespace, summary: Summary, checksum: str) -> dic
     label_mean = None
     if summary.emitted_positions:
         label_mean = float(f"{summary.label_sum / summary.emitted_positions:.12g}")
+    sampling_frame_notes = list(BOUNDED_DEV_NOTES) if args.sampling_mode == "bounded-dev" else []
+    notes = list(NOTES)
+    notes.extend(sampling_frame_notes)
     return {
         "schema_version": 1,
         "importer_version": IMPORTER_VERSION,
         "source_dataset_id": args.dataset_id,
         "source_kind": SOURCE_KIND,
         "input_kind": "sequence-transcript",
+        "sampling_mode": args.sampling_mode,
+        "file_order": args.file_order,
+        "max_files": args.max_files,
+        "max_games": args.max_games,
+        "file_sample_rate": args.file_sample_rate,
+        "game_sample_rate": args.game_sample_rate,
+        "source_files_seen": summary.source_files_seen,
+        "source_files_processed": summary.source_files_processed,
+        "games_seen": summary.games_seen,
+        "games_replayed": summary.games_replayed,
+        "replay_skip_count": summary.replay_skip_count,
+        "sampling_frame_notes": sampling_frame_notes,
         "input_games": summary.input_games,
         "accepted_games": summary.accepted_games,
         "rejected_games": summary.rejected_games,
@@ -541,6 +727,16 @@ def report_for(args: argparse.Namespace, summary: Summary, checksum: str) -> dic
         "checksum": checksum,
         "source_files": summary.source_files,
         "rejected_reasons": summary.rejected_reasons,
+        "sampling_policy": {
+            "mode": args.sampling_mode,
+            "file_order": args.file_order,
+            "max_files": args.max_files,
+            "max_games": args.max_games,
+            "file_sample_rate": args.file_sample_rate,
+            "game_sample_rate": args.game_sample_rate,
+            "seed": args.seed,
+            "game_filter_stage": "before legal replay",
+        },
         "emit_policy": {
             "min_ply": args.min_ply,
             "max_ply": args.max_ply,
@@ -557,7 +753,7 @@ def report_for(args: argparse.Namespace, summary: Summary, checksum: str) -> dic
             "game_leakage_policy": "all emitted positions from one transcript stay in one split",
             "duplicate_position_policy": "same game/ply/board id is stable; cross-game duplicate boards intentionally keep game-scoped ids",
         },
-        "notes": list(NOTES),
+        "notes": notes,
     }
 
 
@@ -565,6 +761,7 @@ def main() -> int:
     args = parse_args()
     summary = Summary()
     rows = TopKRows(args.max_positions)
+    progress = ProgressState()
     try:
         manifest_dataset_id = load_manifest_dataset_id(args.manifest)
         if manifest_dataset_id != args.dataset_id:
@@ -573,11 +770,14 @@ def main() -> int:
                 f"--dataset-id {args.dataset_id!r}"
             )
         for input_path in args.input:
-            process_input(args, input_path, summary, rows)
+            if replay_limit_reached(args, summary):
+                break
+            process_input(args, input_path, summary, rows, progress)
         selected_rows = rows.rows()
         if not selected_rows:
             raise ImportErrorWithLocation("no positions emitted")
         checksum = write_rows(selected_rows, sys.stdout, summary)
+        maybe_report_progress(args, summary, rows, progress, force=True)
         report = report_for(args, summary, checksum)
         if args.report is not None:
             args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -589,6 +789,11 @@ def main() -> int:
     print(
         "summary "
         f"source_files={summary.source_files} "
+        f"source_files_seen={summary.source_files_seen} "
+        f"source_files_processed={summary.source_files_processed} "
+        f"games_seen={summary.games_seen} "
+        f"games_replayed={summary.games_replayed} "
+        f"replay_skip_count={summary.replay_skip_count} "
         f"input_games={summary.input_games} "
         f"accepted_games={summary.accepted_games} "
         f"rejected_games={summary.rejected_games} "
