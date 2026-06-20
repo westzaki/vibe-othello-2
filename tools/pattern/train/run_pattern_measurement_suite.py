@@ -159,6 +159,11 @@ def parse_args() -> argparse.Namespace:
         help="Override preset v0c diagnostics to evaluate only final epoch.",
     )
     parser.add_argument("--trainer-progress-every-examples", type=int)
+    parser.add_argument(
+        "--measurement-split-policy",
+        choices=("preserve", "connected-board-game"),
+        default="preserve",
+    )
     parser.add_argument("--strict-board-disjoint-splits", action="store_true")
     parser.add_argument("--eval-smoke-max-positions", type=int)
     parser.add_argument("--search-smoke-max-positions", type=int)
@@ -470,6 +475,8 @@ def command_for_preset(
     )
     if trainer_progress_every_examples is not None:
         command.extend(["--trainer-progress-every-examples", str(trainer_progress_every_examples)])
+    if args.measurement_split_policy != "preserve":
+        command.extend(["--measurement-split-policy", args.measurement_split_policy])
     if args.strict_board_disjoint_splits:
         command.append("--strict-board-disjoint-splits")
     for name, flag in (
@@ -512,6 +519,7 @@ def base_run_entry(
         "final_validation_MAE": None,
         "finished_at_utc": None,
         "local_training_report": str(local_report_path(run_dir)),
+        "measurement_split_policy": command_arg(command, "--measurement-split-policy") or "preserve",
         "nonzero_weight_count": None,
         "output_dir": str(run_dir),
         "preset": preset.name,
@@ -546,6 +554,7 @@ def populate_entry_from_local_report(entry: dict[str, Any], report: dict[str, An
     entry["cache_status"] = cache_status_from_report(report)
     entry["dataset_output_format"] = report.get("dataset_output_format")
     entry["sampled_rows"] = sampled_rows_from_report(report)
+    entry["measurement_split_policy"] = report.get("measurement_split_policy")
     entry["trainer_mode"] = report.get("trainer_mode")
     entry["trainer_report_checksum"] = report.get("trainer_report_checksum")
     entry["trainer_version"] = report.get("trainer_version")
@@ -561,8 +570,8 @@ def write_suite_summary(path: Path, report: dict[str, Any]) -> None:
     lines = [
         "# Pattern Measurement Suite Summary",
         "",
-        "| preset | sequence_sampling_mode | sequence_file_order | sampled_rows | cache_status | dataset_format | trainer_mode | final_validation_MAE | test_MAE | nonzero_weight_count | weight_l2_norm | eval_smoke_positions | search_smoke_positions | artifact_checksum | total_wall_time_sec | warnings |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| preset | sequence_sampling_mode | sequence_file_order | measurement_split_policy | sampled_rows | cache_status | dataset_format | trainer_mode | final_validation_MAE | test_MAE | nonzero_weight_count | weight_l2_norm | eval_smoke_positions | search_smoke_positions | artifact_checksum | total_wall_time_sec | warnings |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for run in report.get("runs", []):
         lines.append(
@@ -573,6 +582,7 @@ def write_suite_summary(path: Path, report: dict[str, Any]) -> None:
                     run.get("preset"),
                     run.get("sequence_sampling_mode"),
                     run.get("sequence_file_order"),
+                    run.get("measurement_split_policy"),
                     run.get("sampled_rows"),
                     run.get("cache_status"),
                     run.get("dataset_output_format"),
@@ -639,6 +649,7 @@ def suite_report_document(
             "seed": args.seed,
         },
         "strict_board_disjoint_splits": args.strict_board_disjoint_splits,
+        "measurement_split_policy": args.measurement_split_policy,
         "dry_run": args.dry_run,
         "resume": args.resume,
         "runs": runs,

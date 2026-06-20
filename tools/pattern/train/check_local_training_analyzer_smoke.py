@@ -34,6 +34,9 @@ def smoke_report(
     stage_timings: dict[str, Any] | None = None,
     dataset_output_format: str | None = None,
     trainer_version: str = "pattern-sgd-v0b",
+    measurement_split_policy: str = "preserve",
+    board_collision_count_after: int | None = None,
+    game_collision_count_after: int | None = None,
 ) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -46,7 +49,10 @@ def smoke_report(
         "sample_policy": {
             "method": "synthetic smoke fixture",
             "split_policy": "preserve",
+            "measurement_split_policy": measurement_split_policy,
         },
+        "measurement_split_policy": measurement_split_policy,
+        "measurement_split_policy_version": f"{measurement_split_policy}-v1",
         "sample_counts_by_split": counts_by_split,
         "sample_counts_by_phase": counts_by_phase,
         "sample_report_checksum": "sha256:sample",
@@ -82,6 +88,30 @@ def smoke_report(
         report["stage_timings"] = stage_timings
     if dataset_output_format is not None:
         report["dataset_output_format"] = dataset_output_format
+    if board_collision_count_after is not None:
+        report["board_leakage_audit_after"] = {
+            "unique_board_count": 10,
+            "cross_split_board_collision_count": board_collision_count_after,
+            "cross_split_board_collision_counts_by_pair": {
+                "train__test": board_collision_count_after
+            }
+            if board_collision_count_after
+            else {},
+        }
+        report["board_leakage_audit"] = report["board_leakage_audit_after"]
+    if game_collision_count_after is not None:
+        report["game_group_leakage_audit_after"] = {
+            "unique_game_group_count": 8,
+            "cross_split_game_group_collision_count": game_collision_count_after,
+            "cross_split_game_group_collision_counts_by_pair": {
+                "train__validation": game_collision_count_after
+            }
+            if game_collision_count_after
+            else {},
+        }
+        report["game_group_leakage_audit"] = report["game_group_leakage_audit_after"]
+    if measurement_split_policy == "connected-board-game":
+        report["connected_component_count"] = 6
     return report
 
 
@@ -219,6 +249,9 @@ def create_fixtures(root: Path) -> Path:
             None,
             None,
             "expanded-tsv",
+            "pattern-sgd-v0b",
+            "preserve",
+            2,
         ),
     )
     write_json(
@@ -248,6 +281,10 @@ def create_fixtures(root: Path) -> Path:
             sequence_cache("hit"),
             stage_timings(),
             "compact-tsv",
+            "pattern-sgd-v0b",
+            "connected-board-game",
+            0,
+            0,
         ),
     )
     write_json(
@@ -398,6 +435,7 @@ def main() -> int:
                 "search_smoke_missing",
                 "artifact_checksum_missing",
                 "source_kind_unknown",
+                "exact_board_cross_split_collision",
                 "telemetry_missing",
                 "dataset_output_format_mixed_comparison",
                 "trainer_mode_mixed_comparison",
@@ -438,11 +476,23 @@ def main() -> int:
         if sequence_run.get("cache_status") != "hit":
             print(f"cache status was not extracted: {sequence_run!r}", file=sys.stderr)
             return 1
+        if sequence_run.get("measurement_split_policy") != "connected-board-game":
+            print(f"measurement split policy was not extracted: {sequence_run!r}", file=sys.stderr)
+            return 1
+        if sequence_run.get("board_cross_split_collision_count_after") != 0:
+            print(f"board collision count was not extracted: {sequence_run!r}", file=sys.stderr)
+            return 1
+        if sequence_run.get("game_group_cross_split_collision_count_after") != 0:
+            print(f"game collision count was not extracted: {sequence_run!r}", file=sys.stderr)
+            return 1
         if sequence_run.get("stage_wall_times", {}).get("evaluation_search_smoke") != 1.0:
             print(f"stage telemetry was not summarized: {sequence_run!r}", file=sys.stderr)
             return 1
         if "cache_status" not in first["markdown_text"]:
             print("Markdown summary is missing cache status column", file=sys.stderr)
+            return 1
+        if "split_policy" not in first["markdown_text"]:
+            print("Markdown summary is missing split policy column", file=sys.stderr)
             return 1
         git_result = subprocess.run(
             [

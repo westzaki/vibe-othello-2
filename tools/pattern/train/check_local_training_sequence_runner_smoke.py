@@ -712,6 +712,172 @@ def check_strict_board_leakage_failure(args: argparse.Namespace, output_dir: Pat
     return True
 
 
+def check_connected_measurement_split(args: argparse.Namespace, output_dir: Path) -> bool:
+    report = load_json(output_dir / "local-training-run-report.json")
+    output_files = report.get("output_files")
+    if not isinstance(output_files, dict) or "sampled_normalized_tsv" not in output_files:
+        print("missing sampled normalized TSV for connected split test", file=sys.stderr)
+        return False
+    sampled = output_dir / output_files["sampled_normalized_tsv"]
+    with sampled.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        rows = list(reader)
+        fieldnames = reader.fieldnames
+    if fieldnames is None or "board_id" not in fieldnames or "game_group_id" not in fieldnames:
+        print("connected split test needs v2 sampled rows", file=sys.stderr)
+        return False
+    if len(rows) < 4:
+        print("connected split test needs at least four sampled rows", file=sys.stderr)
+        return False
+
+    component_rows = [
+        ("connected-game-a", "connected-board-x", "train"),
+        ("connected-game-b", "connected-board-x", "validation"),
+        ("connected-game-b", "connected-board-y", "test"),
+        ("connected-game-c", "connected-board-y", "train"),
+    ]
+    for index, (game_group_id, board_id, split) in enumerate(component_rows):
+        rows[index]["game_group_id"] = game_group_id
+        rows[index]["board_id"] = board_id
+        rows[index]["split"] = split
+        rows[index]["position_id"] = f"connected-position-{index}"
+        rows[index]["record_id"] = f"connected-record-{index}"
+        rows[index]["source_occurrence_id"] = f"connected-source-{index}"
+
+    collision_tsv = output_dir / "synthetic-connected-leakage.tsv"
+    with collision_tsv.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    connected_output = output_dir / "connected-split"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(args.runner),
+            "--normalized-tsv",
+            str(collision_tsv),
+            "--output-dir",
+            str(connected_output),
+            "--run-id",
+            "connected-split-smoke",
+            "--created-at-utc",
+            "2026-01-02T03:04:05Z",
+            "--measurement-split-policy",
+            "connected-board-game",
+            "--strict-board-disjoint-splits",
+            "--epochs",
+            "1",
+            "--skip-eval-smoke",
+            "--skip-search-smoke",
+            "--skip-v0a-baseline",
+            "--dataset-exe",
+            str(args.dataset_exe),
+            "--eval-smoke-exe",
+            str(args.eval_smoke_exe),
+            "--search-smoke-exe",
+            str(args.search_smoke_exe),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("connected split run failed", file=sys.stderr)
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    connected_report = load_json(connected_output / "local-training-run-report.json")
+    if connected_report.get("measurement_split_policy") != "connected-board-game":
+        print(f"connected policy missing from report: {connected_report!r}", file=sys.stderr)
+        return False
+    if connected_report.get("board_cross_split_collision_count_after") is not None:
+        print("unexpected analyzer-only field in local report", file=sys.stderr)
+        return False
+    board_after = connected_report.get("board_leakage_audit_after")
+    game_after = connected_report.get("game_group_leakage_audit_after")
+    if not isinstance(board_after, dict) or board_after.get("cross_split_board_collision_count") != 0:
+        print(f"board leakage was not eliminated: {board_after!r}", file=sys.stderr)
+        return False
+    if not isinstance(game_after, dict) or game_after.get("cross_split_game_group_collision_count") != 0:
+        print(f"game leakage was not eliminated: {game_after!r}", file=sys.stderr)
+        return False
+    if connected_report.get("connected_component_count", 0) < 1:
+        print("connected component count was not reported", file=sys.stderr)
+        return False
+    connected_files = connected_report.get("output_files")
+    if not isinstance(connected_files, dict) or "resplit_normalized_tsv" not in connected_files:
+        print(f"resplit normalized TSV missing from output files: {connected_files!r}", file=sys.stderr)
+        return False
+    resplit = connected_output / connected_files["resplit_normalized_tsv"]
+    with resplit.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        resplit_rows = list(reader)
+    selected = [
+        row
+        for row in resplit_rows
+        if row.get("game_group_id") in {"connected-game-a", "connected-game-b", "connected-game-c"}
+    ]
+    selected_splits = {row["split"] for row in selected}
+    if len(selected) != 4 or len(selected_splits) != 1:
+        print(f"connected component rows did not share one split: {selected!r}", file=sys.stderr)
+        return False
+    for key in ("connected-board-x", "connected-board-y"):
+        splits = {row["split"] for row in resplit_rows if row.get("board_id") == key}
+        if len(splits) != 1:
+            print(f"board {key} spans splits after resplit: {splits!r}", file=sys.stderr)
+            return False
+    for key in ("connected-game-a", "connected-game-b", "connected-game-c"):
+        splits = {row["split"] for row in resplit_rows if row.get("game_group_id") == key}
+        if len(splits) != 1:
+            print(f"game {key} spans splits after resplit: {splits!r}", file=sys.stderr)
+            return False
+
+    v1_tsv = output_dir / "synthetic-schema-v1.tsv"
+    v1_fields = [
+        field
+        for field in fieldnames
+        if field not in {"game_group_id", "board_id", "source_occurrence_id"}
+    ]
+    with v1_tsv.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, delimiter="\t", fieldnames=v1_fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows({field: row[field] for field in v1_fields} for row in rows[:4])
+    schema_result = subprocess.run(
+        [
+            sys.executable,
+            str(args.runner),
+            "--normalized-tsv",
+            str(v1_tsv),
+            "--output-dir",
+            str(output_dir / "connected-schema-failure"),
+            "--run-id",
+            "connected-schema-failure-smoke",
+            "--created-at-utc",
+            "2026-01-02T03:04:05Z",
+            "--measurement-split-policy",
+            "connected-board-game",
+            "--dataset-exe",
+            str(args.dataset_exe),
+            "--eval-smoke-exe",
+            str(args.eval_smoke_exe),
+            "--search-smoke-exe",
+            str(args.search_smoke_exe),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if schema_result.returncode == 0:
+        print("connected split schema v1 run unexpectedly succeeded", file=sys.stderr)
+        return False
+    if "requires normalized schema v2" not in schema_result.stderr:
+        print("schema v1 failure did not explain requirement", file=sys.stderr)
+        sys.stderr.write(schema_result.stderr)
+        return False
+    return True
+
+
 def check_bounded_sequence_pass_through(args: argparse.Namespace, output_dir: Path) -> bool:
     bounded_output = output_dir / "bounded-sequence"
     command = [
@@ -852,6 +1018,8 @@ def main() -> int:
         ):
             return 1
         if not check_strict_board_leakage_failure(args, temp_dir / "first"):
+            return 1
+        if not check_connected_measurement_split(args, temp_dir / "first"):
             return 1
         if not check_bounded_sequence_pass_through(args, temp_dir):
             return 1

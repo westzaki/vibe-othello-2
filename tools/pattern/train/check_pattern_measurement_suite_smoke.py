@@ -144,6 +144,48 @@ def check_dry_run(args: argparse.Namespace, root: Path) -> bool:
     return True
 
 
+def check_measurement_split_policy_dry_run(args: argparse.Namespace, root: Path) -> bool:
+    output_dir = root / "connected-split-dry-run"
+    result = run_suite(
+        args,
+        output_dir,
+        root / "connected-split-cache",
+        [
+            "--preset",
+            "smoke",
+            "--measurement-split-policy",
+            "connected-board-game",
+            "--dry-run",
+        ],
+    )
+    if result.returncode != 0:
+        return False
+    report = load_json(output_dir / "suite-report.json")
+    if report.get("measurement_split_policy") != "connected-board-game":
+        print(f"suite report missing measurement split policy: {report!r}", file=sys.stderr)
+        return False
+    runs = report.get("runs")
+    if not isinstance(runs, list) or len(runs) != 1:
+        print(f"unexpected connected dry-run runs: {runs!r}", file=sys.stderr)
+        return False
+    command = runs[0].get("command")
+    if not isinstance(command, list) or not command_contains(
+        command,
+        "--measurement-split-policy",
+        "connected-board-game",
+    ):
+        print(f"dry-run command did not include measurement split flag: {command!r}", file=sys.stderr)
+        return False
+    if runs[0].get("measurement_split_policy") != "connected-board-game":
+        print(f"run entry missing measurement split policy: {runs[0]!r}", file=sys.stderr)
+        return False
+    summary = (output_dir / "suite-summary.md").read_text(encoding="utf-8")
+    if "measurement_split_policy" not in summary or "connected-board-game" not in summary:
+        print("suite summary is missing measurement split policy", file=sys.stderr)
+        return False
+    return True
+
+
 def check_local_root_env_defaults(args: argparse.Namespace, root: Path) -> bool:
     local_root = root / "local-root"
     output_dir = local_root / "measurements" / RUN_PREFIX
@@ -427,6 +469,7 @@ def main() -> int:
         root = Path(temp_dir_name)
         checks = (
             check_dry_run,
+            check_measurement_split_policy_dry_run,
             check_local_root_env_defaults,
             check_specific_env_overrides_local_root,
             check_cli_overrides_env,

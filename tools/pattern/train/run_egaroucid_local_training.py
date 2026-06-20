@@ -60,6 +60,11 @@ NORMALIZED_HEADER_V2 = [
 ]
 SUPPORTED_NORMALIZED_HEADERS = (NORMALIZED_HEADER_V1, NORMALIZED_HEADER_V2)
 SPLITS = ("train", "validation", "test")
+MEASUREMENT_SPLIT_POLICIES = ("preserve", "connected-board-game")
+MEASUREMENT_SPLIT_POLICY_VERSIONS = {
+    "preserve": "preserve-v1",
+    "connected-board-game": "connected-board-game-v1",
+}
 LOCAL_NOTES = [
     "local run only",
     "not production benchmark",
@@ -152,6 +157,7 @@ class SampleSummary:
     label_sum: int = 0
     checksum: str = ""
     board_splits: dict[str, set[str]] | None = None
+    game_splits: dict[str, set[str]] | None = None
 
     def __post_init__(self) -> None:
         if self.counts_by_split is None:
@@ -162,6 +168,43 @@ class SampleSummary:
             self.source_dataset_ids = set()
         if self.board_splits is None:
             self.board_splits = {}
+        if self.game_splits is None:
+            self.game_splits = {}
+
+
+@dataclass
+class ComponentInfo:
+    row_count: int = 0
+    nodes: set[str] = field(default_factory=set)
+    source_dataset_ids: set[str] = field(default_factory=set)
+
+
+class UnionFind:
+    def __init__(self) -> None:
+        self.parent: dict[str, str] = {}
+
+    def add(self, value: str) -> None:
+        self.parent.setdefault(value, value)
+
+    def find(self, value: str) -> str:
+        self.add(value)
+        root = value
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[value] != value:
+            parent = self.parent[value]
+            self.parent[value] = root
+            value = parent
+        return root
+
+    def union(self, left: str, right: str) -> None:
+        left_root = self.find(left)
+        right_root = self.find(right)
+        if left_root == right_root:
+            return
+        if right_root < left_root:
+            left_root, right_root = right_root, left_root
+        self.parent[right_root] = left_root
 
 
 @dataclass
@@ -233,6 +276,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-per-phase", type=int)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--split-policy", choices=("preserve",), default="preserve")
+    parser.add_argument(
+        "--measurement-split-policy",
+        choices=MEASUREMENT_SPLIT_POLICIES,
+        default="preserve",
+        help=(
+            "Optional local measurement split policy. connected-board-game "
+            "requires normalized schema v2 game_group_id and board_id fields."
+        ),
+    )
     parser.add_argument(
         "--strict-board-disjoint-splits",
         action="store_true",
@@ -960,7 +1012,7 @@ def sequence_import_command(
         command.extend(["--progress-every-games", str(args.sequence_progress_every_games)])
     if args.sequence_progress_every_files is not None:
         command.extend(["--progress-every-files", str(args.sequence_progress_every_files)])
-    if args.strict_board_disjoint_splits:
+    if args.strict_board_disjoint_splits and args.measurement_split_policy == "preserve":
         command.append("--strict-board-disjoint-splits")
     command.append("--emit-terminal" if args.sequence_emit_terminal else "--no-emit-terminal")
     return command
@@ -1188,10 +1240,15 @@ def split_pair(left: str, right: str) -> str:
     return "__".join(sorted((left, right)))
 
 
-def board_leakage_audit(board_splits: dict[str, set[str]]) -> dict[str, Any]:
+def cross_split_leakage_audit(
+    entity_splits: dict[str, set[str]],
+    *,
+    entity_label: str,
+    collision_label: str,
+) -> dict[str, Any]:
     pair_counts: dict[str, int] = {}
     collision_count = 0
-    for splits in board_splits.values():
+    for splits in entity_splits.values():
         if len(splits) < 2:
             continue
         collision_count += 1
@@ -1201,9 +1258,161 @@ def board_leakage_audit(board_splits: dict[str, set[str]]) -> dict[str, Any]:
                 pair = split_pair(left, right)
                 pair_counts[pair] = pair_counts.get(pair, 0) + 1
     return {
-        "unique_board_count": len(board_splits),
-        "cross_split_board_collision_count": collision_count,
-        "cross_split_board_collision_counts_by_pair": dict(sorted(pair_counts.items())),
+        f"unique_{entity_label}_count": len(entity_splits),
+        f"cross_split_{collision_label}_collision_count": collision_count,
+        f"cross_split_{collision_label}_collision_counts_by_pair": dict(sorted(pair_counts.items())),
+    }
+
+
+def board_leakage_audit(board_splits: dict[str, set[str]]) -> dict[str, Any]:
+    return cross_split_leakage_audit(
+        board_splits,
+        entity_label="board",
+        collision_label="board",
+    )
+
+
+def game_group_leakage_audit(game_splits: dict[str, set[str]]) -> dict[str, Any]:
+    return cross_split_leakage_audit(
+        game_splits,
+        entity_label="game_group",
+        collision_label="game_group",
+    )
+
+
+def update_normalized_audit(summary: SampleSummary, parsed: NormalizedRow) -> None:
+    assert summary.counts_by_split is not None
+    assert summary.board_splits is not None
+    assert summary.game_splits is not None
+    summary.counts_by_split[parsed.split] = summary.counts_by_split.get(parsed.split, 0) + 1
+    if parsed.schema_version == 2:
+        if parsed.board_id is not None:
+            summary.board_splits.setdefault(parsed.board_id, set()).add(parsed.split)
+        if parsed.game_group_id is not None:
+            summary.game_splits.setdefault(parsed.game_group_id, set()).add(parsed.split)
+
+
+def component_split(
+    source_dataset_ids: set[str],
+    representative: str,
+    policy_version: str,
+) -> str:
+    dataset_id = ",".join(sorted(source_dataset_ids))
+    digest = hashlib.sha256(
+        f"{dataset_id}\t{policy_version}\t{representative}".encode("utf-8")
+    ).hexdigest()
+    bucket = int(digest[:16], 16) % 100
+    if bucket < 80:
+        return "train"
+    if bucket < 90:
+        return "validation"
+    return "test"
+
+
+def require_connected_split_row(parsed: NormalizedRow, line_number: int) -> tuple[str, str]:
+    if parsed.schema_version != 2:
+        raise RuntimeError("connected-board-game measurement split requires normalized schema v2")
+    if not parsed.game_group_id:
+        raise RuntimeError(f"line {line_number}: connected-board-game requires game_group_id")
+    if not parsed.board_id:
+        raise RuntimeError(f"line {line_number}: connected-board-game requires board_id")
+    return f"game:{parsed.game_group_id}", f"board:{parsed.board_id}"
+
+
+def write_connected_board_game_resplit(input_path: Path, output_path: Path) -> dict[str, Any]:
+    policy = "connected-board-game"
+    policy_version = MEASUREMENT_SPLIT_POLICY_VERSIONS[policy]
+    header: list[str] | None = None
+    union_find = UnionFind()
+    input_row_count = 0
+
+    with input_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version != 2:
+            raise RuntimeError("connected-board-game measurement split requires normalized schema v2")
+        header = NORMALIZED_HEADER_V2
+        for line_number, row in enumerate(reader, start=2):
+            parsed = parse_normalized_row(row, line_number, schema_version)
+            game_node, board_node = require_connected_split_row(parsed, line_number)
+            union_find.union(game_node, board_node)
+            input_row_count += 1
+
+    if input_row_count == 0:
+        raise RuntimeError("connected-board-game measurement split received no rows")
+
+    component_infos: dict[str, ComponentInfo] = {}
+    with input_path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version != 2:
+            raise RuntimeError("connected-board-game measurement split requires normalized schema v2")
+        for line_number, row in enumerate(reader, start=2):
+            parsed = parse_normalized_row(row, line_number, schema_version)
+            game_node, board_node = require_connected_split_row(parsed, line_number)
+            root = union_find.find(game_node)
+            info = component_infos.setdefault(root, ComponentInfo())
+            info.row_count += 1
+            info.nodes.add(game_node)
+            info.nodes.add(board_node)
+            info.source_dataset_ids.add(parsed.source_dataset_id)
+
+    component_splits: dict[str, str] = {}
+    largest_component_row_count = 0
+    largest_component_node_count = 0
+    for root, info in component_infos.items():
+        representative = min(info.nodes)
+        component_splits[root] = component_split(
+            info.source_dataset_ids,
+            representative,
+            policy_version,
+        )
+        largest_component_row_count = max(largest_component_row_count, info.row_count)
+        largest_component_node_count = max(largest_component_node_count, len(info.nodes))
+
+    output_summary = SampleSummary()
+    digest = hashlib.sha256()
+    assert header is not None
+    split_index = header.index("split")
+    with input_path.open(newline="", encoding="utf-8") as input_handle:
+        reader = csv.DictReader(input_handle, delimiter="\t")
+        schema_version = normalized_header_version(reader.fieldnames)
+        if schema_version != 2:
+            raise RuntimeError("connected-board-game measurement split requires normalized schema v2")
+        with output_path.open("w", newline="", encoding="utf-8") as output_handle:
+            writer = csv.writer(output_handle, delimiter="\t", lineterminator="\n")
+            writer.writerow(header)
+            for line_number, row in enumerate(reader, start=2):
+                parsed = parse_normalized_row(row, line_number, schema_version)
+                game_node, _ = require_connected_split_row(parsed, line_number)
+                root = union_find.find(game_node)
+                fields = list(parsed.fields)
+                fields[split_index] = component_splits[root]
+                resplit_row = parse_normalized_row(
+                    dict(zip(header, fields, strict=True)),
+                    line_number,
+                    schema_version,
+                )
+                writer.writerow(fields)
+                line_text = "\t".join(fields)
+                digest.update(line_text.encode("utf-8"))
+                digest.update(b"\n")
+                output_summary.sampled_rows += 1
+                update_normalized_audit(output_summary, resplit_row)
+
+    assert output_summary.board_splits is not None
+    assert output_summary.game_splits is not None
+    return {
+        "measurement_split_policy": policy,
+        "measurement_split_policy_version": policy_version,
+        "output_rows": output_summary.sampled_rows,
+        "output_checksum": f"sha256:{digest.hexdigest()}",
+        "counts_by_split_after": output_summary.counts_by_split,
+        "board_leakage_audit_after": board_leakage_audit(output_summary.board_splits),
+        "game_group_leakage_audit_after": game_group_leakage_audit(output_summary.game_splits),
+        "component_count": len(component_infos),
+        "largest_component_row_count": largest_component_row_count,
+        "largest_component_node_count": largest_component_node_count,
     }
 
 
@@ -1261,20 +1470,14 @@ def write_sampled_normalized(
                 digest.update(parsed.line_text.encode("utf-8"))
                 digest.update(b"\n")
                 summary.sampled_rows += 1
-                assert summary.counts_by_split is not None
                 assert summary.counts_by_phase is not None
                 assert summary.source_dataset_ids is not None
-                summary.counts_by_split[parsed.split] = (
-                    summary.counts_by_split.get(parsed.split, 0) + 1
-                )
                 phase_key = str(parsed.phase)
                 summary.counts_by_phase[phase_key] = (
                     summary.counts_by_phase.get(phase_key, 0) + 1
                 )
                 summary.source_dataset_ids.add(parsed.source_dataset_id)
-                if parsed.schema_version == 2 and parsed.board_id is not None:
-                    assert summary.board_splits is not None
-                    summary.board_splits.setdefault(parsed.board_id, set()).add(parsed.split)
+                update_normalized_audit(summary, parsed)
                 summary.label_min = (
                     parsed.label
                     if summary.label_min is None
@@ -1292,9 +1495,14 @@ def write_sampled_normalized(
     label_mean = summary.label_sum / summary.sampled_rows
     summary.checksum = f"sha256:{digest.hexdigest()}"
     assert summary.board_splits is not None
+    assert summary.game_splits is not None
     leakage_audit = board_leakage_audit(summary.board_splits) if schema_version == 2 else None
+    game_leakage_audit = (
+        game_group_leakage_audit(summary.game_splits) if schema_version == 2 else None
+    )
     if (
         args.strict_board_disjoint_splits
+        and args.measurement_split_policy == "preserve"
         and leakage_audit is not None
         and leakage_audit["cross_split_board_collision_count"] != 0
     ):
@@ -1315,12 +1523,33 @@ def write_sampled_normalized(
         "label_mean": float(f"{label_mean:.12g}"),
         "checksum": summary.checksum,
         "board_leakage_audit": leakage_audit,
+        "game_group_leakage_audit": game_leakage_audit,
+        "measurement_split_policy": args.measurement_split_policy,
+        "measurement_split_policy_version": MEASUREMENT_SPLIT_POLICY_VERSIONS[
+            args.measurement_split_policy
+        ],
+        "measurement_split_input_path": output_path.name,
+        "measurement_split_output_path": None,
+        "measurement_split_counts_before": summary.counts_by_split,
+        "measurement_split_counts_after": summary.counts_by_split,
+        "board_leakage_audit_before": leakage_audit,
+        "board_leakage_audit_after": leakage_audit,
+        "game_group_leakage_audit_before": game_leakage_audit,
+        "game_group_leakage_audit_after": game_leakage_audit,
+        "measurement_split_note": (
+            "validation/test metrics remain local diagnostics, not strength, Elo, match "
+            "bench, self-play, or production artifact claims"
+        ),
         "sample_policy": {
             "method": "deterministic position_id sha256 top-k",
             "max_examples": args.max_examples,
             "max_per_phase": args.max_per_phase,
             "seed": args.seed,
             "split_policy": args.split_policy,
+            "measurement_split_policy": args.measurement_split_policy,
+            "measurement_split_policy_version": MEASUREMENT_SPLIT_POLICY_VERSIONS[
+                args.measurement_split_policy
+            ],
             "unit": "position_id groups; duplicate labels for a selected position are preserved",
             "memory_policy": "bounded position_id maps with heapq O(log K) candidate replacement",
             "strict_board_disjoint_splits": args.strict_board_disjoint_splits,
@@ -1328,6 +1557,74 @@ def write_sampled_normalized(
     }
     sample_report_path.write_text(stable_json(report), encoding="utf-8")
     return report
+
+
+def apply_measurement_split_policy(
+    sampled_normalized: Path,
+    output_dir: Path,
+    sample_report_path: Path,
+    sample_report: dict[str, Any],
+    args: argparse.Namespace,
+) -> tuple[Path, dict[str, Any]]:
+    policy = args.measurement_split_policy
+    policy_version = MEASUREMENT_SPLIT_POLICY_VERSIONS[policy]
+    if policy == "preserve":
+        sample_report.update(
+            {
+                "measurement_split_policy": policy,
+                "measurement_split_policy_version": policy_version,
+                "measurement_split_input_path": sampled_normalized.name,
+                "measurement_split_output_path": None,
+            }
+        )
+        sample_report_path.write_text(stable_json(sample_report), encoding="utf-8")
+        return sampled_normalized, sample_report
+
+    resplit_normalized = output_dir / "resplit-normalized.tsv"
+    resplit_report = write_connected_board_game_resplit(sampled_normalized, resplit_normalized)
+    board_after = resplit_report.get("board_leakage_audit_after")
+    game_after = resplit_report.get("game_group_leakage_audit_after")
+    if (
+        args.strict_board_disjoint_splits
+        and isinstance(board_after, dict)
+        and board_after.get("cross_split_board_collision_count") != 0
+    ):
+        raise RuntimeError(
+            "exact board leakage detected across measurement splits after resplit: "
+            f"{board_after['cross_split_board_collision_count']} board_id collision(s)"
+        )
+    if isinstance(board_after, dict) and board_after.get("cross_split_board_collision_count") != 0:
+        raise RuntimeError("connected-board-game failed to eliminate board_id cross-split leakage")
+    if isinstance(game_after, dict) and game_after.get("cross_split_game_group_collision_count") != 0:
+        raise RuntimeError("connected-board-game failed to eliminate game_group_id cross-split leakage")
+
+    sample_report.update(
+        {
+            "measurement_split_policy": policy,
+            "measurement_split_policy_version": policy_version,
+            "measurement_split_input_path": sampled_normalized.name,
+            "measurement_split_output_path": resplit_normalized.name,
+            "measurement_split_counts_before": sample_report.get("counts_by_split"),
+            "measurement_split_counts_after": resplit_report.get("counts_by_split_after"),
+            "measurement_split_output_checksum": resplit_report.get("output_checksum"),
+            "board_leakage_audit_before": sample_report.get("board_leakage_audit"),
+            "board_leakage_audit_after": board_after,
+            "game_group_leakage_audit_before": sample_report.get("game_group_leakage_audit"),
+            "game_group_leakage_audit_after": game_after,
+            "connected_component_count": resplit_report.get("component_count"),
+            "largest_connected_component_row_count": resplit_report.get(
+                "largest_component_row_count"
+            ),
+            "largest_connected_component_node_count": resplit_report.get(
+                "largest_component_node_count"
+            ),
+            "counts_by_split": resplit_report.get("counts_by_split_after"),
+            "board_leakage_audit": board_after,
+            "game_group_leakage_audit": game_after,
+        }
+    )
+    sample_report_path.write_text(stable_json(sample_report), encoding="utf-8")
+    return resplit_normalized, sample_report
 
 
 def count_normalized_rows(path: Path) -> int:
@@ -1658,6 +1955,38 @@ def write_run_report(
         "sample_counts_by_split": sample_report.get("counts_by_split"),
         "sample_counts_by_phase": sample_report.get("counts_by_phase"),
         "board_leakage_audit": sample_report.get("board_leakage_audit"),
+        "game_group_leakage_audit": sample_report.get("game_group_leakage_audit"),
+        "measurement_split_policy": sample_report.get("measurement_split_policy"),
+        "measurement_split_policy_version": sample_report.get(
+            "measurement_split_policy_version"
+        ),
+        "measurement_split_input_path": sample_report.get("measurement_split_input_path"),
+        "measurement_split_output_path": sample_report.get("measurement_split_output_path"),
+        "measurement_split_counts_before": sample_report.get(
+            "measurement_split_counts_before"
+        ),
+        "measurement_split_counts_after": sample_report.get(
+            "measurement_split_counts_after"
+        ),
+        "measurement_split_output_checksum": sample_report.get(
+            "measurement_split_output_checksum"
+        ),
+        "board_leakage_audit_before": sample_report.get("board_leakage_audit_before"),
+        "board_leakage_audit_after": sample_report.get("board_leakage_audit_after"),
+        "game_group_leakage_audit_before": sample_report.get(
+            "game_group_leakage_audit_before"
+        ),
+        "game_group_leakage_audit_after": sample_report.get(
+            "game_group_leakage_audit_after"
+        ),
+        "connected_component_count": sample_report.get("connected_component_count"),
+        "largest_connected_component_row_count": sample_report.get(
+            "largest_connected_component_row_count"
+        ),
+        "largest_connected_component_node_count": sample_report.get(
+            "largest_connected_component_node_count"
+        ),
+        "measurement_split_note": sample_report.get("measurement_split_note"),
         "sample_report_checksum": sample_report.get("checksum"),
         "sequence_import_policy": sequence_import_policy,
         "sequence_cache": {
@@ -1786,9 +2115,30 @@ def main() -> int:
             ),
         )
 
-        with stages.begin("pattern_dataset_generation", input_bytes=file_size(sampled_normalized)):
+        with stages.begin(
+            "measurement_split_policy",
+            input_bytes=file_size(sampled_normalized),
+            policy=args.measurement_split_policy,
+        ):
+            dataset_input_normalized, sample_report = apply_measurement_split_policy(
+                sampled_normalized,
+                output_dir,
+                sample_report_path,
+                sample_report,
+                args,
+            )
+        stages.update(
+            "measurement_split_policy",
+            output_rows=sample_report.get("sampled_rows"),
+            output_bytes=file_size(dataset_input_normalized),
+            output_path=dataset_input_normalized.name,
+        )
+
+        with stages.begin(
+            "pattern_dataset_generation", input_bytes=file_size(dataset_input_normalized)
+        ):
             dataset_tsv, dataset_report_path, dataset_report = run_dataset_builder(
-                args, sampled_normalized, output_dir
+                args, dataset_input_normalized, output_dir
             )
         stages.update(
             "pattern_dataset_generation",
@@ -1901,6 +2251,7 @@ def main() -> int:
         paths = {
             "sampled_normalized_tsv": sampled_normalized,
             "sample_report_json": sample_report_path,
+            "measurement_split_input_tsv": sampled_normalized,
             "pattern_dataset_tsv": dataset_tsv,
             "dataset_report_json": dataset_report_path,
             "trainer_weights_json": v0b_weights_json,
@@ -1910,6 +2261,9 @@ def main() -> int:
             "v0b_artifact_weights": v0b_artifact,
             "v0b_artifact_manifest": v0b_manifest,
         }
+        if dataset_input_normalized != sampled_normalized:
+            paths["resplit_normalized_tsv"] = dataset_input_normalized
+            paths["measurement_split_output_tsv"] = dataset_input_normalized
         if args.raw_input is not None or args.sequence_input is not None:
             paths["normalized_tsv"] = source_normalized
         if args.sequence_input is not None:
@@ -1936,6 +2290,7 @@ def main() -> int:
         file_sizes = {
             "source_normalized_tsv": file_size(source_normalized),
             "sampled_normalized_tsv": file_size(sampled_normalized),
+            "measurement_split_output_tsv": file_size(dataset_input_normalized),
             "pattern_dataset_tsv": file_size(dataset_tsv),
             "pattern_dataset": file_size(dataset_tsv),
             "trainer_weights_json": file_size(v0b_weights_json),
