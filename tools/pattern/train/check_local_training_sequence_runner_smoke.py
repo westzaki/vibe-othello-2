@@ -173,6 +173,7 @@ def check_report(
         "sequence_import_or_cache_restore",
         "normalized_sampling",
         "pattern_dataset_generation",
+        "trainer",
         "trainer_v0b",
         "v0b_export",
         "evaluation_smoke",

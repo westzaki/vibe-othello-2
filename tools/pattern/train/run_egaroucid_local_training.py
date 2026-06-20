@@ -239,6 +239,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--l2", type=float, default=0.0)
+    parser.add_argument(
+        "--trainer-mode",
+        choices=("pattern-sgd-v0b", "pattern-sgd-v0c"),
+        default="pattern-sgd-v0b",
+    )
+    parser.add_argument("--weight-decay", type=float)
+    parser.add_argument(
+        "--lr-schedule",
+        choices=("constant", "inverse-sqrt"),
+        default="constant",
+    )
+    parser.add_argument("--gradient-clip", type=float)
+    parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     parser.add_argument(
         "--dataset-output-format",
@@ -335,6 +348,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--learning-rate must be non-negative")
     if args.l2 < 0.0:
         parser.error("--l2 must be non-negative")
+    if args.weight_decay is not None and args.weight_decay < 0.0:
+        parser.error("--weight-decay must be non-negative")
+    if args.gradient_clip is not None and args.gradient_clip <= 0.0:
+        parser.error("--gradient-clip must be positive")
+    if args.early_stop_patience is not None and args.early_stop_patience < 0:
+        parser.error("--early-stop-patience must be non-negative")
     if args.sequence_min_ply < 0:
         parser.error("--sequence-min-ply must be non-negative")
     if args.sequence_max_ply is not None and args.sequence_max_ply < args.sequence_min_ply:
@@ -1280,30 +1299,38 @@ def run_dataset_builder(
 def run_trainer(
     args: argparse.Namespace, dataset_tsv: Path, output_dir: Path
 ) -> tuple[Path, Path, dict[str, Any]]:
-    weights = output_dir / "v0b-weights.json"
-    report = output_dir / "v0b-trainer-report.json"
-    run_or_fail(
-        [
-            sys.executable,
-            str(args.trainer),
-            "--dataset",
-            str(dataset_tsv),
-            "--mode",
-            "pattern-sgd-v0b",
-            "--epochs",
-            str(args.epochs),
-            "--learning-rate",
-            str(args.learning_rate),
-            "--l2",
-            str(args.l2),
-            "--seed",
-            str(args.seed),
-            "--weights-out",
-            str(weights),
-            "--report-out",
-            str(report),
-        ]
-    )
+    mode_label = "v0c" if args.trainer_mode == "pattern-sgd-v0c" else "v0b"
+    weights = output_dir / f"{mode_label}-weights.json"
+    report = output_dir / f"{mode_label}-trainer-report.json"
+    command = [
+        sys.executable,
+        str(args.trainer),
+        "--dataset",
+        str(dataset_tsv),
+        "--mode",
+        args.trainer_mode,
+        "--epochs",
+        str(args.epochs),
+        "--learning-rate",
+        str(args.learning_rate),
+        "--l2",
+        str(args.l2),
+        "--seed",
+        str(args.seed),
+        "--weights-out",
+        str(weights),
+        "--report-out",
+        str(report),
+    ]
+    if args.trainer_mode == "pattern-sgd-v0c":
+        command.extend(["--lr-schedule", args.lr_schedule])
+        if args.weight_decay is not None:
+            command.extend(["--weight-decay", str(args.weight_decay)])
+        if args.gradient_clip is not None:
+            command.extend(["--gradient-clip", str(args.gradient_clip)])
+        if args.early_stop_patience is not None:
+            command.extend(["--early-stop-patience", str(args.early_stop_patience)])
+    run_or_fail(command)
     return weights, report, load_json(report)
 
 
@@ -1462,6 +1489,21 @@ def write_run_report(
             "replay_skip_count": sequence_import_report.get("replay_skip_count"),
             "sampling_frame_notes": sequence_import_report.get("sampling_frame_notes"),
         }
+    trainer_args = {
+        "epochs": args.epochs,
+        "learning_rate": args.learning_rate,
+        "l2": args.l2,
+        "seed": args.seed,
+    }
+    if args.trainer_mode == "pattern-sgd-v0c":
+        trainer_args.update(
+            {
+                "weight_decay": args.weight_decay,
+                "lr_schedule": args.lr_schedule,
+                "gradient_clip": args.gradient_clip,
+                "early_stop_patience": args.early_stop_patience,
+            }
+        )
     report = {
         "schema_version": 1,
         "run_id": run_id,
@@ -1495,13 +1537,9 @@ def write_run_report(
         "dataset_feature_occurrence_count": dataset_report.get("feature_occurrence_count"),
         "dataset_example_rows": dataset_report.get("example_rows"),
         "dataset_report_checksum": dataset_report.get("checksum"),
+        "trainer_mode": args.trainer_mode,
         "trainer_version": trainer_report.get("trainer_version"),
-        "trainer_args": {
-            "epochs": args.epochs,
-            "learning_rate": args.learning_rate,
-            "l2": args.l2,
-            "seed": args.seed,
-        },
+        "trainer_args": trainer_args,
         "dataset_args": {
             "output_format": args.dataset_output_format,
             "pattern_set": args.pattern_set,
@@ -1620,15 +1658,16 @@ def main() -> int:
             output_bytes=file_size(dataset_tsv),
             return_code=0,
         )
-        with stages.begin("trainer_v0b", input_bytes=file_size(dataset_tsv)):
+        with stages.begin("trainer", input_bytes=file_size(dataset_tsv)):
             v0b_weights_json, v0b_trainer_report_path, trainer_report = run_trainer(
                 args, dataset_tsv, output_dir
             )
         stages.update(
-            "trainer_v0b",
+            "trainer",
             output_bytes=sum_file_sizes((v0b_weights_json, v0b_trainer_report_path)),
             return_code=0,
         )
+        stages.update("trainer_v0b", **stages.stages["trainer"])
         with stages.begin("v0b_export", input_bytes=file_size(v0b_weights_json)):
             v0b_artifact, v0b_manifest, v0b_export_summary = export_v0b(
                 args, v0b_weights_json, output_dir
@@ -1722,6 +1761,8 @@ def main() -> int:
             "sample_report_json": sample_report_path,
             "pattern_dataset_tsv": dataset_tsv,
             "dataset_report_json": dataset_report_path,
+            "trainer_weights_json": v0b_weights_json,
+            "trainer_report_json": v0b_trainer_report_path,
             "v0b_weights_json": v0b_weights_json,
             "v0b_trainer_report_json": v0b_trainer_report_path,
             "v0b_artifact_weights": v0b_artifact,
@@ -1755,6 +1796,7 @@ def main() -> int:
             "sampled_normalized_tsv": file_size(sampled_normalized),
             "pattern_dataset_tsv": file_size(dataset_tsv),
             "pattern_dataset": file_size(dataset_tsv),
+            "trainer_weights_json": file_size(v0b_weights_json),
             "v0b_weights_json": file_size(v0b_weights_json),
             "v0b_artifact_weights": file_size(v0b_artifact),
             "reports": sum(file_size(path) or 0 for name, path in paths.items() if name.endswith("_json")),

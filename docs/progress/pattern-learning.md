@@ -78,6 +78,17 @@ Existing foundations include:
   split, phase, and epoch metrics with deterministic checksums; `instance` is
   validated and duplicate occurrences are reported, while learned weight keys
   continue to ignore `instance`
+* `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0c` adds an explicitly
+  versioned local research trainer mode that preserves the same runtime score
+  shape and v0b-compatible intermediate weights while improving diagnostics and
+  optimizer controls. v0c learns phase bias from train examples only, keeps
+  phase bias fixed during pattern SGD, learns residual pattern weights with
+  deterministic feature-occurrence updates, supports constant or inverse-sqrt
+  learning-rate schedules, optional per-feature gradient clipping, pattern-only
+  weight decay, and validation-MAE early stopping, and reports split,
+  split-by-phase, residual, epoch, and weight diagnostics. The report is a
+  fitting diagnostic only, not a production trainer, match bench, Elo,
+  self-play result, or strength claim.
 * CTest-backed Egaroucid importer -> dataset builder -> trainer v0a smoke checks
   deterministic report/weights output, train-only bias fitting, held-out
   validation/test metrics, invalid-row rejection counts, malformed example
@@ -143,7 +154,8 @@ Existing foundations include:
 * local-only Egaroucid subset training runner at
   `tools/pattern/train/run_egaroucid_local_training.py` that runs importer or
   normalized TSV input through deterministic position-id subset sampling,
-  dataset building, trainer v0b, v0b export, optional v0a baseline export,
+  dataset building, configurable trainer v0b/v0c, v0b-compatible export,
+  optional v0a baseline export,
   fixed-position evaluation smoke, fixed-position search smoke, and a local
   training run report JSON; it also supports sequence/transcript input through
   the local sequence importer, can bound sequence import/conversion itself with
@@ -167,10 +179,11 @@ Existing foundations include:
   `tools/pattern/train/analyze_local_training_runs.py` that compares one or
   more `local-training-run-report.json` files, emits stable JSON and optional
   Markdown summaries, validates the runner report shape, extracts available
-  v0b trainer split/phase metrics, surfaces optional sequence cache status and
-  stage telemetry, and records warning-only review flags for small,
-  incomplete, mixed cache-hit/cache-miss, or mixed expanded/compact dataset
-  local measurements
+  v0b/v0c trainer metrics, surfaces v0c best/final validation MAE, test MAE,
+  weight diagnostics, optional sequence cache status, and stage telemetry, and
+  records warning-only review flags for small, incomplete,
+  mixed cache-hit/cache-miss, mixed trainer-mode, mixed expanded/compact
+  dataset, and suspicious split-by-phase local measurements
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of

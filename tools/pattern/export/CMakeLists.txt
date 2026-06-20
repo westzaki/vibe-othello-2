@@ -166,6 +166,30 @@ if(BUILD_TESTING)
       0.8)
 
   add_test(
+    NAME vibe_othello_pattern_local_training_v0c_compact_runner_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/check_local_training_runner_smoke.py
+      --runner
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/run_egaroucid_local_training.py
+      --dataset-exe
+      $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
+      --eval-smoke-exe
+      $<TARGET_FILE:vibe_othello_pattern_evaluation_bench_smoke>
+      --search-smoke-exe
+      $<TARGET_FILE:vibe_othello_pattern_search_bench_smoke>
+      --egaroucid-fixture
+      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
+      --egaroucid-manifest
+      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json
+      --trainer-mode
+      pattern-sgd-v0c
+      --dataset-output-format
+      compact-tsv
+      --learning-rate
+      0.9)
+
+  add_test(
     NAME vibe_othello_pattern_local_training_sequence_runner_smoke
     COMMAND
       ${Python3_EXECUTABLE}

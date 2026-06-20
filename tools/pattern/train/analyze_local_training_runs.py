@@ -8,7 +8,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 REQUIRED_REPORT_FIELDS = (
@@ -227,6 +227,13 @@ def extract_metrics(trainer_report: dict[str, Any] | None) -> dict[str, Any]:
         "validation": metrics_by_split["validation"],
         "test": metrics_by_split["test"],
         "by_phase": metrics_by_phase,
+        "best_validation_MAE": trainer_report.get("best_validation_MAE")
+        if isinstance(trainer_report, dict)
+        else None,
+        "final_validation_MAE": trainer_report.get("final_validation_MAE")
+        if isinstance(trainer_report, dict)
+        else metric_value(metrics_by_split["validation"], "MAE"),
+        "test_MAE": metric_value(metrics_by_split["test"], "MAE"),
     }
 
 
@@ -234,7 +241,11 @@ def trainer_report_path(run_report: LoadedReport) -> Path | None:
     output_files = run_report.data.get("output_files")
     if not isinstance(output_files, dict):
         return None
-    relative = output_files.get("v0b_trainer_report_json")
+    relative = (
+        output_files.get("trainer_report_json")
+        or output_files.get("v0c_trainer_report_json")
+        or output_files.get("v0b_trainer_report_json")
+    )
     if not isinstance(relative, str) or not relative:
         return None
     path = Path(relative)
@@ -346,6 +357,84 @@ def dataset_output_format(data: dict[str, Any]) -> str:
     return value if value in ("expanded-tsv", "compact-tsv") else "unknown"
 
 
+def trainer_mode(data: dict[str, Any]) -> str:
+    value = data.get("trainer_mode")
+    if isinstance(value, str) and value:
+        return value
+    value = data.get("trainer_version")
+    return value if isinstance(value, str) and value else "unknown"
+
+
+def weight_diagnostics(trainer_report: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(trainer_report, dict):
+        return {
+            "nonzero_weight_count": None,
+            "weight_l2_norm": None,
+            "max_abs_weight": None,
+        }
+    return {
+        "nonzero_weight_count": trainer_report.get("nonzero_weight_count"),
+        "weight_l2_norm": trainer_report.get("weight_l2_norm"),
+        "max_abs_weight": trainer_report.get("max_abs_weight"),
+    }
+
+
+def split_phase_warnings(trainer_report: dict[str, Any] | None) -> list[dict[str, str]]:
+    if not isinstance(trainer_report, dict):
+        return []
+    final = trainer_report.get("final_pattern_sgd_metrics")
+    baseline = trainer_report.get("baseline_phase_bias_metrics")
+    if not isinstance(final, dict) or not isinstance(baseline, dict):
+        return []
+    final_split_phase = final.get("metrics_by_split_phase")
+    baseline_split_phase = baseline.get("metrics_by_split_phase")
+    if not isinstance(final_split_phase, dict) or not isinstance(baseline_split_phase, dict):
+        return []
+
+    warnings: list[dict[str, str]] = []
+    for phase in map(str, range(13)):
+        train = final_split_phase.get("train", {}).get(phase, {})
+        validation = final_split_phase.get("validation", {}).get(phase, {})
+        test = final_split_phase.get("test", {}).get(phase, {})
+        train_examples = int_or_none(train.get("examples")) if isinstance(train, dict) else None
+        validation_examples = (
+            int_or_none(validation.get("examples")) if isinstance(validation, dict) else None
+        )
+        test_examples = int_or_none(test.get("examples")) if isinstance(test, dict) else None
+        if validation_examples is not None and 0 < validation_examples < 2:
+            warnings.append(
+                warning("validation_phase_count_tiny", f"phase {phase} has tiny validation count")
+            )
+        if test_examples is not None and 0 < test_examples < 2:
+            warnings.append(warning("test_phase_count_tiny", f"phase {phase} has tiny test count"))
+        if train_examples == 0 and ((validation_examples or 0) > 0 or (test_examples or 0) > 0):
+            warnings.append(
+                warning(
+                    "phase_missing_train_examples",
+                    f"phase {phase} has held-out examples but no train examples",
+                )
+            )
+        for split, split_examples in (
+            ("validation", validation_examples),
+            ("test", test_examples),
+        ):
+            if not split_examples:
+                continue
+            final_bucket = final_split_phase.get(split, {}).get(phase, {})
+            baseline_bucket = baseline_split_phase.get(split, {}).get(phase, {})
+            final_mae = metric_value(final_bucket, "MAE")
+            baseline_mae = metric_value(baseline_bucket, "MAE")
+            if isinstance(final_mae, (int, float)) and isinstance(baseline_mae, (int, float)):
+                if final_mae > baseline_mae:
+                    warnings.append(
+                        warning(
+                            "phase_mae_regressed_vs_phase_bias",
+                            f"{split} phase {phase} MAE regressed versus phase-bias baseline",
+                        )
+                    )
+    return warnings
+
+
 def stage_wall(data: dict[str, Any], *names: str) -> float | None:
     stages = data.get("stage_timings")
     if not isinstance(stages, dict):
@@ -359,6 +448,33 @@ def stage_wall(data: dict[str, Any], *names: str) -> float | None:
         value = stage.get("wall_time_sec")
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             total += float(value)
+            seen = True
+    if not seen:
+        return None
+    return float(f"{total:.6g}")
+
+
+def stage_wall_first(data: dict[str, Any], *names: str) -> float | None:
+    stages = data.get("stage_timings")
+    if not isinstance(stages, dict):
+        return None
+    for name in names:
+        stage = stages.get(name)
+        if not isinstance(stage, dict):
+            continue
+        value = stage.get("wall_time_sec")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(f"{float(value):.6g}")
+    return None
+
+
+def stage_wall_total(data: dict[str, Any], groups: Iterable[tuple[str, ...]]) -> float | None:
+    total = 0.0
+    seen = False
+    for names in groups:
+        value = stage_wall_first(data, *names)
+        if value is not None:
+            total += value
             seen = True
     if not seen:
         return None
@@ -379,6 +495,7 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
     eval_summary = data.get("evaluation_smoke_summary")
     search_summary = data.get("search_smoke_summary")
     board_leakage_audit = data.get("board_leakage_audit")
+    metrics = extract_metrics(trainer_report)
     return {
         "artifact_checksum": data.get("artifact_checksum"),
         "board_leakage_audit": board_leakage_audit if isinstance(board_leakage_audit, dict) else None,
@@ -394,7 +511,11 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
             "input_positions": int_or_none(data.get("eval_smoke_input_positions")),
             "used_positions": int_or_none(data.get("eval_smoke_used_positions")),
         },
-        "metrics": extract_metrics(trainer_report),
+        "metrics": metrics,
+        "best_validation_MAE": metrics.get("best_validation_MAE"),
+        "final_validation_MAE": metrics.get("final_validation_MAE"),
+        "test_MAE": metrics.get("test_MAE"),
+        "weight_diagnostics": weight_diagnostics(trainer_report),
         "path": str(run_report.path),
         "run_id": data.get("run_id"),
         "sampled_rows": sampled_rows,
@@ -402,21 +523,23 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
         "stage_wall_times": {
             "import_or_cache_restore": stage_wall(data, "sequence_import_or_cache_restore"),
             "dataset": stage_wall(data, "pattern_dataset_generation"),
-            "trainer": stage_wall(data, "trainer_v0b"),
+            "trainer": stage_wall_first(data, "trainer", "trainer_v0b"),
             "export": stage_wall(data, "v0b_export"),
             "evaluation_search_smoke": stage_wall(data, "evaluation_smoke", "search_smoke"),
-            "total_recorded": stage_wall(
+            "total_recorded": stage_wall_total(
                 data,
-                "source_hashing",
-                "sequence_cache_lookup",
-                "sequence_import_or_cache_restore",
-                "normalized_sampling",
-                "pattern_dataset_generation",
-                "trainer_v0b",
-                "v0b_export",
-                "v0a_baseline_training_export",
-                "evaluation_smoke",
-                "search_smoke",
+                (
+                    ("source_hashing",),
+                    ("sequence_cache_lookup",),
+                    ("sequence_import_or_cache_restore",),
+                    ("normalized_sampling",),
+                    ("pattern_dataset_generation",),
+                    ("trainer", "trainer_v0b"),
+                    ("v0b_export",),
+                    ("v0a_baseline_training_export",),
+                    ("evaluation_smoke",),
+                    ("search_smoke",),
+                ),
             ),
         },
         "search_smoke": {
@@ -432,9 +555,11 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
         },
         "source_kind": data.get("source_kind"),
         "train_rows": train_rows,
+        "trainer_mode": trainer_mode(data),
+        "trainer_version": data.get("trainer_version"),
         "trainer_args": data.get("trainer_args"),
         "trainer_report_checksum": data.get("trainer_report_checksum"),
-        "warnings": warnings_for_run(data, min_train_rows),
+        "warnings": warnings_for_run(data, min_train_rows) + split_phase_warnings(trainer_report),
     }
 
 
@@ -471,6 +596,20 @@ def add_comparison_warnings(runs: list[dict[str, Any]]) -> None:
                         "expanded and compact pattern datasets are being compared directly",
                     )
                 )
+    trainer_modes = {
+        run.get("trainer_mode")
+        for run in runs
+        if run.get("trainer_mode") in {"pattern-sgd-v0b", "pattern-sgd-v0c"}
+    }
+    if len(trainer_modes) > 1:
+        for run in runs:
+            if run.get("trainer_mode") in trainer_modes:
+                run.setdefault("warnings", []).append(
+                    warning(
+                        "trainer_mode_mixed_comparison",
+                        "different trainer modes are being compared directly",
+                    )
+                )
 
 
 def markdown_table_row(values: list[Any]) -> str:
@@ -490,7 +629,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
             [
                 "run_id",
                 "sampled_rows",
+                "trainer_mode",
                 "dataset_format",
+                "best_val_MAE",
+                "final_val_MAE",
+                "test_MAE",
+                "nonzero_weights",
                 "cache_status",
                 "import/cache_restore_sec",
                 "dataset_sec",
@@ -501,16 +645,22 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "warnings",
             ]
         ),
-        markdown_table_row(["---"] * 11),
+        markdown_table_row(["---"] * 16),
     ]
     for run in runs:
         stage_times = run.get("stage_wall_times") or {}
+        weights = run.get("weight_diagnostics") or {}
         lines.append(
             markdown_table_row(
                 [
                     run.get("run_id"),
                     run.get("sampled_rows"),
+                    run.get("trainer_mode"),
                     run.get("dataset_output_format"),
+                    run.get("best_validation_MAE"),
+                    run.get("final_validation_MAE"),
+                    run.get("test_MAE"),
+                    weights.get("nonzero_weight_count"),
                     run.get("cache_status"),
                     stage_times.get("import_or_cache_restore"),
                     stage_times.get("dataset"),
