@@ -335,8 +335,7 @@ std::string split_pair(std::string_view left, std::string_view right) {
 }
 
 bool parse_normalized_row(std::string_view line, int line_number, int schema_version,
-                          NormalizedRow* row,
-                          std::string* error) {
+                          NormalizedRow* row, std::string* error) {
   static constexpr std::string_view kExpectedHeaderV1 =
       "record_id\tposition_id\tsource_dataset_id\tsplit\tboard_a1_to_h8\tlabel_kind\tlabel_"
       "unit\tlabel_perspective\tlabel_score_side_to_move\toccupied_count\tphase\tplayer_disc_"
@@ -352,9 +351,8 @@ bool parse_normalized_row(std::string_view line, int line_number, int schema_ver
     *error = schema_version == 2 ? "expected 17 TSV fields" : "expected 14 TSV fields";
     return false;
   }
-  if (line_number == 1 &&
-      ((schema_version == 1 && trim_trailing_cr(line) == kExpectedHeaderV1) ||
-       (schema_version == 2 && trim_trailing_cr(line) == kExpectedHeaderV2))) {
+  if (line_number == 1 && ((schema_version == 1 && trim_trailing_cr(line) == kExpectedHeaderV1) ||
+                           (schema_version == 2 && trim_trailing_cr(line) == kExpectedHeaderV2))) {
     *error = "header";
     return false;
   }
@@ -781,8 +779,7 @@ int main(int argc, char** argv) {
               << " rejected_rows=" << report.rejected_rows << " emitted_rows=" << emit_summary.rows
               << " train_rows=" << emit_summary.train_rows
               << " validation_rows=" << emit_summary.validation_rows
-              << " test_rows=" << emit_summary.test_rows
-              << " split_policy="
+              << " test_rows=" << emit_summary.test_rows << " split_policy="
               << (report.schema_version == 2 ? "importer-preserved:dataset_id+game_group_id-sha256"
                                              : "position-sha256")
               << " duplicate_policy=keep_all_input_order\n";
