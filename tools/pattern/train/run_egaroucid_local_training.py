@@ -156,6 +156,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sequence-ply-stride", type=int, default=1)
     parser.add_argument("--sequence-max-positions", type=int)
     parser.add_argument(
+        "--sequence-sampling-mode",
+        choices=("full-scan-topk", "bounded-dev"),
+        default="full-scan-topk",
+    )
+    parser.add_argument("--sequence-max-files", type=int)
+    parser.add_argument("--sequence-max-games", type=int)
+    parser.add_argument("--sequence-file-sample-rate", type=float)
+    parser.add_argument("--sequence-game-sample-rate", type=float)
+    parser.add_argument("--sequence-file-order", choices=("path", "hash"), default="path")
+    parser.add_argument("--sequence-progress-every-games", type=int)
+    parser.add_argument("--sequence-progress-every-files", type=int)
+    parser.add_argument(
         "--sequence-emit-terminal",
         dest="sequence_emit_terminal",
         action="store_true",
@@ -227,6 +239,29 @@ def parse_args() -> argparse.Namespace:
         parser.error("--sequence-ply-stride must be positive")
     if args.sequence_max_positions is not None and args.sequence_max_positions <= 0:
         parser.error("--sequence-max-positions must be positive")
+    if args.sequence_max_files is not None and args.sequence_max_files <= 0:
+        parser.error("--sequence-max-files must be positive")
+    if args.sequence_max_games is not None and args.sequence_max_games <= 0:
+        parser.error("--sequence-max-games must be positive")
+    for name in ("sequence_file_sample_rate", "sequence_game_sample_rate"):
+        value = getattr(args, name)
+        if value is not None and not (0.0 < value <= 1.0):
+            parser.error(f"--{name.replace('_', '-')} must be > 0.0 and <= 1.0")
+    bounded_sequence_controls = (
+        args.sequence_max_files is not None
+        or args.sequence_max_games is not None
+        or args.sequence_file_sample_rate is not None
+        or args.sequence_game_sample_rate is not None
+    )
+    if bounded_sequence_controls and args.sequence_sampling_mode != "bounded-dev":
+        parser.error(
+            "--sequence-max-files, --sequence-max-games, --sequence-file-sample-rate, "
+            "and --sequence-game-sample-rate require --sequence-sampling-mode bounded-dev"
+        )
+    if args.sequence_progress_every_games is not None and args.sequence_progress_every_games <= 0:
+        parser.error("--sequence-progress-every-games must be positive")
+    if args.sequence_progress_every_files is not None and args.sequence_progress_every_files <= 0:
+        parser.error("--sequence-progress-every-files must be positive")
     if args.eval_smoke_max_positions is not None and args.eval_smoke_max_positions <= 0:
         parser.error("--eval-smoke-max-positions must be positive")
     if args.search_smoke_max_positions is not None and args.search_smoke_max_positions <= 0:
@@ -342,6 +377,7 @@ def import_raw(args: argparse.Namespace, output_dir: Path) -> Path:
 def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
     normalized = output_dir / "sequence-normalized.tsv"
     report = output_dir / "sequence-import-report.json"
+    stderr_log = output_dir / "sequence-import-stderr.log"
     command = [
         sys.executable,
         str(args.sequence_importer),
@@ -357,22 +393,42 @@ def import_sequence(args: argparse.Namespace, output_dir: Path) -> Path:
         str(args.sequence_min_ply),
         "--ply-stride",
         str(args.sequence_ply_stride),
+        "--sampling-mode",
+        args.sequence_sampling_mode,
+        "--file-order",
+        args.sequence_file_order,
     ]
     if args.sequence_max_ply is not None:
         command.extend(["--max-ply", str(args.sequence_max_ply)])
     if args.sequence_max_positions is not None:
         command.extend(["--max-positions", str(args.sequence_max_positions)])
+    if args.sequence_max_files is not None:
+        command.extend(["--max-files", str(args.sequence_max_files)])
+    if args.sequence_max_games is not None:
+        command.extend(["--max-games", str(args.sequence_max_games)])
+    if args.sequence_file_sample_rate is not None:
+        command.extend(["--file-sample-rate", str(args.sequence_file_sample_rate)])
+    if args.sequence_game_sample_rate is not None:
+        command.extend(["--game-sample-rate", str(args.sequence_game_sample_rate)])
+    if args.sequence_progress_every_games is not None:
+        command.extend(["--progress-every-games", str(args.sequence_progress_every_games)])
+    if args.sequence_progress_every_files is not None:
+        command.extend(["--progress-every-files", str(args.sequence_progress_every_files)])
     command.append("--emit-terminal" if args.sequence_emit_terminal else "--no-emit-terminal")
     with normalized.open("w", encoding="utf-8") as output:
-        result = subprocess.run(
-            command,
-            check=False,
-            stdout=output,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
+        with stderr_log.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                command,
+                stdout=output,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            assert process.stderr is not None
+            for line in process.stderr:
+                sys.stderr.write(line)
+                log.write(line)
+            returncode = process.wait()
+    if returncode != 0:
         raise RuntimeError(f"command failed: {sys.executable} {args.sequence_importer}")
     return normalized
 
@@ -763,6 +819,25 @@ def write_run_report(
     output_files: dict[str, str] = {
         name: rel(path, output_dir) for name, path in sorted(paths.items())
     }
+    sequence_import_report = None
+    sequence_import_policy = None
+    sequence_report_path = paths.get("sequence_import_report_json")
+    if sequence_report_path is not None:
+        sequence_import_report = load_json(sequence_report_path)
+        sequence_import_policy = {
+            "sampling_mode": sequence_import_report.get("sampling_mode"),
+            "file_order": sequence_import_report.get("file_order"),
+            "max_files": sequence_import_report.get("max_files"),
+            "max_games": sequence_import_report.get("max_games"),
+            "file_sample_rate": sequence_import_report.get("file_sample_rate"),
+            "game_sample_rate": sequence_import_report.get("game_sample_rate"),
+            "source_files_seen": sequence_import_report.get("source_files_seen"),
+            "source_files_processed": sequence_import_report.get("source_files_processed"),
+            "games_seen": sequence_import_report.get("games_seen"),
+            "games_replayed": sequence_import_report.get("games_replayed"),
+            "replay_skip_count": sequence_import_report.get("replay_skip_count"),
+            "sampling_frame_notes": sequence_import_report.get("sampling_frame_notes"),
+        }
     report = {
         "schema_version": 1,
         "run_id": run_id,
@@ -775,6 +850,7 @@ def write_run_report(
         "sample_counts_by_split": sample_report.get("counts_by_split"),
         "sample_counts_by_phase": sample_report.get("counts_by_phase"),
         "sample_report_checksum": sample_report.get("checksum"),
+        "sequence_import_policy": sequence_import_policy,
         "dataset_report_checksum": dataset_report.get("checksum"),
         "trainer_version": trainer_report.get("trainer_version"),
         "trainer_args": {
@@ -916,6 +992,7 @@ def main() -> int:
             paths["normalized_tsv"] = source_normalized
         if args.sequence_input is not None:
             paths["sequence_import_report_json"] = output_dir / "sequence-import-report.json"
+            paths["sequence_import_stderr_log"] = output_dir / "sequence-import-stderr.log"
         if v0a_data is not None:
             paths.update(
                 {

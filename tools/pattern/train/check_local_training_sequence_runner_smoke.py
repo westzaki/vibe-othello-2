@@ -26,7 +26,7 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, str], dict[str, Any]] | None:
+def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, str], dict[str, Any], str] | None:
     command = [
         sys.executable,
         str(args.runner),
@@ -60,6 +60,20 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         "1",
         "--sequence-max-positions",
         "80",
+        "--sequence-sampling-mode",
+        "bounded-dev",
+        "--sequence-file-order",
+        "hash",
+        "--sequence-max-files",
+        "1",
+        "--sequence-max-games",
+        "4",
+        "--sequence-game-sample-rate",
+        "1.0",
+        "--sequence-progress-every-games",
+        "2",
+        "--sequence-progress-every-files",
+        "1",
         "--sequence-no-emit-terminal",
         "--eval-smoke-max-positions",
         "10",
@@ -82,10 +96,10 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
     except ValueError as error:
         print(error, file=sys.stderr)
         return None
-    return summary, load_json(output_dir / "local-training-run-report.json")
+    return summary, load_json(output_dir / "local-training-run-report.json"), result.stderr
 
 
-def check_report(report: dict[str, Any], output_dir: Path) -> bool:
+def check_report(report: dict[str, Any], output_dir: Path, runner_stderr: str) -> bool:
     expected = {
         "schema_version": 1,
         "run_id": "local-sequence-runner-smoke",
@@ -101,6 +115,28 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
             return False
     if report.get("trainer_args") != {"epochs": 8, "learning_rate": 0.2, "l2": 0.0, "seed": 7}:
         print(f"unexpected trainer args: {report.get('trainer_args')!r}", file=sys.stderr)
+        return False
+    sequence_policy = report.get("sequence_import_policy")
+    expected_sequence_policy = {
+        "sampling_mode": "bounded-dev",
+        "file_order": "hash",
+        "max_files": 1,
+        "max_games": 4,
+        "file_sample_rate": None,
+        "game_sample_rate": 1.0,
+        "source_files_seen": 1,
+        "source_files_processed": 1,
+        "games_seen": 4,
+        "games_replayed": 4,
+        "replay_skip_count": 0,
+        "sampling_frame_notes": [
+            "bounded-dev mode is for local measurement iteration",
+            "bounded-dev is not a full-corpus exact top-k sample",
+            "bounded-dev is not a production strength claim",
+        ],
+    }
+    if sequence_policy != expected_sequence_policy:
+        print(f"unexpected sequence import policy: {sequence_policy!r}", file=sys.stderr)
         return False
     sample_counts = report.get("sample_counts_by_split")
     if not isinstance(sample_counts, dict) or sum(sample_counts.values()) != 80:
@@ -131,6 +167,7 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
     output_files = report.get("output_files")
     required = {
         "sequence_import_report_json",
+        "sequence_import_stderr_log",
         "evaluation_smoke_positions_tsv",
         "search_smoke_positions_tsv",
         "evaluation_smoke_report_json",
@@ -145,6 +182,15 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
             print(f"missing generated file: {path}", file=sys.stderr)
             return False
     sequence_report = load_json(output_dir / output_files["sequence_import_report_json"])
+    stderr_log = (output_dir / output_files["sequence_import_stderr_log"]).read_text(
+        encoding="utf-8"
+    )
+    if "progress elapsed_sec=" not in runner_stderr:
+        print(f"runner did not stream sequence importer progress: {runner_stderr!r}", file=sys.stderr)
+        return False
+    if "progress elapsed_sec=" not in stderr_log:
+        print(f"sequence importer stderr log is missing progress: {stderr_log!r}", file=sys.stderr)
+        return False
     if sequence_report.get("source_kind") != "egaroucid-sequence-local":
         print(f"bad sequence import report: {sequence_report!r}", file=sys.stderr)
         return False
@@ -164,6 +210,10 @@ def check_report(report: dict[str, Any], output_dir: Path) -> bool:
     if sequence_report.get("emitted_positions") != 80:
         print(f"sequence import cap did not bound emitted positions: {sequence_report!r}", file=sys.stderr)
         return False
+    for key, value in expected_sequence_policy.items():
+        if sequence_report.get(key) != value:
+            print(f"sequence report sampling mismatch for {key}: {sequence_report.get(key)!r}", file=sys.stderr)
+            return False
     if sequence_report.get("rejected_games") != 1 or sequence_report.get("pass_count", 0) < 3:
         print(f"sequence importer did not report expected reject/pass counts: {sequence_report!r}", file=sys.stderr)
         return False
@@ -186,8 +236,8 @@ def main() -> int:
         second = run_runner(args, temp_dir / "second")
         if first is None or second is None:
             return 1
-        first_summary, first_report = first
-        second_summary, second_report = second
+        first_summary, first_report, first_stderr = first
+        second_summary, second_report, _second_stderr = second
         if first_summary.get("trainer_report_checksum") != second_summary.get(
             "trainer_report_checksum"
         ):
@@ -199,7 +249,7 @@ def main() -> int:
         if first_report != second_report:
             print("local sequence run report is not deterministic", file=sys.stderr)
             return 1
-        if not check_report(first_report, temp_dir / "first"):
+        if not check_report(first_report, temp_dir / "first", first_stderr):
             return 1
     return 0
 
