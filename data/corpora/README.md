@@ -4,21 +4,48 @@ This directory owns dataset manifests for pattern learning.
 
 Raw third-party corpora are not committed here. Keep downloaded game records,
 source archives, derived intermediate datasets, and source-specific scratch
-files in local-only paths such as `data/corpora/local/`, `data/corpora/raw/`,
-or an external cache.
+files in local-only paths outside the repository/worktree by default.
+
+## Local-only Measurement Directories
+
+Use generic local environment variables for day-to-day corpus and measurement
+work:
+
+```sh
+export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
+export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
+export VIBE_OTHELLO_SEQUENCE_CACHE="${VIBE_OTHELLO_SEQUENCE_CACHE:-$VIBE_OTHELLO_LOCAL/sequence-cache}"
+export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$VIBE_OTHELLO_LOCAL/measurements}"
+
+mkdir -p "$VIBE_OTHELLO_CORPORA"
+mkdir -p "$VIBE_OTHELLO_SEQUENCE_CACHE"
+mkdir -p "$VIBE_OTHELLO_MEASUREMENTS"
+```
+
+`VIBE_OTHELLO_LOCAL` is the optional root for all local-only data.
+`VIBE_OTHELLO_CORPORA` is for local corpus inputs. `VIBE_OTHELLO_SEQUENCE_CACHE`
+is the shared sequence replay cache and should be shared across worktrees.
+`VIBE_OTHELLO_MEASUREMENTS` is the measurement suite output root.
+
+Use generic paths only in committed docs and examples, such as
+`$HOME/vibe-othello-local`, `$VIBE_OTHELLO_LOCAL`, `<repo-root>`,
+`<sequence-input>`, and `<sequence-manifest>`. Do not commit personal paths,
+developer-specific directories, `.env` files with real values, generated
+measurement outputs, external corpus payloads, TSVs, learned weights,
+artifacts, reports, or logs.
 
 Local measurement suites for external corpora should also write under ignored
-local paths, for example `data/corpora/local/measurements/<suite-id>/`.
-Suite reports, analyzer summaries, normalized TSVs, sequence replay caches,
-pattern datasets, trainer reports, learned weights, exported artifacts, and
-logs from those runs remain local-only and must not be committed.
+local paths, normally under `$VIBE_OTHELLO_MEASUREMENTS/<suite-name>`. Suite
+reports, analyzer summaries, normalized TSVs, sequence replay caches, pattern
+datasets, trainer reports, learned weights, exported artifacts, and logs from
+those runs remain local-only and must not be committed.
 
 For long local measurements, keep a short operator note or progress journal in
 the same ignored tree, for example
-`data/corpora/local/measurements/perf-notes/<run-id>.md`. Prefer absolute paths
-inside the note for the active suite output directory, shared sequence cache,
-stderr log, suite report, and resume command so another Codex workspace can
-pick up the run without rediscovering local state.
+`$VIBE_OTHELLO_MEASUREMENTS/perf-notes/<run-id>.md`. Include the active suite
+output directory, shared sequence cache, stderr log, suite report, and resume
+command so another workspace can pick up the run without rediscovering local
+state. Keep any note with real local paths out of git.
 
 ## Dataset Manifests
 
