@@ -86,6 +86,88 @@ by empty count, phase, split, and side assignment, failed game count, timing,
 command, caveats, and a report checksum. The Markdown summary repeats the key
 settings and result tables for local review.
 
+The same tool can also emit a focused bottleneck diagnostic JSON report without
+reloading artifacts per position:
+
+```sh
+build/tools/arena/vibe-othello-pattern-artifact-arena \
+  --positions-tsv "$VIBE_OTHELLO_MEASUREMENTS/<connected-or-teacher-run>/runs/<run-id>/resplit-normalized.tsv" \
+  --candidate-weights "$VIBE_OTHELLO_MEASUREMENTS/<v2-run>/v0c.weights.bin" \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v2-run>/v0c.manifest.json" \
+  --candidate-name pattern-v2-endgame-lite \
+  --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.weights.bin" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.manifest.json" \
+  --baseline-name pattern-v1-buro-lite \
+  --max-empty 12 \
+  --max-positions 1000 \
+  --seed 0 \
+  --side-swap \
+  --depth 3 \
+  --diagnostics-out "$VIBE_OTHELLO_MEASUREMENTS/arena/v2-vs-v1-diagnostics/diagnostics.json" \
+  --compare-static-scores \
+  --compare-best-moves \
+  --depth-sweep 1,3,5 \
+  --exact-adjudicate-disagreements \
+  --max-disagreements 200 \
+  --report-out "$VIBE_OTHELLO_MEASUREMENTS/arena/v2-vs-v1-diagnostics/arena-report.json" \
+  --summary-out "$VIBE_OTHELLO_MEASUREMENTS/arena/v2-vs-v1-diagnostics/arena-summary.md"
+```
+
+`--compare-static-scores` records candidate and baseline static scores on each
+selected root position, their score diff, score ranges, zero/nonzero counts,
+and sign agreement against any side-to-move labels present in the normalized
+TSV. `--compare-best-moves` records each artifact's fixed-depth root best move
+and search score, best-move disagreement counts, and whether static score
+ordering agrees with search score ordering. `--depth-sweep 1,3,5` reruns the
+same selected side-swapped positions at each listed depth and stores
+`results_by_depth` in the diagnostics report. `--exact-adjudicate-disagreements`
+solves at most `--max-disagreements` low-empty root move disagreements exactly
+when feasible.
+
+The diagnostics report also includes runtime/export compatibility and
+perspective checks: manifest pattern-set id versus runtime-selected pattern
+set, normalized row phase versus runtime phase mapping, label perspective,
+same-artifact mirror sanity fields, side-assignment buckets, candidate/baseline
+arena buckets, and suspicious indicator strings for obvious sign, perspective,
+side-swap, depth, or activation problems. Feature activation counts are grouped
+by pattern family for both artifacts; candidate families not present in the
+baseline are counted separately so `pattern-v2-endgame-lite` additions can be
+checked for actual activation on late-game selected positions. Activation means
+the runtime feature geometry fired an instance with a non-empty ternary index;
+it does not inspect learned weight magnitude.
+
+Suggested local diagnostic sequence:
+
+```sh
+# Same-artifact mirror sanity.
+build/tools/arena/vibe-othello-pattern-artifact-arena ... \
+  --candidate-weights "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.weights.bin" \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.manifest.json" \
+  --candidate-name pattern-v1-buro-lite \
+  --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.weights.bin" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.manifest.json" \
+  --baseline-name pattern-v1-buro-lite \
+  --diagnostics-out "$VIBE_OTHELLO_MEASUREMENTS/arena/sanity-v1-v1/diagnostics.json" \
+  --compare-static-scores --compare-best-moves --side-swap
+
+# Candidate/baseline swap sanity on the same positions, seed, and depth.
+build/tools/arena/vibe-othello-pattern-artifact-arena ... \
+  --candidate-name pattern-v2-endgame-lite --baseline-name pattern-v1-buro-lite \
+  --diagnostics-out "$VIBE_OTHELLO_MEASUREMENTS/arena/swap-v2-v1/diagnostics.json" \
+  --compare-static-scores --compare-best-moves --side-swap
+
+build/tools/arena/vibe-othello-pattern-artifact-arena ... \
+  --candidate-name pattern-v1-buro-lite --baseline-name pattern-v2-endgame-lite \
+  --diagnostics-out "$VIBE_OTHELLO_MEASUREMENTS/arena/swap-v1-v2/diagnostics.json" \
+  --compare-static-scores --compare-best-moves --side-swap
+```
+
+The two swap sanity reports should approximately complement each other:
+candidate score rates should sum to about `1.0`, and average disc diff from
+candidate perspective should approximately negate. A failure is not by itself a
+strength result; it is a cue to inspect side assignment, perspective, or
+deterministic move-order effects.
+
 Interpret score rate cautiously. A rough local diagnostic guide is:
 
 * `> 0.55` over at least 500 side-swapped games: strong local positive signal

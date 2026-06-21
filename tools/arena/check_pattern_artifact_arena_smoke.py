@@ -32,11 +32,18 @@ DIRECTIONS = (
 )
 
 
-def make_zero_tiny_pattern_artifact(weights_path: Path, manifest_path: Path) -> None:
+def make_tiny_pattern_artifact(
+    weights_path: Path,
+    manifest_path: Path,
+    overrides: dict[int, int] | None = None,
+) -> None:
     pattern_set_id = "fixed-pattern-fixture-v1"
     phase_count = 13
     phase_stride = 1 + 3**8 + 3**9
     weight_count = phase_stride * phase_count
+    weights = [0] * weight_count
+    for index, value in (overrides or {}).items():
+        weights[index] = value
 
     payload = bytearray(b"VOPWGT\0\0")
     payload.extend(
@@ -54,7 +61,8 @@ def make_zero_tiny_pattern_artifact(weights_path: Path, manifest_path: Path) -> 
         )
     )
     payload.extend(pattern_set_id.encode("utf-8"))
-    payload.extend(b"\0" * (weight_count * 4))
+    for weight in weights:
+        payload.extend(struct.pack("<i", weight))
     checksum = f"0x{zlib.crc32(payload) & 0xFFFFFFFF:08x}"
     payload.extend(struct.pack("<I", int(checksum, 16)))
     weights_path.write_bytes(payload)
@@ -78,6 +86,10 @@ def make_zero_tiny_pattern_artifact(weights_path: Path, manifest_path: Path) -> 
         + "\n",
         encoding="utf-8",
     )
+
+
+def make_zero_tiny_pattern_artifact(weights_path: Path, manifest_path: Path) -> None:
+    make_tiny_pattern_artifact(weights_path, manifest_path)
 
 
 def initial_board() -> list[str]:
@@ -141,6 +153,9 @@ def relative_board_text(board: list[str], side_to_move: str) -> str:
 
 def make_position_row(board_id: str, move_count: int, split: str) -> dict[str, str | int]:
     board, side = play_prefix(move_count)
+    terminal_board, _ = play_prefix(len(FORCED_PASS_MOVES.split()))
+    terminal_black_diff = terminal_board.count("X") - terminal_board.count("O")
+    label_score = terminal_black_diff if side == "X" else -terminal_black_diff
     board_text = relative_board_text(board, side)
     occupied_count = sum(cell != "-" for cell in board_text)
     player_count = board_text.count("X")
@@ -158,10 +173,10 @@ def make_position_row(board_id: str, move_count: int, split: str) -> dict[str, s
         "source_dataset_id": "arena-smoke",
         "split": split,
         "board_a1_to_h8": board_text,
-        "label_kind": "disc-diff",
+        "label_kind": "observed_final_disc_diff",
         "label_unit": "disc",
         "label_perspective": "side-to-move",
-        "label_score_side_to_move": "0",
+        "label_score_side_to_move": str(label_score),
         "occupied_count": occupied_count,
         "phase": phase,
         "player_disc_count": player_count,
@@ -170,7 +185,7 @@ def make_position_row(board_id: str, move_count: int, split: str) -> dict[str, s
     }
 
 
-def write_positions_tsv(path: Path) -> None:
+def write_positions_tsv(path: Path) -> list[dict[str, str | int]]:
     header = [
         "record_id",
         "position_id",
@@ -200,20 +215,68 @@ def write_positions_tsv(path: Path) -> None:
         output.write("\t".join(header) + "\n")
         for row in rows:
             output.write("\t".join(str(row[column]) for column in header) + "\n")
+    return rows
+
+
+TINY_EDGE_INSTANCES = (
+    tuple(range(0, 8)),
+    tuple(range(56, 64)),
+    tuple(range(0, 64, 8)),
+    tuple(range(7, 64, 8)),
+)
+
+
+def ternary_index(board_text: str, squares: tuple[int, ...]) -> int:
+    index = 0
+    place = 1
+    for square in squares:
+        cell = board_text[square]
+        if cell == "X":
+            digit = 1
+        elif cell == "O":
+            digit = 2
+        else:
+            digit = 0
+        index += digit * place
+        place *= 3
+    return index
+
+
+def edge_weight_overrides(rows: list[dict[str, str | int]], value: int) -> dict[int, int]:
+    phase_stride = 1 + 3**8 + 3**9
+    edge_offset = 1
+    overrides: dict[int, int] = {}
+    for row in rows:
+        phase = int(row["phase"])
+        board_text = str(row["board_a1_to_h8"])
+        for squares in TINY_EDGE_INSTANCES:
+            offset = phase * phase_stride + edge_offset + ternary_index(board_text, squares)
+            overrides[offset] = value
+    return overrides
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
-def run_arena(exe: str, temp_dir: Path, report_name: str, summary_name: str) -> dict[str, object]:
+def run_arena(
+    exe: str,
+    temp_dir: Path,
+    report_name: str,
+    summary_name: str,
+    *,
+    candidate_prefix: str = "candidate",
+    baseline_prefix: str = "baseline",
+    diagnostics_name: str | None = None,
+    extra_args: list[str] | None = None,
+) -> dict[str, object]:
     report = temp_dir / report_name
     summary = temp_dir / summary_name
     positions = temp_dir / "positions.tsv"
-    candidate_weights = temp_dir / "candidate.weights.bin"
-    candidate_manifest = temp_dir / "candidate.manifest.json"
-    baseline_weights = temp_dir / "baseline.weights.bin"
-    baseline_manifest = temp_dir / "baseline.manifest.json"
+    candidate_weights = temp_dir / f"{candidate_prefix}.weights.bin"
+    candidate_manifest = temp_dir / f"{candidate_prefix}.manifest.json"
+    baseline_weights = temp_dir / f"{baseline_prefix}.weights.bin"
+    baseline_manifest = temp_dir / f"{baseline_prefix}.manifest.json"
     command = [
         exe,
         "--positions-tsv",
@@ -246,6 +309,10 @@ def run_arena(exe: str, temp_dir: Path, report_name: str, summary_name: str) -> 
         "--progress-every",
         "2",
     ]
+    if diagnostics_name is not None:
+        command.extend(["--diagnostics-out", str(temp_dir / diagnostics_name)])
+    if extra_args:
+        command.extend(extra_args)
     completed = run(command)
     if completed.returncode != 0:
         raise AssertionError(
@@ -257,7 +324,13 @@ def run_arena(exe: str, temp_dir: Path, report_name: str, summary_name: str) -> 
         raise AssertionError(f"progress stderr missing expected marker:\n{completed.stderr}")
     if not report.exists() or not summary.exists():
         raise AssertionError("arena did not produce report and summary")
-    return json.loads(report.read_text(encoding="utf-8"))
+    loaded_report = json.loads(report.read_text(encoding="utf-8"))
+    if diagnostics_name is not None:
+        diagnostics = temp_dir / diagnostics_name
+        if not diagnostics.exists():
+            raise AssertionError("arena did not produce diagnostics report")
+        loaded_report["diagnostics"] = json.loads(diagnostics.read_text(encoding="utf-8"))
+    return loaded_report
 
 
 def stable_report(report: dict[str, object]) -> dict[str, object]:
@@ -301,6 +374,95 @@ def assert_success_report(report: dict[str, object]) -> None:
         raise AssertionError("phase bucket for late-game positions is missing")
 
 
+def assert_same_artifact_diagnostics(report: dict[str, object]) -> None:
+    diagnostics = report["diagnostics"]
+    if diagnostics["selected_positions"] != 2:
+        raise AssertionError(f"unexpected diagnostics selected positions: {diagnostics!r}")
+    if diagnostics["static_score_diff_zero_count"] != 2:
+        raise AssertionError(f"same artifact static scores should match: {diagnostics!r}")
+    if diagnostics["static_score_diff_nonzero_count"] != 0:
+        raise AssertionError(f"same artifact static scores unexpectedly differ: {diagnostics!r}")
+    if diagnostics["best_move_disagreement_count"] != 0:
+        raise AssertionError(f"same artifact best moves unexpectedly differ: {diagnostics!r}")
+    if diagnostics["phase_mapping_mismatch_count"] != 0:
+        raise AssertionError(f"runtime phase mapping mismatch: {diagnostics!r}")
+    if diagnostics["label_perspective_mismatch_count"] != 0:
+        raise AssertionError(f"label perspective mismatch: {diagnostics!r}")
+    if diagnostics["results_by_depth"].keys() != {"1"}:
+        raise AssertionError(f"depth sweep diagnostics missing depth 1: {diagnostics!r}")
+    if diagnostics["sanity_checks"] != {
+        "same_artifact_mirror": True,
+        "same_artifact_side_swapped_tie": True,
+    }:
+        raise AssertionError(f"same artifact sanity checks missing: {diagnostics!r}")
+    feature_activation = diagnostics["feature_activation"]["candidate"]
+    if feature_activation["by_family"]["edge-8"]["instances_evaluated"] != 8:
+        raise AssertionError(f"unexpected edge activation count: {feature_activation!r}")
+    if feature_activation["by_family"]["corner-3x3"]["instances_evaluated"] != 8:
+        raise AssertionError(f"unexpected corner activation count: {feature_activation!r}")
+    if diagnostics["suspicious_sign_or_perspective_indicators"]:
+        raise AssertionError(
+            "same-artifact diagnostics should not flag suspicious indicators: "
+            f"{diagnostics['suspicious_sign_or_perspective_indicators']!r}"
+        )
+
+
+def assert_signal_diagnostics(report: dict[str, object], expected_static_score: int) -> None:
+    diagnostics = report["diagnostics"]
+    if diagnostics["selected_positions"] != 2:
+        raise AssertionError(f"unexpected diagnostics selected positions: {diagnostics!r}")
+    if diagnostics["static_score_diff_nonzero_count"] != 2:
+        raise AssertionError(f"signal artifact should produce static deltas: {diagnostics!r}")
+    if diagnostics["candidate_static_score_range"] != {
+        "min": expected_static_score,
+        "max": expected_static_score,
+    }:
+        raise AssertionError(
+            f"runtime score did not include expected edge contribution: {diagnostics!r}"
+        )
+    if diagnostics["baseline_static_score_range"] != {"min": 0, "max": 0}:
+        raise AssertionError(f"baseline zero artifact scored unexpectedly: {diagnostics!r}")
+    if diagnostics["labeled_static_sign_checked_count"] != 2:
+        raise AssertionError(f"static sign sanity did not inspect both rows: {diagnostics!r}")
+    if diagnostics["candidate_static_label_sign_agreement_count"] != 2:
+        raise AssertionError(
+            f"candidate static score sign should match fixture labels: {diagnostics!r}"
+        )
+    if diagnostics["candidate_static_label_sign_opposition_count"] != 0:
+        raise AssertionError(
+            f"candidate static score sign unexpectedly opposed labels: {diagnostics!r}"
+        )
+    if len(diagnostics["position_diagnostics"]) != 2:
+        raise AssertionError(f"per-position diagnostics missing rows: {diagnostics!r}")
+    for row in diagnostics["position_diagnostics"]:
+        if row["candidate_static_score"] != expected_static_score:
+            raise AssertionError(f"unexpected candidate static row score: {row!r}")
+        if row["baseline_static_score"] != 0:
+            raise AssertionError(f"unexpected baseline static row score: {row!r}")
+
+
+def assert_swap_complements(forward: dict[str, object], reverse: dict[str, object]) -> None:
+    if not math.isclose(
+        forward["candidate_score_rate"] + reverse["candidate_score_rate"],
+        1.0,
+        abs_tol=1e-12,
+    ):
+        raise AssertionError(
+            "candidate/baseline swap score rates do not complement: "
+            f"{forward['candidate_score_rate']!r}, {reverse['candidate_score_rate']!r}"
+        )
+    if not math.isclose(
+        forward["average_disc_diff_candidate_perspective"],
+        -reverse["average_disc_diff_candidate_perspective"],
+        abs_tol=1e-12,
+    ):
+        raise AssertionError(
+            "candidate/baseline swap disc diffs do not negate: "
+            f"{forward['average_disc_diff_candidate_perspective']!r}, "
+            f"{reverse['average_disc_diff_candidate_perspective']!r}"
+        )
+
+
 def assert_failure(command: list[str], expected_stderr: str) -> None:
     completed = run(command)
     if completed.returncode == 0:
@@ -318,12 +480,17 @@ def main(argv: list[str]) -> int:
 
     with tempfile.TemporaryDirectory() as temp:
         temp_dir = Path(temp)
-        write_positions_tsv(temp_dir / "positions.tsv")
+        rows = write_positions_tsv(temp_dir / "positions.tsv")
         make_zero_tiny_pattern_artifact(
             temp_dir / "candidate.weights.bin", temp_dir / "candidate.manifest.json"
         )
         make_zero_tiny_pattern_artifact(
             temp_dir / "baseline.weights.bin", temp_dir / "baseline.manifest.json"
+        )
+        make_tiny_pattern_artifact(
+            temp_dir / "signal.weights.bin",
+            temp_dir / "signal.manifest.json",
+            edge_weight_overrides(rows, -5),
         )
 
         first_report = run_arena(args.exe, temp_dir, "report-a.json", "summary-a.md")
@@ -331,6 +498,50 @@ def main(argv: list[str]) -> int:
         assert_success_report(first_report)
         if stable_report(first_report) != stable_report(second_report):
             raise AssertionError("stable arena report payload changed between identical runs")
+        same_artifact_report = run_arena(
+            args.exe,
+            temp_dir,
+            "same-report.json",
+            "same-summary.md",
+            diagnostics_name="same-diagnostics.json",
+            extra_args=[
+                "--compare-static-scores",
+                "--compare-best-moves",
+                "--depth-sweep",
+                "1",
+            ],
+        )
+        assert_same_artifact_diagnostics(same_artifact_report)
+
+        signal_report = run_arena(
+            args.exe,
+            temp_dir,
+            "signal-report.json",
+            "signal-summary.md",
+            candidate_prefix="signal",
+            baseline_prefix="baseline",
+            diagnostics_name="signal-diagnostics.json",
+            extra_args=[
+                "--compare-static-scores",
+                "--compare-best-moves",
+                "--exact-adjudicate-disagreements",
+                "--max-disagreements",
+                "4",
+                "--depth-sweep",
+                "1",
+            ],
+        )
+        assert_signal_diagnostics(signal_report, -20)
+
+        reverse_signal_report = run_arena(
+            args.exe,
+            temp_dir,
+            "reverse-signal-report.json",
+            "reverse-signal-summary.md",
+            candidate_prefix="baseline",
+            baseline_prefix="signal",
+        )
+        assert_swap_complements(signal_report, reverse_signal_report)
 
         common_command = [
             args.exe,

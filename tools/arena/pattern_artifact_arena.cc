@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -51,12 +52,18 @@ struct Args {
   std::string baseline_name = "pattern-v1-buro-lite";
   std::string report_out_path;
   std::string summary_out_path;
+  std::string diagnostics_out_path;
   int max_empty = 12;
   int max_positions = 0;
   std::uint64_t seed = 0;
   bool side_swap = false;
   int progress_every = 0;
   search::Depth depth = 3;
+  bool compare_static_scores = false;
+  bool compare_best_moves = false;
+  std::vector<search::Depth> depth_sweep;
+  bool exact_adjudicate_disagreements = false;
+  int max_disagreements = 200;
 };
 
 struct PatternRuntime {
@@ -68,7 +75,10 @@ struct LoadedEvaluator {
   std::string name;
   std::string weights_path;
   std::string manifest_path;
+  std::string manifest_pattern_set_id;
+  std::string runtime_pattern_set_id;
   std::string artifact_checksum;
+  eval::PatternFeatureSet feature_set;
   eval::PatternEvaluator evaluator;
 };
 
@@ -76,6 +86,9 @@ struct PositionRow {
   std::string board_id;
   std::string board_text;
   std::string split;
+  std::string label_kind;
+  std::string label_perspective;
+  std::optional<int> label_score_side_to_move;
   int empty_count = 0;
   int phase = 0;
   std::uint64_t selection_hash = 0;
@@ -129,6 +142,96 @@ struct ArenaStats {
   std::map<std::string, BucketStats> by_side_assignment;
 };
 
+struct ScoreRange {
+  int min = 0;
+  int max = 0;
+  bool has_value = false;
+};
+
+struct FeatureFamilyActivation {
+  int instances_evaluated = 0;
+  int non_empty_activations = 0;
+  int all_empty_activations = 0;
+  std::unordered_set<std::uint32_t> distinct_indices;
+};
+
+struct FeatureActivationReport {
+  std::string pattern_set_id;
+  int added_family_count = 0;
+  int added_family_active_count = 0;
+  std::map<std::string, FeatureFamilyActivation> by_family;
+};
+
+struct PositionDiagnostics {
+  std::string board_id;
+  std::string split;
+  std::string label_kind;
+  std::string label_perspective;
+  std::optional<int> label_score_side_to_move;
+  int empty_count = 0;
+  int phase = 0;
+  int runtime_phase = 0;
+  std::optional<int> candidate_static_score;
+  std::optional<int> baseline_static_score;
+  std::optional<int> static_score_diff;
+  std::string candidate_best_move;
+  std::string baseline_best_move;
+  std::optional<int> candidate_search_score;
+  std::optional<int> baseline_search_score;
+  std::optional<int> search_score_diff;
+  bool best_moves_differ = false;
+  std::optional<bool> static_score_order_agrees_with_search;
+  std::optional<int> arena_candidate_side_to_move_disc_diff;
+  std::optional<int> arena_candidate_opponent_disc_diff;
+  bool exact_adjudicated = false;
+  std::optional<int> candidate_move_exact_score;
+  std::optional<int> baseline_move_exact_score;
+  std::string disagreement_adjudication;
+};
+
+struct DepthDiagnostic {
+  ArenaStats arena_stats;
+  int best_move_disagreement_count = 0;
+  double best_move_disagreement_rate = 0.0;
+  double search_score_diff_mean = 0.0;
+  double search_score_diff_abs_mean = 0.0;
+};
+
+struct DiagnosticsReport {
+  std::vector<PositionDiagnostics> rows;
+  int selected_positions = 0;
+  int phase_mapping_mismatch_count = 0;
+  int label_perspective_mismatch_count = 0;
+  int static_score_diff_zero_count = 0;
+  int static_score_diff_nonzero_count = 0;
+  double static_score_diff_mean = 0.0;
+  double static_score_diff_abs_mean = 0.0;
+  double static_score_diff_abs_median = 0.0;
+  ScoreRange candidate_static_score_range;
+  ScoreRange baseline_static_score_range;
+  double candidate_static_abs_mean = 0.0;
+  double baseline_static_abs_mean = 0.0;
+  int labeled_static_sign_checked_count = 0;
+  int candidate_static_label_sign_agreement_count = 0;
+  int candidate_static_label_sign_opposition_count = 0;
+  int best_move_disagreement_count = 0;
+  double best_move_disagreement_rate = 0.0;
+  int static_search_order_checked_count = 0;
+  int static_search_order_agreement_count = 0;
+  double static_search_order_agreement_rate = 0.0;
+  double search_score_diff_mean = 0.0;
+  double search_score_diff_abs_mean = 0.0;
+  int disagreement_exact_checked_count = 0;
+  int candidate_better_on_disagreements = 0;
+  int baseline_better_on_disagreements = 0;
+  int draw_on_disagreements = 0;
+  FeatureActivationReport candidate_feature_activation;
+  FeatureActivationReport baseline_feature_activation;
+  std::map<int, DepthDiagnostic> results_by_depth;
+  std::vector<std::string> suspicious_sign_or_perspective_indicators;
+  std::vector<std::string> notes;
+};
+
 void print_usage() {
   std::cerr << "usage: vibe-othello-pattern-artifact-arena "
                "--positions-tsv PATH "
@@ -136,7 +239,10 @@ void print_usage() {
                "--baseline-weights PATH --baseline-manifest PATH --baseline-name NAME "
                "--report-out PATH --summary-out PATH "
                "[--max-empty 12] [--max-positions N] [--seed 0] [--side-swap] "
-               "[--depth 3] [--progress-every N]\n";
+               "[--depth 3] [--progress-every N] "
+               "[--diagnostics-out PATH] [--compare-static-scores] [--compare-best-moves] "
+               "[--depth-sweep 1,3,5] [--exact-adjudicate-disagreements] "
+               "[--max-disagreements N]\n";
 }
 
 std::optional<int> parse_int(std::string_view text) noexcept {
@@ -159,6 +265,35 @@ std::optional<std::uint64_t> parse_u64(std::string_view text) noexcept {
     return std::nullopt;
   }
   return value;
+}
+
+std::optional<std::vector<search::Depth>> parse_depth_list(std::string_view text) {
+  std::vector<search::Depth> depths;
+  std::set<int> seen;
+  std::size_t offset = 0;
+  while (offset <= text.size()) {
+    const std::size_t comma = text.find(',', offset);
+    const std::string_view token =
+        comma == std::string_view::npos ? text.substr(offset) : text.substr(offset, comma - offset);
+    if (token.empty()) {
+      return std::nullopt;
+    }
+    const std::optional<int> value = parse_int(token);
+    if (!value.has_value() || *value <= 0) {
+      return std::nullopt;
+    }
+    if (seen.insert(*value).second) {
+      depths.push_back(static_cast<search::Depth>(*value));
+    }
+    if (comma == std::string_view::npos) {
+      break;
+    }
+    offset = comma + 1;
+  }
+  if (depths.empty()) {
+    return std::nullopt;
+  }
+  return depths;
 }
 
 std::optional<Args> parse_args(int argc, char** argv) {
@@ -208,6 +343,10 @@ std::optional<Args> parse_args(int argc, char** argv) {
       }
     } else if (arg == "--summary-out") {
       if (!next_value(&args.summary_out_path)) {
+        return std::nullopt;
+      }
+    } else if (arg == "--diagnostics-out") {
+      if (!next_value(&args.diagnostics_out_path)) {
         return std::nullopt;
       }
     } else if (arg == "--max-empty") {
@@ -267,6 +406,34 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.depth = static_cast<search::Depth>(*value);
+    } else if (arg == "--compare-static-scores") {
+      args.compare_static_scores = true;
+    } else if (arg == "--compare-best-moves") {
+      args.compare_best_moves = true;
+    } else if (arg == "--depth-sweep") {
+      if (index + 1 >= argc) {
+        std::cerr << "--depth-sweep requires a comma-separated value\n";
+        return std::nullopt;
+      }
+      const std::optional<std::vector<search::Depth>> depths = parse_depth_list(argv[++index]);
+      if (!depths.has_value()) {
+        std::cerr << "--depth-sweep must be a comma-separated list of positive integers\n";
+        return std::nullopt;
+      }
+      args.depth_sweep = *depths;
+    } else if (arg == "--exact-adjudicate-disagreements") {
+      args.exact_adjudicate_disagreements = true;
+    } else if (arg == "--max-disagreements") {
+      if (index + 1 >= argc) {
+        std::cerr << "--max-disagreements requires a value\n";
+        return std::nullopt;
+      }
+      const std::optional<int> value = parse_int(argv[++index]);
+      if (!value.has_value() || *value < 0) {
+        std::cerr << "--max-disagreements must be a non-negative integer\n";
+        return std::nullopt;
+      }
+      args.max_disagreements = *value;
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -278,6 +445,12 @@ std::optional<Args> parse_args(int argc, char** argv) {
       args.baseline_weights_path.empty() || args.baseline_manifest_path.empty() ||
       args.baseline_name.empty() || args.report_out_path.empty() || args.summary_out_path.empty()) {
     print_usage();
+    return std::nullopt;
+  }
+  if (args.diagnostics_out_path.empty() &&
+      (args.compare_static_scores || args.compare_best_moves || !args.depth_sweep.empty() ||
+       args.exact_adjudicate_disagreements)) {
+    std::cerr << "--diagnostics-out is required when diagnostics flags are used\n";
     return std::nullopt;
   }
   return args;
@@ -530,12 +703,16 @@ std::optional<LoadedEvaluator> load_evaluator(std::string name, std::string weig
   }
 
   try {
+    eval::PatternFeatureSet feature_set = std::move(runtime->feature_set);
     return LoadedEvaluator{
         .name = std::move(name),
         .weights_path = std::move(weights_path),
         .manifest_path = std::move(manifest_path),
+        .manifest_pattern_set_id = *manifest_pattern_set,
+        .runtime_pattern_set_id = runtime->pattern_set->id,
         .artifact_checksum = artifact_checksum,
-        .evaluator = eval::PatternEvaluator{std::move(*weights), std::move(runtime->feature_set)},
+        .feature_set = feature_set,
+        .evaluator = eval::PatternEvaluator{std::move(*weights), std::move(feature_set)},
     };
   } catch (const std::exception& error) {
     std::cerr << "pattern evaluator rejected artifact for " << name << ": " << error.what() << '\n';
@@ -643,6 +820,11 @@ std::optional<PositionLoadResult> load_positions(const Args& args) {
   const std::optional<std::size_t> empty_index = column_index(header, "empty_count");
   const std::optional<std::size_t> phase_index = column_index(header, "phase");
   const std::optional<std::size_t> split_index = column_index(header, "split");
+  const std::optional<std::size_t> label_kind_index = column_index(header, "label_kind");
+  const std::optional<std::size_t> label_perspective_index =
+      column_index(header, "label_perspective");
+  const std::optional<std::size_t> label_score_index =
+      column_index(header, "label_score_side_to_move");
   if (!board_id_index.has_value() || !board_index.has_value() || !empty_index.has_value() ||
       !phase_index.has_value() || !split_index.has_value()) {
     std::cerr << "positions TSV must contain board_id, board_a1_to_h8, empty_count, phase, and "
@@ -682,16 +864,35 @@ std::optional<PositionLoadResult> load_positions(const Args& args) {
       std::cerr << "positions TSV row " << result.input_rows + 1 << " has invalid board_a1_to_h8\n";
       return std::nullopt;
     }
-    add_or_replace_selected(&result.selected,
-                            PositionRow{
-                                .board_id = board_id,
-                                .board_text = board_text,
-                                .split = std::string{fields[*split_index]},
-                                .empty_count = *empty_count,
-                                .phase = *phase,
-                                .selection_hash = selection_hash(args.seed, board_id),
-                            },
-                            args.max_positions);
+    std::optional<int> label_score;
+    if (label_score_index.has_value() && fields.size() > *label_score_index &&
+        !fields[*label_score_index].empty()) {
+      label_score = parse_int(fields[*label_score_index]);
+      if (!label_score.has_value()) {
+        std::cerr << "positions TSV row " << result.input_rows + 1
+                  << " has invalid label_score_side_to_move\n";
+        return std::nullopt;
+      }
+    }
+    add_or_replace_selected(
+        &result.selected,
+        PositionRow{
+            .board_id = board_id,
+            .board_text = board_text,
+            .split = std::string{fields[*split_index]},
+            .label_kind = label_kind_index.has_value() && fields.size() > *label_kind_index
+                              ? std::string{fields[*label_kind_index]}
+                              : std::string{},
+            .label_perspective =
+                label_perspective_index.has_value() && fields.size() > *label_perspective_index
+                    ? std::string{fields[*label_perspective_index]}
+                    : std::string{},
+            .label_score_side_to_move = label_score,
+            .empty_count = *empty_count,
+            .phase = *phase,
+            .selection_hash = selection_hash(args.seed, board_id),
+        },
+        args.max_positions);
   }
 
   std::sort(result.selected.begin(), result.selected.end(), [](const auto& lhs, const auto& rhs) {
@@ -785,6 +986,34 @@ GameResult play_game(const PositionRow& row, const LoadedEvaluator& candidate,
   };
 }
 
+std::vector<GameResult> play_selected_games(std::span<const PositionRow> rows,
+                                            const LoadedEvaluator& candidate,
+                                            const LoadedEvaluator& baseline, bool side_swap,
+                                            search::Depth depth, int progress_every,
+                                            std::string_view progress_prefix) {
+  std::vector<GameResult> results;
+  results.reserve(rows.size() * (side_swap ? 2U : 1U));
+  int games_played = 0;
+  for (const PositionRow& row : rows) {
+    results.push_back(play_game(row, candidate, baseline, true, depth));
+    ++games_played;
+    if (progress_every > 0 && games_played % progress_every == 0) {
+      std::cerr << progress_prefix << " progress games=" << games_played << '\n';
+    }
+    if (side_swap) {
+      results.push_back(play_game(row, candidate, baseline, false, depth));
+      ++games_played;
+      if (progress_every > 0 && games_played % progress_every == 0) {
+        std::cerr << progress_prefix << " progress games=" << games_played << '\n';
+      }
+    }
+  }
+  if (progress_every > 0) {
+    std::cerr << progress_prefix << " complete games=" << results.size() << '\n';
+  }
+  return results;
+}
+
 void add_to_bucket(BucketStats* bucket, const GameResult& result) {
   ++bucket->games;
   bucket->disc_diff_sum += result.candidate_disc_diff;
@@ -850,6 +1079,457 @@ ArenaStats summarize_results(std::span<const GameResult> results) {
     stats.score_interval_high = std::clamp(p + 1.96 * stderr, 0.0, 1.0);
   }
   return stats;
+}
+
+int sign_of(int value) noexcept {
+  if (value > 0) {
+    return 1;
+  }
+  if (value < 0) {
+    return -1;
+  }
+  return 0;
+}
+
+void update_range(ScoreRange* range, int value) noexcept {
+  if (!range->has_value) {
+    range->min = value;
+    range->max = value;
+    range->has_value = true;
+    return;
+  }
+  range->min = std::min(range->min, value);
+  range->max = std::max(range->max, value);
+}
+
+double average_or_zero(std::span<const int> values) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  const int sum = std::accumulate(values.begin(), values.end(), 0);
+  return static_cast<double>(sum) / static_cast<double>(values.size());
+}
+
+double absolute_average_or_zero(std::span<const int> values) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  std::int64_t sum = 0;
+  for (const int value : values) {
+    sum += std::abs(value);
+  }
+  return static_cast<double>(sum) / static_cast<double>(values.size());
+}
+
+double absolute_median_or_zero(std::vector<int> values) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  for (int& value : values) {
+    value = std::abs(value);
+  }
+  std::sort(values.begin(), values.end());
+  const std::size_t middle = values.size() / 2;
+  if (values.size() % 2 == 0) {
+    return (static_cast<double>(values[middle - 1]) + static_cast<double>(values[middle])) / 2.0;
+  }
+  return static_cast<double>(values[middle]);
+}
+
+std::string move_to_string(board_core::Move move) {
+  if (move.kind == board_core::MoveKind::pass) {
+    return "pass";
+  }
+  const int file = board_core::file_of(move.square);
+  const int rank = board_core::rank_of(move.square);
+  if (file < 0 || rank < 0) {
+    return "none";
+  }
+  std::string text;
+  text.push_back(static_cast<char>('a' + file));
+  text.push_back(static_cast<char>('1' + rank));
+  return text;
+}
+
+std::string best_move_to_string(const search::SearchResult& result) {
+  if (!result.best_move.has_value()) {
+    return "none";
+  }
+  return move_to_string(*result.best_move);
+}
+
+std::optional<int> arena_disc_diff_for(std::span<const GameResult> results,
+                                       std::string_view board_id,
+                                       std::string_view side_assignment) {
+  for (const GameResult& result : results) {
+    if (result.board_id == board_id && result.side_assignment == side_assignment) {
+      return result.candidate_disc_diff;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<int> exact_score_after_root_move(board_core::Position root, board_core::Move move) {
+  board_core::MoveDelta delta{};
+  bool applied = false;
+  if (move.kind == board_core::MoveKind::pass) {
+    applied = board_core::apply_pass(&root, &delta);
+  } else {
+    applied = board_core::apply_move(&root, move, &delta);
+  }
+  if (!applied) {
+    return std::nullopt;
+  }
+  const search::SearchResult child = search::solve_exact_endgame(root);
+  return -child.score;
+}
+
+std::uint8_t runtime_phase_for_position(board_core::Position position) noexcept {
+  const int discs = disc_count(board_core::occupied(position));
+  return phase_by_disc_count_13()[static_cast<std::size_t>(discs)];
+}
+
+bool is_side_to_move_perspective(std::string_view text) noexcept {
+  return text.empty() || text == "side-to-move" || text == "side_to_move";
+}
+
+FeatureActivationReport feature_activation_for(std::span<const PositionRow> rows,
+                                               const LoadedEvaluator& evaluator,
+                                               const LoadedEvaluator& comparison) {
+  std::set<std::string> comparison_families;
+  for (const eval::PatternFeatureTable& table : comparison.feature_set.tables) {
+    comparison_families.insert(table.pattern_id);
+  }
+
+  FeatureActivationReport report{
+      .pattern_set_id = evaluator.runtime_pattern_set_id,
+  };
+  for (const eval::PatternFeatureTable& table : evaluator.feature_set.tables) {
+    if (!comparison_families.contains(table.pattern_id)) {
+      ++report.added_family_count;
+    }
+  }
+
+  for (const PositionRow& row : rows) {
+    const std::optional<board_core::Position> position =
+        position_from_relative_board(row.board_text);
+    if (!position.has_value()) {
+      continue;
+    }
+    for (const eval::PatternFeatureTable& table : evaluator.feature_set.tables) {
+      FeatureFamilyActivation& activation = report.by_family[table.pattern_id];
+      for (const std::vector<board_core::Square>& squares : table.instances) {
+        const std::uint32_t index = eval::ternary_pattern_index(*position, squares);
+        ++activation.instances_evaluated;
+        activation.distinct_indices.insert(index);
+        if (index == 0) {
+          ++activation.all_empty_activations;
+        } else {
+          ++activation.non_empty_activations;
+        }
+      }
+    }
+  }
+
+  for (const auto& [family, activation] : report.by_family) {
+    if (!comparison_families.contains(family) && activation.non_empty_activations > 0) {
+      ++report.added_family_active_count;
+    }
+  }
+  return report;
+}
+
+DepthDiagnostic compare_roots_at_depth(std::span<const PositionRow> rows,
+                                       const LoadedEvaluator& candidate,
+                                       const LoadedEvaluator& baseline, search::Depth depth) {
+  DepthDiagnostic diagnostic;
+  std::vector<int> search_diffs;
+  search_diffs.reserve(rows.size());
+  for (const PositionRow& row : rows) {
+    const std::optional<board_core::Position> position =
+        position_from_relative_board(row.board_text);
+    if (!position.has_value()) {
+      continue;
+    }
+    const search::SearchResult candidate_search =
+        search::search_fixed_depth(*position, candidate.evaluator, depth);
+    const search::SearchResult baseline_search =
+        search::search_fixed_depth(*position, baseline.evaluator, depth);
+    if (best_move_to_string(candidate_search) != best_move_to_string(baseline_search)) {
+      ++diagnostic.best_move_disagreement_count;
+    }
+    search_diffs.push_back(candidate_search.score - baseline_search.score);
+  }
+  if (!rows.empty()) {
+    diagnostic.best_move_disagreement_rate =
+        static_cast<double>(diagnostic.best_move_disagreement_count) /
+        static_cast<double>(rows.size());
+  }
+  diagnostic.search_score_diff_mean = average_or_zero(search_diffs);
+  diagnostic.search_score_diff_abs_mean = absolute_average_or_zero(search_diffs);
+  return diagnostic;
+}
+
+DiagnosticsReport build_diagnostics(const Args& args, const LoadedEvaluator& candidate,
+                                    const LoadedEvaluator& baseline,
+                                    const PositionLoadResult& positions,
+                                    std::span<const GameResult> arena_results,
+                                    const ArenaStats& arena_stats,
+                                    const std::map<int, ArenaStats>& depth_arena_stats) {
+  DiagnosticsReport report;
+  report.selected_positions = static_cast<int>(positions.selected.size());
+  report.rows.reserve(positions.selected.size());
+
+  std::vector<int> static_diffs;
+  std::vector<int> search_diffs;
+  int candidate_static_abs_sum = 0;
+  int baseline_static_abs_sum = 0;
+  int exact_attempts = 0;
+  constexpr int kMaxExactAdjudicationEmpties = 14;
+
+  for (const PositionRow& row : positions.selected) {
+    PositionDiagnostics diagnostics{
+        .board_id = row.board_id,
+        .split = row.split,
+        .label_kind = row.label_kind,
+        .label_perspective = row.label_perspective,
+        .label_score_side_to_move = row.label_score_side_to_move,
+        .empty_count = row.empty_count,
+        .phase = row.phase,
+        .runtime_phase = row.phase,
+        .arena_candidate_side_to_move_disc_diff =
+            arena_disc_diff_for(arena_results, row.board_id, "candidate_side_to_move"),
+        .arena_candidate_opponent_disc_diff =
+            arena_disc_diff_for(arena_results, row.board_id, "candidate_opponent"),
+    };
+
+    if (!is_side_to_move_perspective(row.label_perspective)) {
+      ++report.label_perspective_mismatch_count;
+    }
+
+    const std::optional<board_core::Position> position =
+        position_from_relative_board(row.board_text);
+    if (!position.has_value()) {
+      report.rows.push_back(std::move(diagnostics));
+      continue;
+    }
+    diagnostics.runtime_phase = runtime_phase_for_position(*position);
+    if (diagnostics.runtime_phase != row.phase) {
+      ++report.phase_mapping_mismatch_count;
+    }
+
+    if (args.compare_static_scores) {
+      const int candidate_score = candidate.evaluator.evaluate(*position);
+      const int baseline_score = baseline.evaluator.evaluate(*position);
+      const int diff = candidate_score - baseline_score;
+      diagnostics.candidate_static_score = candidate_score;
+      diagnostics.baseline_static_score = baseline_score;
+      diagnostics.static_score_diff = diff;
+      update_range(&report.candidate_static_score_range, candidate_score);
+      update_range(&report.baseline_static_score_range, baseline_score);
+      static_diffs.push_back(diff);
+      candidate_static_abs_sum += std::abs(candidate_score);
+      baseline_static_abs_sum += std::abs(baseline_score);
+      if (diff == 0) {
+        ++report.static_score_diff_zero_count;
+      } else {
+        ++report.static_score_diff_nonzero_count;
+      }
+      if (row.label_score_side_to_move.has_value() && *row.label_score_side_to_move != 0 &&
+          candidate_score != 0) {
+        ++report.labeled_static_sign_checked_count;
+        if (sign_of(*row.label_score_side_to_move) == sign_of(candidate_score)) {
+          ++report.candidate_static_label_sign_agreement_count;
+        } else {
+          ++report.candidate_static_label_sign_opposition_count;
+        }
+      }
+    }
+
+    if (args.compare_best_moves) {
+      const search::SearchResult candidate_search =
+          search::search_fixed_depth(*position, candidate.evaluator, args.depth);
+      const search::SearchResult baseline_search =
+          search::search_fixed_depth(*position, baseline.evaluator, args.depth);
+      diagnostics.candidate_best_move = best_move_to_string(candidate_search);
+      diagnostics.baseline_best_move = best_move_to_string(baseline_search);
+      diagnostics.candidate_search_score = candidate_search.score;
+      diagnostics.baseline_search_score = baseline_search.score;
+      diagnostics.search_score_diff = candidate_search.score - baseline_search.score;
+      diagnostics.best_moves_differ =
+          diagnostics.candidate_best_move != diagnostics.baseline_best_move;
+      search_diffs.push_back(*diagnostics.search_score_diff);
+      if (diagnostics.best_moves_differ) {
+        ++report.best_move_disagreement_count;
+      }
+      if (diagnostics.static_score_diff.has_value()) {
+        const bool agrees =
+            sign_of(*diagnostics.static_score_diff) == sign_of(*diagnostics.search_score_diff);
+        diagnostics.static_score_order_agrees_with_search = agrees;
+        ++report.static_search_order_checked_count;
+        if (agrees) {
+          ++report.static_search_order_agreement_count;
+        }
+      }
+
+      if (args.exact_adjudicate_disagreements && diagnostics.best_moves_differ &&
+          exact_attempts < args.max_disagreements &&
+          row.empty_count <= kMaxExactAdjudicationEmpties &&
+          candidate_search.best_move.has_value() && baseline_search.best_move.has_value()) {
+        ++exact_attempts;
+        const std::optional<int> candidate_exact =
+            exact_score_after_root_move(*position, *candidate_search.best_move);
+        const std::optional<int> baseline_exact =
+            exact_score_after_root_move(*position, *baseline_search.best_move);
+        if (candidate_exact.has_value() && baseline_exact.has_value()) {
+          diagnostics.exact_adjudicated = true;
+          diagnostics.candidate_move_exact_score = *candidate_exact;
+          diagnostics.baseline_move_exact_score = *baseline_exact;
+          ++report.disagreement_exact_checked_count;
+          if (*candidate_exact > *baseline_exact) {
+            diagnostics.disagreement_adjudication = "candidate_better";
+            ++report.candidate_better_on_disagreements;
+          } else if (*candidate_exact < *baseline_exact) {
+            diagnostics.disagreement_adjudication = "baseline_better";
+            ++report.baseline_better_on_disagreements;
+          } else {
+            diagnostics.disagreement_adjudication = "draw";
+            ++report.draw_on_disagreements;
+          }
+        } else {
+          diagnostics.disagreement_adjudication = "exact_failed";
+        }
+      } else if (diagnostics.best_moves_differ) {
+        diagnostics.disagreement_adjudication = "not_checked";
+      }
+    }
+
+    report.rows.push_back(std::move(diagnostics));
+  }
+
+  report.static_score_diff_mean = average_or_zero(static_diffs);
+  report.static_score_diff_abs_mean = absolute_average_or_zero(static_diffs);
+  report.static_score_diff_abs_median = absolute_median_or_zero(static_diffs);
+  if (!static_diffs.empty()) {
+    report.candidate_static_abs_mean =
+        static_cast<double>(candidate_static_abs_sum) / static_cast<double>(static_diffs.size());
+    report.baseline_static_abs_mean =
+        static_cast<double>(baseline_static_abs_sum) / static_cast<double>(static_diffs.size());
+  }
+  if (!positions.selected.empty()) {
+    report.best_move_disagreement_rate = static_cast<double>(report.best_move_disagreement_count) /
+                                         static_cast<double>(positions.selected.size());
+  }
+  report.search_score_diff_mean = average_or_zero(search_diffs);
+  report.search_score_diff_abs_mean = absolute_average_or_zero(search_diffs);
+  if (report.static_search_order_checked_count > 0) {
+    report.static_search_order_agreement_rate =
+        static_cast<double>(report.static_search_order_agreement_count) /
+        static_cast<double>(report.static_search_order_checked_count);
+  }
+
+  report.candidate_feature_activation =
+      feature_activation_for(positions.selected, candidate, baseline);
+  report.baseline_feature_activation =
+      feature_activation_for(positions.selected, baseline, candidate);
+
+  for (const auto& [depth, stats] : depth_arena_stats) {
+    DepthDiagnostic diagnostic =
+        compare_roots_at_depth(positions.selected, candidate, baseline, depth);
+    diagnostic.arena_stats = stats;
+    report.results_by_depth[depth] = std::move(diagnostic);
+  }
+
+  report.notes = {
+      "diagnostics compare selected root positions before and after fixed-depth search",
+      "static and search scores are side-to-move relative",
+      "arena disc diffs are reported from candidate perspective",
+      "feature activation counts use runtime feature geometry and do not inspect learned weights",
+      "local diagnostic only; not Elo, not self-play, not production strength, not a publication "
+      "gate",
+  };
+
+  const bool same_artifact = candidate.artifact_checksum == baseline.artifact_checksum &&
+                             candidate.runtime_pattern_set_id == baseline.runtime_pattern_set_id;
+  if (same_artifact && args.side_swap &&
+      (std::abs(arena_stats.candidate_score_rate - 0.5) > 0.000001 ||
+       std::abs(arena_stats.average_disc_diff) > 0.000001)) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "identical artifact side-swapped arena did not tie exactly");
+  }
+  if (!same_artifact && args.compare_static_scores && report.selected_positions > 0 &&
+      report.static_score_diff_zero_count * 100 >= report.selected_positions * 95) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "candidate/baseline static score diff is zero for at least 95% of selected positions");
+  }
+  if (args.compare_best_moves && report.best_move_disagreement_rate <= 0.01 &&
+      report.static_score_diff_nonzero_count > 0) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "static score differences exist but best-move disagreement is near zero");
+  }
+  if (args.compare_best_moves && args.depth == 3 && report.static_score_diff_nonzero_count > 0 &&
+      report.best_move_disagreement_count == 0) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "static score differences exist but do not affect move selection at depth 3");
+  }
+  if (report.labeled_static_sign_checked_count > 0 &&
+      report.candidate_static_label_sign_opposition_count * 10 >=
+          report.labeled_static_sign_checked_count * 6) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "candidate static score is opposite sign from side-to-move labels on most checked rows");
+  }
+  const auto side_to_move_bucket = arena_stats.by_side_assignment.find("candidate_side_to_move");
+  const auto opponent_bucket = arena_stats.by_side_assignment.find("candidate_opponent");
+  if (!same_artifact && side_to_move_bucket != arena_stats.by_side_assignment.end() &&
+      opponent_bucket != arena_stats.by_side_assignment.end()) {
+    const double stm_rate = side_to_move_bucket->second.games == 0
+                                ? 0.0
+                                : side_to_move_bucket->second.candidate_score /
+                                      static_cast<double>(side_to_move_bucket->second.games);
+    const double opponent_rate = opponent_bucket->second.games == 0
+                                     ? 0.0
+                                     : opponent_bucket->second.candidate_score /
+                                           static_cast<double>(opponent_bucket->second.games);
+    if (std::abs(stm_rate - opponent_rate) > 0.10) {
+      report.suspicious_sign_or_perspective_indicators.push_back(
+          "candidate side-to-move and candidate opponent buckets differ by more than 0.10 score "
+          "rate");
+    }
+  }
+  if (report.phase_mapping_mismatch_count > 0) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "runtime phase mapping differs from normalized row phase on selected positions");
+  }
+  if (report.label_perspective_mismatch_count > 0) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "selected rows contain labels whose perspective is not side-to-move");
+  }
+  if (args.compare_static_scores && report.candidate_static_abs_mean > 0.0 &&
+      report.baseline_static_abs_mean > 0.0) {
+    const double ratio = report.candidate_static_abs_mean / report.baseline_static_abs_mean;
+    if (ratio > 10.0 || ratio < 0.1) {
+      report.suspicious_sign_or_perspective_indicators.push_back(
+          "candidate and baseline static score magnitudes differ by more than 10x");
+    }
+  }
+  if (report.candidate_feature_activation.added_family_count > 0 &&
+      report.candidate_feature_activation.added_family_active_count == 0) {
+    report.suspicious_sign_or_perspective_indicators.push_back(
+        "candidate-added feature families did not activate on selected positions");
+  }
+  if (report.results_by_depth.size() >= 2) {
+    double min_rate = 1.0;
+    double max_rate = 0.0;
+    for (const auto& [depth, diagnostic] : report.results_by_depth) {
+      min_rate = std::min(min_rate, diagnostic.arena_stats.candidate_score_rate);
+      max_rate = std::max(max_rate, diagnostic.arena_stats.candidate_score_rate);
+    }
+    if (max_rate - min_rate > 0.04) {
+      report.suspicious_sign_or_perspective_indicators.push_back(
+          "depth sweep score rates differ by more than 0.04");
+    }
+  }
+  return report;
 }
 
 void write_json_string(std::ostream& output, std::string_view text) {
@@ -918,6 +1598,311 @@ void write_histogram(std::ostream& output, const std::map<int, int>& histogram) 
     output << ": " << count;
   }
   output << "}";
+}
+
+void write_optional_int(std::ostream& output, const std::optional<int>& value) {
+  if (value.has_value()) {
+    output << *value;
+  } else {
+    output << "null";
+  }
+}
+
+void write_optional_bool(std::ostream& output, const std::optional<bool>& value) {
+  if (value.has_value()) {
+    output << (*value ? "true" : "false");
+  } else {
+    output << "null";
+  }
+}
+
+void write_string_array(std::ostream& output, std::span<const std::string> values) {
+  output << "[";
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if (index != 0) {
+      output << ", ";
+    }
+    write_json_string(output, values[index]);
+  }
+  output << "]";
+}
+
+void write_score_range(std::ostream& output, const ScoreRange& range) {
+  if (!range.has_value) {
+    output << "null";
+    return;
+  }
+  output << "{\"min\": " << range.min << ", \"max\": " << range.max << "}";
+}
+
+void write_feature_activation_report(std::ostream& output, const FeatureActivationReport& report) {
+  output << "{";
+  output << "\"pattern_set_id\": ";
+  write_json_string(output, report.pattern_set_id);
+  output << ", \"added_family_count\": " << report.added_family_count;
+  output << ", \"added_family_active_count\": " << report.added_family_active_count;
+  output << ", \"added_family_inactive_count\": "
+         << report.added_family_count - report.added_family_active_count;
+  output << ", \"by_family\": {";
+  bool first = true;
+  for (const auto& [family, activation] : report.by_family) {
+    if (!first) {
+      output << ", ";
+    }
+    first = false;
+    write_json_string(output, family);
+    output << ": {";
+    output << "\"instances_evaluated\": " << activation.instances_evaluated;
+    output << ", \"non_empty_activations\": " << activation.non_empty_activations;
+    output << ", \"all_empty_activations\": " << activation.all_empty_activations;
+    output << ", \"distinct_ternary_indices\": " << activation.distinct_indices.size();
+    output << "}";
+  }
+  output << "}}";
+}
+
+void write_depth_diagnostics(std::ostream& output,
+                             const std::map<int, DepthDiagnostic>& diagnostics) {
+  output << "{";
+  bool first = true;
+  for (const auto& [depth, diagnostic] : diagnostics) {
+    if (!first) {
+      output << ", ";
+    }
+    first = false;
+    write_json_string(output, std::to_string(depth));
+    output << ": {";
+    output << "\"games_played\": " << diagnostic.arena_stats.games_played;
+    output << ", \"candidate_wins\": " << diagnostic.arena_stats.candidate_wins;
+    output << ", \"baseline_wins\": " << diagnostic.arena_stats.baseline_wins;
+    output << ", \"draws\": " << diagnostic.arena_stats.draws;
+    output << ", \"candidate_score_rate\": " << diagnostic.arena_stats.candidate_score_rate;
+    output << ", \"average_disc_diff_candidate_perspective\": "
+           << diagnostic.arena_stats.average_disc_diff;
+    output << ", \"best_move_disagreement_count\": " << diagnostic.best_move_disagreement_count;
+    output << ", \"best_move_disagreement_rate\": " << diagnostic.best_move_disagreement_rate;
+    output << ", \"search_score_diff_mean\": " << diagnostic.search_score_diff_mean;
+    output << ", \"search_score_diff_abs_mean\": " << diagnostic.search_score_diff_abs_mean;
+    output << "}";
+  }
+  output << "}";
+}
+
+void write_position_diagnostics(std::ostream& output, std::span<const PositionDiagnostics> rows) {
+  output << "[";
+  for (std::size_t index = 0; index < rows.size(); ++index) {
+    if (index != 0) {
+      output << ", ";
+    }
+    const PositionDiagnostics& row = rows[index];
+    output << "{";
+    output << "\"board_id\": ";
+    write_json_string(output, row.board_id);
+    output << ", \"split\": ";
+    write_json_string(output, row.split);
+    output << ", \"empty_count\": " << row.empty_count;
+    output << ", \"phase\": " << row.phase;
+    output << ", \"runtime_phase\": " << row.runtime_phase;
+    output << ", \"label_kind\": ";
+    write_json_string(output, row.label_kind);
+    output << ", \"label_perspective\": ";
+    write_json_string(output, row.label_perspective);
+    output << ", \"label_score_side_to_move\": ";
+    write_optional_int(output, row.label_score_side_to_move);
+    output << ", \"candidate_static_score\": ";
+    write_optional_int(output, row.candidate_static_score);
+    output << ", \"baseline_static_score\": ";
+    write_optional_int(output, row.baseline_static_score);
+    output << ", \"static_score_diff\": ";
+    write_optional_int(output, row.static_score_diff);
+    output << ", \"candidate_best_move\": ";
+    write_json_string(output, row.candidate_best_move);
+    output << ", \"baseline_best_move\": ";
+    write_json_string(output, row.baseline_best_move);
+    output << ", \"candidate_search_score\": ";
+    write_optional_int(output, row.candidate_search_score);
+    output << ", \"baseline_search_score\": ";
+    write_optional_int(output, row.baseline_search_score);
+    output << ", \"search_score_diff\": ";
+    write_optional_int(output, row.search_score_diff);
+    output << ", \"best_moves_differ\": " << (row.best_moves_differ ? "true" : "false");
+    output << ", \"static_score_order_agrees_with_search_score_order\": ";
+    write_optional_bool(output, row.static_score_order_agrees_with_search);
+    output << ", \"arena_candidate_side_to_move_disc_diff\": ";
+    write_optional_int(output, row.arena_candidate_side_to_move_disc_diff);
+    output << ", \"arena_candidate_opponent_disc_diff\": ";
+    write_optional_int(output, row.arena_candidate_opponent_disc_diff);
+    output << ", \"exact_adjudicated\": " << (row.exact_adjudicated ? "true" : "false");
+    output << ", \"candidate_move_exact_score\": ";
+    write_optional_int(output, row.candidate_move_exact_score);
+    output << ", \"baseline_move_exact_score\": ";
+    write_optional_int(output, row.baseline_move_exact_score);
+    output << ", \"disagreement_adjudication\": ";
+    write_json_string(output, row.disagreement_adjudication);
+    output << "}";
+  }
+  output << "]";
+}
+
+bool write_diagnostics_report(const Args& args, const LoadedEvaluator& candidate,
+                              const LoadedEvaluator& baseline, const PositionLoadResult& positions,
+                              const ArenaStats& arena_stats, const DiagnosticsReport& diagnostics,
+                              std::string_view positions_checksum, std::string_view command) {
+  const std::filesystem::path parent =
+      std::filesystem::path(args.diagnostics_out_path).parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+  std::ofstream output(args.diagnostics_out_path);
+  if (!output) {
+    std::cerr << "cannot write diagnostics report: " << args.diagnostics_out_path << '\n';
+    return false;
+  }
+  output << std::fixed << std::setprecision(6);
+  output << "{\n";
+  output << "  \"schema_version\": 1,\n";
+  output << "  \"diagnostics_version\": \"pattern-artifact-arena-diagnostics-v1\",\n";
+  output << "  \"positions_tsv\": ";
+  write_json_string(output, args.positions_tsv_path);
+  output << ",\n";
+  output << "  \"positions_tsv_checksum\": ";
+  write_json_string(output, positions_checksum);
+  output << ",\n";
+  output << "  \"candidate_name\": ";
+  write_json_string(output, candidate.name);
+  output << ",\n";
+  output << "  \"candidate_manifest_pattern_set_id\": ";
+  write_json_string(output, candidate.manifest_pattern_set_id);
+  output << ",\n";
+  output << "  \"candidate_runtime_pattern_set_id\": ";
+  write_json_string(output, candidate.runtime_pattern_set_id);
+  output << ",\n";
+  output << "  \"candidate_artifact_checksum\": ";
+  write_json_string(output, candidate.artifact_checksum);
+  output << ",\n";
+  output << "  \"baseline_name\": ";
+  write_json_string(output, baseline.name);
+  output << ",\n";
+  output << "  \"baseline_manifest_pattern_set_id\": ";
+  write_json_string(output, baseline.manifest_pattern_set_id);
+  output << ",\n";
+  output << "  \"baseline_runtime_pattern_set_id\": ";
+  write_json_string(output, baseline.runtime_pattern_set_id);
+  output << ",\n";
+  output << "  \"baseline_artifact_checksum\": ";
+  write_json_string(output, baseline.artifact_checksum);
+  output << ",\n";
+  output << "  \"max_empty\": " << args.max_empty << ",\n";
+  if (args.max_positions > 0) {
+    output << "  \"max_positions\": " << args.max_positions << ",\n";
+  } else {
+    output << "  \"max_positions\": null,\n";
+  }
+  output << "  \"seed\": " << args.seed << ",\n";
+  output << "  \"side_swap\": " << (args.side_swap ? "true" : "false") << ",\n";
+  output << "  \"search_depth\": " << args.depth << ",\n";
+  output << "  \"compare_static_scores\": " << (args.compare_static_scores ? "true" : "false")
+         << ",\n";
+  output << "  \"compare_best_moves\": " << (args.compare_best_moves ? "true" : "false") << ",\n";
+  output << "  \"exact_adjudicate_disagreements\": "
+         << (args.exact_adjudicate_disagreements ? "true" : "false") << ",\n";
+  output << "  \"max_disagreements\": " << args.max_disagreements << ",\n";
+  const bool same_artifact = candidate.artifact_checksum == baseline.artifact_checksum &&
+                             candidate.runtime_pattern_set_id == baseline.runtime_pattern_set_id;
+  output << "  \"sanity_checks\": {\"same_artifact_mirror\": " << (same_artifact ? "true" : "false")
+         << ", \"same_artifact_side_swapped_tie\": "
+         << (same_artifact && args.side_swap &&
+                     std::abs(arena_stats.candidate_score_rate - 0.5) <= 0.000001 &&
+                     std::abs(arena_stats.average_disc_diff) <= 0.000001
+                 ? "true"
+                 : "false")
+         << "},\n";
+  output << "  \"input_rows\": " << positions.input_rows << ",\n";
+  output << "  \"eligible_rows\": " << positions.eligible_rows << ",\n";
+  output << "  \"duplicate_board_id_rows\": " << positions.duplicate_board_id_rows << ",\n";
+  output << "  \"selected_positions\": " << diagnostics.selected_positions << ",\n";
+  output << "  \"phase_mapping_mismatch_count\": " << diagnostics.phase_mapping_mismatch_count
+         << ",\n";
+  output << "  \"label_perspective_mismatch_count\": "
+         << diagnostics.label_perspective_mismatch_count << ",\n";
+  output << "  \"static_score_diff_mean\": " << diagnostics.static_score_diff_mean << ",\n";
+  output << "  \"static_score_diff_abs_mean\": " << diagnostics.static_score_diff_abs_mean << ",\n";
+  output << "  \"static_score_diff_abs_median\": " << diagnostics.static_score_diff_abs_median
+         << ",\n";
+  output << "  \"static_score_diff_zero_count\": " << diagnostics.static_score_diff_zero_count
+         << ",\n";
+  output << "  \"static_score_diff_nonzero_count\": " << diagnostics.static_score_diff_nonzero_count
+         << ",\n";
+  output << "  \"candidate_static_score_range\": ";
+  write_score_range(output, diagnostics.candidate_static_score_range);
+  output << ",\n";
+  output << "  \"baseline_static_score_range\": ";
+  write_score_range(output, diagnostics.baseline_static_score_range);
+  output << ",\n";
+  output << "  \"candidate_static_abs_mean\": " << diagnostics.candidate_static_abs_mean << ",\n";
+  output << "  \"baseline_static_abs_mean\": " << diagnostics.baseline_static_abs_mean << ",\n";
+  output << "  \"labeled_static_sign_checked_count\": "
+         << diagnostics.labeled_static_sign_checked_count << ",\n";
+  output << "  \"candidate_static_label_sign_agreement_count\": "
+         << diagnostics.candidate_static_label_sign_agreement_count << ",\n";
+  output << "  \"candidate_static_label_sign_opposition_count\": "
+         << diagnostics.candidate_static_label_sign_opposition_count << ",\n";
+  output << "  \"best_move_disagreement_count\": " << diagnostics.best_move_disagreement_count
+         << ",\n";
+  output << "  \"best_move_disagreement_rate\": " << diagnostics.best_move_disagreement_rate
+         << ",\n";
+  output << "  \"static_search_order_checked_count\": "
+         << diagnostics.static_search_order_checked_count << ",\n";
+  output << "  \"static_search_order_agreement_count\": "
+         << diagnostics.static_search_order_agreement_count << ",\n";
+  output << "  \"static_search_order_agreement_rate\": "
+         << diagnostics.static_search_order_agreement_rate << ",\n";
+  output << "  \"search_score_diff_mean\": " << diagnostics.search_score_diff_mean << ",\n";
+  output << "  \"search_score_diff_abs_mean\": " << diagnostics.search_score_diff_abs_mean << ",\n";
+  output << "  \"candidate_better_by_arena_count\": " << arena_stats.candidate_wins << ",\n";
+  output << "  \"baseline_better_by_arena_count\": " << arena_stats.baseline_wins << ",\n";
+  output << "  \"draw_by_arena_count\": " << arena_stats.draws << ",\n";
+  output << "  \"disagreement_exact_checked_count\": "
+         << diagnostics.disagreement_exact_checked_count << ",\n";
+  output << "  \"candidate_better_on_disagreements\": "
+         << diagnostics.candidate_better_on_disagreements << ",\n";
+  output << "  \"baseline_better_on_disagreements\": "
+         << diagnostics.baseline_better_on_disagreements << ",\n";
+  output << "  \"draw_on_disagreements\": " << diagnostics.draw_on_disagreements << ",\n";
+  output << "  \"results_by_empty_count\": ";
+  write_bucket_map(output, arena_stats.by_empty_count);
+  output << ",\n";
+  output << "  \"results_by_phase\": ";
+  write_bucket_map(output, arena_stats.by_phase);
+  output << ",\n";
+  output << "  \"results_by_split\": ";
+  write_bucket_map(output, arena_stats.by_split);
+  output << ",\n";
+  output << "  \"results_by_side_assignment\": ";
+  write_bucket_map(output, arena_stats.by_side_assignment);
+  output << ",\n";
+  output << "  \"results_by_depth\": ";
+  write_depth_diagnostics(output, diagnostics.results_by_depth);
+  output << ",\n";
+  output << "  \"feature_activation\": {\"candidate\": ";
+  write_feature_activation_report(output, diagnostics.candidate_feature_activation);
+  output << ", \"baseline\": ";
+  write_feature_activation_report(output, diagnostics.baseline_feature_activation);
+  output << "},\n";
+  output << "  \"suspicious_sign_or_perspective_indicators\": ";
+  write_string_array(output, diagnostics.suspicious_sign_or_perspective_indicators);
+  output << ",\n";
+  output << "  \"notes\": ";
+  write_string_array(output, diagnostics.notes);
+  output << ",\n";
+  output << "  \"position_diagnostics\": ";
+  write_position_diagnostics(output, diagnostics.rows);
+  output << ",\n";
+  output << "  \"command\": ";
+  write_json_string(output, command);
+  output << "\n";
+  output << "}\n";
+  return true;
 }
 
 std::string
@@ -1155,32 +2140,26 @@ int main(int argc, char** argv) {
   }
 
   const auto start = std::chrono::steady_clock::now();
-  std::vector<GameResult> results;
-  results.reserve(positions->selected.size() * (args->side_swap ? 2U : 1U));
-  int games_played = 0;
-  for (const PositionRow& row : positions->selected) {
-    results.push_back(play_game(row, *candidate, *baseline, true, args->depth));
-    ++games_played;
-    if (args->progress_every > 0 && games_played % args->progress_every == 0) {
-      std::cerr << "pattern-artifact-arena progress games=" << games_played << '\n';
-    }
-    if (args->side_swap) {
-      results.push_back(play_game(row, *candidate, *baseline, false, args->depth));
-      ++games_played;
-      if (args->progress_every > 0 && games_played % args->progress_every == 0) {
-        std::cerr << "pattern-artifact-arena progress games=" << games_played << '\n';
-      }
-    }
-  }
+  const std::vector<GameResult> results =
+      play_selected_games(positions->selected, *candidate, *baseline, args->side_swap, args->depth,
+                          args->progress_every, "pattern-artifact-arena");
   const auto end = std::chrono::steady_clock::now();
   const double wall_time_sec = std::chrono::duration<double>(end - start).count();
   const double games_per_sec =
       wall_time_sec > 0.0 ? static_cast<double>(results.size()) / wall_time_sec : 0.0;
-  if (args->progress_every > 0) {
-    std::cerr << "pattern-artifact-arena complete games=" << results.size() << '\n';
-  }
 
   const ArenaStats stats = summarize_results(results);
+  std::map<int, ArenaStats> depth_arena_stats;
+  for (const search::Depth depth : args->depth_sweep) {
+    if (depth == args->depth) {
+      depth_arena_stats[depth] = stats;
+      continue;
+    }
+    const std::vector<GameResult> depth_results =
+        play_selected_games(positions->selected, *candidate, *baseline, args->side_swap, depth, 0,
+                            "pattern-artifact-arena-depth-sweep");
+    depth_arena_stats[depth] = summarize_results(depth_results);
+  }
   const std::filesystem::path report_parent =
       std::filesystem::path(args->report_out_path).parent_path();
   if (!report_parent.empty()) {
@@ -1197,6 +2176,14 @@ int main(int argc, char** argv) {
   }
   if (!write_summary(*args, *candidate, *baseline, *positions, stats, command)) {
     return 1;
+  }
+  if (!args->diagnostics_out_path.empty()) {
+    const DiagnosticsReport diagnostics = build_diagnostics(
+        *args, *candidate, *baseline, *positions, results, stats, depth_arena_stats);
+    if (!write_diagnostics_report(*args, *candidate, *baseline, *positions, stats, diagnostics,
+                                  positions_checksum, command)) {
+      return 1;
+    }
   }
 
   std::cout << "games_played=" << stats.games_played << '\n';

@@ -303,6 +303,14 @@ Existing foundations include:
   bounded sampling, side-swapped pairings, progress logging, JSON/Markdown
   reports, and synthetic CTest smoke coverage without committing generated
   artifacts, logs, reports, or corpus payloads
+* optional pattern signal bottleneck diagnostics in the persistent artifact
+  arena that report selected-position static score deltas, fixed-depth root
+  best-move disagreements, search score deltas, exact low-empty adjudication for
+  capped disagreements, depth-sweep arena aggregates, candidate/baseline swap
+  sanity inputs, side-assignment buckets, manifest/runtime pattern-set checks,
+  normalized phase and side-to-move label sanity, and feature activation counts
+  by family so `pattern-v2-endgame-lite` additions can be checked for actual
+  late-game activation before changing trainer knobs or adding more patterns
 
 A bounded local 5,000-board low-empty exact-teacher diagnostic on the connected
 100k sequence-derived corpus showed `pattern-v2-endgame-lite` improving fitting
@@ -558,6 +566,7 @@ Status values:
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add bounded endgame local pattern set | done | `pattern-v2-endgame-lite` keeps the v1 ordered families and appends bounded endgame-oriented families with table lengths <= 10; dataset, exporter, runtime evaluation/search smoke, local-runner v0c export, and exact-teacher synthetic integration coverage exercise the new set without committing weights or artifacts |
 | Add persistent late-game artifact arena | done | `vibe-othello-pattern-artifact-arena` compares two local pattern artifacts over deterministic normalized schema v2 late-game positions with persistent artifact loading, optional side-swapped pairings, JSON/Markdown reports, and local-only caveats; it is not Elo, self-play, production strength, or a publication gate |
+| Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can now emit local-only diagnostics for where v1/v2 signal is lost: static scoring, root move choice, depth, side assignment, exact low-empty disagreement adjudication, phase/sign perspective, manifest/runtime compatibility, or feature family activation |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |

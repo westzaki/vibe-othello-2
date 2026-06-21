@@ -125,6 +125,12 @@ Existing evaluation tests cover:
   emission, deterministic stable payloads, `board_id` de-duplication,
   max-empty filtering, and artifact validation failures without committing
   generated artifacts or reports
+* CTest-backed pattern artifact arena diagnostics that reuse loaded runtime
+  evaluators to compare static scores, root best moves, search scores,
+  same-artifact mirror sanity, candidate/baseline swap complement behavior,
+  runtime/export compatibility for a tiny nonzero feature weight, normalized
+  phase versus runtime phase mapping, label sign convention, and feature family
+  activation counts without committing generated artifacts or reports
 
 The current repository already documents that:
 
@@ -192,6 +198,7 @@ Status values:
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` injects local-only v0a/v0b artifacts through `PatternEvaluator`, compares depth-1 fixed-depth search best move, score, and nodes over deterministic fixed positions, explicitly disables TT/endgame search options, and keeps wall-time out of pass/fail semantics |
 | Add local training runner evaluation smoke integration | done | The local-only Egaroucid subset training runner can export local v0b artifacts and include the fixed-position evaluation smoke summary/checksum in its local run report; sequence-derived local runs may cap evaluation smoke input rows independently from training rows; this remains smoke coverage, not a production benchmark |
 | Add persistent pattern artifact arena | done | `vibe-othello-pattern-artifact-arena` loads two local pattern artifacts once, reuses both artifact-backed evaluators across deterministic late-game side-swapped games, emits JSON/Markdown diagnostics, and stays scoped to local artifact-vs-artifact review rather than Elo, self-play, production strength, or publication gating |
+| Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can optionally emit diagnostics for selected-position static score deltas, fixed-depth root move disagreements, search score deltas, exact low-empty disagreement adjudication, depth-sweep arena results, side-assignment buckets, manifest/runtime pattern-set compatibility, phase/sign sanity, and feature activation by family |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
