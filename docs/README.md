@@ -21,6 +21,7 @@ Read only the document needed for the current task.
 | Pattern v2 vs v1 persistent artifact arena diagnostic | `experiments/pattern-artifact-arena-v2-vs-v1-late-game-1000.md` |
 | Pattern signal bottleneck diagnostics | `experiments/pattern-signal-bottleneck-diagnostics.md` |
 | Pattern move-teacher decision leverage diagnostic | `experiments/pattern-move-teacher-decision-leverage.md` |
+| Pattern move-teacher decision leverage scale matrix | `experiments/pattern-move-teacher-decision-leverage-scale.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |

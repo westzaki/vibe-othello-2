@@ -426,6 +426,9 @@ def extract_ranking(report_path: Path | None) -> dict[str, Any] | None:
         "pairwise_count",
         "mean_teacher_regret",
         "median_teacher_regret",
+        "exact_best_predicted_score_rank_mean",
+        "exact_best_predicted_score_rank_median",
+        "predicted_best_exact_margin_mean",
         "roots_with_all_moves_same_predicted_score",
     )
     return {key: report.get(key) for key in keys}
@@ -447,9 +450,36 @@ def compare_rankings(previous: dict[str, Any] | None, trained: dict[str, Any] | 
         if isinstance(trained.get("pairwise_accuracy"), (int, float))
         and isinstance(previous.get("pairwise_accuracy"), (int, float))
         else None,
+        "top1_tie_aware_accuracy_delta": trained.get("top1_tie_aware_accuracy")
+        - previous.get("top1_tie_aware_accuracy")
+        if isinstance(trained.get("top1_tie_aware_accuracy"), (int, float))
+        and isinstance(previous.get("top1_tie_aware_accuracy"), (int, float))
+        else None,
+        "best_move_in_top2_rate_delta": trained.get("best_move_in_top2_rate")
+        - previous.get("best_move_in_top2_rate")
+        if isinstance(trained.get("best_move_in_top2_rate"), (int, float))
+        and isinstance(previous.get("best_move_in_top2_rate"), (int, float))
+        else None,
         "mean_teacher_regret_delta": trained.get("mean_teacher_regret") - previous.get("mean_teacher_regret")
         if isinstance(trained.get("mean_teacher_regret"), (int, float))
         and isinstance(previous.get("mean_teacher_regret"), (int, float))
+        else None,
+        "median_teacher_regret_delta": trained.get("median_teacher_regret")
+        - previous.get("median_teacher_regret")
+        if isinstance(trained.get("median_teacher_regret"), (int, float))
+        and isinstance(previous.get("median_teacher_regret"), (int, float))
+        else None,
+        "exact_best_predicted_score_rank_mean_delta": trained.get("exact_best_predicted_score_rank_mean")
+        - previous.get("exact_best_predicted_score_rank_mean")
+        if isinstance(trained.get("exact_best_predicted_score_rank_mean"), (int, float))
+        and isinstance(previous.get("exact_best_predicted_score_rank_mean"), (int, float))
+        else None,
+        "roots_with_all_moves_same_predicted_score_delta": trained.get(
+            "roots_with_all_moves_same_predicted_score"
+        )
+        - previous.get("roots_with_all_moves_same_predicted_score")
+        if isinstance(trained.get("roots_with_all_moves_same_predicted_score"), (int, float))
+        and isinstance(previous.get("roots_with_all_moves_same_predicted_score"), (int, float))
         else None,
         "interpretation": "positive top1/pairwise deltas and negative regret delta indicate better decision leverage",
     }
@@ -580,7 +610,12 @@ def main() -> int:
                 "status": "ok",
                 "candidate_score_rate": arena_data.get("candidate_score_rate"),
                 "games_played": arena_data.get("games_played"),
-                "average_disc_diff": arena_data.get("average_disc_diff"),
+                "selected_positions": arena_data.get("selected_positions"),
+                "average_disc_diff": arena_data.get(
+                    "average_disc_diff_candidate_perspective",
+                    arena_data.get("average_disc_diff"),
+                ),
+                "candidate_score_rate_interval_95": arena_data.get("candidate_score_rate_interval_95"),
             }
         else:
             arena_payload = {"status": stages.get("bounded_late_game_arena", {}).get("status", "skipped")}
