@@ -47,6 +47,10 @@ side-to-move-relative board in the same local measurement split. This may change
 split counts and is only a measurement split policy, not a strength,
 publication, label-quality, or artifact-release claim.
 
+Teacher label TSVs and teacher-overlaid normalized TSVs are also local-only
+generated data. Keep them outside git and follow `../labels/README.md` for the
+schema, overlay workflow, and no-strength-claim policy.
+
 For long local measurements, keep a short operator note or progress journal in
 the same ignored tree, for example
 `$VIBE_OTHELLO_MEASUREMENTS/perf-notes/<run-id>.md`. Include the active suite

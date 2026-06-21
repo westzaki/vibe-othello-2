@@ -56,6 +56,9 @@ external corpora / self-play / engine labels
 tools/data-import
         | normalized records + source manifests
         v
+tools/pattern/labels
+        | optional local-only teacher label overlay
+        v
 tools/pattern/dataset
         | positions, labels, split ids
         v
@@ -210,6 +213,35 @@ Supported label types:
 Pattern-only evaluation should start with observed final-disc-difference labels
 and `engine_disc_estimate`. Transcript-derived observed labels must not be
 reported as teacher-search estimates.
+
+Local teacher label overlays are an explicit intermediate step between
+normalized TSV generation and pattern dataset generation. The overlay consumes
+normalized schema v2 rows and a local teacher label TSV keyed by `board_id`,
+then writes another normalized schema v2 TSV with only label fields replaced.
+Sampling and measurement split policy should run before overlay so the teacher
+file is applied to the exact normalized rows that feed training.
+
+Teacher label TSV schema:
+
+```text
+board_id	label_kind	label_unit	label_perspective	label_score_side_to_move	teacher_source	teacher_depth	teacher_nodes
+```
+
+Teacher label rules:
+
+* `board_id` must match normalized schema v2 `board_id`
+* `label_kind` should be `teacher_exact_final_disc_diff`,
+  `teacher_search_final_disc_diff`, or `teacher_static_eval_disc_diff`
+* `label_unit` is `disc`
+* `label_perspective` is `side_to_move`
+* `label_score_side_to_move` is an integer in `[-64, 64]`
+* `teacher_source` is a generic non-empty source label
+* `teacher_depth` and `teacher_nodes` are non-negative integers, or empty
+
+Teacher label overlays are local-only fitting diagnostics. Generated teacher
+label files and overlaid normalized TSVs must not be committed. Exact/search
+teacher labels are not strength claims, Elo results, match bench results,
+self-play results, or production artifacts until separate gates exist.
 
 Rules:
 

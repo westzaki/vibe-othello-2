@@ -186,6 +186,56 @@ def check_measurement_split_policy_dry_run(args: argparse.Namespace, root: Path)
     return True
 
 
+def check_teacher_label_dry_run(args: argparse.Namespace, root: Path) -> bool:
+    output_dir = root / "teacher-dry-run"
+    teacher_labels = root / "synthetic-teacher-labels.tsv"
+    result = run_suite(
+        args,
+        output_dir,
+        root / "teacher-cache",
+        [
+            "--preset",
+            "smoke",
+            "--teacher-labels",
+            str(teacher_labels),
+            "--teacher-label-missing-policy",
+            "keep-observed",
+            "--teacher-label-conflict-policy",
+            "fail",
+            "--dry-run",
+        ],
+    )
+    if result.returncode != 0:
+        return False
+    report = load_json(output_dir / "suite-report.json")
+    if report.get("teacher_labels_enabled") is not True:
+        print(f"suite report missing teacher label flag: {report!r}", file=sys.stderr)
+        return False
+    if report.get("teacher_label_missing_policy") != "keep-observed":
+        print(f"suite report missing teacher missing policy: {report!r}", file=sys.stderr)
+        return False
+    runs = report.get("runs")
+    if not isinstance(runs, list) or len(runs) != 1:
+        print(f"unexpected teacher dry-run runs: {runs!r}", file=sys.stderr)
+        return False
+    command = runs[0].get("command")
+    if not isinstance(command, list) or not command_contains(
+        command,
+        "--teacher-labels",
+        str(teacher_labels),
+        "--teacher-label-missing-policy",
+        "keep-observed",
+        "--teacher-label-conflict-policy",
+        "fail",
+    ):
+        print(f"dry-run command did not include teacher label flags: {command!r}", file=sys.stderr)
+        return False
+    if runs[0].get("teacher_labels_enabled") is not True:
+        print(f"run entry missing teacher label flag: {runs[0]!r}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_local_root_env_defaults(args: argparse.Namespace, root: Path) -> bool:
     local_root = root / "local-root"
     output_dir = local_root / "measurements" / RUN_PREFIX
@@ -470,6 +520,7 @@ def main() -> int:
         checks = (
             check_dry_run,
             check_measurement_split_policy_dry_run,
+            check_teacher_label_dry_run,
             check_local_root_env_defaults,
             check_specific_env_overrides_local_root,
             check_cli_overrides_env,

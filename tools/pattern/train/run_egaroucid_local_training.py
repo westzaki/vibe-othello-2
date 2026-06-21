@@ -290,6 +290,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Fail local measurement when a v2 board_id appears across train/validation/test.",
     )
+    parser.add_argument("--teacher-labels", type=Path)
+    parser.add_argument(
+        "--teacher-label-missing-policy",
+        choices=("fail", "keep-observed", "drop"),
+        default="fail",
+    )
+    parser.add_argument(
+        "--teacher-label-conflict-policy",
+        choices=("fail",),
+        default="fail",
+    )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--l2", type=float, default=0.0)
@@ -405,6 +416,11 @@ def parse_args() -> argparse.Namespace:
         "--search-smoke-exe",
         type=Path,
         default=root / "build/tools/pattern/export/vibe-othello-pattern-search-bench-smoke",
+    )
+    parser.add_argument(
+        "--teacher-label-overlay",
+        type=Path,
+        default=root / "tools/pattern/labels/apply_teacher_labels.py",
     )
     args = parser.parse_args()
     if args.raw_input is not None and args.manifest is None:
@@ -1651,6 +1667,55 @@ def apply_measurement_split_policy(
     return resplit_normalized, sample_report
 
 
+def run_teacher_label_overlay(
+    args: argparse.Namespace, normalized_tsv: Path, output_dir: Path
+) -> tuple[Path, Path, dict[str, Any]] | None:
+    if args.teacher_labels is None:
+        return None
+    teacher_normalized = output_dir / "teacher-normalized.tsv"
+    teacher_report = output_dir / "teacher-label-report.json"
+    run_or_fail(
+        [
+            sys.executable,
+            str(args.teacher_label_overlay),
+            "--normalized-tsv",
+            str(normalized_tsv),
+            "--teacher-labels",
+            str(args.teacher_labels),
+            "--output",
+            str(teacher_normalized),
+            "--report",
+            str(teacher_report),
+            "--missing-policy",
+            args.teacher_label_missing_policy,
+            "--conflict-policy",
+            args.teacher_label_conflict_policy,
+        ]
+    )
+    return teacher_normalized, teacher_report, load_json(teacher_report)
+
+
+def teacher_label_summary(report: dict[str, Any] | None) -> dict[str, Any] | None:
+    if report is None:
+        return None
+    return {
+        "input_rows": report.get("input_rows"),
+        "output_rows": report.get("output_rows"),
+        "matched_rows": report.get("matched_rows"),
+        "missing_rows": report.get("missing_rows"),
+        "dropped_rows": report.get("dropped_rows"),
+        "unique_teacher_boards": report.get("unique_teacher_boards"),
+        "label_kind_counts_after": report.get("label_kind_counts_after"),
+        "label_kind_counts_by_split_after": report.get("label_kind_counts_by_split_after"),
+        "label_kind_counts_by_phase_after": report.get("label_kind_counts_by_phase_after"),
+        "teacher_source_counts": report.get("teacher_source_counts"),
+        "teacher_depth_min": report.get("teacher_depth_min"),
+        "teacher_depth_max": report.get("teacher_depth_max"),
+        "teacher_nodes_sum": report.get("teacher_nodes_sum"),
+        "notes": report.get("notes"),
+    }
+
+
 def count_normalized_rows(path: Path) -> int:
     count = 0
     with path.open(newline="", encoding="utf-8") as handle:
@@ -1943,6 +2008,10 @@ def write_run_report(
     output_files: dict[str, str] = {
         name: rel(path, output_dir) for name, path in sorted(paths.items())
     }
+    teacher_report = None
+    teacher_report_path = paths.get("teacher_label_report_json")
+    if teacher_report_path is not None:
+        teacher_report = load_json(teacher_report_path)
     sequence_import_report = None
     sequence_import_policy = None
     sequence_report_path = paths.get("sequence_import_report_json")
@@ -1987,6 +2056,21 @@ def write_run_report(
                 "min_phase_weight": args.min_phase_weight or 0.25,
             }
         )
+    notes = list(LOCAL_NOTES)
+    if args.teacher_labels is not None:
+        notes.append("teacher labels are local-only generated data and must not be committed")
+        board_after = sample_report.get("board_leakage_audit_after") or sample_report.get(
+            "board_leakage_audit"
+        )
+        if (
+            sample_report.get("measurement_split_policy") == "preserve"
+            and isinstance(board_after, dict)
+            and board_after.get("cross_split_board_collision_count")
+        ):
+            notes.append(
+                "teacher labels are enabled with preserve split and exact-board leakage remains; "
+                "use --measurement-split-policy connected-board-game for leakage-safe diagnostics"
+            )
     report = {
         "schema_version": 1,
         "run_id": run_id,
@@ -2051,7 +2135,15 @@ def write_run_report(
         ),
         "dataset_feature_occurrence_count": dataset_report.get("feature_occurrence_count"),
         "dataset_example_rows": dataset_report.get("example_rows"),
+        "dataset_label_kind_counts": dataset_report.get("counts_by_label_kind"),
         "dataset_report_checksum": dataset_report.get("checksum"),
+        "teacher_labels_enabled": args.teacher_labels is not None,
+        "teacher_label_missing_policy": args.teacher_label_missing_policy,
+        "teacher_label_conflict_policy": args.teacher_label_conflict_policy,
+        "teacher_label_report_checksum": teacher_report.get("checksum")
+        if isinstance(teacher_report, dict)
+        else None,
+        "teacher_label_summary": teacher_label_summary(teacher_report),
         "trainer_mode": args.trainer_mode,
         "trainer_version": trainer_report.get("trainer_version"),
         "trainer_args": trainer_args,
@@ -2083,7 +2175,7 @@ def write_run_report(
             "artifact_checksum": v0a_data[5].get("weights_checksum"),
         },
         "output_files": output_files,
-        "notes": LOCAL_NOTES,
+        "notes": notes,
     }
     report_path = output_dir / "local-training-run-report.json"
     report_path.write_text(stable_json(report), encoding="utf-8")
@@ -2178,15 +2270,42 @@ def main() -> int:
             output_path=dataset_input_normalized.name,
         )
 
+        teacher_overlay = None
+        training_normalized = dataset_input_normalized
+        if args.teacher_labels is not None:
+            with stages.begin(
+                "teacher_label_overlay",
+                input_bytes=file_size(dataset_input_normalized),
+                missing_policy=args.teacher_label_missing_policy,
+                conflict_policy=args.teacher_label_conflict_policy,
+            ):
+                teacher_overlay = run_teacher_label_overlay(
+                    args, dataset_input_normalized, output_dir
+                )
+            assert teacher_overlay is not None
+            training_normalized = teacher_overlay[0]
+            stages.update(
+                "teacher_label_overlay",
+                output_rows=teacher_overlay[2].get("output_rows"),
+                matched_rows=teacher_overlay[2].get("matched_rows"),
+                missing_rows=teacher_overlay[2].get("missing_rows"),
+                dropped_rows=teacher_overlay[2].get("dropped_rows"),
+                output_bytes=file_size(training_normalized),
+                output_path=training_normalized.name,
+                return_code=0,
+            )
+        else:
+            stages.update("teacher_label_overlay", status="skipped")
+
         with stages.begin(
-            "pattern_dataset_generation", input_bytes=file_size(dataset_input_normalized)
+            "pattern_dataset_generation", input_bytes=file_size(training_normalized)
         ):
             dataset_tsv, dataset_report_path, dataset_report = run_dataset_builder(
-                args, dataset_input_normalized, output_dir
+                args, training_normalized, output_dir
             )
         stages.update(
             "pattern_dataset_generation",
-            input_rows=sample_report.get("sampled_rows"),
+            input_rows=count_normalized_rows(training_normalized),
             output_rows=count_lines_after_header(dataset_tsv),
             output_format=dataset_report.get("output_format", args.dataset_output_format),
             output_examples=dataset_report.get("example_rows"),
@@ -2308,6 +2427,9 @@ def main() -> int:
         if dataset_input_normalized != sampled_normalized:
             paths["resplit_normalized_tsv"] = dataset_input_normalized
             paths["measurement_split_output_tsv"] = dataset_input_normalized
+        if teacher_overlay is not None:
+            paths["teacher_normalized_tsv"] = teacher_overlay[0]
+            paths["teacher_label_report_json"] = teacher_overlay[1]
         if args.raw_input is not None or args.sequence_input is not None:
             paths["normalized_tsv"] = source_normalized
         if args.sequence_input is not None:
@@ -2335,6 +2457,9 @@ def main() -> int:
             "source_normalized_tsv": file_size(source_normalized),
             "sampled_normalized_tsv": file_size(sampled_normalized),
             "measurement_split_output_tsv": file_size(dataset_input_normalized),
+            "teacher_normalized_tsv": file_size(training_normalized)
+            if teacher_overlay is not None
+            else None,
             "pattern_dataset_tsv": file_size(dataset_tsv),
             "pattern_dataset": file_size(dataset_tsv),
             "trainer_weights_json": file_size(v0b_weights_json),

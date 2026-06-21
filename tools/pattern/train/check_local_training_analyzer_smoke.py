@@ -37,6 +37,7 @@ def smoke_report(
     measurement_split_policy: str = "preserve",
     board_collision_count_after: int | None = None,
     game_collision_count_after: int | None = None,
+    teacher_label_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     report = {
         "schema_version": 1,
@@ -112,6 +113,12 @@ def smoke_report(
         report["game_group_leakage_audit"] = report["game_group_leakage_audit_after"]
     if measurement_split_policy == "connected-board-game":
         report["connected_component_count"] = 6
+    if teacher_label_summary is not None:
+        report["teacher_labels_enabled"] = True
+        report["teacher_label_missing_policy"] = "keep-observed"
+        report["teacher_label_conflict_policy"] = "fail"
+        report["teacher_label_report_checksum"] = "sha256:teacher"
+        report["teacher_label_summary"] = teacher_label_summary
     return report
 
 
@@ -213,12 +220,14 @@ def create_fixtures(root: Path) -> Path:
     fourth_dir = runs_dir / "04-sequence-miss"
     fifth_dir = runs_dir / "05-v0c"
     sixth_dir = runs_dir / "06-v0d"
+    seventh_dir = runs_dir / "07-teacher"
     write_json(first_dir / "v0b-trainer-report.json", trainer_report())
     write_json(second_dir / "v0b-trainer-report.json", trainer_report())
     write_json(third_dir / "v0b-trainer-report.json", trainer_report())
     write_json(fourth_dir / "v0b-trainer-report.json", trainer_report())
     write_json(fifth_dir / "v0b-trainer-report.json", trainer_report_v0c())
     write_json(sixth_dir / "v0b-trainer-report.json", trainer_report_v0d())
+    write_json(seventh_dir / "v0b-trainer-report.json", trainer_report_v0c())
     write_json(
         first_dir / "local-training-run-report.json",
         smoke_report(
@@ -246,6 +255,48 @@ def create_fixtures(root: Path) -> Path:
             None,
             stage_timings(),
             "expanded-tsv",
+        ),
+    )
+    write_json(
+        seventh_dir / "local-training-run-report.json",
+        smoke_report(
+            "smoke-teacher",
+            "2026-01-02T03:04:11Z",
+            "egaroucid-sequence-local",
+            {"train": 20, "validation": 2, "test": 2},
+            {"0": 12, "1": 12},
+            "0xteacher",
+            {
+                "summary": {
+                    "positions_count": "5",
+                    "v0a_v0b_different_count": "1",
+                },
+                "report_checksum": "0xeval-teacher",
+            },
+            {
+                "summary": {
+                    "positions_count": "2",
+                    "v0a_v0b_score_different_count": "1",
+                    "v0a_v0b_best_move_different_count": "1",
+                },
+                "report_checksum": "0xsearch-teacher",
+            },
+            sequence_cache("miss"),
+            stage_timings(),
+            "compact-tsv",
+            trainer_version="pattern-sgd-v0c",
+            measurement_split_policy="preserve",
+            board_collision_count_after=1,
+            teacher_label_summary={
+                "matched_rows": 21,
+                "missing_rows": 3,
+                "dropped_rows": 0,
+                "label_kind_counts_after": {
+                    "observed_final_disc_diff": 3,
+                    "teacher_exact_final_disc_diff": 21,
+                },
+                "teacher_source_counts": {"synthetic-fixture": 21},
+            },
         ),
     )
     write_json(
@@ -456,7 +507,7 @@ def main() -> int:
             print("analyzer Markdown output is not deterministic", file=sys.stderr)
             return 1
         summary = first["json"]
-        if summary.get("run_count") != 6:
+        if summary.get("run_count") != 7:
             print(f"unexpected run count: {summary.get('run_count')!r}", file=sys.stderr)
             return 1
         if [run.get("run_id") for run in summary.get("runs", [])] != [
@@ -466,6 +517,7 @@ def main() -> int:
             "smoke-sequence-miss",
             "smoke-v0c",
             "smoke-v0d",
+            "smoke-teacher",
         ]:
             print(f"unexpected run order: {summary.get('runs')!r}", file=sys.stderr)
             return 1
@@ -515,6 +567,19 @@ def main() -> int:
                 "dataset_output_format_mixed_comparison",
                 "trainer_mode_mixed_comparison",
             ],
+            "smoke-teacher": [
+                "train_rows_too_small",
+                "phase_coverage_biased",
+                "exact_board_cross_split_collision",
+                "teacher_label_observed_fallback",
+                "teacher_label_without_connected_split",
+                "validation_phase_count_tiny",
+                "phase_missing_train_examples",
+                "phase_mae_regressed_vs_phase_bias",
+                "cache_status_mixed_comparison",
+                "dataset_output_format_mixed_comparison",
+                "trainer_mode_mixed_comparison",
+            ],
         }
         if warning_codes(summary) != expected_warnings:
             print(f"unexpected warnings: {warning_codes(summary)!r}", file=sys.stderr)
@@ -537,6 +602,17 @@ def main() -> int:
             return 1
         if "phase_balance" not in first["markdown_text"]:
             print("Markdown summary is missing phase balance column", file=sys.stderr)
+            return 1
+        teacher_run = summary["runs"][6]
+        teacher_summary = teacher_run.get("teacher_labels")
+        if not isinstance(teacher_summary, dict) or teacher_summary.get("missing_rows") != 3:
+            print(f"teacher label diagnostics were not extracted: {teacher_run!r}", file=sys.stderr)
+            return 1
+        if teacher_summary.get("teacher_source_counts") != {"synthetic-fixture": 21}:
+            print(f"teacher source counts were not extracted: {teacher_run!r}", file=sys.stderr)
+            return 1
+        if "teacher_labels" not in first["markdown_text"] or "on matched=21 missing=3 dropped=0" not in first["markdown_text"]:
+            print("Markdown summary is missing teacher label diagnostics", file=sys.stderr)
             return 1
         sequence_run = summary["runs"][2]
         if sequence_run.get("cache_status") != "hit":
