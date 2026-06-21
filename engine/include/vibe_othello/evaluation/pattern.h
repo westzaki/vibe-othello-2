@@ -99,6 +99,8 @@ validate_pattern_set(const PatternSet& pattern_set) noexcept;
 
 [[nodiscard]] const PatternSet& buro_lite_pattern_set() noexcept;
 
+[[nodiscard]] const PatternSet& endgame_lite_pattern_set() noexcept;
+
 constexpr std::uint32_t ternary_pattern_index(std::span<const PatternCell> cells) noexcept {
   std::uint32_t index = 0;
   std::uint32_t place = 1;

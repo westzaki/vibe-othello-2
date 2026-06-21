@@ -291,6 +291,17 @@ Example schema:
 
 Runtime and training must share the same schema tests.
 
+Current local research pattern sets:
+
+* `pattern-v1-buro-lite` keeps the raw edge, near-edge, diagonal,
+  `corner-2x5`, and `corner-3x3` families in a stable ordered schema.
+* `pattern-v2-endgame-lite` preserves the `pattern-v1-buro-lite` order and
+  appends bounded endgame-oriented raw tables:
+  `corner-2x4-8`, `edge-plus-x-10`, `corner-wing-8`,
+  `near-edge-segment-8`, and `diagonal-corner-8`. Added table lengths are at
+  most 10, the largest table is `3^10`, and the set has 185,895 table entries
+  per phase plus the phase-bias slot.
+
 ## Feature Encoding
 
 Use ternary pattern indices.

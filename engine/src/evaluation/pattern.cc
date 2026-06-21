@@ -62,6 +62,51 @@ band(int file, int rank, int primary_file_delta, int primary_rank_delta, int sec
   return result;
 }
 
+[[nodiscard]] std::vector<board_core::Square> edge_plus_x(int file, int rank, int file_delta,
+                                                          int rank_delta, int first_x_file,
+                                                          int first_x_rank, int second_x_file,
+                                                          int second_x_rank) {
+  std::vector<board_core::Square> result = line(file, rank, file_delta, rank_delta, 8);
+  result.push_back(square_from_file_rank(first_x_file, first_x_rank));
+  result.push_back(square_from_file_rank(second_x_file, second_x_rank));
+  return result;
+}
+
+[[nodiscard]] std::vector<board_core::Square> corner_wing(int file, int rank, int edge_file_delta,
+                                                          int edge_rank_delta,
+                                                          int inside_file_delta,
+                                                          int inside_rank_delta) {
+  return {
+      square_from_file_rank(file, rank),
+      square_from_file_rank(file + edge_file_delta, rank + edge_rank_delta),
+      square_from_file_rank(file + edge_file_delta * 2, rank + edge_rank_delta * 2),
+      square_from_file_rank(file + edge_file_delta * 3, rank + edge_rank_delta * 3),
+      square_from_file_rank(file + inside_file_delta, rank + inside_rank_delta),
+      square_from_file_rank(file + edge_file_delta + inside_file_delta,
+                            rank + edge_rank_delta + inside_rank_delta),
+      square_from_file_rank(file + edge_file_delta * 2 + inside_file_delta,
+                            rank + edge_rank_delta * 2 + inside_rank_delta),
+      square_from_file_rank(file + edge_file_delta + inside_file_delta * 2,
+                            rank + edge_rank_delta + inside_rank_delta * 2),
+  };
+}
+
+[[nodiscard]] std::vector<board_core::Square>
+diagonal_corner(int file, int rank, int diagonal_file_delta, int diagonal_rank_delta,
+                int edge_file_delta, int edge_rank_delta, int side_file_delta,
+                int side_rank_delta) {
+  return {
+      square_from_file_rank(file, rank),
+      square_from_file_rank(file + diagonal_file_delta, rank + diagonal_rank_delta),
+      square_from_file_rank(file + diagonal_file_delta * 2, rank + diagonal_rank_delta * 2),
+      square_from_file_rank(file + diagonal_file_delta * 3, rank + diagonal_rank_delta * 3),
+      square_from_file_rank(file + diagonal_file_delta * 4, rank + diagonal_rank_delta * 4),
+      square_from_file_rank(file + diagonal_file_delta * 5, rank + diagonal_rank_delta * 5),
+      square_from_file_rank(file + edge_file_delta, rank + edge_rank_delta),
+      square_from_file_rank(file + side_file_delta, rank + side_rank_delta),
+  };
+}
+
 [[nodiscard]] std::vector<PatternDefinition>
 make_fixed_pattern_definitions(PatternSymmetryPolicy edge_symmetry,
                                PatternSymmetryPolicy corner_symmetry) {
@@ -114,6 +159,36 @@ make_fixed_pattern_definitions(PatternSymmetryPolicy edge_symmetry,
           .squares = band(0, 0, 1, 0, 0, 1, 3, 3),
       },
   };
+}
+
+[[nodiscard]] std::vector<PatternDefinition> make_endgame_lite_pattern_definitions() {
+  std::vector<PatternDefinition> definitions = make_buro_lite_pattern_definitions();
+  definitions.push_back(PatternDefinition{
+      .id = "corner-2x4-8",
+      .length = 8,
+      .squares = band(0, 0, 1, 0, 0, 1, 4, 2),
+  });
+  definitions.push_back(PatternDefinition{
+      .id = "edge-plus-x-10",
+      .length = 10,
+      .squares = edge_plus_x(0, 0, 1, 0, 1, 1, 6, 1),
+  });
+  definitions.push_back(PatternDefinition{
+      .id = "corner-wing-8",
+      .length = 8,
+      .squares = corner_wing(0, 0, 1, 0, 0, 1),
+  });
+  definitions.push_back(PatternDefinition{
+      .id = "near-edge-segment-8",
+      .length = 8,
+      .squares = band(1, 1, 1, 0, 0, 1, 4, 2),
+  });
+  definitions.push_back(PatternDefinition{
+      .id = "diagonal-corner-8",
+      .length = 8,
+      .squares = diagonal_corner(0, 0, 1, 1, 1, 0, 0, 1),
+  });
+  return definitions;
 }
 
 [[nodiscard]] std::optional<std::uint8_t> checked_canonical_length(std::size_t length) noexcept {
@@ -267,6 +342,14 @@ const PatternSet& buro_lite_pattern_set() noexcept {
   static const PatternSet pattern_set{
       .id = "pattern-v1-buro-lite",
       .patterns = make_buro_lite_pattern_definitions(),
+  };
+  return pattern_set;
+}
+
+const PatternSet& endgame_lite_pattern_set() noexcept {
+  static const PatternSet pattern_set{
+      .id = "pattern-v2-endgame-lite",
+      .patterns = make_endgame_lite_pattern_definitions(),
   };
   return pattern_set;
 }

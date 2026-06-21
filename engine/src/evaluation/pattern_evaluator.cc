@@ -105,6 +105,49 @@ std::vector<board_core::Square> band(int file, int rank, int primary_file_delta,
   return result;
 }
 
+std::vector<board_core::Square> edge_plus_x(int file, int rank, int file_delta, int rank_delta,
+                                            int first_x_file, int first_x_rank, int second_x_file,
+                                            int second_x_rank) {
+  std::vector<board_core::Square> result = line(file, rank, file_delta, rank_delta, 8);
+  result.push_back(square_from_file_rank(first_x_file, first_x_rank));
+  result.push_back(square_from_file_rank(second_x_file, second_x_rank));
+  return result;
+}
+
+std::vector<board_core::Square> corner_wing(int file, int rank, int edge_file_delta,
+                                            int edge_rank_delta, int inside_file_delta,
+                                            int inside_rank_delta) {
+  return {
+      square_from_file_rank(file, rank),
+      square_from_file_rank(file + edge_file_delta, rank + edge_rank_delta),
+      square_from_file_rank(file + edge_file_delta * 2, rank + edge_rank_delta * 2),
+      square_from_file_rank(file + edge_file_delta * 3, rank + edge_rank_delta * 3),
+      square_from_file_rank(file + inside_file_delta, rank + inside_rank_delta),
+      square_from_file_rank(file + edge_file_delta + inside_file_delta,
+                            rank + edge_rank_delta + inside_rank_delta),
+      square_from_file_rank(file + edge_file_delta * 2 + inside_file_delta,
+                            rank + edge_rank_delta * 2 + inside_rank_delta),
+      square_from_file_rank(file + edge_file_delta + inside_file_delta * 2,
+                            rank + edge_rank_delta + inside_rank_delta * 2),
+  };
+}
+
+std::vector<board_core::Square> diagonal_corner(int file, int rank, int diagonal_file_delta,
+                                                int diagonal_rank_delta, int edge_file_delta,
+                                                int edge_rank_delta, int side_file_delta,
+                                                int side_rank_delta) {
+  return {
+      square_from_file_rank(file, rank),
+      square_from_file_rank(file + diagonal_file_delta, rank + diagonal_rank_delta),
+      square_from_file_rank(file + diagonal_file_delta * 2, rank + diagonal_rank_delta * 2),
+      square_from_file_rank(file + diagonal_file_delta * 3, rank + diagonal_rank_delta * 3),
+      square_from_file_rank(file + diagonal_file_delta * 4, rank + diagonal_rank_delta * 4),
+      square_from_file_rank(file + diagonal_file_delta * 5, rank + diagonal_rank_delta * 5),
+      square_from_file_rank(file + edge_file_delta, rank + edge_rank_delta),
+      square_from_file_rank(file + side_file_delta, rank + side_rank_delta),
+  };
+}
+
 PatternFeatureTable table(std::string pattern_id, std::uint8_t length,
                           std::vector<std::vector<board_core::Square>> instances) {
   return PatternFeatureTable{
@@ -307,6 +350,106 @@ PatternFeatureSet buro_lite_pattern_feature_set() {
                         band(7, 0, -1, 0, 0, 1, 3, 3),
                         band(0, 7, 1, 0, 0, -1, 3, 3),
                         band(7, 7, -1, 0, 0, -1, 3, 3),
+                    }),
+          },
+  };
+}
+
+PatternFeatureSet endgame_lite_pattern_feature_set() {
+  return PatternFeatureSet{
+      .id = "pattern-v2-endgame-lite",
+      .tables =
+          {
+              table("edge-8", 8,
+                    {
+                        line(0, 0, 1, 0, 8),
+                        line(0, 7, 1, 0, 8),
+                        line(0, 0, 0, 1, 8),
+                        line(7, 0, 0, 1, 8),
+                    }),
+              table("near-edge-8", 8,
+                    {
+                        line(0, 1, 1, 0, 8),
+                        line(0, 6, 1, 0, 8),
+                        line(1, 0, 0, 1, 8),
+                        line(6, 0, 0, 1, 8),
+                    }),
+              table("diagonal-8", 8,
+                    {
+                        line(0, 0, 1, 1, 8),
+                        line(7, 0, -1, 1, 8),
+                    }),
+              table("diagonal-7", 7,
+                    {
+                        line(1, 0, 1, 1, 7),
+                        line(0, 1, 1, 1, 7),
+                        line(6, 0, -1, 1, 7),
+                        line(7, 1, -1, 1, 7),
+                    }),
+              table("corner-2x5", 10,
+                    {
+                        band(0, 0, 1, 0, 0, 1, 5, 2),
+                        band(0, 0, 0, 1, 1, 0, 5, 2),
+                        band(7, 0, -1, 0, 0, 1, 5, 2),
+                        band(7, 0, 0, 1, -1, 0, 5, 2),
+                        band(0, 7, 1, 0, 0, -1, 5, 2),
+                        band(0, 7, 0, -1, 1, 0, 5, 2),
+                        band(7, 7, -1, 0, 0, -1, 5, 2),
+                        band(7, 7, 0, -1, -1, 0, 5, 2),
+                    }),
+              table("corner-3x3", 9,
+                    {
+                        band(0, 0, 1, 0, 0, 1, 3, 3),
+                        band(7, 0, -1, 0, 0, 1, 3, 3),
+                        band(0, 7, 1, 0, 0, -1, 3, 3),
+                        band(7, 7, -1, 0, 0, -1, 3, 3),
+                    }),
+              table("corner-2x4-8", 8,
+                    {
+                        band(0, 0, 1, 0, 0, 1, 4, 2),
+                        band(0, 0, 0, 1, 1, 0, 4, 2),
+                        band(7, 0, -1, 0, 0, 1, 4, 2),
+                        band(7, 0, 0, 1, -1, 0, 4, 2),
+                        band(0, 7, 1, 0, 0, -1, 4, 2),
+                        band(0, 7, 0, -1, 1, 0, 4, 2),
+                        band(7, 7, -1, 0, 0, -1, 4, 2),
+                        band(7, 7, 0, -1, -1, 0, 4, 2),
+                    }),
+              table("edge-plus-x-10", 10,
+                    {
+                        edge_plus_x(0, 0, 1, 0, 1, 1, 6, 1),
+                        edge_plus_x(0, 7, 1, 0, 1, 6, 6, 6),
+                        edge_plus_x(0, 0, 0, 1, 1, 1, 1, 6),
+                        edge_plus_x(7, 0, 0, 1, 6, 1, 6, 6),
+                    }),
+              table("corner-wing-8", 8,
+                    {
+                        corner_wing(0, 0, 1, 0, 0, 1),
+                        corner_wing(0, 0, 0, 1, 1, 0),
+                        corner_wing(7, 0, -1, 0, 0, 1),
+                        corner_wing(7, 0, 0, 1, -1, 0),
+                        corner_wing(0, 7, 1, 0, 0, -1),
+                        corner_wing(0, 7, 0, -1, 1, 0),
+                        corner_wing(7, 7, -1, 0, 0, -1),
+                        corner_wing(7, 7, 0, -1, -1, 0),
+                    }),
+              table("near-edge-segment-8", 8,
+                    {
+                        band(1, 1, 1, 0, 0, 1, 4, 2),
+                        band(3, 1, 1, 0, 0, 1, 4, 2),
+                        band(1, 6, 1, 0, 0, -1, 4, 2),
+                        band(3, 6, 1, 0, 0, -1, 4, 2),
+                        band(1, 1, 0, 1, 1, 0, 4, 2),
+                        band(1, 3, 0, 1, 1, 0, 4, 2),
+                        band(6, 1, 0, 1, -1, 0, 4, 2),
+                        band(6, 3, 0, 1, -1, 0, 4, 2),
+                    }),
+              table("diagonal-corner-8", 8,
+                    {
+                        diagonal_corner(0, 0, 1, 1, 1, 0, 0, 1),
+                        diagonal_corner(7, 0, -1, 1, -1, 0, 0, 1),
+                        diagonal_corner(0, 7, 1, -1, 1, 0, 0, -1),
+                        diagonal_corner(7, 7, -1, -1, -1, 0, 0, -1),
                     }),
           },
   };

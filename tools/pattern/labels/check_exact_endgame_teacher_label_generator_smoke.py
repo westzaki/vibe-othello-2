@@ -456,6 +456,8 @@ def check_overlay_dataset_trainer(args: argparse.Namespace, root: Path) -> bool:
             str(dataset_report),
             "--output-format",
             "compact-tsv",
+            "--pattern-set",
+            "pattern-v2-endgame-lite",
         ]
     )
     if dataset_result.returncode != 0:
@@ -463,6 +465,16 @@ def check_overlay_dataset_trainer(args: argparse.Namespace, root: Path) -> bool:
         sys.stderr.write(dataset_result.stdout)
         return False
     dataset.write_text(dataset_result.stdout, encoding="utf-8")
+    dataset_summary = load_json(dataset_report)
+    if dataset_summary.get("pattern_set_id") != "pattern-v2-endgame-lite":
+        print(f"dataset did not use endgame-lite: {dataset_summary!r}", file=sys.stderr)
+        return False
+    if dataset_summary.get("feature_occurrence_count") != len(overlaid_rows) * 58:
+        print(f"unexpected endgame-lite feature count: {dataset_summary!r}", file=sys.stderr)
+        return False
+    if dataset_summary.get("total_table_entries") != 185895:
+        print(f"unexpected endgame-lite table size: {dataset_summary!r}", file=sys.stderr)
+        return False
     if not require_success(
         run(
             [

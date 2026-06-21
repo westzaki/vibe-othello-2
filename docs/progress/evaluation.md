@@ -51,6 +51,9 @@ The current evaluation runtime includes:
 * a runtime-owned raw `pattern-v1-buro-lite` production-ish pattern set and
   feature geometry covering edge, near-edge, diagonal, and corner families for
   larger local measurements
+* a runtime-owned raw `pattern-v2-endgame-lite` local research pattern set that
+  preserves `pattern-v1-buro-lite` order and appends bounded endgame-oriented
+  families for exact-teacher fitting diagnostics
 * explicit runtime `PatternFeatureSet` geometry for mapping weight tables to
   board instances
 * production-facing `PatternEvaluator` that consumes `PatternWeights` and a
@@ -114,7 +117,8 @@ Existing evaluation tests cover:
   artifacts through `PatternEvaluator` and measures v0a versus v0b under the
   same explicitly configured deterministic depth-1 smoke search settings
 * local smoke coverage for exporting, loading, and evaluating
-  `pattern-v1-buro-lite` artifacts without committing learned weights
+  `pattern-v1-buro-lite` and `pattern-v2-endgame-lite` artifacts without
+  committing learned weights
 
 The current repository already documents that:
 
@@ -175,7 +179,7 @@ Status values:
 | Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
 | Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
 | Add production `PatternEvaluator` | done | Consumes runtime `PatternWeights` plus explicit `PatternFeatureSet` geometry and applies per-phase bias before pattern table contributions |
-| Add production-ish pattern-set geometry | done | `pattern-v1-buro-lite` provides raw edge, near-edge, diagonal, `corner-2x5`, and `corner-3x3` runtime schema/feature geometry for local measurements; symmetry-enabled production tables remain future work |
+| Add production-ish pattern-set geometry | done | `pattern-v1-buro-lite` provides raw edge, near-edge, diagonal, `corner-2x5`, and `corner-3x3` runtime schema/feature geometry for local measurements; `pattern-v2-endgame-lite` adds bounded raw endgame-oriented local research families after the v1 order; symmetry-enabled production tables remain future work |
 | Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score; the tiny Egaroucid v0b smoke also exports learned pattern-SGD JSON into the existing artifact format and verifies loader/evaluator determinism |
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` compares local-only v0a phase-bias and v0b pattern-SGD artifacts over deterministic fixed positions, emits a checksum-stable JSON report, verifies at least one v0a/v0b score difference, and keeps Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` injects local-only v0a/v0b artifacts through `PatternEvaluator`, compares depth-1 fixed-depth search best move, score, and nodes over deterministic fixed positions, explicitly disables TT/endgame search options, and keeps wall-time out of pass/fail semantics |
@@ -209,9 +213,9 @@ Evaluation is strong enough to build on when:
 * evaluation benchmark baselines exist
 * UI calibration remains separate from search scoring
 
-Next evaluation steps for learned artifacts are repeatable local
-`pattern-v1-buro-lite` Egaroucid sequence subset reports with capped smoke
-inputs before any production publication decision. Sequence-derived labels are
+Next evaluation steps for learned artifacts are repeatable local v1/v2
+Egaroucid sequence subset reports with capped smoke inputs before any
+production publication decision. Sequence-derived labels are
 final-disc-difference labels, not teacher-search labels. Learned
 Egaroucid-derived weights and artifacts remain uncommitted, local-only, and
 publication-gated until provenance review is resolved.

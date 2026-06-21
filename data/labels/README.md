@@ -76,6 +76,9 @@ python3 tools/pattern/labels/run_exact_teacher_late_phase_campaign.py \
   --trainer-mode pattern-sgd-v0c
 ```
 
+Pass `--pattern-set pattern-v2-endgame-lite` to run the same local diagnostic
+with the bounded endgame-lite research pattern set.
+
 The campaign selects by validation MAE first. Test MAE is reporting and
 tie-break only. Treat exact labels as helpful only after at least 0.2 MAE
 absolute validation improvement or at least 1 percent relative validation

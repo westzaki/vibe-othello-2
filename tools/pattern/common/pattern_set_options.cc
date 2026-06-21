@@ -20,11 +20,18 @@ std::optional<PatternSetOption> select_pattern_set(std::string_view name, IndexM
         .feature_set = eval::buro_lite_pattern_feature_set(),
     };
   }
+  if (name == "endgame-lite" || name == "pattern-v2-endgame-lite") {
+    return PatternSetOption{
+        .pattern_set = &eval::endgame_lite_pattern_set(),
+        .feature_set = eval::endgame_lite_pattern_feature_set(),
+    };
+  }
   return std::nullopt;
 }
 
 std::string_view pattern_set_option_names() noexcept {
-  return "tiny, fixed-pattern-fixture-v1, buro-lite, or pattern-v1-buro-lite";
+  return "tiny, fixed-pattern-fixture-v1, buro-lite, pattern-v1-buro-lite, endgame-lite, or "
+         "pattern-v2-endgame-lite";
 }
 
 } // namespace vibe_othello::tools::pattern

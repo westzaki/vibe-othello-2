@@ -103,7 +103,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
     std::cerr << "usage: vibe-othello-pattern-evaluation-bench-smoke "
                  "--positions-tsv PATH --v0a-weights PATH --v0b-weights PATH "
                  "--v0a-artifact-checksum CHECKSUM --v0b-artifact-checksum CHECKSUM "
-                 "--report-out PATH [--pattern-set tiny|buro-lite]\n";
+                 "--report-out PATH [--pattern-set tiny|buro-lite|endgame-lite]\n";
     return std::nullopt;
   }
   return args;
@@ -336,12 +336,20 @@ bool score_in_search_range(vibe_othello::search::Score score) noexcept {
   return vibe_othello::search::kScoreLoss < score && score < vibe_othello::search::kScoreWin;
 }
 
+std::string_view smoke_source_for(const vibe_othello::evaluation::PatternSet& pattern_set) {
+  if (pattern_set.id == "fixed-pattern-fixture-v1") {
+    return "tiny-egaroucid-v0b-smoke";
+  }
+  if (pattern_set.id == "pattern-v2-endgame-lite") {
+    return "endgame-lite-egaroucid-v0b-smoke";
+  }
+  return "buro-lite-egaroucid-v0b-smoke";
+}
+
 std::string report_without_checksum(const Args& args, std::span<const ScoreRow> rows,
                                     int different_count,
                                     const vibe_othello::evaluation::PatternSet& pattern_set) {
-  const bool tiny_pattern_set = pattern_set.id == "fixed-pattern-fixture-v1";
-  const std::string_view source =
-      tiny_pattern_set ? "tiny-egaroucid-v0b-smoke" : "buro-lite-egaroucid-v0b-smoke";
+  const std::string_view source = smoke_source_for(pattern_set);
   std::ostringstream output;
   output << "{\n";
   output << "  \"schema_version\": 1,\n";
@@ -466,10 +474,7 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "schema_version=1\n";
-  std::cout << "source="
-            << (pattern_set.id == "fixed-pattern-fixture-v1" ? "tiny-egaroucid-v0b-smoke"
-                                                             : "buro-lite-egaroucid-v0b-smoke")
-            << '\n';
+  std::cout << "source=" << smoke_source_for(pattern_set) << '\n';
   std::cout << "pattern_set_id=" << pattern_set.id << '\n';
   std::cout << "phase_count=13\n";
   std::cout << "positions_count=" << rows.size() << '\n';
