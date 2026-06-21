@@ -30,14 +30,53 @@ Teacher labels and overlaid normalized TSVs are fitting diagnostics only. They
 are not strength claims, Elo results, match bench results, self-play results,
 or production artifacts.
 
+Exact endgame teacher labels can be generated locally for low-empty normalized
+schema v2 rows:
+
+```sh
+./build/tools/pattern/labels/vibe-othello-generate-exact-endgame-teacher-labels \
+  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
+  --teacher-labels-out "$RUN_DIR/exact-teacher-labels.tsv" \
+  --report-out "$RUN_DIR/exact-teacher-report.json" \
+  --max-empty 12 \
+  --max-positions 5000 \
+  --seed 0 \
+  --progress-every 100
+```
+
+The generator reads normalized schema v2 only, rejects schema v1, uses
+`board_id` as the key, solves only rows with `empty_count <= --max-empty`, and
+emits rows in sorted `board_id` order. The score is the exact final disc
+difference from the side-to-move perspective, using the existing exact endgame
+search API. It is intended for endgame/low-empty coverage only.
+
 Recommended local workflow:
 
 1. Build a connected-board-game 100k normalized/dataset measurement.
-2. Apply local teacher labels to the exact normalized rows used for training.
-3. Train v0c/v0d on the teacher-labeled dataset.
-4. Compare observed-label and teacher-label runs by validation diagnostics.
-5. Later, run match bench, Elo, or self-play gates before making strength
+2. Generate exact endgame labels from the exact normalized rows used for
+   training.
+3. Apply local teacher labels with `apply_teacher_labels.py`, usually with
+   `--missing-policy drop` for low-empty-only experiments.
+4. Train v0c/v0d on the observed-label low-empty rows and exact-teacher
+   low-empty rows.
+5. Compare observed-label and teacher-label runs by validation diagnostics.
+6. Later, run match bench, Elo, or self-play gates before making strength
    claims.
 
-Next: add exact endgame teacher label generator for low-empty positions using
-the existing search/endgame APIs.
+The optional local campaign helper performs steps 2 through 5 for a bounded
+late-phase diagnostic:
+
+```sh
+python3 tools/pattern/labels/run_exact_teacher_late_phase_campaign.py \
+  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
+  --output-dir "$RUN_DIR/exact-teacher-late-phase" \
+  --max-empty 12 \
+  --max-positions 5000 \
+  --seed 0 \
+  --trainer-mode pattern-sgd-v0c
+```
+
+The campaign selects by validation MAE first. Test MAE is reporting and
+tie-break only. Treat exact labels as helpful only after at least 0.2 MAE
+absolute validation improvement or at least 1 percent relative validation
+improvement.

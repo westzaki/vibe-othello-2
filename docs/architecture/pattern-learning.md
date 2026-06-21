@@ -243,6 +243,16 @@ label files and overlaid normalized TSVs must not be committed. Exact/search
 teacher labels are not strength claims, Elo results, match bench results,
 self-play results, or production artifacts until separate gates exist.
 
+Exact endgame teacher labels are generated only for low-empty normalized schema
+v2 rows by `tools/pattern/labels/generate_exact_endgame_teacher_labels.cc`.
+The generator streams the normalized TSV, keeps only eligible de-duplicated
+`board_id` candidates in memory, uses the existing public exact endgame search
+API, and writes teacher label TSV rows in sorted `board_id` order. It does not
+generate opening or midgame teacher labels, does not add neural evaluator logic,
+does not run self-play, and does not publish production artifacts. Bounded
+local comparisons should use validation MAE as the primary selector; test MAE
+is reporting and tie-break only.
+
 Rules:
 
 * labels must declare unit and perspective
