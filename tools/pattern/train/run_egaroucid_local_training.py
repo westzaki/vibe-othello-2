@@ -295,7 +295,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--l2", type=float, default=0.0)
     parser.add_argument(
         "--trainer-mode",
-        choices=("pattern-sgd-v0b", "pattern-sgd-v0c"),
+        choices=("pattern-sgd-v0b", "pattern-sgd-v0c", "pattern-sgd-v0d"),
         default="pattern-sgd-v0b",
     )
     parser.add_argument("--weight-decay", type=float)
@@ -306,6 +306,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--gradient-clip", type=float)
     parser.add_argument("--early-stop-patience", type=int)
+    parser.add_argument(
+        "--phase-balance",
+        choices=("none", "inverse-count", "sqrt-inverse-count"),
+        help="v0d-only phase weighting scheme.",
+    )
+    parser.add_argument("--max-phase-weight", type=float, help="v0d-only phase weight cap.")
+    parser.add_argument("--min-phase-weight", type=float, help="v0d-only phase weight floor.")
     parser.add_argument(
         "--trainer-eval-every-epoch",
         dest="trainer_eval_every_epoch",
@@ -422,6 +429,23 @@ def parse_args() -> argparse.Namespace:
         parser.error("--gradient-clip must be positive")
     if args.early_stop_patience is not None and args.early_stop_patience < 0:
         parser.error("--early-stop-patience must be non-negative")
+    v0d_only_args = (
+        args.phase_balance is not None
+        or args.max_phase_weight is not None
+        or args.min_phase_weight is not None
+    )
+    if args.trainer_mode != "pattern-sgd-v0d" and v0d_only_args:
+        parser.error("--phase-balance, --max-phase-weight, and --min-phase-weight require --trainer-mode pattern-sgd-v0d")
+    if args.max_phase_weight is not None and args.max_phase_weight <= 0.0:
+        parser.error("--max-phase-weight must be positive")
+    if args.min_phase_weight is not None and args.min_phase_weight <= 0.0:
+        parser.error("--min-phase-weight must be positive")
+    if (
+        args.max_phase_weight is not None
+        and args.min_phase_weight is not None
+        and args.min_phase_weight > args.max_phase_weight
+    ):
+        parser.error("--min-phase-weight must be <= --max-phase-weight")
     if args.trainer_progress_every_examples is not None and args.trainer_progress_every_examples <= 0:
         parser.error("--trainer-progress-every-examples must be positive")
     if args.sequence_min_ply < 0:
@@ -1731,7 +1755,12 @@ def run_dataset_builder(
 def run_trainer(
     args: argparse.Namespace, dataset_tsv: Path, output_dir: Path
 ) -> tuple[Path, Path, dict[str, Any]]:
-    mode_label = "v0c" if args.trainer_mode == "pattern-sgd-v0c" else "v0b"
+    mode_labels = {
+        "pattern-sgd-v0b": "v0b",
+        "pattern-sgd-v0c": "v0c",
+        "pattern-sgd-v0d": "v0d",
+    }
+    mode_label = mode_labels[args.trainer_mode]
     weights = output_dir / f"{mode_label}-weights.json"
     report = output_dir / f"{mode_label}-trainer-report.json"
     command = [
@@ -1754,7 +1783,7 @@ def run_trainer(
         "--report-out",
         str(report),
     ]
-    if args.trainer_mode == "pattern-sgd-v0c":
+    if args.trainer_mode in {"pattern-sgd-v0c", "pattern-sgd-v0d"}:
         command.extend(["--lr-schedule", args.lr_schedule])
         command.append("--eval-every-epoch" if args.trainer_eval_every_epoch else "--no-eval-every-epoch")
         if args.weight_decay is not None:
@@ -1767,6 +1796,13 @@ def run_trainer(
             command.extend(
                 ["--progress-every-examples", str(args.trainer_progress_every_examples)]
             )
+    if args.trainer_mode == "pattern-sgd-v0d":
+        if args.phase_balance is not None:
+            command.extend(["--phase-balance", args.phase_balance])
+        if args.max_phase_weight is not None:
+            command.extend(["--max-phase-weight", str(args.max_phase_weight)])
+        if args.min_phase_weight is not None:
+            command.extend(["--min-phase-weight", str(args.min_phase_weight)])
     run_streaming_or_fail(command)
     return weights, report, load_json(report)
 
@@ -1932,7 +1968,7 @@ def write_run_report(
         "l2": args.l2,
         "seed": args.seed,
     }
-    if args.trainer_mode == "pattern-sgd-v0c":
+    if args.trainer_mode in {"pattern-sgd-v0c", "pattern-sgd-v0d"}:
         trainer_args.update(
             {
                 "weight_decay": args.weight_decay,
@@ -1941,6 +1977,14 @@ def write_run_report(
                 "early_stop_patience": args.early_stop_patience,
                 "eval_every_epoch": args.trainer_eval_every_epoch,
                 "progress_every_examples": args.trainer_progress_every_examples,
+            }
+        )
+    if args.trainer_mode == "pattern-sgd-v0d":
+        trainer_args.update(
+            {
+                "phase_balance": args.phase_balance or "sqrt-inverse-count",
+                "max_phase_weight": args.max_phase_weight or 4.0,
+                "min_phase_weight": args.min_phase_weight or 0.25,
             }
         )
     report = {

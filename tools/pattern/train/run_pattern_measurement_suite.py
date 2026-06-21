@@ -137,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--pattern-set", default="pattern-v1-buro-lite")
     parser.add_argument("--dataset-output-format", default="compact-tsv", choices=("expanded-tsv", "compact-tsv"))
-    parser.add_argument("--trainer-mode", default="pattern-sgd-v0c", choices=("pattern-sgd-v0b", "pattern-sgd-v0c"))
+    parser.add_argument("--trainer-mode", default="pattern-sgd-v0c", choices=("pattern-sgd-v0b", "pattern-sgd-v0c", "pattern-sgd-v0d"))
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--l2", type=float, default=0.0)
@@ -145,6 +145,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr-schedule", choices=("constant", "inverse-sqrt"), default="constant")
     parser.add_argument("--gradient-clip", type=float)
     parser.add_argument("--early-stop-patience", type=int)
+    parser.add_argument("--phase-balance", choices=("none", "inverse-count", "sqrt-inverse-count"))
+    parser.add_argument("--max-phase-weight", type=float)
+    parser.add_argument("--min-phase-weight", type=float)
     parser.add_argument(
         "--trainer-eval-every-epoch",
         dest="trainer_eval_every_epoch",
@@ -232,6 +235,23 @@ def parse_args() -> argparse.Namespace:
         parser.error("--gradient-clip must be positive")
     if args.early_stop_patience is not None and args.early_stop_patience < 0:
         parser.error("--early-stop-patience must be non-negative")
+    v0d_only_args = (
+        args.phase_balance is not None
+        or args.max_phase_weight is not None
+        or args.min_phase_weight is not None
+    )
+    if args.trainer_mode != "pattern-sgd-v0d" and v0d_only_args:
+        parser.error("--phase-balance, --max-phase-weight, and --min-phase-weight require --trainer-mode pattern-sgd-v0d")
+    if args.max_phase_weight is not None and args.max_phase_weight <= 0.0:
+        parser.error("--max-phase-weight must be positive")
+    if args.min_phase_weight is not None and args.min_phase_weight <= 0.0:
+        parser.error("--min-phase-weight must be positive")
+    if (
+        args.max_phase_weight is not None
+        and args.min_phase_weight is not None
+        and args.min_phase_weight > args.max_phase_weight
+    ):
+        parser.error("--min-phase-weight must be <= --max-phase-weight")
     return args
 
 
@@ -468,6 +488,13 @@ def command_for_preset(
         command.extend(["--gradient-clip", str(args.gradient_clip)])
     if args.early_stop_patience is not None:
         command.extend(["--early-stop-patience", str(args.early_stop_patience)])
+    if args.trainer_mode == "pattern-sgd-v0d":
+        if args.phase_balance is not None:
+            command.extend(["--phase-balance", args.phase_balance])
+        if args.max_phase_weight is not None:
+            command.extend(["--max-phase-weight", str(args.max_phase_weight)])
+        if args.min_phase_weight is not None:
+            command.extend(["--min-phase-weight", str(args.min_phase_weight)])
     command.append(
         "--trainer-eval-every-epoch"
         if trainer_eval_every_epoch
@@ -646,6 +673,9 @@ def suite_report_document(
             "lr_schedule": args.lr_schedule,
             "gradient_clip": args.gradient_clip,
             "early_stop_patience": args.early_stop_patience,
+            "phase_balance": args.phase_balance if args.trainer_mode == "pattern-sgd-v0d" else None,
+            "max_phase_weight": args.max_phase_weight if args.trainer_mode == "pattern-sgd-v0d" else None,
+            "min_phase_weight": args.min_phase_weight if args.trainer_mode == "pattern-sgd-v0d" else None,
             "seed": args.seed,
         },
         "strict_board_disjoint_splits": args.strict_board_disjoint_splits,

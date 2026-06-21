@@ -70,10 +70,14 @@ class SweepConfig:
     epochs: int
     learning_rate: float
     lr_schedule: str
+    mode: str = "pattern-sgd-v0c"
     l2: float = 0.0
     weight_decay: float | None = None
     gradient_clip: float | None = None
     early_stop_patience: int | None = None
+    phase_balance: str | None = None
+    max_phase_weight: float | None = None
+    min_phase_weight: float | None = None
 
 
 PRESETS: dict[str, list[SweepConfig]] = {
@@ -88,6 +92,14 @@ PRESETS: dict[str, list[SweepConfig]] = {
         SweepConfig("isqrt_lr0.1_wd1e-4", 12, 0.1, "inverse-sqrt", weight_decay=0.0001),
         SweepConfig("isqrt_lr0.05_wd1e-4", 12, 0.05, "inverse-sqrt", weight_decay=0.0001),
         SweepConfig("isqrt_lr0.05_clip2", 12, 0.05, "inverse-sqrt", gradient_clip=2.0),
+    ],
+    "v0d-100k-phase-core": [
+        SweepConfig("v0d_sqrt_bal_lr0.05", 12, 0.05, "inverse-sqrt", mode="pattern-sgd-v0d", phase_balance="sqrt-inverse-count"),
+        SweepConfig("v0d_sqrt_bal_lr0.1", 12, 0.1, "inverse-sqrt", mode="pattern-sgd-v0d", phase_balance="sqrt-inverse-count"),
+        SweepConfig("v0d_inv_bal_lr0.05", 12, 0.05, "inverse-sqrt", mode="pattern-sgd-v0d", phase_balance="inverse-count"),
+        SweepConfig("v0d_none_lr0.05", 12, 0.05, "inverse-sqrt", mode="pattern-sgd-v0d", phase_balance="none"),
+        SweepConfig("v0d_sqrt_bal_lr0.05_wd1e-4", 12, 0.05, "inverse-sqrt", mode="pattern-sgd-v0d", weight_decay=0.0001, phase_balance="sqrt-inverse-count"),
+        SweepConfig("v0d_sqrt_bal_lr0.05_clip2", 12, 0.05, "inverse-sqrt", mode="pattern-sgd-v0d", gradient_clip=2.0, phase_balance="sqrt-inverse-count"),
     ],
 }
 
@@ -235,7 +247,7 @@ def selected_configs(args: argparse.Namespace) -> list[SweepConfig]:
 def config_dict(config: SweepConfig) -> dict[str, Any]:
     return {
         "config_id": config.config_id,
-        "mode": "pattern-sgd-v0c",
+        "mode": config.mode,
         "epochs": config.epochs,
         "learning_rate": config.learning_rate,
         "lr_schedule": config.lr_schedule,
@@ -243,6 +255,9 @@ def config_dict(config: SweepConfig) -> dict[str, Any]:
         "weight_decay": config.weight_decay,
         "gradient_clip": config.gradient_clip,
         "early_stop_patience": config.early_stop_patience,
+        "phase_balance": config.phase_balance,
+        "max_phase_weight": config.max_phase_weight,
+        "min_phase_weight": config.min_phase_weight,
         "eval_every_epoch": False,
     }
 
@@ -285,7 +300,7 @@ def command_for_config(
         "--dataset",
         str(dataset),
         "--mode",
-        "pattern-sgd-v0c",
+        config.mode,
         "--epochs",
         str(config.epochs),
         "--learning-rate",
@@ -308,6 +323,13 @@ def command_for_config(
         command.extend(["--gradient-clip", str(config.gradient_clip)])
     if config.early_stop_patience is not None:
         command.extend(["--early-stop-patience", str(config.early_stop_patience)])
+    if config.mode == "pattern-sgd-v0d":
+        if config.phase_balance is not None:
+            command.extend(["--phase-balance", config.phase_balance])
+        if config.max_phase_weight is not None:
+            command.extend(["--max-phase-weight", str(config.max_phase_weight)])
+        if config.min_phase_weight is not None:
+            command.extend(["--min-phase-weight", str(config.min_phase_weight)])
     return command, weights, report
 
 
@@ -414,12 +436,12 @@ def source_warnings(source_run_summary: dict[str, Any] | None) -> list[str]:
     return []
 
 
-def load_resume_report(path: Path) -> dict[str, Any]:
+def load_resume_report(path: Path, expected_trainer_version: str) -> dict[str, Any]:
     try:
         report = load_json_object(path)
     except RuntimeError as error:
         raise RuntimeError(f"resume trainer report is invalid: {error}") from error
-    if report.get("trainer_version") != "pattern-sgd-v0c":
+    if report.get("trainer_version") != expected_trainer_version:
         raise RuntimeError(
             f"resume trainer report has unexpected trainer_version: {report.get('trainer_version')!r}"
         )
@@ -743,7 +765,7 @@ def main() -> int:
                 if resume_files_exist:
                     try:
                         validate_resume_metadata(metadata_path, expected_metadata)
-                        existing_report = load_resume_report(trainer_report_path)
+                        existing_report = load_resume_report(trainer_report_path, config.mode)
                     except RuntimeError as error:
                         entry["resume_validation_error"] = str(error)
                     else:

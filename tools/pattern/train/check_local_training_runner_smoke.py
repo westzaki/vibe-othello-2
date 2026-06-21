@@ -58,6 +58,7 @@ def check_report(
     expected_learning_rate: float,
     expected_trainer_mode: str,
     expected_dataset_output_format: str,
+    expected_phase_balance: str | None,
 ) -> bool:
     expected_scalars: dict[str, Any] = {
         "schema_version": 1,
@@ -166,7 +167,7 @@ def check_report(
         "l2": 0.0,
         "seed": 7,
     }
-    if expected_trainer_mode == "pattern-sgd-v0c":
+    if expected_trainer_mode in {"pattern-sgd-v0c", "pattern-sgd-v0d"}:
         expected_trainer_args.update(
             {
                 "weight_decay": None,
@@ -175,6 +176,14 @@ def check_report(
                 "early_stop_patience": None,
                 "eval_every_epoch": True,
                 "progress_every_examples": None,
+            }
+        )
+    if expected_trainer_mode == "pattern-sgd-v0d":
+        expected_trainer_args.update(
+            {
+                "phase_balance": expected_phase_balance or "sqrt-inverse-count",
+                "max_phase_weight": 4.0,
+                "min_phase_weight": 0.25,
             }
         )
     if trainer_args != expected_trainer_args:
@@ -285,6 +294,8 @@ def run_runner(args: argparse.Namespace, output_dir: Path) -> tuple[dict[str, st
         "--pattern-set",
         args.pattern_set,
     ]
+    if args.phase_balance is not None:
+        command.extend(["--phase-balance", args.phase_balance])
     result = run_or_report(command)
     if result is None:
         return None
@@ -316,7 +327,7 @@ def main() -> int:
     parser.add_argument("--learning-rate", type=float, default=0.9)
     parser.add_argument(
         "--trainer-mode",
-        choices=("pattern-sgd-v0b", "pattern-sgd-v0c"),
+        choices=("pattern-sgd-v0b", "pattern-sgd-v0c", "pattern-sgd-v0d"),
         default="pattern-sgd-v0b",
     )
     parser.add_argument(
@@ -324,6 +335,7 @@ def main() -> int:
         choices=("expanded-tsv", "compact-tsv"),
         default="expanded-tsv",
     )
+    parser.add_argument("--phase-balance", choices=("none", "inverse-count", "sqrt-inverse-count"))
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
@@ -357,6 +369,7 @@ def main() -> int:
             expected_learning_rate=args.learning_rate,
             expected_trainer_mode=args.trainer_mode,
             expected_dataset_output_format=args.dataset_output_format,
+            expected_phase_balance=args.phase_balance,
         ):
             return 1
 

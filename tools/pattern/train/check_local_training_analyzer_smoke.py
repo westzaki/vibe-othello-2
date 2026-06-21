@@ -188,6 +188,23 @@ def trainer_report_v0c() -> dict[str, Any]:
     return report
 
 
+def trainer_report_v0d() -> dict[str, Any]:
+    report = trainer_report_v0c()
+    report["trainer_version"] = "pattern-sgd-v0d"
+    report["phase_balance"] = "sqrt-inverse-count"
+    report["phase_weight_floor"] = 0.25
+    report["phase_weight_cap"] = 4.0
+    report["phase_train_counts"] = {str(phase): 0 for phase in range(13)}
+    report["phase_train_counts"]["0"] = 120
+    report["phase_train_counts"]["1"] = 20
+    report["phase_weights"] = {str(phase): 0.0 for phase in range(13)}
+    report["phase_weights"]["0"] = 0.8
+    report["phase_weights"]["1"] = 2.2
+    report["weighted_train_residual_MAE"] = 1.5
+    report["phase_balance_notes"] = ["phase balance scheme: sqrt-inverse-count"]
+    return report
+
+
 def create_fixtures(root: Path) -> Path:
     runs_dir = root / "runs"
     first_dir = runs_dir / "01-good"
@@ -195,11 +212,13 @@ def create_fixtures(root: Path) -> Path:
     third_dir = runs_dir / "03-sequence"
     fourth_dir = runs_dir / "04-sequence-miss"
     fifth_dir = runs_dir / "05-v0c"
+    sixth_dir = runs_dir / "06-v0d"
     write_json(first_dir / "v0b-trainer-report.json", trainer_report())
     write_json(second_dir / "v0b-trainer-report.json", trainer_report())
     write_json(third_dir / "v0b-trainer-report.json", trainer_report())
     write_json(fourth_dir / "v0b-trainer-report.json", trainer_report())
     write_json(fifth_dir / "v0b-trainer-report.json", trainer_report_v0c())
+    write_json(sixth_dir / "v0b-trainer-report.json", trainer_report_v0d())
     write_json(
         first_dir / "local-training-run-report.json",
         smoke_report(
@@ -346,6 +365,36 @@ def create_fixtures(root: Path) -> Path:
             "pattern-sgd-v0c",
         ),
     )
+    write_json(
+        sixth_dir / "local-training-run-report.json",
+        smoke_report(
+            "smoke-v0d",
+            "2026-01-02T03:04:10Z",
+            "egaroucid-local",
+            {"train": 120, "validation": 10, "test": 10},
+            {"0": 120, "1": 20},
+            "0xv0d",
+            {
+                "summary": {
+                    "positions_count": "10",
+                    "v0a_v0b_different_count": "5",
+                },
+                "report_checksum": "0xeval-v0d",
+            },
+            {
+                "summary": {
+                    "positions_count": "8",
+                    "v0a_v0b_score_different_count": "3",
+                    "v0a_v0b_best_move_different_count": "1",
+                },
+                "report_checksum": "0xsearch-v0d",
+            },
+            None,
+            stage_timings(),
+            "expanded-tsv",
+            "pattern-sgd-v0d",
+        ),
+    )
     return runs_dir
 
 
@@ -407,7 +456,7 @@ def main() -> int:
             print("analyzer Markdown output is not deterministic", file=sys.stderr)
             return 1
         summary = first["json"]
-        if summary.get("run_count") != 5:
+        if summary.get("run_count") != 6:
             print(f"unexpected run count: {summary.get('run_count')!r}", file=sys.stderr)
             return 1
         if [run.get("run_id") for run in summary.get("runs", [])] != [
@@ -416,6 +465,7 @@ def main() -> int:
             "smoke-sequence",
             "smoke-sequence-miss",
             "smoke-v0c",
+            "smoke-v0d",
         ]:
             print(f"unexpected run order: {summary.get('runs')!r}", file=sys.stderr)
             return 1
@@ -457,6 +507,14 @@ def main() -> int:
                 "dataset_output_format_mixed_comparison",
                 "trainer_mode_mixed_comparison",
             ],
+            "smoke-v0d": [
+                "phase_coverage_biased",
+                "validation_phase_count_tiny",
+                "phase_missing_train_examples",
+                "phase_mae_regressed_vs_phase_bias",
+                "dataset_output_format_mixed_comparison",
+                "trainer_mode_mixed_comparison",
+            ],
         }
         if warning_codes(summary) != expected_warnings:
             print(f"unexpected warnings: {warning_codes(summary)!r}", file=sys.stderr)
@@ -471,6 +529,14 @@ def main() -> int:
             return 1
         if v0c_run.get("weight_diagnostics", {}).get("nonzero_weight_count") != 4:
             print(f"v0c weight diagnostics were not extracted: {v0c_run!r}", file=sys.stderr)
+            return 1
+        v0d_run = summary["runs"][5]
+        phase_balance = v0d_run.get("phase_balance_diagnostics")
+        if not isinstance(phase_balance, dict) or phase_balance.get("phase_balance") != "sqrt-inverse-count":
+            print(f"v0d phase-balance diagnostics were not extracted: {v0d_run!r}", file=sys.stderr)
+            return 1
+        if "phase_balance" not in first["markdown_text"]:
+            print("Markdown summary is missing phase balance column", file=sys.stderr)
             return 1
         sequence_run = summary["runs"][2]
         if sequence_run.get("cache_status") != "hit":

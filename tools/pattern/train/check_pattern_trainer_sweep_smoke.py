@@ -104,6 +104,47 @@ def check_dry_run(args: argparse.Namespace, dataset: Path, root: Path) -> bool:
     return True
 
 
+def check_v0d_dry_run(args: argparse.Namespace, dataset: Path, root: Path) -> bool:
+    output_dir = root / "v0d-dry-run"
+    command = base_command(args, dataset, output_dir)
+    command.extend(["--dry-run", "--sweep-preset", "v0d-100k-phase-core"])
+    result = run_capture(command)
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    report = load_json(output_dir / "sweep-report.json")
+    expected_ids = [
+        "v0d_sqrt_bal_lr0.05",
+        "v0d_sqrt_bal_lr0.1",
+        "v0d_inv_bal_lr0.05",
+        "v0d_none_lr0.05",
+        "v0d_sqrt_bal_lr0.05_wd1e-4",
+        "v0d_sqrt_bal_lr0.05_clip2",
+    ]
+    if [run.get("config_id") for run in report.get("runs", [])] != expected_ids:
+        print(f"unexpected v0d dry-run config order: {report.get('runs')!r}", file=sys.stderr)
+        return False
+    configs = report.get("configs")
+    if not isinstance(configs, list) or any(config.get("mode") != "pattern-sgd-v0d" for config in configs):
+        print(f"v0d configs did not record trainer mode: {configs!r}", file=sys.stderr)
+        return False
+    phase_balances = [config.get("phase_balance") for config in configs]
+    if phase_balances[:4] != [
+        "sqrt-inverse-count",
+        "sqrt-inverse-count",
+        "inverse-count",
+        "none",
+    ]:
+        print(f"unexpected v0d phase-balance args: {phase_balances!r}", file=sys.stderr)
+        return False
+    commands = [run.get("command") for run in report.get("runs", [])]
+    if not all("--phase-balance" in command for command in commands if isinstance(command, list)):
+        print(f"v0d dry-run commands did not include phase-balance args: {commands!r}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_execute(args: argparse.Namespace, dataset: Path, root: Path) -> bool:
     output_dir = root / "execute"
     command = base_command(args, dataset, output_dir)
@@ -357,6 +398,7 @@ def main() -> int:
         dataset.write_text(COMPACT_DATASET, encoding="utf-8")
         checks = (
             check_dry_run,
+            check_v0d_dry_run,
             check_execute,
             check_resume,
             check_resume_reruns_on_dataset_change,

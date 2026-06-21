@@ -89,6 +89,18 @@ Existing foundations include:
   split-by-phase, residual, epoch, and weight diagnostics. The report is a
   fitting diagnostic only, not a production trainer, match bench, Elo,
   self-play result, or strength claim.
+* `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0d` adds a local
+  research trainer mode for phase-balanced residual SGD on top of v0c
+  semantics. v0d keeps fixed train-only phase bias, residual pattern weights,
+  deterministic feature-occurrence updates, v0b-compatible intermediate
+  weights, compact/expanded dataset input support, and v0c split diagnostics,
+  then weights each train example by a deterministic phase-balance schedule
+  (`none`, `inverse-count`, or `sqrt-inverse-count`) with configurable floor
+  and cap. Reported train/validation/test metrics remain unweighted for
+  comparison, while phase weights, train phase counts, and weighted train
+  residual MAE are diagnostic fields only. v0d is not a strength claim, Elo
+  result, match bench, self-play result, production artifact, or publication
+  gate.
 * CTest-backed Egaroucid importer -> dataset builder -> trainer v0a smoke checks
   deterministic report/weights output, train-only bias fitting, held-out
   validation/test metrics, invalid-row rejection counts, malformed example
@@ -162,7 +174,7 @@ Existing foundations include:
 * local-only Egaroucid subset training runner at
   `tools/pattern/train/run_egaroucid_local_training.py` that runs importer or
   normalized TSV input through deterministic position-id subset sampling,
-  dataset building, configurable trainer v0b/v0c, v0b-compatible export,
+  dataset building, configurable trainer v0b/v0c/v0d, v0b-compatible export,
   optional v0a baseline export,
   fixed-position evaluation smoke, fixed-position search smoke, and a local
   training run report JSON; it also supports sequence/transcript input through
@@ -191,15 +203,17 @@ Existing foundations include:
 * CTest-backed local training runner smoke that uses only the checked-in tiny
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
-  generated files under the test temporary directory; an additional smoke runs
-  the same local runner path with `pattern-v1-buro-lite`
+  generated files under the test temporary directory; additional smokes cover
+  the same local runner path with `pattern-v1-buro-lite`, compact v0c, and
+  compact v0d
 * local training run analyzer at
   `tools/pattern/train/analyze_local_training_runs.py` that compares one or
   more `local-training-run-report.json` files, emits stable JSON and optional
   Markdown summaries, validates the runner report shape, extracts available
-  v0b/v0c trainer metrics, surfaces v0c best/final validation MAE, test MAE,
-  weight diagnostics, optional measurement split policy and after-resplit
-  board/game collision counts, optional sequence cache status, and stage
+  v0b/v0c/v0d trainer metrics, surfaces v0c/v0d best/final validation MAE,
+  test MAE, weight diagnostics, optional v0d phase-balance diagnostics,
+  optional measurement split policy and after-resplit board/game collision
+  counts, optional sequence cache status, and stage
   telemetry, and records warning-only review flags for small, incomplete,
   mixed cache-hit/cache-miss, mixed trainer-mode, mixed expanded/compact
   dataset, preserve-policy exact-board leakage, connected-policy residual
@@ -208,12 +222,12 @@ Existing foundations include:
   `tools/pattern/train/run_pattern_measurement_suite.py` that orchestrates
   repeatable sequence-derived smoke, 10k, 100k, and 1M preset runs through the
   local sequence cache, compact dataset output, `pattern-v1-buro-lite`, trainer
-  v0c diagnostics, scalable real-preset final-epoch diagnostics, trainer
+  v0c/v0d diagnostics, scalable real-preset final-epoch diagnostics, trainer
   progress stderr, per-run stdout/stderr logs, resume/skip handling, optional
   measurement split policy pass-through, suite JSON and Markdown reports, and
   analyzer comparison outputs without committing any
   generated corpora, datasets, caches, weights, artifacts, or summaries
-* local-only v0c trainer sweep runner at
+* local-only v0c/v0d trainer sweep runner at
   `tools/pattern/train/run_pattern_trainer_sweep.py` that runs multiple
   optimizer configurations against one fixed pattern dataset TSV without
   rerunning sequence import, resplitting, dataset generation, export, or smoke
@@ -222,9 +236,11 @@ Existing foundations include:
   and Markdown summaries plus per-config trainer reports, weights, and logs,
   supports dry-run/resume/keep-going iteration, can inherit dataset provenance
   from a local training run report, and selects the best config by validation
-  MAE only. Test MAE is reported and used only as a tie-breaker; the sweep is
-  not a strength claim, Elo result, match bench, self-play result, production
-  artifact, publication gate, or generated-output publication flow.
+  MAE only. The `v0d-100k-phase-core` preset compares a small set of
+  phase-balanced residual-SGD configurations. Test MAE is reported and used
+  only as a tie-breaker; the sweep is not a strength claim, Elo result, match
+  bench, self-play result, production artifact, publication gate, or
+  generated-output publication flow.
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of
@@ -466,6 +482,7 @@ Status values:
 | Add compact pattern example dataset format | done | Dataset builder `--output-format compact-tsv` emits one row per normalized example with deterministic feature occurrence lists, trainer v0a/v0b accepts compact input by header detection, local runner can request compact datasets, analyzer surfaces dataset format, and synthetic smoke coverage checks compact/expanded equivalence without changing runtime evaluation, exporter format, pattern definitions, or training semantics |
 | Add local pattern measurement suite runner | done | `tools/pattern/train/run_pattern_measurement_suite.py` runs named smoke/10k/100k/1M sequence presets through local cache, scalable `streaming-target` sequence import by default for real presets, compact dataset output, trainer v0c diagnostics with real-preset final-epoch diagnostics and trainer progress, live per-run logs, resume/skip handling, suite reports, and analyzer comparison; synthetic CTest coverage checks dry-run, execute, resume, failure, and all-preset expansion without committing generated measurement outputs |
 | Add local v0c trainer sweep runner | done | `tools/pattern/train/run_pattern_trainer_sweep.py` runs deterministic v0c optimizer configs over one fixed pattern dataset TSV, writes local-only JSON/Markdown reports, per-config logs, trainer reports, and weights, supports dry-run/resume/keep-going/source-run provenance, and selects by validation MAE with test MAE as reporting/tie-break only; synthetic CTest coverage checks dry-run, execute, resume, source-report dataset resolution, failure, and keep-going behavior without committing generated sweep outputs |
+| Add v0d phase-balanced residual SGD trainer | done | `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0d` keeps v0c residual pattern-SGD semantics and v0b-compatible intermediate weights, adds deterministic per-phase train example weighting with `none`, `inverse-count`, and `sqrt-inverse-count` options plus floor/cap diagnostics, and is covered by synthetic trainer, local-runner, sweep dry-run, and analyzer smokes; this is local research only, not a strength claim or artifact publication gate |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
