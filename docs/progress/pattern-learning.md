@@ -295,11 +295,22 @@ Existing foundations include:
   `board_id` handling, schema/malformed-row failures, overlay compatibility,
   `pattern-v2-endgame-lite` compact pattern dataset generation, and a v0c
   trainer integration path
+* persistent local pattern artifact arena at
+  `tools/arena/pattern_artifact_arena.cc` that compares two exported local
+  artifacts over normalized schema v2 late-game positions, loads both artifacts
+  once, reuses both `PatternEvaluator` instances across deterministic games,
+  supports `board_id` de-duplication, max-empty filtering, deterministic
+  bounded sampling, side-swapped pairings, progress logging, JSON/Markdown
+  reports, and synthetic CTest smoke coverage without committing generated
+  artifacts, logs, reports, or corpus payloads
 
 A bounded local 5,000-board low-empty exact-teacher diagnostic on the connected
 100k sequence-derived corpus showed `pattern-v2-endgame-lite` improving fitting
 metrics versus `pattern-v1-buro-lite`, but exact teacher labels did not produce
-a meaningful validation-MAE jump within v2. Details live in
+a meaningful validation-MAE jump within v2. A separate persistent local
+artifact-vs-artifact arena is now available to check whether that fitting signal
+survives deterministic late-game play diagnostics. Details on the exact-teacher
+fitting diagnostic live in
 `docs/experiments/pattern-sequence-v0002-endgame-lite-exact-teacher.md`.
 
 The Egaroucid normalized dataset report currently records:
@@ -498,9 +509,11 @@ runtime-loader-compatible local smoke artifact, loaded by `PatternEvaluator`,
 measured by a fixed-position evaluation smoke in CTest, and measured in a
 fixed-position search smoke against the v0a phase-bias baseline. Production
 artifact publication, full Egaroucid training, committed learned weights,
-self-play, ridge regression, match bench validation, production strength
-claims, production-ish pattern set implementation, and publishable learned
-artifacts remain for later PRs. Local training run reports may contain
+self-play, ridge regression, Elo-style match bench validation, production
+strength claims, production-ish pattern set implementation, and publishable
+learned artifacts remain for later PRs. The persistent artifact arena is a
+local late-game diagnostic only, not a replacement for production validation.
+Local training run reports may contain
 Egaroucid-derived metrics and local artifact names, so they should stay under
 ignored local run directories and should not be committed. Publication of
 Egaroucid-derived learned artifacts remains unknown and gated by provenance
@@ -544,6 +557,7 @@ Status values:
 | Add v0d phase-balanced residual SGD trainer | done | `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0d` keeps v0c residual pattern-SGD semantics and v0b-compatible intermediate weights, adds deterministic per-phase train example weighting with `none`, `inverse-count`, and `sqrt-inverse-count` options plus floor/cap diagnostics, and is covered by synthetic trainer, local-runner, sweep dry-run, and analyzer smokes; this is local research only, not a strength claim or artifact publication gate |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add bounded endgame local pattern set | done | `pattern-v2-endgame-lite` keeps the v1 ordered families and appends bounded endgame-oriented families with table lengths <= 10; dataset, exporter, runtime evaluation/search smoke, local-runner v0c export, and exact-teacher synthetic integration coverage exercise the new set without committing weights or artifacts |
+| Add persistent late-game artifact arena | done | `vibe-othello-pattern-artifact-arena` compares two local pattern artifacts over deterministic normalized schema v2 late-game positions with persistent artifact loading, optional side-swapped pairings, JSON/Markdown reports, and local-only caveats; it is not Elo, self-play, production strength, or a publication gate |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
@@ -571,10 +585,11 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are broader local diagnostics for
-`pattern-v2-endgame-lite`, trainer improvements, or production pattern-set
-symmetry enablement before any production artifact publication, committed
-learned weights, match bench, or strength-claim work.
+Next implementation steps are running broader local diagnostics for
+`pattern-v2-endgame-lite` with the persistent artifact arena, trainer
+improvements, or production pattern-set symmetry enablement before any
+production artifact publication, committed learned weights, Elo-style match
+bench, or strength-claim work.
 
 ## Progress Update Rules
 
