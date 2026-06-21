@@ -207,6 +207,7 @@ Supported label types:
 | `final_disc_diff` | final disc difference from side to move | human/self-play game records |
 | `observed_final_disc_diff` | observed transcript final disc difference from side to move, not searched | imported complete game transcripts |
 | `engine_disc_estimate` | searched engine estimate of final disc difference | teacher-generated positions |
+| `teacher_exact_move_child_final_disc_diff` | exact after-move child final disc difference from child side to move | local move-teacher decision diagnostics |
 | `wld` | win/draw/loss only | exact or solved data |
 | `policy_move` | played/best move target | later policy or ordering experiments |
 
@@ -252,6 +253,47 @@ generate opening or midgame teacher labels, does not add neural evaluator logic,
 does not run self-play, and does not publish production artifacts. Bounded
 local comparisons should use validation MAE as the primary selector; test MAE
 is reporting and tie-break only.
+
+Move-teacher labels are the root-level complement to static exact labels. The
+local tool `tools/pattern/labels/generate_exact_move_teacher_dataset.cc` reads
+normalized schema v2 low-empty root rows, enumerates legal root moves, exact
+solves each child position, and writes both a move-teacher TSV and a
+child-normalized schema v2 TSV. This changes the training distribution from
+observed or exact root values to exact after-move child values, so fitting is
+connected to root move choice instead of only static root labels.
+
+Sign convention is fixed at the child boundary:
+
+* root boards and child boards use the side-to-move-relative `X`/`O`
+  normalized convention
+* exact child solves return final disc difference from the child side to move
+* `root_move_score_side_to_move = -child_label_score_side_to_move`
+* child normalized rows keep `label_perspective = side_to_move`
+* child normalized rows use
+  `label_kind = teacher_exact_move_child_final_disc_diff`
+
+Terminal roots are skipped and counted. Forced pass roots emit a `pass` move
+when the current side has no legal normal move and the opponent does.
+`teacher_depth` in move-teacher rows is the child empty count solved exactly.
+
+Move-teacher ranking diagnostics live in
+`tools/pattern/labels/evaluate_move_teacher_ranking.cc`. Given a move-teacher
+TSV and an exported local pattern artifact, it evaluates each child board once,
+converts artifact child scores to predicted root move scores with
+`-eval(child)`, and reports root-level decision metrics:
+
+* top-1 exact-best move accuracy
+* tie-aware top-1 accuracy
+* exact best in predicted top 2
+* pairwise move-ranking accuracy
+* mean and median teacher regret
+* predicted rank of an exact-best move
+* roots where all legal moves receive the same predicted score
+* breakdowns by empty count, phase, and split
+
+These diagnostics answer whether learned artifacts rank better exact moves
+higher. They are local-only decision diagnostics, not Elo, self-play,
+production strength, or publication gates.
 
 Rules:
 

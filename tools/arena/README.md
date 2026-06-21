@@ -136,6 +136,37 @@ checked for actual activation on late-game selected positions. Activation means
 the runtime feature geometry fired an instance with a non-empty ternary index;
 it does not inspect learned weight magnitude.
 
+For decision-leverage work, run move-teacher ranking before treating arena
+results as informative. `vibe-othello-evaluate-move-teacher-ranking` compares an
+artifact against exact per-move child labels from
+`vibe-othello-generate-exact-move-teacher-dataset`. It evaluates each legal
+child board, converts child side-to-move scores to predicted root move scores
+with `-eval(child)`, and reports top-1 exact-best accuracy, tie-aware top-1,
+best-in-top-2, pairwise accuracy, root regret, exact-best predicted rank, and
+all-same predicted-score roots. This catches the PR #161 bottleneck where static
+scores and feature activation changed, but root best moves changed too rarely
+to move arena results.
+
+The local campaign helper can train an after-move child-label artifact and then
+optionally run this arena when a baseline artifact is supplied:
+
+```sh
+python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
+  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/<run>/resplit-normalized.tsv" \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/move-teacher/<campaign-id>" \
+  --max-empty 12 \
+  --max-roots 5000 \
+  --pattern-set pattern-v2-endgame-lite \
+  --arena-baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/v0c.weights.bin" \
+  --arena-baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/v0c.manifest.json" \
+  --arena-baseline-name pattern-v2-endgame-lite \
+  --resume
+```
+
+If ranking metrics do not improve, arena noise should not be interpreted as a
+strength result. The likely next bottleneck is decision leverage in the score
+shape or rank objective, not another local learning-rate or weight-decay tweak.
+
 Suggested local diagnostic sequence:
 
 ```sh
