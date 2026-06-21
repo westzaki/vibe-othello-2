@@ -295,6 +295,37 @@ Existing foundations include:
   `board_id` handling, schema/malformed-row failures, overlay compatibility,
   `pattern-v2-endgame-lite` compact pattern dataset generation, and a v0c
   trainer integration path
+* local-only exact move-teacher dataset generator at
+  `tools/pattern/labels/generate_exact_move_teacher_dataset.cc` that reads
+  normalized schema v2 low-empty root rows, rejects schema v1, de-duplicates by
+  `board_id`, optionally caps roots by deterministic `board_id` hash and seed,
+  enumerates legal normal moves plus forced pass moves, skips and counts
+  terminal roots, exact-solves each child with the public endgame API, emits a
+  move-teacher TSV, emits child-normalized schema v2 rows labeled
+  `teacher_exact_move_child_final_disc_diff`, and records local-only report
+  diagnostics without committing generated labels or artifacts
+* local-only move-teacher ranking evaluator at
+  `tools/pattern/labels/evaluate_move_teacher_ranking.cc` that loads one
+  exported pattern artifact once, evaluates each legal child board, converts
+  child side-to-move scores to predicted root move scores with `-eval(child)`,
+  and reports top-1 accuracy, tie-aware top-1, exact best in top 2, pairwise
+  accuracy, root regret, exact-best predicted rank, all-same predicted roots,
+  score range, and breakdowns by empty count, phase, and split
+* local-only move-teacher decision campaign helper at
+  `tools/pattern/labels/run_move_teacher_decision_campaign.py` that orchestrates
+  exact move-teacher generation, child pattern dataset building, v0c/v0d
+  child-value training, v0b-compatible export, ranking evaluation for the new
+  artifact and an optional previous/root-label artifact, and an optional
+  bounded late-game artifact arena when a baseline artifact is supplied. Its
+  `--resume` path validates per-stage command, input checksum, and output
+  checksum metadata before skipping, so stale campaign artifacts are not mixed
+  into a new report
+* CTest-backed move-teacher decision smoke that uses only synthetic fixtures to
+  check move-teacher TSV and child-normalized schemas, sign convention,
+  pass handling, duplicate root handling, deterministic capped sampling,
+  schema-v1 rejection, child-label dataset builder compatibility, v0c trainer
+  and v0b export integration, and ranking evaluator sign behavior with a
+  synthetic nonzero artifact
 * persistent local pattern artifact arena at
   `tools/arena/pattern_artifact_arena.cc` that compares two exported local
   artifacts over normalized schema v2 late-game positions, loads both artifacts
@@ -320,6 +351,17 @@ artifact-vs-artifact arena is now available to check whether that fitting signal
 survives deterministic late-game play diagnostics. Details on the exact-teacher
 fitting diagnostic live in
 `docs/experiments/pattern-sequence-v0002-endgame-lite-exact-teacher.md`.
+
+PR #161's bottleneck diagnostics showed that better static value fitting and
+active v2-added features did not reliably change root best moves. The
+move-teacher pipeline addresses that by measuring and training on
+root-position legal move decisions: exact child labels give the existing value
+trainer a decision-relevant after-move distribution, and the ranking evaluator
+reports whether artifacts actually rank exact-better legal moves higher. If
+move-teacher child-value training improves MAE but does not improve top-1,
+pairwise accuracy, or regret, the next likely bottleneck is the linear
+pattern-evaluator score shape or a need for a localized pairwise rank trainer,
+not another small learning-rate, weight-decay, or pattern-family tweak.
 
 The Egaroucid normalized dataset report currently records:
 
@@ -567,6 +609,7 @@ Status values:
 | Add bounded endgame local pattern set | done | `pattern-v2-endgame-lite` keeps the v1 ordered families and appends bounded endgame-oriented families with table lengths <= 10; dataset, exporter, runtime evaluation/search smoke, local-runner v0c export, and exact-teacher synthetic integration coverage exercise the new set without committing weights or artifacts |
 | Add persistent late-game artifact arena | done | `vibe-othello-pattern-artifact-arena` compares two local pattern artifacts over deterministic normalized schema v2 late-game positions with persistent artifact loading, optional side-swapped pairings, JSON/Markdown reports, and local-only caveats; it is not Elo, self-play, production strength, or a publication gate |
 | Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can now emit local-only diagnostics for where v1/v2 signal is lost: static scoring, root move choice, depth, side assignment, exact low-empty disagreement adjudication, phase/sign perspective, manifest/runtime compatibility, or feature family activation |
+| Add move-teacher decision-leverage pipeline | done | Low-empty normalized schema v2 roots can now produce exact per-move teacher labels and child-normalized exact labels; child-label artifacts can be trained with existing v0c/v0d trainers and evaluated by root move-ranking metrics before optional bounded artifact arena checks |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |

@@ -83,3 +83,78 @@ The campaign selects by validation MAE first. Test MAE is reporting and
 tie-break only. Treat exact labels as helpful only after at least 0.2 MAE
 absolute validation improvement or at least 1 percent relative validation
 improvement.
+
+## Move-Teacher Decision Labels
+
+Static root labels did not reliably create root best-move changes in the
+pattern signal bottleneck diagnostics. Move-teacher data connects exact labels
+to root decisions by enumerating legal moves at low-empty roots, exact-solving
+each child, and training/evaluating artifacts on after-move child positions.
+
+Generate a local move-teacher dataset:
+
+```sh
+./build/tools/pattern/labels/vibe-othello-generate-exact-move-teacher-dataset \
+  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
+  --move-teacher-out "$RUN_DIR/move-teacher.tsv" \
+  --child-normalized-out "$RUN_DIR/child-normalized.tsv" \
+  --report-out "$RUN_DIR/move-teacher-report.json" \
+  --max-empty 12 \
+  --max-roots 5000 \
+  --seed 0 \
+  --progress-every 100
+```
+
+The move-teacher TSV header is:
+
+```text
+root_board_id	root_record_id	root_split	root_phase	root_empty_count	move	child_board_id	child_board_a1_to_h8	child_empty_count	child_phase	root_move_score_side_to_move	child_label_score_side_to_move	is_best_move	best_move_tie_count	move_rank	best_score_margin	teacher_source	teacher_depth	teacher_nodes
+```
+
+Sign convention:
+
+* root and child boards use normalized side-to-move-relative `X`/`O`
+* exact child labels are from the child side-to-move perspective
+* root move scores are `-child_label_score_side_to_move`
+* `teacher_depth` is the child empty count solved exactly
+
+The child-normalized TSV is schema v2-compatible and uses:
+
+```text
+label_kind = teacher_exact_move_child_final_disc_diff
+label_unit = disc
+label_perspective = side_to_move
+source_dataset_id = exact-move-teacher-v1
+```
+
+Build a child pattern dataset, train with an existing value trainer, export,
+and evaluate move ranking:
+
+```sh
+python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
+  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
+  --output-dir "$RUN_DIR/move-teacher-decision" \
+  --max-empty 12 \
+  --max-roots 5000 \
+  --seed 0 \
+  --pattern-set pattern-v2-endgame-lite \
+  --trainer-mode pattern-sgd-v0c \
+  --learning-rate 0.1 \
+  --lr-schedule inverse-sqrt \
+  --weight-decay 0.0001 \
+  --resume
+```
+
+Ranking reports include top-1 exact-best accuracy, tie-aware top-1 accuracy,
+exact best in predicted top 2, pairwise accuracy, mean/median teacher regret,
+exact-best predicted rank, all-same predicted roots, and breakdowns by empty
+count, phase, and split.
+
+`--resume` is conservative: each skipped stage must have a matching
+`*.resume.json` sidecar with the current command, input checksums, and output
+checksums. If metadata is missing or mismatched, the helper fails instead of
+mixing stale move-teacher rows, datasets, weights, ranking reports, or arena
+reports into a new campaign report.
+
+These files remain local-only diagnostics. They are not Elo, not self-play, not
+production strength, and not publication gates.
