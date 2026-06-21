@@ -241,6 +241,31 @@ Existing foundations include:
   only as a tie-breaker; the sweep is not a strength claim, Elo result, match
   bench, self-play result, production artifact, publication gate, or
   generated-output publication flow.
+* local-only teacher label overlay tool at
+  `tools/pattern/labels/apply_teacher_labels.py` that accepts normalized schema
+  v2 TSV rows plus a teacher label TSV keyed by `board_id`, validates teacher
+  label schema and value ranges, de-duplicates identical teacher rows, rejects
+  conflicts, applies configurable missing-label policy (`fail`,
+  `keep-observed`, or `drop`), preserves non-label normalized fields and input
+  order, writes a teacher-overlaid normalized TSV, and emits coverage, label
+  kind, split, phase, teacher source, depth/node, checksum, and local-only
+  report diagnostics. The overlay is not a strength claim, Elo result, match
+  bench, self-play result, production artifact, or generated-output
+  publication flow.
+* `tools/pattern/train/run_egaroucid_local_training.py` can now apply teacher
+  labels after sampling and measurement split policy but before pattern dataset
+  generation, so the dataset builder consumes the exact overlaid normalized
+  rows selected for a run. Local reports surface teacher label enablement,
+  policies, report checksum, label kind counts after overlay, source counts,
+  fallback/drop coverage, and a warning note when teacher labels are combined
+  with preserve split while exact-board leakage remains.
+* `tools/pattern/train/run_pattern_measurement_suite.py` passes optional
+  teacher label arguments through to local runs without changing suite
+  defaults or generating labels itself.
+* `tools/pattern/train/analyze_local_training_runs.py` remains backward
+  compatible with older reports and surfaces teacher label diagnostics when
+  present, including warnings for observed fallback and teacher-label runs that
+  do not use `connected-board-game`.
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of

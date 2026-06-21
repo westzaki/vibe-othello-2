@@ -378,6 +378,30 @@ def warnings_for_run(data: dict[str, Any], min_train_rows: int) -> list[dict[str
         cache = data.get("sequence_cache")
         if not isinstance(cache, dict):
             warnings.append(warning("sequence_cache_missing", "sequence cache summary is missing"))
+    if data.get("teacher_labels_enabled") is True:
+        teacher_summary = data.get("teacher_label_summary")
+        if not isinstance(teacher_summary, dict):
+            warnings.append(warning("teacher_label_summary_missing", "teacher labels enabled but summary is missing"))
+        else:
+            missing_rows = int_or_none(teacher_summary.get("missing_rows"))
+            label_counts = teacher_summary.get("label_kind_counts_after")
+            observed_fallback = 0
+            if isinstance(label_counts, dict):
+                observed_fallback = int_or_none(label_counts.get("observed_final_disc_diff")) or 0
+            if missing_rows or observed_fallback:
+                warnings.append(
+                    warning(
+                        "teacher_label_observed_fallback",
+                        "teacher labels are mixed with observed-label fallback rows",
+                    )
+                )
+        if measurement_split_policy != "connected-board-game":
+            warnings.append(
+                warning(
+                    "teacher_label_without_connected_split",
+                    "teacher labels are enabled without connected-board-game measurement split",
+                )
+            )
     return warnings
 
 
@@ -387,6 +411,27 @@ def cache_status(data: dict[str, Any]) -> str | None:
         return None
     value = cache.get("status")
     return value if isinstance(value, str) else None
+
+
+def teacher_label_summary(data: dict[str, Any]) -> dict[str, Any] | None:
+    summary = data.get("teacher_label_summary")
+    if not isinstance(summary, dict):
+        return None
+    return {
+        "enabled": data.get("teacher_labels_enabled") is True,
+        "missing_policy": data.get("teacher_label_missing_policy"),
+        "conflict_policy": data.get("teacher_label_conflict_policy"),
+        "report_checksum": data.get("teacher_label_report_checksum"),
+        "matched_rows": int_or_none(summary.get("matched_rows")),
+        "missing_rows": int_or_none(summary.get("missing_rows")),
+        "dropped_rows": int_or_none(summary.get("dropped_rows")),
+        "label_kind_counts_after": summary.get("label_kind_counts_after")
+        if isinstance(summary.get("label_kind_counts_after"), dict)
+        else None,
+        "teacher_source_counts": summary.get("teacher_source_counts")
+        if isinstance(summary.get("teacher_source_counts"), dict)
+        else None,
+    }
 
 
 def dataset_output_format(data: dict[str, Any]) -> str:
@@ -592,12 +637,14 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
         "test_MAE": metrics.get("test_MAE"),
         "weight_diagnostics": weight_diagnostics(trainer_report),
         "phase_balance_diagnostics": phase_balance_diagnostics(trainer_report),
+        "teacher_labels": teacher_label_summary(data),
         "path": str(run_report.path),
         "run_id": data.get("run_id"),
         "sampled_rows": sampled_rows,
         "cache_status": cache_status(data),
         "stage_wall_times": {
             "import_or_cache_restore": stage_wall(data, "sequence_import_or_cache_restore"),
+            "teacher_label_overlay": stage_wall(data, "teacher_label_overlay"),
             "dataset": stage_wall(data, "pattern_dataset_generation"),
             "trainer": stage_wall_first(data, "trainer", "trainer_v0b"),
             "export": stage_wall(data, "v0b_export"),
@@ -610,6 +657,7 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
                     ("sequence_import_or_cache_restore",),
                     ("normalized_sampling",),
                     ("measurement_split_policy",),
+                    ("teacher_label_overlay",),
                     ("pattern_dataset_generation",),
                     ("trainer", "trainer_v0b"),
                     ("v0b_export",),
@@ -707,6 +755,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "run_id",
                 "sampled_rows",
                 "split_policy",
+                "teacher_labels",
                 "board_collisions_after",
                 "game_collisions_after",
                 "trainer_mode",
@@ -719,6 +768,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "cache_status",
                 "import/cache_restore_sec",
                 "dataset_sec",
+                "teacher_overlay_sec",
                 "trainer_sec",
                 "export_sec",
                 "eval/search_sec",
@@ -726,18 +776,26 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "warnings",
             ]
         ),
-        markdown_table_row(["---"] * 20),
+        markdown_table_row(["---"] * 22),
     ]
     for run in runs:
         stage_times = run.get("stage_wall_times") or {}
         weights = run.get("weight_diagnostics") or {}
         phase_balance = run.get("phase_balance_diagnostics") or {}
+        teacher = run.get("teacher_labels") or {}
+        teacher_status = ""
+        if teacher:
+            teacher_status = (
+                f"on matched={teacher.get('matched_rows')} missing={teacher.get('missing_rows')} "
+                f"dropped={teacher.get('dropped_rows')}"
+            )
         lines.append(
             markdown_table_row(
                 [
                     run.get("run_id"),
                     run.get("sampled_rows"),
                     run.get("measurement_split_policy"),
+                    teacher_status,
                     run.get("board_cross_split_collision_count_after"),
                     run.get("game_group_cross_split_collision_count_after"),
                     run.get("trainer_mode"),
@@ -750,6 +808,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                     run.get("cache_status"),
                     stage_times.get("import_or_cache_restore"),
                     stage_times.get("dataset"),
+                    stage_times.get("teacher_label_overlay"),
                     stage_times.get("trainer"),
                     stage_times.get("export"),
                     stage_times.get("evaluation_search_smoke"),

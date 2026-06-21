@@ -317,6 +317,108 @@ def stable_sequence_report_projection(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def write_teacher_labels_from_normalized(normalized: Path, output: Path) -> None:
+    with normalized.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    fieldnames = [
+        "board_id",
+        "label_kind",
+        "label_unit",
+        "label_perspective",
+        "label_score_side_to_move",
+        "teacher_source",
+        "teacher_depth",
+        "teacher_nodes",
+    ]
+    seen: set[str] = set()
+    with output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, delimiter="\t", lineterminator="\n", fieldnames=fieldnames)
+        writer.writeheader()
+        for index, row in enumerate(rows):
+            board_id = row["board_id"]
+            if board_id in seen:
+                continue
+            seen.add(board_id)
+            writer.writerow(
+                {
+                    "board_id": board_id,
+                    "label_kind": "teacher_exact_final_disc_diff",
+                    "label_unit": "disc",
+                    "label_perspective": "side_to_move",
+                    "label_score_side_to_move": str((index % 9) - 4),
+                    "teacher_source": "synthetic-fixture",
+                    "teacher_depth": "0",
+                    "teacher_nodes": "0",
+                }
+            )
+
+
+def check_teacher_overlay_run(args: argparse.Namespace, root: Path) -> bool:
+    seed_dir = root / "teacher-seed"
+    result = run_runner(args, seed_dir)
+    if result is None:
+        return False
+    seed_report = result[1]
+    seed_output_files = seed_report.get("output_files")
+    if not isinstance(seed_output_files, dict):
+        print("seed report missing output_files", file=sys.stderr)
+        return False
+    sampled = seed_dir / seed_output_files["sampled_normalized_tsv"]
+    teacher_labels = root / "synthetic-teacher-labels.tsv"
+    write_teacher_labels_from_normalized(sampled, teacher_labels)
+
+    output_dir = root / "teacher-run"
+    result = run_runner(
+        args,
+        output_dir,
+        extra_args=[
+            "--teacher-labels",
+            str(teacher_labels),
+            "--teacher-label-missing-policy",
+            "fail",
+            "--teacher-label-conflict-policy",
+            "fail",
+            "--skip-eval-smoke",
+            "--skip-search-smoke",
+            "--skip-v0a-baseline",
+        ],
+    )
+    if result is None:
+        return False
+    report = result[1]
+    if report.get("teacher_labels_enabled") is not True:
+        print(f"teacher labels not enabled in report: {report!r}", file=sys.stderr)
+        return False
+    output_files = report.get("output_files")
+    if not isinstance(output_files, dict):
+        print("teacher report missing output files", file=sys.stderr)
+        return False
+    for key in ("teacher_normalized_tsv", "teacher_label_report_json", "pattern_dataset_tsv"):
+        path = output_dir / output_files.get(key, "")
+        if not path.exists():
+            print(f"missing teacher output {key}: {path}", file=sys.stderr)
+            return False
+    teacher_report = load_json(output_dir / output_files["teacher_label_report_json"])
+    if teacher_report.get("missing_rows") != 0 or teacher_report.get("dropped_rows") != 0:
+        print(f"unexpected teacher report coverage: {teacher_report!r}", file=sys.stderr)
+        return False
+    if teacher_report.get("label_kind_counts_after") != {"teacher_exact_final_disc_diff": teacher_report.get("output_rows")}:
+        print(f"unexpected teacher label counts: {teacher_report!r}", file=sys.stderr)
+        return False
+    summary = report.get("teacher_label_summary")
+    if not isinstance(summary, dict) or summary.get("teacher_source_counts") != {"synthetic-fixture": teacher_report.get("matched_rows")}:
+        print(f"local report missing teacher summary: {summary!r}", file=sys.stderr)
+        return False
+    dataset_report = load_json(output_dir / output_files["dataset_report_json"])
+    if dataset_report.get("counts_by_label_kind") != {"teacher_exact_final_disc_diff": teacher_report.get("output_rows")}:
+        print(f"dataset was not built from teacher-normalized TSV: {dataset_report!r}", file=sys.stderr)
+        return False
+    if report.get("dataset_label_kind_counts") != dataset_report.get("counts_by_label_kind"):
+        print(f"local report missing dataset label counts: {report!r}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_cache_path_independence(args: argparse.Namespace, temp_dir: Path, cache_dir: Path) -> bool:
     first_output = temp_dir / "path-first"
     second_output = temp_dir / "path-second"
@@ -1020,6 +1122,8 @@ def main() -> int:
         if not check_strict_board_leakage_failure(args, temp_dir / "first"):
             return 1
         if not check_connected_measurement_split(args, temp_dir / "first"):
+            return 1
+        if not check_teacher_overlay_run(args, temp_dir):
             return 1
         if not check_bounded_sequence_pass_through(args, temp_dir):
             return 1

@@ -345,6 +345,20 @@ bool validate_split(std::string_view split) noexcept {
   return split == "train" || split == "validation" || split == "test";
 }
 
+bool validate_label_kind(int schema_version, std::string_view label_kind) noexcept {
+  if (schema_version == 1) {
+    return label_kind == "engine_disc_estimate";
+  }
+  return label_kind == "observed_final_disc_diff" ||
+         label_kind == "teacher_exact_final_disc_diff" ||
+         label_kind == "teacher_search_final_disc_diff" ||
+         label_kind == "teacher_static_eval_disc_diff";
+}
+
+bool validate_label_unit(std::string_view label_unit) noexcept {
+  return label_unit == "final_disc_diff" || label_unit == "disc";
+}
+
 int egaroucid_phase_for_occupied_count(int occupied_count, int schema_version) noexcept {
   const int occupied_bucket_count = 60;
   return std::min(12, ((occupied_count - 4) * 13) / occupied_bucket_count);
@@ -450,16 +464,14 @@ bool parse_normalized_row(std::string_view line, int line_number, int schema_ver
     *error = "board_a1_to_h8 contains invalid character";
     return false;
   }
-  if (schema_version == 1 && row->label_kind != "engine_disc_estimate") {
-    *error = "v1 label_kind must be engine_disc_estimate";
+  if (!validate_label_kind(schema_version, row->label_kind)) {
+    *error = schema_version == 1
+                 ? "v1 label_kind must be engine_disc_estimate"
+                 : "v2 label_kind must be observed_final_disc_diff or a teacher label kind";
     return false;
   }
-  if (schema_version == 2 && row->label_kind != "observed_final_disc_diff") {
-    *error = "v2 label_kind must be observed_final_disc_diff";
-    return false;
-  }
-  if (row->label_unit != "final_disc_diff") {
-    *error = "label_unit must be final_disc_diff";
+  if (!validate_label_unit(row->label_unit)) {
+    *error = "label_unit must be final_disc_diff or disc";
     return false;
   }
   if (row->label_perspective != "side_to_move") {
