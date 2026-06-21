@@ -213,6 +213,18 @@ Existing foundations include:
   measurement split policy pass-through, suite JSON and Markdown reports, and
   analyzer comparison outputs without committing any
   generated corpora, datasets, caches, weights, artifacts, or summaries
+* local-only v0c trainer sweep runner at
+  `tools/pattern/train/run_pattern_trainer_sweep.py` that runs multiple
+  optimizer configurations against one fixed pattern dataset TSV without
+  rerunning sequence import, resplitting, dataset generation, export, or smoke
+  checks for every optimizer setting. The built-in `v0c-100k-core` preset is a
+  deterministic local diagnostic sweep over existing v0c options, writes JSON
+  and Markdown summaries plus per-config trainer reports, weights, and logs,
+  supports dry-run/resume/keep-going iteration, can inherit dataset provenance
+  from a local training run report, and selects the best config by validation
+  MAE only. Test MAE is reported and used only as a tie-breaker; the sweep is
+  not a strength claim, Elo result, match bench, self-play result, production
+  artifact, publication gate, or generated-output publication flow.
 * CTest-backed local training analyzer smoke that uses temp-only synthetic
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of
@@ -453,6 +465,7 @@ Status values:
 | Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, surfaces cache hit/miss and major stage timings, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
 | Add compact pattern example dataset format | done | Dataset builder `--output-format compact-tsv` emits one row per normalized example with deterministic feature occurrence lists, trainer v0a/v0b accepts compact input by header detection, local runner can request compact datasets, analyzer surfaces dataset format, and synthetic smoke coverage checks compact/expanded equivalence without changing runtime evaluation, exporter format, pattern definitions, or training semantics |
 | Add local pattern measurement suite runner | done | `tools/pattern/train/run_pattern_measurement_suite.py` runs named smoke/10k/100k/1M sequence presets through local cache, scalable `streaming-target` sequence import by default for real presets, compact dataset output, trainer v0c diagnostics with real-preset final-epoch diagnostics and trainer progress, live per-run logs, resume/skip handling, suite reports, and analyzer comparison; synthetic CTest coverage checks dry-run, execute, resume, failure, and all-preset expansion without committing generated measurement outputs |
+| Add local v0c trainer sweep runner | done | `tools/pattern/train/run_pattern_trainer_sweep.py` runs deterministic v0c optimizer configs over one fixed pattern dataset TSV, writes local-only JSON/Markdown reports, per-config logs, trainer reports, and weights, supports dry-run/resume/keep-going/source-run provenance, and selects by validation MAE with test MAE as reporting/tie-break only; synthetic CTest coverage checks dry-run, execute, resume, source-report dataset resolution, failure, and keep-going behavior without committing generated sweep outputs |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
