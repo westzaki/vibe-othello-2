@@ -59,6 +59,27 @@ requests the leakage-safe resplit. The runner keeps strict board checks as an
 after-resplit guard when both options are supplied, but the practical rerun
 command only needs the measurement split policy.
 
+After producing a leakage-safe connected-board-game 100k local training run,
+use the fixed pattern dataset TSV from that run for v0c optimizer tuning. The
+trainer sweep runner reuses the dataset and does not rerun sequence import,
+resplitting, dataset generation, export, evaluation smoke, or search smoke for
+each optimizer setting:
+
+```sh
+python3 tools/pattern/train/run_pattern_trainer_sweep.py \
+  --source-local-run-report "$VIBE_OTHELLO_LOCAL/measurements/<run>/local-training-run-report.json" \
+  --output-dir "$VIBE_OTHELLO_LOCAL/measurements/<sweep-run>" \
+  --sweep-preset v0c-100k-core \
+  --run-prefix sequence-v0002-100k-v0c-sweep \
+  --resume
+```
+
+The sweep report selects the best config by validation MAE. Test MAE is
+included for reporting and deterministic tie-breaks only. Treat this as a
+local diagnostic for trainer configuration, not a strength claim, Elo result,
+match bench, self-play result, production artifact, publication gate, or
+derived-weight publication flow.
+
 ## Measurement Results
 
 The first suite run was a cold-cache run, so every preset reported

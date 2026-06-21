@@ -37,4 +37,14 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/analyze_local_training_runs.py
       --source-dir
       ${CMAKE_SOURCE_DIR})
+
+  add_test(
+    NAME vibe_othello_pattern_trainer_sweep_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_trainer_sweep_smoke.py
+      --sweep-runner
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_trainer_sweep.py
+      --trainer
+      ${CMAKE_CURRENT_SOURCE_DIR}/train_v0a.py)
 endif()
