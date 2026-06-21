@@ -150,5 +150,11 @@ exact best in predicted top 2, pairwise accuracy, mean/median teacher regret,
 exact-best predicted rank, all-same predicted roots, and breakdowns by empty
 count, phase, and split.
 
+`--resume` is conservative: each skipped stage must have a matching
+`*.resume.json` sidecar with the current command, input checksums, and output
+checksums. If metadata is missing or mismatched, the helper fails instead of
+mixing stale move-teacher rows, datasets, weights, ranking reports, or arena
+reports into a new campaign report.
+
 These files remain local-only diagnostics. They are not Elo, not self-play, not
 production strength, and not publication gates.

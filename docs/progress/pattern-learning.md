@@ -316,7 +316,10 @@ Existing foundations include:
   exact move-teacher generation, child pattern dataset building, v0c/v0d
   child-value training, v0b-compatible export, ranking evaluation for the new
   artifact and an optional previous/root-label artifact, and an optional
-  bounded late-game artifact arena when a baseline artifact is supplied
+  bounded late-game artifact arena when a baseline artifact is supplied. Its
+  `--resume` path validates per-stage command, input checksum, and output
+  checksum metadata before skipping, so stale campaign artifacts are not mixed
+  into a new report
 * CTest-backed move-teacher decision smoke that uses only synthetic fixtures to
   check move-teacher TSV and child-normalized schemas, sign convention,
   pass handling, duplicate root handling, deterministic capped sampling,

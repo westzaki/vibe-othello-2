@@ -67,5 +67,7 @@ if(BUILD_TESTING)
       --trainer
       ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py
       --exporter
-      ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py)
+      ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py
+      --campaign-helper
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py)
 endif()

@@ -107,6 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-exe", required=True, type=Path)
     parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--exporter", required=True, type=Path)
+    parser.add_argument("--campaign-helper", required=True, type=Path)
     return parser.parse_args()
 
 
@@ -758,6 +759,81 @@ def check_training_integration(
     return True
 
 
+def campaign_command(args: argparse.Namespace, normalized: Path, output_dir: Path, seed: int) -> list[str]:
+    return [
+        sys.executable,
+        str(args.campaign_helper),
+        "--normalized-tsv",
+        str(normalized),
+        "--output-dir",
+        str(output_dir),
+        "--max-empty",
+        "2",
+        "--max-roots",
+        "4",
+        "--seed",
+        str(seed),
+        "--pattern-set",
+        "pattern-v2-endgame-lite",
+        "--trainer-mode",
+        "pattern-sgd-v0c",
+        "--epochs",
+        "1",
+        "--learning-rate",
+        "0.1",
+        "--lr-schedule",
+        "inverse-sqrt",
+        "--weight-decay",
+        "0.0001",
+        "--generator",
+        str(args.generator),
+        "--dataset-exe",
+        str(args.dataset_exe),
+        "--trainer",
+        str(args.trainer),
+        "--exporter",
+        str(args.exporter),
+        "--ranking-evaluator",
+        str(args.ranking_evaluator),
+    ]
+
+
+def check_campaign_resume_safety(args: argparse.Namespace, root: Path) -> bool:
+    normalized = root / "campaign-normalized.tsv"
+    output_dir = root / "campaign"
+    write_tsv(normalized, NORMALIZED_HEADER_V2, fixture_rows())
+
+    first_command = campaign_command(args, normalized, output_dir, seed=3)
+    if not require_success(run(first_command)):
+        return False
+    first_report = load_json(output_dir / "campaign-report.json")
+    if first_report.get("stages", {}).get("generate_exact_move_teacher_dataset", {}).get("status") != "ok":
+        print(f"campaign first run did not execute generator: {first_report.get('stages')}", file=sys.stderr)
+        return False
+
+    if not require_success(run([*first_command, "--resume"])):
+        return False
+    resume_report = load_json(output_dir / "campaign-report.json")
+    expected_skipped = [
+        "generate_exact_move_teacher_dataset",
+        "build_child_pattern_dataset",
+        "train_child_value_artifact",
+        "export_child_value_artifact",
+        "evaluate_move_teacher_child_artifact_ranking",
+    ]
+    for stage in expected_skipped:
+        status = resume_report.get("stages", {}).get(stage, {}).get("status")
+        if status != "skipped-resume-validated":
+            print(f"campaign resume did not validate-skip {stage}: {status}", file=sys.stderr)
+            return False
+
+    stale_command = campaign_command(args, normalized, output_dir, seed=4)
+    return require_failure(
+        run([*stale_command, "--resume"]),
+        "resume metadata mismatch for stage generate_exact_move_teacher_dataset",
+    )
+
+
 def main() -> int:
     args = parse_args()
     with tempfile.TemporaryDirectory() as temp_text:
@@ -770,6 +846,8 @@ def main() -> int:
         if not check_ranking_known_artifact(args, root, move_teacher, child_normalized):
             return 1
         if not check_training_integration(args, root, move_teacher, child_normalized):
+            return 1
+        if not check_campaign_resume_safety(args, root):
             return 1
     return 0
 

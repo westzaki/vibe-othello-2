@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -107,6 +108,45 @@ def report_path(path: Path | None) -> str | None:
     return path.name if path.is_absolute() else str(path)
 
 
+def command_for_report(command: list[str]) -> list[str]:
+    return [Path(part).name if "/" in part else part for part in command]
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def file_fingerprint(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise RuntimeError(f"missing file for resume fingerprint: {path}")
+    return {
+        "path": report_path(path),
+        "size_bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+
+
+def resume_expected_metadata(command: list[str], inputs: dict[str, Path]) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "command": command_for_report(command),
+        "inputs": {name: file_fingerprint(path) for name, path in sorted(inputs.items())},
+    }
+
+
+def resume_complete_metadata(expected: dict[str, Any], outputs: list[Path]) -> dict[str, Any]:
+    data = dict(expected)
+    data["outputs"] = {
+        f"output_{index}": file_fingerprint(path)
+        for index, path in enumerate(outputs)
+    }
+    return data
+
+
 def load_json(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -125,8 +165,47 @@ def run_or_fail(command: list[str], stdout_path: Path | None = None) -> subproce
     return result
 
 
-def should_skip(args: argparse.Namespace, outputs: list[Path]) -> bool:
-    return args.resume and all(path.exists() for path in outputs)
+def first_metadata_mismatch(expected: Any, actual: Any, path: str = "$") -> str | None:
+    if expected == actual:
+        return None
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        for key in sorted(set(expected) | set(actual)):
+            if key not in expected:
+                return f"{path}.{key} unexpected"
+            if key not in actual:
+                return f"{path}.{key} missing"
+            mismatch = first_metadata_mismatch(expected[key], actual[key], f"{path}.{key}")
+            if mismatch is not None:
+                return mismatch
+    if isinstance(expected, list) and isinstance(actual, list):
+        if len(expected) != len(actual):
+            return f"{path} length {len(actual)} != {len(expected)}"
+        for index, (expected_item, actual_item) in enumerate(zip(expected, actual, strict=True)):
+            mismatch = first_metadata_mismatch(expected_item, actual_item, f"{path}[{index}]")
+            if mismatch is not None:
+                return mismatch
+    return f"{path} mismatch"
+
+
+def validate_resume_metadata(
+    name: str,
+    metadata_path: Path,
+    expected: dict[str, Any],
+    outputs: list[Path],
+) -> None:
+    if not metadata_path.exists():
+        raise RuntimeError(
+            f"resume metadata missing for stage {name}: {metadata_path}; "
+            "remove stale outputs or rerun without --resume"
+        )
+    actual = load_json(metadata_path)
+    current = resume_complete_metadata(expected, outputs)
+    mismatch = first_metadata_mismatch(current, actual)
+    if mismatch is not None:
+        raise RuntimeError(
+            f"resume metadata mismatch for stage {name} at {mismatch}; "
+            "remove stale outputs or rerun without --resume"
+        )
 
 
 def run_stage(
@@ -136,15 +215,24 @@ def run_stage(
     outputs: list[Path],
     stages: dict[str, dict[str, Any]],
     stdout_path: Path | None = None,
+    resume_inputs: dict[str, Path] | None = None,
 ) -> None:
+    metadata_path = args.output_dir / f"{name}.resume.json"
+    expected_resume = resume_expected_metadata(command, resume_inputs or {})
     stages[name] = {
-        "command": [Path(part).name if "/" in part else part for part in command],
+        "command": command_for_report(command),
         "outputs": [report_path(path) for path in outputs],
+        "resume_metadata": report_path(metadata_path),
     }
-    if should_skip(args, outputs):
-        stages[name]["status"] = "skipped-resume"
+    if args.resume and all(path.exists() for path in outputs):
+        validate_resume_metadata(name, metadata_path, expected_resume, outputs)
+        stages[name]["status"] = "skipped-resume-validated"
         return
     run_or_fail(command, stdout_path=stdout_path)
+    metadata_path.write_text(
+        stable_json(resume_complete_metadata(expected_resume, outputs)),
+        encoding="utf-8",
+    )
     stages[name]["status"] = "ok"
 
 
@@ -166,6 +254,7 @@ def build_dataset(args: argparse.Namespace, child_normalized: Path, dataset: Pat
         [dataset, report],
         stages,
         stdout_path=dataset,
+        resume_inputs={"child_normalized": child_normalized},
     )
 
 
@@ -194,7 +283,14 @@ def train(args: argparse.Namespace, dataset: Path, weights_json: Path, report: P
     ]
     if args.trainer_mode == "pattern-sgd-v0d":
         command.extend(["--phase-balance", "sqrt-inverse-count"])
-    run_stage(args, "train_child_value_artifact", command, [weights_json, report], stages)
+    run_stage(
+        args,
+        "train_child_value_artifact",
+        command,
+        [weights_json, report],
+        stages,
+        resume_inputs={"dataset": dataset},
+    )
 
 
 def export_artifact(args: argparse.Namespace, weights_json: Path, weights_bin: Path, manifest: Path, stages: dict[str, dict[str, Any]]) -> None:
@@ -215,6 +311,7 @@ def export_artifact(args: argparse.Namespace, weights_json: Path, weights_bin: P
         ],
         [weights_bin, manifest],
         stages,
+        resume_inputs={"weights_json": weights_json},
     )
 
 
@@ -249,6 +346,11 @@ def evaluate_artifact(
         ],
         [report, summary],
         stages,
+        resume_inputs={
+            "move_teacher": move_teacher,
+            "weights": weights,
+            "manifest": manifest,
+        },
     )
 
 
@@ -294,7 +396,20 @@ def run_arena(
     ]
     if args.arena_side_swap:
         command.append("--side-swap")
-    run_stage(args, "bounded_late_game_arena", command, [arena_report, arena_summary], stages)
+    run_stage(
+        args,
+        "bounded_late_game_arena",
+        command,
+        [arena_report, arena_summary],
+        stages,
+        resume_inputs={
+            "positions_tsv": args.normalized_tsv,
+            "candidate_weights": candidate_weights,
+            "candidate_manifest": candidate_manifest,
+            "baseline_weights": args.arena_baseline_weights,
+            "baseline_manifest": args.arena_baseline_manifest,
+        },
+    )
 
 
 def extract_ranking(report_path: Path | None) -> dict[str, Any] | None:
@@ -421,6 +536,7 @@ def main() -> int:
             ],
             [move_teacher, child_normalized, generator_report],
             stages,
+            resume_inputs={"normalized_tsv": args.normalized_tsv},
         )
         build_dataset(args, child_normalized, dataset, dataset_report, stages)
         train(args, dataset, weights_json, trainer_report, stages)

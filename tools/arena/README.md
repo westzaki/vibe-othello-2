@@ -163,6 +163,11 @@ python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
   --resume
 ```
 
+`--resume` validates per-stage sidecar metadata before skipping. The helper
+compares the current command, input checksums, and output checksums, and fails
+on missing or mismatched metadata rather than combining stale ranking or arena
+outputs with new arguments.
+
 If ranking metrics do not improve, arena noise should not be interpreted as a
 strength result. The likely next bottleneck is decision leverage in the score
 shape or rank objective, not another local learning-rate or weight-decay tweak.
