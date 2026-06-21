@@ -363,6 +363,19 @@ pairwise accuracy, or regret, the next likely bottleneck is the linear
 pattern-evaluator score shape or a need for a localized pairwise rank trainer,
 not another small learning-rate, weight-decay, or pattern-family tweak.
 
+A local 5,000-root move-teacher decision campaign on the connected 100k
+low-empty selection showed a positive decision-leverage signal for
+`pattern-v2-endgame-lite` child-label training versus the same-root exact
+root-label artifact. On the full selected set, top1, tie-aware top1,
+best-in-top2, pairwise accuracy, mean regret, and exact-best predicted rank all
+improved; on validation+test, pairwise accuracy, top2, mean regret, and
+exact-best predicted rank improved, while tie-aware top1 dipped slightly. The
+optional bounded side-swapped arena against the existing v1 exact-teacher
+artifact was non-negative but remains a local diagnostic only. Details live in
+`docs/experiments/pattern-move-teacher-decision-leverage.md`. This is not Elo,
+not self-play, not a production strength claim, not a publication gate, and no
+generated labels, datasets, weights, artifacts, logs, or reports are committed.
+
 The Egaroucid normalized dataset report currently records:
 
 * `schema_version`
