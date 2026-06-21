@@ -119,6 +119,12 @@ Existing evaluation tests cover:
 * local smoke coverage for exporting, loading, and evaluating
   `pattern-v1-buro-lite` and `pattern-v2-endgame-lite` artifacts without
   committing learned weights
+* CTest-backed persistent pattern artifact arena smoke that loads candidate and
+  baseline local artifacts once, reuses both `PatternEvaluator` instances across
+  deterministic side-swapped late-game games, checks JSON/Markdown report
+  emission, deterministic stable payloads, `board_id` de-duplication,
+  max-empty filtering, and artifact validation failures without committing
+  generated artifacts or reports
 
 The current repository already documents that:
 
@@ -143,10 +149,11 @@ The current implementation does not yet have:
 * calibrated score scale
 
 Trainer v0b learned weights can now be exported, loaded, measured by a
-fixed-position evaluation smoke, measured by a fixed-position search smoke, and
-exercised by the local-only Egaroucid subset training runner. Full training,
-production artifact publication, match-bench validation, self-play, and
-production strength claims remain unimplemented.
+fixed-position evaluation smoke, measured by a fixed-position search smoke,
+exercised by the local-only Egaroucid subset training runner, and compared in a
+persistent local artifact-vs-artifact late-game arena. Full training,
+production artifact publication, Elo-style match-bench validation, self-play,
+and production strength claims remain unimplemented.
 
 The existing `search::Evaluator` interface is the production boundary for
 heuristic evaluation today.
@@ -184,6 +191,7 @@ Status values:
 | Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` compares local-only v0a phase-bias and v0b pattern-SGD artifacts over deterministic fixed positions, emits a checksum-stable JSON report, verifies at least one v0a/v0b score difference, and keeps Egaroucid-derived artifacts temp-only |
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` injects local-only v0a/v0b artifacts through `PatternEvaluator`, compares depth-1 fixed-depth search best move, score, and nodes over deterministic fixed positions, explicitly disables TT/endgame search options, and keeps wall-time out of pass/fail semantics |
 | Add local training runner evaluation smoke integration | done | The local-only Egaroucid subset training runner can export local v0b artifacts and include the fixed-position evaluation smoke summary/checksum in its local run report; sequence-derived local runs may cap evaluation smoke input rows independently from training rows; this remains smoke coverage, not a production benchmark |
+| Add persistent pattern artifact arena | done | `vibe-othello-pattern-artifact-arena` loads two local pattern artifacts once, reuses both artifact-backed evaluators across deterministic late-game side-swapped games, emits JSON/Markdown diagnostics, and stays scoped to local artifact-vs-artifact review rather than Elo, self-play, production strength, or publication gating |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |

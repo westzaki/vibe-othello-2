@@ -18,6 +18,7 @@ Read only the document needed for the current task.
 | Pattern sequence v0002 local measurement notes | `experiments/pattern-sequence-v0002-local-measurement.md` |
 | Pattern sequence v0002 v0c/v0d sweep notes | `experiments/pattern-sequence-v0002-v0c-v0d-sweep.md` |
 | Pattern v2 endgame-lite exact-teacher diagnostic | `experiments/pattern-sequence-v0002-endgame-lite-exact-teacher.md` |
+| Pattern v2 vs v1 persistent artifact arena diagnostic | `experiments/pattern-artifact-arena-v2-vs-v1-late-game-1000.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |

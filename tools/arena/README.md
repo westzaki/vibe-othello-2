@@ -36,6 +36,69 @@ build/tools/engine-cli/vibe-othello-engine-cli bestmove \
   --pattern-weights /path/to/v0b.weights.bin
 ```
 
+## Persistent Pattern Artifact Arena
+
+`vibe-othello-pattern-artifact-arena` compares two local pattern artifacts over
+normalized schema v2 late-game positions. Unlike the process arena above, it
+loads the candidate and baseline artifacts once, constructs both
+`PatternEvaluator` instances once, and reuses them for every game. It does not
+invoke Python per game and does not reload artifact files per game.
+
+The primary local diagnostic use is `pattern-v2-endgame-lite` versus
+`pattern-v1-buro-lite`:
+
+```sh
+build/tools/arena/vibe-othello-pattern-artifact-arena \
+  --positions-tsv "$VIBE_OTHELLO_MEASUREMENTS/<connected-or-teacher-run>/runs/<run-id>/resplit-normalized.tsv" \
+  --candidate-weights "$VIBE_OTHELLO_MEASUREMENTS/<v2-run>/v0c.weights.bin" \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v2-run>/v0c.manifest.json" \
+  --candidate-name pattern-v2-endgame-lite \
+  --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.weights.bin" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v1-run>/v0c.manifest.json" \
+  --baseline-name pattern-v1-buro-lite \
+  --max-empty 12 \
+  --max-positions 1000 \
+  --seed 0 \
+  --side-swap \
+  --depth 3 \
+  --report-out "$VIBE_OTHELLO_MEASUREMENTS/arena/v2-vs-v1-late-game-1000/arena-report.json" \
+  --summary-out "$VIBE_OTHELLO_MEASUREMENTS/arena/v2-vs-v1-late-game-1000/arena-summary.md" \
+  --progress-every 100
+```
+
+Input must be normalized schema v2 TSV with at least `board_id`,
+`board_a1_to_h8`, `empty_count`, `phase`, and `split`. The arena filters to
+`empty_count <= --max-empty`, de-duplicates by `board_id`, and, when
+`--max-positions` is set, chooses a deterministic bounded sample by hashing
+`board_id` with `--seed`.
+
+With `--side-swap`, each selected position is played twice: candidate as the
+side-to-move player, then baseline as the side-to-move player. This reduces the
+chance that a result is only measuring the color/side assignment of a fixed
+position. Move choice uses the existing fixed-depth search path with the
+selected artifact-backed evaluator; tie-breaking follows the current search
+implementation.
+
+The JSON report records artifact paths and checksums, input/eligible/selected
+position counts, game counts, W-L-D, score and score rate, average/median disc
+diff from candidate perspective, an approximate score-rate interval, breakdowns
+by empty count, phase, split, and side assignment, failed game count, timing,
+command, caveats, and a report checksum. The Markdown summary repeats the key
+settings and result tables for local review.
+
+Interpret score rate cautiously. A rough local diagnostic guide is:
+
+* `> 0.55` over at least 500 side-swapped games: strong local positive signal
+* `0.52` to `0.55`: weak positive signal
+* `0.48` to `0.52`: inconclusive
+* `< 0.48`: negative signal
+
+This guide is not a strength definition. The persistent pattern artifact arena
+is a local late-game artifact-vs-artifact diagnostic only. It is not Elo, not
+self-play, not a production strength claim, and not a publication gate.
+Generated arena reports, logs, weights, artifacts, and corpus payloads must stay
+out of git.
+
 ## Openings
 
 Opening files are plain text:

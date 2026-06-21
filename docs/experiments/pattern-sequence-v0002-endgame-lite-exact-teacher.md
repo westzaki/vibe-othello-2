@@ -117,6 +117,11 @@ claim. The observed and exact-teacher artifacts produced the same game outcomes
 in this small check, so the arena result supports the pattern-set capacity jump
 more than an exact-label jump.
 
+A later persistent artifact-loaded arena over 1,000 deterministic selected
+late-game boards with side-swapped pairings did not preserve this small positive
+signal; see
+`docs/experiments/pattern-artifact-arena-v2-vs-v1-late-game-1000.md`.
+
 ## Interpretation
 
 The pattern-set jump happened: `pattern-v2-endgame-lite` is a better fitting
