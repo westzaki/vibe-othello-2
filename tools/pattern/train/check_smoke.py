@@ -96,6 +96,16 @@ def run_trainer_v0c(
     return run_trainer(script, "pattern-sgd-v0c", dataset, weights, report, extra_args)
 
 
+def run_trainer_v0d(
+    script: Path,
+    dataset: Path,
+    weights: Path,
+    report: Path,
+    extra_args: list[str] | None = None,
+) -> bool:
+    return run_trainer(script, "pattern-sgd-v0d", dataset, weights, report, extra_args)
+
+
 def run_trainer(
     script: Path,
     mode: str,
@@ -144,6 +154,10 @@ def run_trainer_v0b_expect_failure(script: Path, dataset: Path, expected_error: 
 
 def run_trainer_v0c_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
     return run_trainer_expect_failure(script, "pattern-sgd-v0c", dataset, expected_error)
+
+
+def run_trainer_v0d_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
+    return run_trainer_expect_failure(script, "pattern-sgd-v0d", dataset, expected_error)
 
 
 def run_trainer_expect_failure(script: Path, mode: str, dataset: Path, expected_error: str) -> bool:
@@ -596,6 +610,155 @@ def check_trainer_v0c_optimizer_controls(
         return False
     if stopped_report.get("epochs_completed") >= stopped_report.get("epochs_requested"):
         print(f"v0c early stop did not stop before max epochs: {stopped_report!r}", file=sys.stderr)
+        return False
+    return True
+
+
+def write_v0d_phase_balance_dataset(path: Path) -> None:
+    path.write_text(
+        "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features\n"
+        "train-common-a\t8\ttrain\t10\t0\tedge-8:0:1,corner-3x3:0:2\n"
+        "train-common-b\t10\ttrain\t8\t0\tedge-8:0:1,corner-3x3:0:3\n"
+        "train-common-c\t12\ttrain\t6\t0\tedge-8:0:2,corner-3x3:0:4\n"
+        "train-common-d\t14\ttrain\t4\t0\tedge-8:0:2,corner-3x3:0:5\n"
+        "train-rare-a\t16\ttrain\t-10\t2\tedge-8:0:3,corner-3x3:0:6\n"
+        "validation-a\t18\tvalidation\t5\t0\tedge-8:0:1,corner-3x3:0:2\n"
+        "validation-b\t20\tvalidation\t-8\t2\tedge-8:0:3,corner-3x3:0:6\n"
+        "test-a\t22\ttest\t3\t0\tedge-8:0:2,corner-3x3:0:4\n"
+        "test-b\t24\ttest\t-6\t2\tedge-8:0:3,corner-3x3:0:6\n",
+        encoding="utf-8",
+    )
+
+
+def check_trainer_v0d_phase_balance(trainer_script: Path, temp_dir: Path) -> bool:
+    dataset = temp_dir / "v0d-phase-balance.tsv"
+    write_v0d_phase_balance_dataset(dataset)
+    first_weights = temp_dir / "first-v0d-weights.json"
+    first_report_path = temp_dir / "first-v0d-report.json"
+    second_weights = temp_dir / "second-v0d-weights.json"
+    second_report_path = temp_dir / "second-v0d-report.json"
+    if not run_trainer_v0d(trainer_script, dataset, first_weights, first_report_path):
+        return False
+    if not run_trainer_v0d(trainer_script, dataset, second_weights, second_report_path):
+        return False
+    if first_weights.read_text(encoding="utf-8") != second_weights.read_text(encoding="utf-8"):
+        print("v0d weights are not deterministic across repeated runs", file=sys.stderr)
+        return False
+    if first_report_path.read_text(encoding="utf-8") != second_report_path.read_text(encoding="utf-8"):
+        print("v0d report is not deterministic across repeated runs", file=sys.stderr)
+        return False
+    report = json.loads(first_report_path.read_text(encoding="utf-8"))
+    weights = json.loads(first_weights.read_text(encoding="utf-8"))
+    if report.get("trainer_version") != "pattern-sgd-v0d":
+        print(f"unexpected v0d trainer version: {report.get('trainer_version')!r}", file=sys.stderr)
+        return False
+    if weights.get("trainer_version") != "pattern-sgd-v0b":
+        print("v0d weights JSON must remain v0b exporter compatible", file=sys.stderr)
+        return False
+    if report.get("phase_balance") != "sqrt-inverse-count":
+        print(f"unexpected default phase balance: {report.get('phase_balance')!r}", file=sys.stderr)
+        return False
+    phase_counts = report.get("phase_train_counts")
+    if phase_counts != {"0": 4, "1": 0, "2": 1, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0, "10": 0, "11": 0, "12": 0}:
+        print(f"unexpected v0d phase train counts: {phase_counts!r}", file=sys.stderr)
+        return False
+    phase_weights = report.get("phase_weights")
+    if not isinstance(phase_weights, dict):
+        print(f"missing v0d phase weights: {phase_weights!r}", file=sys.stderr)
+        return False
+    if not phase_weights["2"] > phase_weights["0"]:
+        print(f"rare phase was not weighted above common phase: {phase_weights!r}", file=sys.stderr)
+        return False
+    weighted_average = (4 * float(phase_weights["0"]) + float(phase_weights["2"])) / 5
+    if abs(weighted_average - 1.0) > 1e-9:
+        print(f"v0d phase weights were not normalized: {phase_weights!r}", file=sys.stderr)
+        return False
+    if report.get("weighted_train_residual_MAE") is None:
+        print("v0d report missing weighted train residual MAE", file=sys.stderr)
+        return False
+    final = report.get("final_pattern_sgd_metrics")
+    baseline = report.get("baseline_phase_bias_metrics")
+    if not isinstance(final, dict) or not isinstance(baseline, dict):
+        print("v0d report missing compatible metrics blocks", file=sys.stderr)
+        return False
+    if "metrics_by_split_phase" not in final or "metrics_by_split_phase" not in baseline:
+        print("v0d report missing split-phase metrics", file=sys.stderr)
+        return False
+
+    none_weights = temp_dir / "none-v0d-weights.json"
+    none_report_path = temp_dir / "none-v0d-report.json"
+    if not run_trainer_v0d(
+        trainer_script,
+        dataset,
+        none_weights,
+        none_report_path,
+        ["--phase-balance", "none"],
+    ):
+        return False
+    none_report = json.loads(none_report_path.read_text(encoding="utf-8"))
+    none_phase_weights = none_report.get("phase_weights")
+    if none_phase_weights.get("0") != 1.0 or none_phase_weights.get("2") != 1.0:
+        print(f"phase-balance none did not use unit active weights: {none_phase_weights!r}", file=sys.stderr)
+        return False
+
+    capped_report_path = temp_dir / "capped-v0d-report.json"
+    if not run_trainer_v0d(
+        trainer_script,
+        dataset,
+        temp_dir / "capped-v0d-weights.json",
+        capped_report_path,
+        ["--phase-balance", "inverse-count", "--max-phase-weight", "1.1", "--min-phase-weight", "0.9"],
+    ):
+        return False
+    capped_weights = json.loads(capped_report_path.read_text(encoding="utf-8")).get("phase_weights")
+    if not isinstance(capped_weights, dict) or capped_weights.get("2") != 1.1:
+        print(f"v0d phase weight cap was not applied: {capped_weights!r}", file=sys.stderr)
+        return False
+    if capped_weights.get("0") < 0.9:
+        print(f"v0d phase weight floor was not respected: {capped_weights!r}", file=sys.stderr)
+        return False
+
+    result = run_capture(
+        [
+            sys.executable,
+            str(trainer_script),
+            "--dataset",
+            str(dataset),
+            "--mode",
+            "pattern-sgd-v0c",
+            "--phase-balance",
+            "sqrt-inverse-count",
+            "--weights-out",
+            str(temp_dir / "invalid-v0c-weights.json"),
+            "--report-out",
+            str(temp_dir / "invalid-v0c-report.json"),
+        ]
+    )
+    if result.returncode == 0 or "require --mode pattern-sgd-v0d" not in result.stderr:
+        print("v0c accepted v0d-only phase-balance args", file=sys.stderr)
+        sys.stderr.write(result.stderr)
+        return False
+    invalid_bounds = run_capture(
+        [
+            sys.executable,
+            str(trainer_script),
+            "--dataset",
+            str(dataset),
+            "--mode",
+            "pattern-sgd-v0d",
+            "--max-phase-weight",
+            "0.5",
+            "--min-phase-weight",
+            "2.0",
+            "--weights-out",
+            str(temp_dir / "invalid-bounds-weights.json"),
+            "--report-out",
+            str(temp_dir / "invalid-bounds-report.json"),
+        ]
+    )
+    if invalid_bounds.returncode == 0 or "--min-phase-weight must be <= --max-phase-weight" not in invalid_bounds.stderr:
+        print("v0d accepted invalid phase weight bounds", file=sys.stderr)
+        sys.stderr.write(invalid_bounds.stderr)
         return False
     return True
 
@@ -1078,6 +1241,9 @@ def main() -> int:
         args.egaroucid_manifest,
     ):
         return 1
+    with tempfile.TemporaryDirectory() as temp_dir_name:
+        if not check_trainer_v0d_phase_balance(args.trainer_v0a, Path(temp_dir_name)):
+            return 1
     return 0
 
 

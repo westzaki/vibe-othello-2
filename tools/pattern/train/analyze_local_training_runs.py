@@ -416,6 +416,22 @@ def weight_diagnostics(trainer_report: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def phase_balance_diagnostics(trainer_report: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(trainer_report, dict):
+        return None
+    if trainer_report.get("phase_balance") is None:
+        return None
+    return {
+        "phase_balance": trainer_report.get("phase_balance"),
+        "phase_weight_floor": trainer_report.get("phase_weight_floor"),
+        "phase_weight_cap": trainer_report.get("phase_weight_cap"),
+        "phase_weights": trainer_report.get("phase_weights"),
+        "phase_train_counts": trainer_report.get("phase_train_counts"),
+        "weighted_train_residual_MAE": trainer_report.get("weighted_train_residual_MAE"),
+        "phase_balance_notes": trainer_report.get("phase_balance_notes"),
+    }
+
+
 def split_phase_warnings(trainer_report: dict[str, Any] | None) -> list[dict[str, str]]:
     if not isinstance(trainer_report, dict):
         return []
@@ -575,6 +591,7 @@ def run_summary(run_report: LoadedReport, min_train_rows: int) -> dict[str, Any]
         "final_validation_MAE": metrics.get("final_validation_MAE"),
         "test_MAE": metrics.get("test_MAE"),
         "weight_diagnostics": weight_diagnostics(trainer_report),
+        "phase_balance_diagnostics": phase_balance_diagnostics(trainer_report),
         "path": str(run_report.path),
         "run_id": data.get("run_id"),
         "sampled_rows": sampled_rows,
@@ -659,7 +676,7 @@ def add_comparison_warnings(runs: list[dict[str, Any]]) -> None:
     trainer_modes = {
         run.get("trainer_mode")
         for run in runs
-        if run.get("trainer_mode") in {"pattern-sgd-v0b", "pattern-sgd-v0c"}
+        if run.get("trainer_mode") in {"pattern-sgd-v0b", "pattern-sgd-v0c", "pattern-sgd-v0d"}
     }
     if len(trainer_modes) > 1:
         for run in runs:
@@ -693,6 +710,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "board_collisions_after",
                 "game_collisions_after",
                 "trainer_mode",
+                "phase_balance",
                 "dataset_format",
                 "best_val_MAE",
                 "final_val_MAE",
@@ -708,11 +726,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 "warnings",
             ]
         ),
-        markdown_table_row(["---"] * 19),
+        markdown_table_row(["---"] * 20),
     ]
     for run in runs:
         stage_times = run.get("stage_wall_times") or {}
         weights = run.get("weight_diagnostics") or {}
+        phase_balance = run.get("phase_balance_diagnostics") or {}
         lines.append(
             markdown_table_row(
                 [
@@ -722,6 +741,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                     run.get("board_cross_split_collision_count_after"),
                     run.get("game_group_cross_split_collision_count_after"),
                     run.get("trainer_mode"),
+                    phase_balance.get("phase_balance"),
                     run.get("dataset_output_format"),
                     run.get("best_validation_MAE"),
                     run.get("final_validation_MAE"),

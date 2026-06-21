@@ -40,6 +40,7 @@ SCHEMA_VERSION = 1
 TRAINER_VERSION_V0A = "phase-bias-v0a"
 TRAINER_VERSION_V0B = "pattern-sgd-v0b"
 TRAINER_VERSION_V0C = "pattern-sgd-v0c"
+TRAINER_VERSION_V0D = "pattern-sgd-v0d"
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", required=True, type=Path)
     parser.add_argument(
         "--mode",
-        choices=(TRAINER_VERSION_V0A, TRAINER_VERSION_V0B, TRAINER_VERSION_V0C),
+        choices=(
+            TRAINER_VERSION_V0A,
+            TRAINER_VERSION_V0B,
+            TRAINER_VERSION_V0C,
+            TRAINER_VERSION_V0D,
+        ),
         default=TRAINER_VERSION_V0A,
     )
     parser.add_argument("--epochs", type=int, default=8)
@@ -178,6 +184,21 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="v0c-only; write training progress to stderr after this many train examples.",
     )
+    parser.add_argument(
+        "--phase-balance",
+        choices=("none", "inverse-count", "sqrt-inverse-count"),
+        help="v0d-only phase weighting scheme. Defaults to sqrt-inverse-count for v0d.",
+    )
+    parser.add_argument(
+        "--max-phase-weight",
+        type=float,
+        help="v0d-only phase weight cap. Defaults to 4.0 for v0d.",
+    )
+    parser.add_argument(
+        "--min-phase-weight",
+        type=float,
+        help="v0d-only phase weight floor. Defaults to 0.25 for v0d.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--report-out", required=True, type=Path)
@@ -196,6 +217,26 @@ def parse_args() -> argparse.Namespace:
         parser.error("--early-stop-patience must be non-negative")
     if args.progress_every_examples is not None and args.progress_every_examples <= 0:
         parser.error("--progress-every-examples must be positive")
+    v0d_only_args = (
+        args.phase_balance is not None
+        or args.max_phase_weight is not None
+        or args.min_phase_weight is not None
+    )
+    if args.mode != TRAINER_VERSION_V0D and v0d_only_args:
+        parser.error("--phase-balance, --max-phase-weight, and --min-phase-weight require --mode pattern-sgd-v0d")
+    if args.mode == TRAINER_VERSION_V0D:
+        if args.phase_balance is None:
+            args.phase_balance = "sqrt-inverse-count"
+        if args.max_phase_weight is None:
+            args.max_phase_weight = 4.0
+        if args.min_phase_weight is None:
+            args.min_phase_weight = 0.25
+        if args.max_phase_weight <= 0.0:
+            parser.error("--max-phase-weight must be positive")
+        if args.min_phase_weight <= 0.0:
+            parser.error("--min-phase-weight must be positive")
+        if args.min_phase_weight > args.max_phase_weight:
+            parser.error("--min-phase-weight must be <= --max-phase-weight")
     return args
 
 
@@ -710,6 +751,127 @@ def v0c_metrics_by_split_phase(
     return result
 
 
+def train_counts_by_phase(examples: list[Example]) -> dict[str, int]:
+    counts = {str(phase): 0 for phase in PHASES}
+    for example in examples:
+        if example.split == "train":
+            counts[str(example.phase)] += 1
+    return counts
+
+
+def weighted_average_phase_weight(
+    phase_counts: dict[str, int], phase_weights: dict[str, float]
+) -> float | None:
+    total = sum(phase_counts.values())
+    if total <= 0:
+        return None
+    return sum(phase_counts[str(phase)] * phase_weights[str(phase)] for phase in PHASES) / total
+
+
+def normalize_phase_weights(
+    phase_counts: dict[str, int],
+    raw_weights: dict[str, float],
+    min_weight: float,
+    max_weight: float,
+) -> dict[str, float]:
+    weights = {
+        str(phase): (
+            max(min_weight, min(max_weight, raw_weights[str(phase)]))
+            if phase_counts[str(phase)] > 0
+            else 0.0
+        )
+        for phase in PHASES
+    }
+    for _iteration in range(32):
+        average = weighted_average_phase_weight(phase_counts, weights)
+        if average is None or average == 0.0:
+            break
+        next_weights = {
+            str(phase): (
+                max(min_weight, min(max_weight, weights[str(phase)] / average))
+                if phase_counts[str(phase)] > 0
+                else 0.0
+            )
+            for phase in PHASES
+        }
+        if all(abs(next_weights[str(phase)] - weights[str(phase)]) < 1e-12 for phase in PHASES):
+            weights = next_weights
+            break
+        weights = next_weights
+    return weights
+
+
+def phase_balance_weights(
+    examples: list[Example],
+    scheme: str,
+    min_weight: float,
+    max_weight: float,
+) -> tuple[dict[str, int], dict[str, float], list[str]]:
+    phase_counts = train_counts_by_phase(examples)
+    total_train_examples = sum(phase_counts.values())
+    active_phase_count = sum(1 for count in phase_counts.values() if count > 0)
+    if total_train_examples == 0 or active_phase_count == 0:
+        raise RuntimeError("dataset has no accepted train examples")
+
+    raw_weights: dict[str, float] = {}
+    for phase in PHASES:
+        key = str(phase)
+        count = phase_counts[key]
+        if count == 0:
+            raw_weights[key] = 0.0
+        elif scheme == "none":
+            raw_weights[key] = 1.0
+        elif scheme == "inverse-count":
+            raw_weights[key] = total_train_examples / (count * active_phase_count)
+        elif scheme == "sqrt-inverse-count":
+            raw_weights[key] = math.sqrt(total_train_examples / (count * active_phase_count))
+        else:
+            raise RuntimeError(f"unsupported phase balance scheme: {scheme}")
+
+    phase_weights = normalize_phase_weights(phase_counts, raw_weights, min_weight, max_weight)
+    average = weighted_average_phase_weight(phase_counts, phase_weights)
+    notes = [
+        f"phase balance scheme: {scheme}",
+        f"active train phases: {active_phase_count}",
+        f"train example weighted average phase weight: {average:.12g}"
+        if average is not None
+        else "train example weighted average phase weight: unavailable",
+    ]
+    if any(phase_counts[str(phase)] == 0 for phase in PHASES):
+        notes.append("phases without train examples receive weight 0.0 and are not updated")
+    if any(
+        phase_counts[str(phase)] > 0
+        and (phase_weights[str(phase)] == min_weight or phase_weights[str(phase)] == max_weight)
+        for phase in PHASES
+    ):
+        notes.append("one or more active phase weights reached the configured floor or cap")
+    return phase_counts, phase_weights, notes
+
+
+def weighted_train_residual_mae(
+    examples: list[Example],
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    phase_weights: dict[str, float],
+) -> float | None:
+    weighted_absolute_error = 0.0
+    total_weight = 0.0
+    for example in examples:
+        if example.split != "train":
+            continue
+        weight = phase_weights[str(example.phase)]
+        label = float(example.label_final_disc_diff)
+        phase_prediction = phase_bias_score(example, phase_bias)
+        residual = label - phase_prediction
+        prediction = pattern_sgd_score(example, phase_bias, pattern_weights)
+        residual_prediction = prediction - phase_prediction
+        weighted_absolute_error += weight * abs(residual_prediction - residual)
+        total_weight += weight
+    if total_weight == 0.0:
+        return None
+    return weighted_absolute_error / total_weight
+
+
 def stable_float(value: Any) -> Any:
     if isinstance(value, float):
         return float(f"{value:.12g}")
@@ -1010,6 +1172,166 @@ def train_pattern_sgd_v0c(
     return pattern_weights, stable_float(metrics_by_epoch), stable_float(state)
 
 
+def train_pattern_sgd_v0d(
+    examples: list[Example],
+    phase_bias: dict[str, float],
+    args: argparse.Namespace,
+    phase_weights: dict[str, float],
+) -> tuple[PatternWeights, list[dict[str, Any]], dict[str, Any]]:
+    train_examples = [example for example in examples if example.split == "train"]
+    validation_examples = [example for example in examples if example.split == "validation"]
+    pattern_weights: PatternWeights = {}
+    best_weights: PatternWeights = {}
+    metrics_by_epoch: list[dict[str, Any]] = []
+    best_validation_mae: float | None = None
+    best_epoch: int | None = None
+    epochs_without_improvement = 0
+    early_stop_triggered = False
+    weight_decay = v0c_weight_decay(args)
+    start_time = time.monotonic()
+    train_count = len(train_examples)
+
+    for epoch in range(1, args.epochs + 1):
+        epoch_start_time = time.monotonic()
+        epoch_examples = list(train_examples)
+        random.Random(args.seed + epoch - 1).shuffle(epoch_examples)
+        learning_rate = v0c_learning_rate(args.learning_rate, args.lr_schedule, epoch)
+        gradient_clip_count = 0
+        updated_feature_occurrence_count = 0
+        for example_index, example in enumerate(epoch_examples, start=1):
+            feature_count = len(example.features)
+            if feature_count == 0:
+                continue
+            error = (
+                pattern_sgd_score(example, phase_bias, pattern_weights)
+                - example.label_final_disc_diff
+            )
+            weighted_error = error * phase_weights[str(example.phase)]
+            for feature in example.features:
+                key = (example.phase, feature.pattern_id, feature.ternary_index)
+                weight = pattern_weights.get(key, 0.0)
+                gradient = weighted_error / feature_count
+                if args.gradient_clip is not None:
+                    clipped = max(-args.gradient_clip, min(args.gradient_clip, gradient))
+                    if clipped != gradient:
+                        gradient_clip_count += 1
+                    gradient = clipped
+                weight -= learning_rate * (gradient + weight_decay * weight)
+                updated_feature_occurrence_count += 1
+                if weight == 0.0:
+                    pattern_weights.pop(key, None)
+                else:
+                    pattern_weights[key] = weight
+            if (
+                args.progress_every_examples is not None
+                and example_index % args.progress_every_examples == 0
+            ):
+                elapsed = max(time.monotonic() - start_time, 1e-9)
+                print(
+                    "trainer_progress "
+                    f"epoch={epoch} "
+                    f"examples={example_index}/{train_count} "
+                    f"updated_feature_occurrences={updated_feature_occurrence_count} "
+                    f"elapsed_sec={elapsed:.3f} "
+                    f"examples_per_sec={example_index / max(time.monotonic() - epoch_start_time, 1e-9):.3f}",
+                    file=sys.stderr,
+                )
+
+        needs_validation_metrics = (
+            args.eval_every_epoch
+            or epoch == args.epochs
+            or args.early_stop_patience is not None
+        )
+        validation_metrics = (
+            v0c_metrics_for_examples(validation_examples, phase_bias, pattern_weights)
+            if needs_validation_metrics
+            else None
+        )
+        validation_mae = validation_metrics["MAE"] if validation_metrics is not None else None
+        if validation_mae is not None:
+            if best_validation_mae is None or validation_mae < best_validation_mae:
+                best_validation_mae = validation_mae
+                best_epoch = epoch
+                best_weights = dict(pattern_weights)
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+        if args.eval_every_epoch or epoch == args.epochs:
+            train_metrics = v0c_metrics_for_examples(train_examples, phase_bias, pattern_weights)
+            if validation_metrics is None:
+                validation_metrics = v0c_metrics_for_examples(
+                    validation_examples, phase_bias, pattern_weights
+                )
+            metrics_by_epoch.append(
+                {
+                    "epoch": epoch,
+                    "learning_rate": learning_rate,
+                    "train": {
+                        "MAE": train_metrics["MAE"],
+                        "RMSE": train_metrics["RMSE"],
+                        "sign_accuracy": train_metrics["sign_accuracy"],
+                        "residual_MAE": train_metrics["residual_MAE"],
+                        "residual_RMSE": train_metrics["residual_RMSE"],
+                        "weighted_residual_MAE": weighted_train_residual_mae(
+                            train_examples, phase_bias, pattern_weights, phase_weights
+                        ),
+                    },
+                    "validation": {
+                        "MAE": validation_metrics["MAE"],
+                        "RMSE": validation_metrics["RMSE"],
+                        "sign_accuracy": validation_metrics["sign_accuracy"],
+                        "residual_MAE": validation_metrics["residual_MAE"],
+                        "residual_RMSE": validation_metrics["residual_RMSE"],
+                    },
+                    "nonzero_weight_count": len(nonzero_pattern_weight_items(pattern_weights)),
+                    "weight_l2_norm": weight_l2_norm(pattern_weights),
+                    "max_abs_weight": max_abs_weight(pattern_weights),
+                    "gradient_clip_count": gradient_clip_count
+                    if args.gradient_clip is not None
+                    else None,
+                    "updated_feature_occurrence_count": updated_feature_occurrence_count,
+                }
+            )
+        if args.progress_every_examples is not None:
+            elapsed = max(time.monotonic() - start_time, 1e-9)
+            print(
+                "trainer_epoch "
+                f"epoch={epoch} "
+                f"updated_feature_occurrences={updated_feature_occurrence_count} "
+                f"nonzero_weight_count={len(pattern_weights)} "
+                f"validation_MAE={validation_mae} "
+                f"elapsed_sec={elapsed:.3f}",
+                file=sys.stderr,
+            )
+
+        if (
+            args.early_stop_patience is not None
+            and validation_mae is not None
+            and epochs_without_improvement >= args.early_stop_patience
+        ):
+            early_stop_triggered = True
+            break
+
+    if early_stop_triggered and best_epoch is not None:
+        pattern_weights = best_weights
+    epochs_completed = metrics_by_epoch[-1]["epoch"] if metrics_by_epoch else 0
+    if args.epochs > 0 and not metrics_by_epoch:
+        epochs_completed = epoch
+    final_validation_metrics = v0c_metrics_for_examples(
+        validation_examples, phase_bias, pattern_weights
+    )
+    state = {
+        "epochs_requested": args.epochs,
+        "epochs_completed": epochs_completed,
+        "early_stop_triggered": early_stop_triggered,
+        "best_epoch": best_epoch,
+        "best_validation_MAE": best_validation_mae,
+        "final_validation_MAE": final_validation_metrics["MAE"],
+    }
+    return pattern_weights, stable_float(metrics_by_epoch), stable_float(state)
+
+
 def nonzero_pattern_weight_items(pattern_weights: PatternWeights) -> list[dict[str, Any]]:
     return [
         {
@@ -1179,6 +1501,10 @@ def pattern_sgd_v0c_report_without_checksum(
     training_state: dict[str, Any],
     args: argparse.Namespace,
     weights_checksum: str,
+    trainer_version: str = TRAINER_VERSION_V0C,
+    phase_train_counts: dict[str, int] | None = None,
+    phase_weights: dict[str, float] | None = None,
+    phase_balance_notes: list[str] | None = None,
 ) -> dict[str, Any]:
     accepted = load_result.accepted_examples
     examples_by_split = split_examples(accepted)
@@ -1187,10 +1513,11 @@ def pattern_sgd_v0c_report_without_checksum(
     nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
     final_metrics_by_split = v0c_metrics_by_split(accepted, phase_bias, pattern_weights)
     baseline_metrics_by_split = v0c_metrics_by_split(accepted, phase_bias, {})
+    is_v0d = trainer_version == TRAINER_VERSION_V0D
 
     report = {
         "schema_version": SCHEMA_VERSION,
-        "trainer_version": TRAINER_VERSION_V0C,
+        "trainer_version": trainer_version,
         "input_format": load_result.input_format,
         "input_rows": load_result.input_rows,
         "input_feature_rows": load_result.input_feature_rows,
@@ -1231,7 +1558,11 @@ def pattern_sgd_v0c_report_without_checksum(
             "loss": "squared-error SGD",
             "prediction": "phase_bias[phase] + sum(pattern_weight[phase, pattern_id, ternary_index])",
             "error": "prediction - label",
-            "per_occurrence_gradient": "error / feature_count",
+            "per_occurrence_gradient": (
+                "phase_weight[phase] * error / feature_count"
+                if is_v0d
+                else "error / feature_count"
+            ),
             "gradient_clip": "optional absolute clip applied to per-feature error gradient before weight decay",
             "weight_decay": "applied only to pattern weights",
             "phase_bias": "learned from train split and fixed during pattern SGD",
@@ -1262,17 +1593,62 @@ def pattern_sgd_v0c_report_without_checksum(
         "top_abs_weights": top_abs_weights(pattern_weights),
         "weights_checksum": weights_checksum,
         "notes": [
-            "pattern-sgd-v0c is a local research trainer, not a production trainer",
-            "v0c report metrics are fitting diagnostics, not strength, Elo, match bench, or self-play claims",
-            "phase bias is learned from train split examples and held fixed during v0c SGD",
+            (
+                "pattern-sgd-v0d is a local research trainer, not a production trainer"
+                if is_v0d
+                else "pattern-sgd-v0c is a local research trainer, not a production trainer"
+            ),
+            (
+                "v0d report metrics are fitting diagnostics, not strength, Elo, match bench, or self-play claims"
+                if is_v0d
+                else "v0c report metrics are fitting diagnostics, not strength, Elo, match bench, or self-play claims"
+            ),
+            (
+                "phase bias is learned from train split examples and held fixed during v0d SGD"
+                if is_v0d
+                else "phase bias is learned from train split examples and held fixed during v0c SGD"
+            ),
             "pattern weights are learned from train split examples only",
             "validation and test examples are used only for metrics and early stopping",
             "feature occurrences are added once per feature row, matching runtime evaluator occurrence semantics",
-            "duplicate feature rows are reported and intentionally kept as repeated contributions in v0c",
+            (
+                "duplicate feature rows are reported and intentionally kept as repeated contributions in v0d"
+                if is_v0d
+                else "duplicate feature rows are reported and intentionally kept as repeated contributions in v0c"
+            ),
             "weights JSON remains compatible with the v0b exporter schema",
+            *((phase_balance_notes or []) if is_v0d else []),
             *load_result.notes,
         ],
     }
+    if is_v0d:
+        assert phase_train_counts is not None
+        assert phase_weights is not None
+        final_metrics_by_phase = {
+            str(phase): v0c_metrics_for_examples(
+                examples_by_phase[phase], phase_bias, pattern_weights
+            )
+            for phase in PHASES
+        }
+        baseline_metrics_by_phase = {
+            str(phase): v0c_metrics_for_examples(examples_by_phase[phase], phase_bias, {})
+            for phase in PHASES
+        }
+        report["baseline_phase_bias_metrics"]["metrics_by_phase"] = baseline_metrics_by_phase
+        report["final_pattern_sgd_metrics"]["metrics_by_phase"] = final_metrics_by_phase
+        report.update(
+            {
+                "phase_balance": args.phase_balance,
+                "phase_weight_floor": args.min_phase_weight,
+                "phase_weight_cap": args.max_phase_weight,
+                "phase_weights": phase_weights,
+                "phase_train_counts": phase_train_counts,
+                "weighted_train_residual_MAE": weighted_train_residual_mae(
+                    accepted, phase_bias, pattern_weights, phase_weights
+                ),
+                "phase_balance_notes": phase_balance_notes or [],
+            }
+        )
     return stable_float(report)
 
 
@@ -1357,6 +1733,41 @@ def run_pattern_sgd_v0c(load_result: LoadResult, args: argparse.Namespace) -> No
     write_text(args.report_out, report_text)
 
 
+def run_pattern_sgd_v0d(load_result: LoadResult, args: argparse.Namespace) -> None:
+    phase_bias = train_phase_bias(load_result.accepted_examples)
+    phase_train_counts, phase_weights, phase_balance_notes = phase_balance_weights(
+        load_result.accepted_examples,
+        args.phase_balance,
+        args.min_phase_weight,
+        args.max_phase_weight,
+    )
+    pattern_weights, metrics_by_epoch, training_state = train_pattern_sgd_v0d(
+        load_result.accepted_examples,
+        phase_bias,
+        args,
+        phase_weights,
+    )
+    weights_text = pattern_weights_json(phase_bias, pattern_weights)
+    weights_checksum = weights_checksum_for(weights_text)
+    report = pattern_sgd_v0c_report_without_checksum(
+        load_result,
+        phase_bias,
+        pattern_weights,
+        metrics_by_epoch,
+        training_state,
+        args,
+        weights_checksum,
+        trainer_version=TRAINER_VERSION_V0D,
+        phase_train_counts=phase_train_counts,
+        phase_weights=phase_weights,
+        phase_balance_notes=phase_balance_notes,
+    )
+    report["checksum"] = checksum_for(report, weights_text)
+    report_text = json.dumps(report, indent=2, sort_keys=False) + "\n"
+    write_text(args.weights_out, weights_text)
+    write_text(args.report_out, report_text)
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -1368,6 +1779,8 @@ def main() -> int:
             run_pattern_sgd_v0b(load_result, args)
         elif args.mode == TRAINER_VERSION_V0C:
             run_pattern_sgd_v0c(load_result, args)
+        elif args.mode == TRAINER_VERSION_V0D:
+            run_pattern_sgd_v0d(load_result, args)
         else:
             raise RuntimeError(f"unsupported mode: {args.mode}")
     except RuntimeError as error:

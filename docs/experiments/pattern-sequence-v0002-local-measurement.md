@@ -60,8 +60,9 @@ after-resplit guard when both options are supplied, but the practical rerun
 command only needs the measurement split policy.
 
 After producing a leakage-safe connected-board-game 100k local training run,
-use the fixed pattern dataset TSV from that run for v0c optimizer tuning. The
-trainer sweep runner reuses the dataset and does not rerun sequence import,
+use the fixed pattern dataset TSV from that run for v0c optimizer tuning, then
+run the v0d phase-balanced residual-SGD sweep against the same fixed dataset.
+The trainer sweep runner reuses the dataset and does not rerun sequence import,
 resplitting, dataset generation, export, evaluation smoke, or search smoke for
 each optimizer setting:
 
@@ -74,11 +75,27 @@ python3 tools/pattern/train/run_pattern_trainer_sweep.py \
   --resume
 ```
 
+```sh
+python3 tools/pattern/train/run_pattern_trainer_sweep.py \
+  --source-local-run-report "$VIBE_OTHELLO_LOCAL/measurements/<run>/local-training-run-report.json" \
+  --output-dir "$VIBE_OTHELLO_LOCAL/measurements/<v0d-sweep-run>" \
+  --sweep-preset v0d-100k-phase-core \
+  --run-prefix sequence-v0002-100k-v0d-phase-sweep \
+  --resume
+```
+
 The sweep report selects the best config by validation MAE. Test MAE is
 included for reporting and deterministic tie-breaks only. Treat this as a
 local diagnostic for trainer configuration, not a strength claim, Elo result,
 match bench, self-play result, production artifact, publication gate, or
 derived-weight publication flow.
+
+The intended next workflow is: build a connected-board-game 100k dataset, run
+the v0c sweep, run the v0d phase sweep, then carry the best
+validation-selected configuration to 1m. v0d is a local research trainer that
+adds phase-balanced residual SGD to investigate phase imbalance and early-phase
+regressions; it is not a strength claim, Elo result, match bench, self-play
+result, production artifact, or publication gate.
 
 ## Measurement Results
 
@@ -151,16 +168,13 @@ metrics as clean generalization measurements.
 
 ## Recommended Follow-Ups
 
-1. Run a 100k tuning sweep before spending more 1m runtime:
+1. Build a leakage-safe connected-board-game 100k dataset and run a v0c tuning
+   sweep before spending more 1m runtime:
    `learning-rate`, `weight-decay`, `lr-schedule inverse-sqrt`, more epochs,
    and early stopping are the first knobs to try.
-2. Add or use a split policy that prevents exact board leakage across
-   train/validation/test for sequence-derived data, then rerun at least 100k.
-   The current recommended option is
-   `--measurement-split-policy connected-board-game`.
-3. Investigate early-phase regressions with phase-by-phase diagnostics and
-   consider phase-specific weighting or feature/trainer changes.
-4. Rerun 1m only after the 100k sweep finds a better setting.
-5. Keep match bench, Elo, self-play, production artifact publication, and
+2. Run the v0d phase-balanced residual-SGD sweep on the same fixed 100k
+   pattern dataset to investigate phase imbalance and early-phase regressions.
+3. Carry only the best validation-selected v0c/v0d configuration to 1m.
+4. Keep match bench, Elo, self-play, production artifact publication, and
    derived-weight publication out of scope until provenance and measurement
    quality gates are stronger.
