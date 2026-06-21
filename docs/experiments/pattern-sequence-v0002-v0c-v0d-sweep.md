@@ -184,3 +184,21 @@ The next useful PR should widen the 100k optimizer diagnostic around the tied
 region: compare v0c and v0d at `learning-rate 0.08`, `0.1`, and `0.12` with
 the same inverse-sqrt schedule, include `weight-decay 1e-4` for both families,
 and keep validation MAE as the primary selector.
+
+An orthogonal follow-up diagnostic is to replace only low-empty late-phase
+observed labels with exact endgame teacher labels and compare fitting metrics
+on the same selected boards:
+
+```sh
+python3 tools/pattern/labels/run_exact_teacher_late_phase_campaign.py \
+  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
+  --output-dir "$RUN_DIR/exact-teacher-late-phase" \
+  --max-empty 12 \
+  --max-positions 5000 \
+  --seed 0 \
+  --trainer-mode pattern-sgd-v0c
+```
+
+Use validation MAE as the primary decision metric. Test MAE is reporting and
+tie-break only, and the result is still not a strength, Elo, match bench,
+self-play, or production artifact claim.

@@ -270,6 +270,25 @@ Existing foundations include:
   report fixtures, checks deterministic JSON and Markdown output, fixes the
   expected warning list, and keeps Egaroucid-derived generated reports out of
   the repository
+* local-only exact endgame teacher label generator at
+  `tools/pattern/labels/generate_exact_endgame_teacher_labels.cc` that reads
+  normalized schema v2 TSV rows, rejects schema v1, filters to
+  `empty_count <= --max-empty`, de-duplicates by `board_id`, optionally caps
+  candidates with deterministic `board_id` hash sampling, solves with the
+  public exact endgame API, emits teacher label TSV rows in sorted `board_id`
+  order, and writes local-only report diagnostics with solve counts, depth,
+  node, score, checksum, timing, and no-strength-claim notes
+* local-only late-phase exact teacher campaign helper at
+  `tools/pattern/labels/run_exact_teacher_late_phase_campaign.py` that selects
+  low-empty normalized schema v2 rows, generates exact labels, overlays them
+  with drop policy, builds observed-label and exact-teacher pattern datasets,
+  trains a bounded v0c/v0d fitting diagnostic, and compares by validation MAE
+  first while treating test MAE as reporting/tie-break only
+* CTest-backed exact teacher label generator smoke that uses only synthetic
+  low-empty fixtures, checks exact teacher label schema/report behavior,
+  max-empty filtering, deterministic max-position sampling, duplicate
+  `board_id` handling, schema/malformed-row failures, overlay compatibility,
+  pattern dataset generation, and a tiny v0c trainer integration path
 
 The Egaroucid normalized dataset report currently records:
 
