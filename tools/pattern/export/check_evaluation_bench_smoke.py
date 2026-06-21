@@ -51,7 +51,9 @@ def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str
     return None if result is None else result.stdout
 
 
-def run_dataset_from_normalized(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
+def run_dataset_from_normalized(
+    exe: Path, normalized_tsv: Path, report: Path, pattern_set: str
+) -> str | None:
     result = run_or_report(
         [
             str(exe),
@@ -59,6 +61,8 @@ def run_dataset_from_normalized(exe: Path, normalized_tsv: Path, report: Path) -
             str(normalized_tsv),
             "--report",
             str(report),
+            "--pattern-set",
+            pattern_set,
         ]
     )
     return None if result is None else result.stdout
@@ -88,7 +92,9 @@ def run_trainer(
     return run_or_report(command) is not None
 
 
-def export_v0a(exporter: Path, weights_tsv: Path, weights_out: Path, manifest_out: Path) -> str | None:
+def export_v0a(
+    exporter: Path, weights_tsv: Path, weights_out: Path, manifest_out: Path, pattern_set: str
+) -> str | None:
     result = run_or_report(
         [
             sys.executable,
@@ -99,6 +105,8 @@ def export_v0a(exporter: Path, weights_tsv: Path, weights_out: Path, manifest_ou
             str(weights_out),
             "--manifest-out",
             str(manifest_out),
+            "--pattern-set",
+            pattern_set,
         ]
     )
     if result is None:
@@ -106,7 +114,9 @@ def export_v0a(exporter: Path, weights_tsv: Path, weights_out: Path, manifest_ou
     return parse_key_values(result.stdout)["weights_checksum"]
 
 
-def export_v0b(exporter: Path, weights_json: Path, weights_out: Path, manifest_out: Path) -> str | None:
+def export_v0b(
+    exporter: Path, weights_json: Path, weights_out: Path, manifest_out: Path, pattern_set: str
+) -> str | None:
     result = run_or_report(
         [
             sys.executable,
@@ -117,6 +127,8 @@ def export_v0b(exporter: Path, weights_json: Path, weights_out: Path, manifest_o
             str(weights_out),
             "--manifest-out",
             str(manifest_out),
+            "--pattern-set",
+            pattern_set,
         ]
     )
     if result is None:
@@ -124,7 +136,24 @@ def export_v0b(exporter: Path, weights_json: Path, weights_out: Path, manifest_o
     return parse_key_values(result.stdout)["weights_checksum"]
 
 
-def check_report(report_path: Path, first_summary: dict[str, str]) -> bool:
+def smoke_source_for(pattern_set: str) -> str:
+    if pattern_set == "fixed-pattern-fixture-v1" or pattern_set == "tiny":
+        return "tiny-egaroucid-v0b-smoke"
+    if pattern_set == "pattern-v2-endgame-lite" or pattern_set == "endgame-lite":
+        return "endgame-lite-egaroucid-v0b-smoke"
+    return "buro-lite-egaroucid-v0b-smoke"
+
+
+def canonical_pattern_set_id(pattern_set: str) -> str:
+    aliases = {
+        "tiny": "fixed-pattern-fixture-v1",
+        "buro-lite": "pattern-v1-buro-lite",
+        "endgame-lite": "pattern-v2-endgame-lite",
+    }
+    return aliases.get(pattern_set, pattern_set)
+
+
+def check_report(report_path: Path, first_summary: dict[str, str], pattern_set: str) -> bool:
     try:
         report: dict[str, Any] = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -139,8 +168,8 @@ def check_report(report_path: Path, first_summary: dict[str, str]) -> bool:
     ]
     expected_fields: dict[str, Any] = {
         "schema_version": 1,
-        "source": "tiny-egaroucid-v0b-smoke",
-        "pattern_set_id": "fixed-pattern-fixture-v1",
+        "source": smoke_source_for(pattern_set),
+        "pattern_set_id": canonical_pattern_set_id(pattern_set),
         "phase_count": 13,
         "notes": expected_notes,
     }
@@ -203,6 +232,7 @@ def main() -> int:
     parser.add_argument("--egaroucid-importer", required=True, type=Path)
     parser.add_argument("--egaroucid-fixture", required=True, type=Path)
     parser.add_argument("--egaroucid-manifest", required=True, type=Path)
+    parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
@@ -220,7 +250,9 @@ def main() -> int:
             return 1
         normalized_tsv.write_text(imported_tsv, encoding="utf-8")
 
-        dataset_text = run_dataset_from_normalized(args.dataset_exe, normalized_tsv, dataset_report)
+        dataset_text = run_dataset_from_normalized(
+            args.dataset_exe, normalized_tsv, dataset_report, args.pattern_set
+        )
         if dataset_text is None:
             return 1
         pattern_dataset.write_text(dataset_text, encoding="utf-8")
@@ -242,8 +274,12 @@ def main() -> int:
         v0a_manifest = temp_dir / "v0a.manifest.json"
         v0b_weights = temp_dir / "v0b.weights.bin"
         v0b_manifest = temp_dir / "v0b.manifest.json"
-        v0a_checksum = export_v0a(args.v0a_exporter, v0a_weights_tsv, v0a_weights, v0a_manifest)
-        v0b_checksum = export_v0b(args.v0b_exporter, v0b_weights_json, v0b_weights, v0b_manifest)
+        v0a_checksum = export_v0a(
+            args.v0a_exporter, v0a_weights_tsv, v0a_weights, v0a_manifest, args.pattern_set
+        )
+        v0b_checksum = export_v0b(
+            args.v0b_exporter, v0b_weights_json, v0b_weights, v0b_manifest, args.pattern_set
+        )
         if v0a_checksum is None or v0b_checksum is None:
             return 1
 
@@ -261,6 +297,8 @@ def main() -> int:
             v0a_checksum,
             "--v0b-artifact-checksum",
             v0b_checksum,
+            "--pattern-set",
+            args.pattern_set,
         ]
         first = run_or_report([*command, "--report-out", str(first_report)])
         if first is None:
@@ -281,7 +319,7 @@ def main() -> int:
         if first_report.read_bytes() != second_report.read_bytes():
             print("evaluation bench report JSON is not deterministic", file=sys.stderr)
             return 1
-        if not check_report(first_report, first_summary):
+        if not check_report(first_report, first_summary, args.pattern_set):
             return 1
 
     return 0

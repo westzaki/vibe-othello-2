@@ -244,6 +244,12 @@ Recommended first production families:
 * corner `3x3` regions
 * phase bias
 
+`pattern-v2-endgame-lite` is a local research comparison set, not a production
+replacement. It keeps `pattern-v1-buro-lite` unchanged and appends bounded
+late-phase families with lengths at most 10: `corner-2x4-8`,
+`edge-plus-x-10`, `corner-wing-8`, `near-edge-segment-8`, and
+`diagonal-corner-8`.
+
 Recommended comparison families:
 
 * short systematic n-tuples

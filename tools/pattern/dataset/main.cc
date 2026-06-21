@@ -74,12 +74,14 @@ struct ReportSummary {
   int example_rows = 0;
   int feature_occurrence_count = 0;
   int max_features_per_example = 0;
+  std::uint64_t total_table_entries = 0;
   int repeated_position_count = 0;
   int exact_duplicate_record_count = 0;
   int cross_split_board_collision_count = 0;
   OutputFormat output_format = OutputFormat::expanded_tsv;
   std::string pattern_set_id;
   vibe_othello::tools::pattern::IndexMode index_mode = vibe_othello::tools::pattern::IndexMode::raw;
+  std::vector<std::map<std::string, std::string>> feature_families;
   std::set<std::string> source_dataset_ids;
   std::set<std::string> game_group_ids;
   std::set<std::string> board_ids;
@@ -678,6 +680,27 @@ void write_string_array(std::ostream& output, const std::set<std::string>& value
   output << ']';
 }
 
+void write_feature_family_array(std::ostream& output,
+                                const std::vector<std::map<std::string, std::string>>& families) {
+  output << "[";
+  for (std::size_t index = 0; index < families.size(); ++index) {
+    if (index != 0) {
+      output << ", ";
+    }
+    output << "{";
+    bool first = true;
+    for (const auto& [key, value] : families[index]) {
+      if (!first) {
+        output << ", ";
+      }
+      first = false;
+      output << '"' << key << "\": " << value;
+    }
+    output << "}";
+  }
+  output << "]";
+}
+
 template <typename Key>
 void write_count_map(std::ostream& output, const std::map<Key, int>& counts) {
   output << "{";
@@ -730,6 +753,10 @@ bool write_report(const std::string& path, const ReportSummary& report) {
   output << "  \"max_features_per_example\": " << report.max_features_per_example << ",\n";
   output << "  \"pattern_set_id\": \"" << json_escape(report.pattern_set_id) << "\",\n";
   output << "  \"index_mode\": \"" << index_mode_name(report.index_mode) << "\",\n";
+  output << "  \"feature_families\": ";
+  write_feature_family_array(output, report.feature_families);
+  output << ",\n";
+  output << "  \"total_table_entries\": " << report.total_table_entries << ",\n";
   output << "  \"source_dataset_ids\": ";
   write_string_array(output, report.source_dataset_ids);
   output << ",\n";
@@ -766,6 +793,38 @@ bool write_report(const std::string& path, const ReportSummary& report) {
          << "\",\n";
   output << "  \"duplicate_policy\": \"keep_all_input_order\"\n";
   output << "}\n";
+  return true;
+}
+
+bool record_pattern_family_summary(const vibe_othello::evaluation::PatternFeatureSet& feature_set,
+                                   const vibe_othello::evaluation::PatternSet& pattern_set,
+                                   ReportSummary* report) {
+  namespace eval = vibe_othello::evaluation;
+
+  if (feature_set.tables.size() != pattern_set.patterns.size()) {
+    return false;
+  }
+
+  report->feature_families.clear();
+  report->total_table_entries = 0;
+  for (std::size_t table_index = 0; table_index < feature_set.tables.size(); ++table_index) {
+    const eval::PatternFeatureTable& table = feature_set.tables[table_index];
+    const eval::PatternDefinition& definition = pattern_set.patterns[table_index];
+    if (table.pattern_id != definition.id || table.pattern_length != definition.length) {
+      return false;
+    }
+    const std::optional<std::uint32_t> table_size = eval::checked_pattern_size(definition.length);
+    if (!table_size.has_value()) {
+      return false;
+    }
+    report->total_table_entries += *table_size;
+    report->feature_families.push_back({
+        {"pattern_id", "\"" + json_escape(table.pattern_id) + "\""},
+        {"pattern_length", std::to_string(table.pattern_length)},
+        {"instance_count", std::to_string(table.instances.size())},
+        {"table_size", std::to_string(*table_size)},
+    });
+  }
   return true;
 }
 
@@ -906,8 +965,12 @@ int main(int argc, char** argv) {
   if (!args->normalized_tsv_path.empty()) {
     ReportSummary report;
     report.output_format = args->output_format;
-    report.pattern_set_id = args->pattern_set;
+    report.pattern_set_id = pattern_set.id;
     report.index_mode = args->index_mode;
+    if (!record_pattern_family_summary(feature_set, pattern_set, &report)) {
+      std::cerr << "failed to summarize pattern family table sizes\n";
+      return 1;
+    }
     std::vector<NormalizedRow> rows;
     const bool loaded = load_normalized_rows(args->normalized_tsv_path, &rows, &report);
 

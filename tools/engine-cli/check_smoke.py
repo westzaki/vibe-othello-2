@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import struct
 import subprocess
 import sys
+import tempfile
+import zlib
+from pathlib import Path
 
 
 FORCED_PASS_MOVES = (
@@ -17,8 +21,38 @@ FORCED_PASS_MOVES = (
 TERMINAL_MOVES = FORCED_PASS_MOVES + " pass g1"
 
 
-def run_case(exe: str, moves: str, depth: int, expected: str) -> None:
-    command = [exe, "bestmove", "--moves", moves, "--depth", str(depth)]
+def make_zero_tiny_pattern_artifact(path: Path) -> None:
+    pattern_set_id = "fixed-pattern-fixture-v1"
+    phase_count = 13
+    phase_stride = 1 + 3**8 + 3**9
+    weight_count = phase_stride * phase_count
+
+    payload = bytearray(b"VOPWGT\0\0")
+    payload.extend(
+        struct.pack(
+            "<HHHHHHHHI",
+            1,
+            1,
+            1,
+            1,
+            phase_count,
+            2,
+            len(pattern_set_id),
+            0,
+            weight_count,
+        )
+    )
+    payload.extend(pattern_set_id.encode("utf-8"))
+    payload.extend(b"\0" * (weight_count * 4))
+    checksum = zlib.crc32(payload) & 0xFFFFFFFF
+    payload.extend(struct.pack("<I", checksum))
+    path.write_bytes(payload)
+
+
+def run_case(
+    exe: str, moves: str, depth: int, expected: str, extra_args: list[str] | None = None
+) -> None:
+    command = [exe, "bestmove", "--moves", moves, "--depth", str(depth), *(extra_args or [])]
     completed = subprocess.run(command, check=False, text=True, capture_output=True)
     if completed.returncode != 0:
         raise AssertionError(
@@ -48,6 +82,17 @@ def main(argv: list[str]) -> int:
     ]
     for moves, depth, expected in cases:
         run_case(args.exe, moves, depth, expected)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        weights = Path(temp_dir) / "zero-tiny.weights.bin"
+        make_zero_tiny_pattern_artifact(weights)
+        run_case(
+            args.exe,
+            "",
+            1,
+            "bestmove d3 score 0 depth 1",
+            ["--eval", "pattern", "--pattern-set", "tiny", "--pattern-weights", str(weights)],
+        )
     return 0
 
 

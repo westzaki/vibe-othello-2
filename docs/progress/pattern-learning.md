@@ -51,6 +51,11 @@ Existing foundations include:
   feature geometry with raw `edge-8`, `near-edge-8`, `diagonal-8`,
   `diagonal-7`, `corner-2x5`, and `corner-3x3` tables, 26 total feature
   instances, and no learned weights committed
+* runtime-owned `pattern-v2-endgame-lite` local research pattern schema and
+  feature geometry that preserves the `pattern-v1-buro-lite` order, appends
+  bounded raw `corner-2x4-8`, `edge-plus-x-10`, `corner-wing-8`,
+  `near-edge-segment-8`, and `diagonal-corner-8` families, has 58 total
+  feature instances, and keeps the largest table at `3^10`
 * `tools/pattern/common` now keeps production-safe helpers separate from
   smoke-only fixture helpers: dataset and feature smoke tools share the same
   raw/canonical index policy and feature-set validation through production-safe
@@ -114,8 +119,8 @@ Existing foundations include:
   JSON weights, validates schema/trainer versions, 13 phase biases, selected
   pattern-set ids, phase ids, ternary index bounds, and numeric weights, then
   writes a runtime-loader-compatible local smoke artifact; the default remains
-  the tiny fixture set, while `--pattern-set pattern-v1-buro-lite` writes the
-  wider local artifact layout
+  the tiny fixture set, while `--pattern-set pattern-v1-buro-lite` and
+  `--pattern-set pattern-v2-endgame-lite` write wider local artifact layouts
 * CTest-backed tiny artifact exporter smoke that converts the deterministic
   trainer summary into a runtime-loader-compatible artifact with phase bias
   slots and zero-filled tiny fixture pattern tables
@@ -204,8 +209,8 @@ Existing foundations include:
   Egaroucid fixture, checks deterministic report output, verifies sample split
   and phase counts, confirms trainer/export checksums are present, and keeps
   generated files under the test temporary directory; additional smokes cover
-  the same local runner path with `pattern-v1-buro-lite`, compact v0c, and
-  compact v0d
+  the same local runner path with `pattern-v1-buro-lite`,
+  `pattern-v2-endgame-lite`, compact v0c, and compact v0d
 * local training run analyzer at
   `tools/pattern/train/analyze_local_training_runs.py` that compares one or
   more `local-training-run-report.json` files, emits stable JSON and optional
@@ -288,7 +293,14 @@ Existing foundations include:
   low-empty fixtures, checks exact teacher label schema/report behavior,
   max-empty filtering, deterministic max-position sampling, duplicate
   `board_id` handling, schema/malformed-row failures, overlay compatibility,
-  pattern dataset generation, and a tiny v0c trainer integration path
+  `pattern-v2-endgame-lite` compact pattern dataset generation, and a v0c
+  trainer integration path
+
+A bounded local 5,000-board low-empty exact-teacher diagnostic on the connected
+100k sequence-derived corpus showed `pattern-v2-endgame-lite` improving fitting
+metrics versus `pattern-v1-buro-lite`, but exact teacher labels did not produce
+a meaningful validation-MAE jump within v2. Details live in
+`docs/experiments/pattern-sequence-v0002-endgame-lite-exact-teacher.md`.
 
 The Egaroucid normalized dataset report currently records:
 
@@ -298,6 +310,9 @@ The Egaroucid normalized dataset report currently records:
 * `example_rows`, `feature_occurrence_count`,
   `average_features_per_example`, and `max_features_per_example`
 * `pattern_set_id` and `index_mode`
+* `feature_families` with per-family pattern id, length, instance count, and
+  table size
+* `total_table_entries`
 * `source_dataset_ids`
 * `input_rows`, `accepted_rows`, and `rejected_rows`
 * `counts_by_split`, `counts_by_phase`, and `counts_by_label_kind`
@@ -528,6 +543,7 @@ Status values:
 | Add local v0c trainer sweep runner | done | `tools/pattern/train/run_pattern_trainer_sweep.py` runs deterministic v0c optimizer configs over one fixed pattern dataset TSV, writes local-only JSON/Markdown reports, per-config logs, trainer reports, and weights, supports dry-run/resume/keep-going/source-run provenance, and selects by validation MAE with test MAE as reporting/tie-break only; synthetic CTest coverage checks dry-run, execute, resume, source-report dataset resolution, failure, and keep-going behavior without committing generated sweep outputs |
 | Add v0d phase-balanced residual SGD trainer | done | `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0d` keeps v0c residual pattern-SGD semantics and v0b-compatible intermediate weights, adds deterministic per-phase train example weighting with `none`, `inverse-count`, and `sqrt-inverse-count` options plus floor/cap diagnostics, and is covered by synthetic trainer, local-runner, sweep dry-run, and analyzer smokes; this is local research only, not a strength claim or artifact publication gate |
 | Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
+| Add bounded endgame local pattern set | done | `pattern-v2-endgame-lite` keeps the v1 ordered families and appends bounded endgame-oriented families with table lengths <= 10; dataset, exporter, runtime evaluation/search smoke, local-runner v0c export, and exact-teacher synthetic integration coverage exercise the new set without committing weights or artifacts |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
@@ -555,10 +571,10 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are local 10k / 100k / 1M `pattern-v1-buro-lite`
-sequence subset measurements, then trainer improvements or production
-pattern-set symmetry enablement before any production artifact publication,
-committed learned weights, match bench, or strength-claim work.
+Next implementation steps are broader local diagnostics for
+`pattern-v2-endgame-lite`, trainer improvements, or production pattern-set
+symmetry enablement before any production artifact publication, committed
+learned weights, match bench, or strength-claim work.
 
 ## Progress Update Rules
 

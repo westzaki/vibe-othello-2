@@ -1,12 +1,22 @@
 #include "vibe_othello/board_core/board.h"
+#include "vibe_othello/evaluation/pattern.h"
+#include "vibe_othello/evaluation/pattern_evaluator.h"
+#include "vibe_othello/evaluation/pattern_feature_set.h"
+#include "vibe_othello/evaluation/pattern_weights.h"
 #include "vibe_othello/search/search.h"
 
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
+#include <cstdint>
+#include <exception>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -30,7 +40,15 @@ public:
 
 struct Args {
   std::string moves;
+  std::string evaluator = "disc-diff";
+  std::string pattern_set = "tiny";
+  std::string pattern_weights_path;
   Depth depth = 0;
+};
+
+struct PatternRuntime {
+  const vibe_othello::evaluation::PatternSet* pattern_set = nullptr;
+  vibe_othello::evaluation::PatternFeatureSet feature_set;
 };
 
 std::optional<int> parse_int(std::string_view text) {
@@ -125,7 +143,9 @@ bool replay_moves(std::string_view moves, Position* position, std::string* error
 
 std::optional<Args> parse_args(int argc, char** argv) {
   if (argc < 2 || std::string_view{argv[1]} != "bestmove") {
-    std::cerr << "usage: vibe-othello-engine-cli bestmove --moves \"d3 c3\" --depth 4\n";
+    std::cerr << "usage: vibe-othello-engine-cli bestmove --moves \"d3 c3\" --depth 4 "
+                 "[--eval disc-diff|pattern --pattern-set tiny|buro-lite|endgame-lite "
+                 "--pattern-weights PATH]\n";
     return std::nullopt;
   }
 
@@ -139,6 +159,24 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.moves = argv[++index];
+    } else if (arg == "--eval") {
+      if (index + 1 >= argc) {
+        std::cerr << "--eval requires a value\n";
+        return std::nullopt;
+      }
+      args.evaluator = argv[++index];
+    } else if (arg == "--pattern-set") {
+      if (index + 1 >= argc) {
+        std::cerr << "--pattern-set requires a value\n";
+        return std::nullopt;
+      }
+      args.pattern_set = argv[++index];
+    } else if (arg == "--pattern-weights") {
+      if (index + 1 >= argc) {
+        std::cerr << "--pattern-weights requires a value\n";
+        return std::nullopt;
+      }
+      args.pattern_weights_path = argv[++index];
     } else if (arg == "--depth") {
       if (index + 1 >= argc) {
         std::cerr << "--depth requires a value\n";
@@ -160,7 +198,111 @@ std::optional<Args> parse_args(int argc, char** argv) {
     std::cerr << "--depth is required\n";
     return std::nullopt;
   }
+  if (args.evaluator != "disc-diff" && args.evaluator != "pattern") {
+    std::cerr << "--eval must be disc-diff or pattern\n";
+    return std::nullopt;
+  }
+  if (!args.pattern_weights_path.empty()) {
+    args.evaluator = "pattern";
+  }
+  if (args.evaluator == "pattern" && args.pattern_weights_path.empty()) {
+    std::cerr << "--pattern-weights is required when --eval pattern is used\n";
+    return std::nullopt;
+  }
   return args;
+}
+
+std::optional<std::vector<std::uint8_t>> read_binary(const std::string& path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) {
+    std::cerr << "cannot read pattern weights: " << path << '\n';
+    return std::nullopt;
+  }
+
+  input.seekg(0, std::ios::end);
+  const std::streamoff size = input.tellg();
+  if (size < 0) {
+    std::cerr << "cannot determine pattern weights size: " << path << '\n';
+    return std::nullopt;
+  }
+  input.seekg(0, std::ios::beg);
+
+  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+  input.read(reinterpret_cast<char*>(bytes.data()), size);
+  if (!input) {
+    std::cerr << "failed while reading pattern weights: " << path << '\n';
+    return std::nullopt;
+  }
+  return bytes;
+}
+
+std::array<std::uint8_t, vibe_othello::evaluation::PatternWeights::kDiscCountEntries>
+phase_by_disc_count_13() {
+  std::array<std::uint8_t, vibe_othello::evaluation::PatternWeights::kDiscCountEntries> phases{};
+  for (std::uint8_t disc_count = 0; disc_count < phases.size(); ++disc_count) {
+    const int normalized_count = disc_count < 4 ? 0 : static_cast<int>(disc_count) - 4;
+    const int phase = std::min(12, (normalized_count * 13) / 60);
+    phases[disc_count] = static_cast<std::uint8_t>(phase);
+  }
+  return phases;
+}
+
+std::optional<PatternRuntime> select_pattern_runtime(std::string_view name) {
+  namespace eval = vibe_othello::evaluation;
+
+  if (name == "tiny" || name == "fixed-pattern-fixture-v1") {
+    return PatternRuntime{
+        .pattern_set = &eval::fixed_pattern_set_fixture(),
+        .feature_set = eval::tiny_pattern_feature_set_fixture(),
+    };
+  }
+  if (name == "buro-lite" || name == "pattern-v1-buro-lite") {
+    return PatternRuntime{
+        .pattern_set = &eval::buro_lite_pattern_set(),
+        .feature_set = eval::buro_lite_pattern_feature_set(),
+    };
+  }
+  if (name == "endgame-lite" || name == "pattern-v2-endgame-lite") {
+    return PatternRuntime{
+        .pattern_set = &eval::endgame_lite_pattern_set(),
+        .feature_set = eval::endgame_lite_pattern_feature_set(),
+    };
+  }
+  return std::nullopt;
+}
+
+std::optional<vibe_othello::evaluation::PatternWeights>
+load_pattern_weights_for_runtime(const std::string& path,
+                                 const vibe_othello::evaluation::PatternSet& pattern_set) {
+  namespace eval = vibe_othello::evaluation;
+
+  const std::optional<std::vector<std::uint8_t>> artifact = read_binary(path);
+  if (!artifact.has_value()) {
+    return std::nullopt;
+  }
+
+  const eval::PatternManifest manifest{
+      .format_version = eval::kPatternWeightFormatVersion,
+      .bit_order = eval::PatternBitOrder::a1_lsb,
+      .score_unit = eval::PatternScoreUnit::disc_diff,
+      .score_scale = 1,
+      .phase_count = 13,
+      .pattern_set_id = pattern_set.id,
+      .patterns = pattern_set.patterns,
+  };
+  const eval::PatternWeightsLoadResult loaded = eval::load_pattern_weights(manifest, *artifact);
+  if (!loaded.ok()) {
+    std::cerr << "runtime loader rejected pattern weights\n";
+    return std::nullopt;
+  }
+
+  const std::optional<eval::PatternWeights> weights =
+      eval::make_pattern_weights(*loaded.weights, phase_by_disc_count_13());
+  if (!weights.has_value()) {
+    std::cerr << "loaded pattern weights could not be converted to runtime weights\n";
+    return std::nullopt;
+  }
+  return weights;
 }
 
 } // namespace
@@ -178,9 +320,32 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  const DiscDifferenceEvaluator evaluator;
+  DiscDifferenceEvaluator disc_difference_evaluator;
+  std::optional<vibe_othello::evaluation::PatternEvaluator> pattern_evaluator;
+  const Evaluator* evaluator = &disc_difference_evaluator;
+  if (args->evaluator == "pattern") {
+    const std::optional<PatternRuntime> runtime = select_pattern_runtime(args->pattern_set);
+    if (!runtime.has_value()) {
+      std::cerr << "--pattern-set must be tiny, fixed-pattern-fixture-v1, buro-lite, "
+                   "pattern-v1-buro-lite, endgame-lite, or pattern-v2-endgame-lite\n";
+      return 2;
+    }
+    std::optional<vibe_othello::evaluation::PatternWeights> weights =
+        load_pattern_weights_for_runtime(args->pattern_weights_path, *runtime->pattern_set);
+    if (!weights.has_value()) {
+      return 2;
+    }
+    try {
+      pattern_evaluator.emplace(std::move(*weights), runtime->feature_set);
+    } catch (const std::exception& error) {
+      std::cerr << "pattern evaluator rejected weights: " << error.what() << '\n';
+      return 2;
+    }
+    evaluator = &*pattern_evaluator;
+  }
+
   const vibe_othello::search::SearchResult result =
-      vibe_othello::search::search_fixed_depth(position, evaluator, args->depth);
+      vibe_othello::search::search_fixed_depth(position, *evaluator, args->depth);
 
   std::cout << "bestmove " << format_best_move(result.best_move) << " score " << result.score
             << " depth " << result.completed_depth << '\n';

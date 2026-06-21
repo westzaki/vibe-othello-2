@@ -141,6 +141,45 @@ TEST_CASE("buro-lite pattern set defines wider raw production-ish families",
   REQUIRE(validate_pattern_set(pattern_set).ok());
 }
 
+TEST_CASE("endgame-lite pattern set adds bounded late-phase families after buro-lite",
+          "[evaluation][pattern_schema]") {
+  const PatternSet& pattern_set = endgame_lite_pattern_set();
+  const PatternFeatureSet feature_set = endgame_lite_pattern_feature_set();
+
+  REQUIRE(pattern_set.id == "pattern-v2-endgame-lite");
+  REQUIRE(feature_set.id == pattern_set.id);
+  REQUIRE(pattern_set.patterns.size() == 11);
+  REQUIRE(feature_set.tables.size() == pattern_set.patterns.size());
+
+  const std::vector<std::string> expected_ids{
+      "edge-8",        "near-edge-8",         "diagonal-8",       "diagonal-7",
+      "corner-2x5",    "corner-3x3",          "corner-2x4-8",     "edge-plus-x-10",
+      "corner-wing-8", "near-edge-segment-8", "diagonal-corner-8"};
+  const std::vector<std::uint8_t> expected_lengths{8, 8, 8, 7, 10, 9, 8, 10, 8, 8, 8};
+  const std::vector<std::size_t> expected_instances{4, 4, 2, 4, 8, 4, 8, 4, 8, 8, 4};
+
+  std::size_t instance_count = 0;
+  std::uint32_t phase_stride = 1;
+  for (std::size_t index = 0; index < pattern_set.patterns.size(); ++index) {
+    const PatternDefinition& pattern = pattern_set.patterns[index];
+    const PatternFeatureTable& table = feature_set.tables[index];
+    REQUIRE(pattern.id == expected_ids[index]);
+    REQUIRE(pattern.length == expected_lengths[index]);
+    REQUIRE(pattern.symmetry_policy == PatternSymmetryPolicy::none);
+    REQUIRE(pattern_size(pattern.length) <= pattern_size(10));
+    REQUIRE(table.pattern_id == pattern.id);
+    REQUIRE(table.pattern_length == pattern.length);
+    REQUIRE(table.instances.size() == expected_instances[index]);
+    instance_count += table.instances.size();
+    phase_stride += pattern_size(pattern.length);
+  }
+
+  REQUIRE(instance_count == 58);
+  REQUIRE(phase_stride == 185896);
+  REQUIRE(static_cast<std::uint64_t>(phase_stride) * 13U < 2500000U);
+  REQUIRE(validate_pattern_set(pattern_set).ok());
+}
+
 TEST_CASE("pattern schema validation accepts valid definitions", "[evaluation][pattern_schema]") {
   const PatternDefinition pattern = valid_pattern();
 

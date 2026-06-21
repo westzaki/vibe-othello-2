@@ -24,6 +24,18 @@ Engine commands return one line in the form
 searched root is a legal forced pass, while `none` means search found no root
 move, such as a terminal root or depth-zero query.
 
+`vibe-othello-engine-cli` defaults to the disc-difference evaluator. For local
+learned-pattern artifact checks, pass pattern evaluator options inside the
+engine command:
+
+```sh
+build/tools/engine-cli/vibe-othello-engine-cli bestmove \
+  --depth 3 \
+  --eval pattern \
+  --pattern-set pattern-v2-endgame-lite \
+  --pattern-weights /path/to/v0b.weights.bin
+```
+
 ## Openings
 
 Opening files are plain text:

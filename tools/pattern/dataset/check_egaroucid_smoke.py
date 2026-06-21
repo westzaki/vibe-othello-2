@@ -138,6 +138,44 @@ def check_report(report: dict[str, object]) -> bool:
     return True
 
 
+def check_feature_family_summary(
+    report: dict[str, object],
+    expected_pattern_set_id: str,
+    expected_features_per_example: int,
+    expected_total_table_entries: int,
+    expected_families: list[tuple[str, int, int, int]],
+) -> bool:
+    if report.get("pattern_set_id") != expected_pattern_set_id:
+        print(f"unexpected pattern_set_id: {report.get('pattern_set_id')!r}", file=sys.stderr)
+        return False
+    if report.get("max_features_per_example") != expected_features_per_example:
+        print(
+            f"unexpected max_features_per_example: {report.get('max_features_per_example')!r}",
+            file=sys.stderr,
+        )
+        return False
+    if report.get("total_table_entries") != expected_total_table_entries:
+        print(f"unexpected total_table_entries: {report.get('total_table_entries')!r}", file=sys.stderr)
+        return False
+    families = report.get("feature_families")
+    if not isinstance(families, list):
+        print(f"feature_families must be an array: {families!r}", file=sys.stderr)
+        return False
+    expected = [
+        {
+            "pattern_id": pattern_id,
+            "pattern_length": pattern_length,
+            "instance_count": instance_count,
+            "table_size": table_size,
+        }
+        for pattern_id, pattern_length, instance_count, table_size in expected_families
+    ]
+    if families != expected:
+        print(f"unexpected feature_families: {families!r}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_compact_output(
     compact_lines: list[str],
     compact_report: dict[str, object],
@@ -280,6 +318,31 @@ def check_unknown_output_format(exe: Path, valid_tsv: str, temp_dir: Path) -> bo
     return True
 
 
+def check_unknown_pattern_set(exe: Path, valid_tsv: str, temp_dir: Path) -> bool:
+    tsv_path = temp_dir / "valid-for-pattern-set.tsv"
+    report_path = temp_dir / "bad-pattern-set-report.json"
+    tsv_path.write_text(valid_tsv, encoding="utf-8")
+    result = run_capture(
+        [
+            str(exe),
+            "--normalized-tsv",
+            str(tsv_path),
+            "--report",
+            str(report_path),
+            "--pattern-set",
+            "unknown-pattern-set",
+        ]
+    )
+    if result.returncode == 0:
+        print("dataset builder unexpectedly accepted unknown pattern set", file=sys.stderr)
+        return False
+    if "--pattern-set must be" not in result.stderr:
+        print("unknown pattern set error was not clear", file=sys.stderr)
+        sys.stderr.write(result.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", required=True, type=Path)
@@ -326,6 +389,17 @@ def main() -> int:
             return 1
         if not check_report(report):
             return 1
+        if not check_feature_family_summary(
+            report,
+            "fixed-pattern-fixture-v1",
+            expected_features_per_example=8,
+            expected_total_table_entries=26244,
+            expected_families=[
+                ("edge-8", 8, 4, 6561),
+                ("corner-3x3", 9, 4, 19683),
+            ],
+        ):
+            return 1
         if not check_repeated_positions(import_rows, first_lines, expected_features_per_row=8):
             return 1
         compact_report_path = temp_dir / "compact-report.json"
@@ -357,6 +431,8 @@ def main() -> int:
             return 1
         if not check_unknown_output_format(args.exe, imported_tsv, temp_dir):
             return 1
+        if not check_unknown_pattern_set(args.exe, imported_tsv, temp_dir):
+            return 1
 
         buro_report = temp_dir / "buro-lite-report.json"
         buro = run_dataset(
@@ -373,6 +449,22 @@ def main() -> int:
             return 1
         if not check_repeated_positions(
             import_rows, buro_lines, expected_features_per_row=26
+        ):
+            return 1
+        buro_report_data = json.loads(buro_report.read_text(encoding="utf-8"))
+        if not check_feature_family_summary(
+            buro_report_data,
+            "pattern-v1-buro-lite",
+            expected_features_per_example=26,
+            expected_total_table_entries=100602,
+            expected_families=[
+                ("edge-8", 8, 4, 6561),
+                ("near-edge-8", 8, 4, 6561),
+                ("diagonal-8", 8, 2, 6561),
+                ("diagonal-7", 7, 4, 2187),
+                ("corner-2x5", 10, 8, 59049),
+                ("corner-3x3", 9, 4, 19683),
+            ],
         ):
             return 1
         compact_buro_report = temp_dir / "buro-lite-compact-report.json"
@@ -392,6 +484,87 @@ def main() -> int:
             expanded_feature_rows=len(buro_lines) - 1,
             expected_examples=7,
             expected_features_per_row=26,
+        ):
+            return 1
+
+        endgame_report = temp_dir / "endgame-lite-report.json"
+        endgame_second_report = temp_dir / "endgame-lite-second-report.json"
+        endgame = run_dataset(
+            args.exe, normalized_tsv, endgame_report, pattern_set="pattern-v2-endgame-lite"
+        )
+        endgame_lines = dataset_lines(endgame, expected_line_count=407)
+        if endgame_lines is None:
+            return 1
+        endgame_second = run_dataset(
+            args.exe,
+            normalized_tsv,
+            endgame_second_report,
+            pattern_set="pattern-v2-endgame-lite",
+        )
+        endgame_second_lines = dataset_lines(endgame_second, expected_line_count=407)
+        if endgame_second_lines is None:
+            return 1
+        if endgame.stdout != endgame_second.stdout:
+            print("endgame-lite dataset TSV is not deterministic", file=sys.stderr)
+            return 1
+        if endgame_report.read_text(encoding="utf-8") != endgame_second_report.read_text(encoding="utf-8"):
+            print("endgame-lite dataset report is not deterministic", file=sys.stderr)
+            return 1
+        for pattern_id in (
+            "corner-2x4-8",
+            "edge-plus-x-10",
+            "corner-wing-8",
+            "near-edge-segment-8",
+            "diagonal-corner-8",
+        ):
+            if not any(f"\t{pattern_id}\t" in line for line in endgame_lines[1:]):
+                print(f"endgame-lite dataset rows are missing {pattern_id}", file=sys.stderr)
+                return 1
+        if endgame.stdout == buro.stdout:
+            print("endgame-lite dataset unexpectedly matched buro-lite output", file=sys.stderr)
+            return 1
+        if not check_repeated_positions(
+            import_rows, endgame_lines, expected_features_per_row=58
+        ):
+            return 1
+        endgame_report_data = json.loads(endgame_report.read_text(encoding="utf-8"))
+        if not check_feature_family_summary(
+            endgame_report_data,
+            "pattern-v2-endgame-lite",
+            expected_features_per_example=58,
+            expected_total_table_entries=185895,
+            expected_families=[
+                ("edge-8", 8, 4, 6561),
+                ("near-edge-8", 8, 4, 6561),
+                ("diagonal-8", 8, 2, 6561),
+                ("diagonal-7", 7, 4, 2187),
+                ("corner-2x5", 10, 8, 59049),
+                ("corner-3x3", 9, 4, 19683),
+                ("corner-2x4-8", 8, 8, 6561),
+                ("edge-plus-x-10", 10, 4, 59049),
+                ("corner-wing-8", 8, 8, 6561),
+                ("near-edge-segment-8", 8, 8, 6561),
+                ("diagonal-corner-8", 8, 4, 6561),
+            ],
+        ):
+            return 1
+        compact_endgame_report = temp_dir / "endgame-lite-compact-report.json"
+        compact_endgame = run_dataset(
+            args.exe,
+            normalized_tsv,
+            compact_endgame_report,
+            pattern_set="pattern-v2-endgame-lite",
+            output_format="compact-tsv",
+        )
+        compact_endgame_lines = compact_dataset_lines(compact_endgame, expected_line_count=8)
+        if compact_endgame_lines is None:
+            return 1
+        if not check_compact_output(
+            compact_endgame_lines,
+            json.loads(compact_endgame_report.read_text(encoding="utf-8")),
+            expanded_feature_rows=len(endgame_lines) - 1,
+            expected_examples=7,
+            expected_features_per_row=58,
         ):
             return 1
 
