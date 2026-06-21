@@ -69,5 +69,7 @@ if(BUILD_TESTING)
       --exporter
       ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py
       --campaign-helper
-      ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py)
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py
+      --matrix-helper
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_campaign_matrix.py)
 endif()

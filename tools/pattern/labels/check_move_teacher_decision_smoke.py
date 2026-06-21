@@ -108,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--exporter", required=True, type=Path)
     parser.add_argument("--campaign-helper", required=True, type=Path)
+    parser.add_argument("--matrix-helper", required=True, type=Path)
     return parser.parse_args()
 
 
@@ -798,6 +799,48 @@ def campaign_command(args: argparse.Namespace, normalized: Path, output_dir: Pat
     ]
 
 
+def matrix_command(args: argparse.Namespace, normalized: Path, output_dir: Path, *extra: str) -> list[str]:
+    return [
+        sys.executable,
+        str(args.matrix_helper),
+        "--normalized-tsv",
+        str(normalized),
+        "--output-dir",
+        str(output_dir),
+        "--root-counts",
+        "4",
+        "--seeds",
+        "5",
+        "--max-empty",
+        "2",
+        "--pattern-set",
+        "pattern-v2-endgame-lite",
+        "--trainer-mode",
+        "pattern-sgd-v0c",
+        "--epochs",
+        "1",
+        "--learning-rate",
+        "0.1",
+        "--lr-schedule",
+        "inverse-sqrt",
+        "--weight-decay",
+        "0.0001",
+        "--campaign-helper",
+        str(args.campaign_helper),
+        "--generator",
+        str(args.generator),
+        "--dataset-exe",
+        str(args.dataset_exe),
+        "--trainer",
+        str(args.trainer),
+        "--exporter",
+        str(args.exporter),
+        "--ranking-evaluator",
+        str(args.ranking_evaluator),
+        *extra,
+    ]
+
+
 def check_campaign_resume_safety(args: argparse.Namespace, root: Path) -> bool:
     normalized = root / "campaign-normalized.tsv"
     output_dir = root / "campaign"
@@ -834,6 +877,48 @@ def check_campaign_resume_safety(args: argparse.Namespace, root: Path) -> bool:
     )
 
 
+def check_matrix_helper(args: argparse.Namespace, root: Path) -> bool:
+    normalized = root / "matrix-normalized.tsv"
+    output_dir = root / "matrix"
+    write_tsv(normalized, NORMALIZED_HEADER_V2, fixture_rows())
+
+    if not require_success(run(matrix_command(args, normalized, output_dir))):
+        return False
+    report_path = output_dir / "matrix-report.json"
+    summary_path = output_dir / "matrix-summary.md"
+    if not report_path.exists() or not summary_path.exists():
+        print("matrix helper did not write report and summary", file=sys.stderr)
+        return False
+    report = load_json(report_path)
+    runs = report.get("runs")
+    if not isinstance(runs, list) or len(runs) != 1:
+        print(f"matrix report run count mismatch: {report}", file=sys.stderr)
+        return False
+    if runs[0].get("status") != "ok" or runs[0].get("selected_roots", 0) <= 0:
+        print(f"matrix run did not complete: {runs[0]}", file=sys.stderr)
+        return False
+    aggregate = report.get("aggregate", {}).get("overall", {})
+    if aggregate.get("completed_run_count") != 1:
+        print(f"matrix aggregate did not count completed run: {aggregate}", file=sys.stderr)
+        return False
+    if "Not Elo" not in summary_path.read_text(encoding="utf-8"):
+        print("matrix summary missing non-claim", file=sys.stderr)
+        return False
+
+    if not require_success(run(matrix_command(args, normalized, output_dir, "--resume"))):
+        return False
+    resume_report = load_json(report_path)
+    resume_runs = resume_report.get("runs")
+    if not isinstance(resume_runs, list) or len(resume_runs) != 1:
+        print(f"matrix resume report run count mismatch: {resume_report}", file=sys.stderr)
+        return False
+    stage_statuses = resume_runs[0].get("campaign_stage_statuses", {})
+    if stage_statuses.get("generate_exact_move_teacher_dataset") != "skipped-resume-validated":
+        print(f"matrix resume did not pass through campaign resume validation: {stage_statuses}", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     args = parse_args()
     with tempfile.TemporaryDirectory() as temp_text:
@@ -848,6 +933,8 @@ def main() -> int:
         if not check_training_integration(args, root, move_teacher, child_normalized):
             return 1
         if not check_campaign_resume_safety(args, root):
+            return 1
+        if not check_matrix_helper(args, root):
             return 1
     return 0
 

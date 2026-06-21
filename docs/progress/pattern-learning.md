@@ -320,12 +320,21 @@ Existing foundations include:
   `--resume` path validates per-stage command, input checksum, and output
   checksum metadata before skipping, so stale campaign artifacts are not mixed
   into a new report
+* local-only move-teacher campaign matrix helper at
+  `tools/pattern/labels/run_move_teacher_campaign_matrix.py` that runs the
+  existing decision campaign helper over bounded root-count and seed matrices,
+  preserves the campaign helper's stage-level resume validation, writes
+  local-only `matrix-report.json` and `matrix-summary.md`, and aggregates
+  full-set, held-out validation+test, and bounded arena direction metrics
+  without duplicating campaign generation, training, export, ranking, or arena
+  logic
 * CTest-backed move-teacher decision smoke that uses only synthetic fixtures to
   check move-teacher TSV and child-normalized schemas, sign convention,
   pass handling, duplicate root handling, deterministic capped sampling,
   schema-v1 rejection, child-label dataset builder compatibility, v0c trainer
-  and v0b export integration, and ranking evaluator sign behavior with a
-  synthetic nonzero artifact
+  and v0b export integration, ranking evaluator sign behavior with a synthetic
+  nonzero artifact, campaign resume safety, and matrix helper aggregation plus
+  resume pass-through
 * persistent local pattern artifact arena at
   `tools/arena/pattern_artifact_arena.cc` that compares two exported local
   artifacts over normalized schema v2 late-game positions, loads both artifacts
@@ -375,6 +384,23 @@ artifact was non-negative but remains a local diagnostic only. Details live in
 `docs/experiments/pattern-move-teacher-decision-leverage.md`. This is not Elo,
 not self-play, not a production strength claim, not a publication gate, and no
 generated labels, datasets, weights, artifacts, logs, or reports are committed.
+
+A follow-up local matrix repeated the move-teacher child-label campaign over
+5,000, 10,000, and 20,000 selected roots with deterministic seeds 0, 1, and 2.
+All nine runs improved full-set top1, tie-aware top1, best-in-top2, pairwise
+accuracy, mean regret, exact-best predicted rank, and all-same predicted-score
+roots versus the previous exact root-label v2 artifact. Held-out
+validation+test pairwise, top2, and mean regret supported the full-set
+direction on all nine runs; 5,000-root held-out tie-aware top1 remained mixed,
+while 10,000-root and 20,000-root held-out tie-aware top1 were positive. The
+bounded side-swapped arena score rate was non-negative on all nine matrix
+arenas. The 20,000-root depth-3 arena intervals were above 0.5, while the
+additional depth-5 20,000-root arena intervals still included 0.5. The current
+input contained enough selected roots for 20,000-root runs but not 50,000-root
+runs. Details live in
+`docs/experiments/pattern-move-teacher-decision-leverage-scale.md`. The result
+is a robust local decision-leverage signal, not strength, Elo, self-play,
+production readiness, or an artifact publication gate.
 
 The Egaroucid normalized dataset report currently records:
 
@@ -623,6 +649,7 @@ Status values:
 | Add persistent late-game artifact arena | done | `vibe-othello-pattern-artifact-arena` compares two local pattern artifacts over deterministic normalized schema v2 late-game positions with persistent artifact loading, optional side-swapped pairings, JSON/Markdown reports, and local-only caveats; it is not Elo, self-play, production strength, or a publication gate |
 | Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can now emit local-only diagnostics for where v1/v2 signal is lost: static scoring, root move choice, depth, side assignment, exact low-empty disagreement adjudication, phase/sign perspective, manifest/runtime compatibility, or feature family activation |
 | Add move-teacher decision-leverage pipeline | done | Low-empty normalized schema v2 roots can now produce exact per-move teacher labels and child-normalized exact labels; child-label artifacts can be trained with existing v0c/v0d trainers and evaluated by root move-ranking metrics before optional bounded artifact arena checks |
+| Add move-teacher decision campaign matrix | done | `run_move_teacher_campaign_matrix.py` wraps the existing campaign helper over bounded root-count/seed matrices, preserves local-only outputs and resume validation, aggregates full-set, held-out, and arena direction metrics, and recorded a 5k/10k/20k x seeds 0/1/2 robust local decision-leverage diagnostic plus bounded 20k arena variations without committing generated artifacts |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |

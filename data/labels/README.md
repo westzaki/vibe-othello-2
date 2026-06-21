@@ -156,5 +156,23 @@ checksums. If metadata is missing or mismatched, the helper fails instead of
 mixing stale move-teacher rows, datasets, weights, ranking reports, or arena
 reports into a new campaign report.
 
+To repeat the same campaign over bounded root-count and seed matrices, use the
+local-only matrix wrapper:
+
+```sh
+python3 tools/pattern/labels/run_move_teacher_campaign_matrix.py \
+  --normalized-tsv "$RUN_DIR/selected-low-empty-normalized.tsv" \
+  --output-dir "$RUN_DIR/move-teacher-decision-matrix" \
+  --root-counts 5000,10000 \
+  --seeds 0,1,2 \
+  --pattern-set pattern-v2-endgame-lite \
+  --trainer-mode pattern-sgd-v0c \
+  --resume
+```
+
+The matrix wrapper delegates generation, training, export, ranking, arena, and
+resume safety to `run_move_teacher_decision_campaign.py`, then writes local-only
+`matrix-report.json` and `matrix-summary.md`.
+
 These files remain local-only diagnostics. They are not Elo, not self-play, not
 production strength, and not publication gates.
