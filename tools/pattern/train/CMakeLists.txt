@@ -47,4 +47,12 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_trainer_sweep.py
       --trainer
       ${CMAKE_CURRENT_SOURCE_DIR}/train_v0a.py)
+
+  add_test(
+    NAME vibe_othello_pattern_growth_cycle_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_growth_cycle_smoke.py
+      --growth-runner
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_growth_cycle.py)
 endif()

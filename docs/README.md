@@ -22,6 +22,7 @@ Read only the document needed for the current task.
 | Pattern signal bottleneck diagnostics | `experiments/pattern-signal-bottleneck-diagnostics.md` |
 | Pattern move-teacher decision leverage diagnostic | `experiments/pattern-move-teacher-decision-leverage.md` |
 | Pattern move-teacher decision leverage scale matrix | `experiments/pattern-move-teacher-decision-leverage-scale.md` |
+| Pattern learning growth cycle local run | `experiments/pattern-learning-growth-cycle.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |

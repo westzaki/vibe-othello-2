@@ -174,5 +174,38 @@ The matrix wrapper delegates generation, training, export, ranking, arena, and
 resume safety to `run_move_teacher_decision_campaign.py`, then writes local-only
 `matrix-report.json` and `matrix-summary.md`.
 
+To turn that matrix into a policy-driven local growth cycle, run the higher
+level orchestrator:
+
+```sh
+python3 tools/pattern/train/run_pattern_growth_cycle.py \
+  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/<connected-or-low-empty-normalized.tsv>" \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/<pattern-growth-cycle-run>" \
+  --pattern-set pattern-v2-endgame-lite \
+  --baseline-root-label-weights "$VIBE_OTHELLO_MEASUREMENTS/<exact-root-v2.weights.bin>" \
+  --baseline-root-label-manifest "$VIBE_OTHELLO_MEASUREMENTS/<exact-root-v2.manifest.json>" \
+  --baseline-v1-weights "$VIBE_OTHELLO_MEASUREMENTS/<v1.weights.bin>" \
+  --baseline-v1-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v1.manifest.json>" \
+  --root-counts 5000,10000,20000 \
+  --seeds 0,1,2 \
+  --arena-depths 3,5 \
+  --arena-seeds 0,10,20 \
+  --arena-max-positions 1000 \
+  --resume
+```
+
+The growth-cycle runner writes local-only `growth-cycle-report.json` and
+`growth-cycle-summary.md`. It preflights input availability, downgrades root
+counts when the low-empty input is smaller than requested, runs or reuses the
+move-teacher matrix, schedules bounded artifact arenas for promotable
+candidates, checks same-artifact and swap sanity, and emits a promotion
+category plus the next recommended action. It may also stop early when the
+decision-leverage gate fails, a critical sanity check fails, or local inputs are
+insufficient.
+
+When `--resume` is used without an explicit `--matrix-report`, the growth-cycle
+runner delegates back to the matrix helper so its resume metadata and checksum
+validation runs before the growth-cycle scorecard loads the matrix report.
+
 These files remain local-only diagnostics. They are not Elo, not self-play, not
 production strength, and not publication gates.
