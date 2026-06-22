@@ -72,16 +72,30 @@ def run_case(
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exe", required=True)
+    parser.add_argument("--source-dir", required=True, type=Path)
     args = parser.parse_args(argv)
 
     cases = [
-        ("", 1, "bestmove d3 score 3 depth 1"),
-        ("", 0, "bestmove none score 0 depth 0"),
-        (FORCED_PASS_MOVES, 2, "bestmove pass score 0 depth 2"),
-        (TERMINAL_MOVES, 4, "bestmove none score 0 depth 4"),
+        ("", 1, "bestmove d3 score 3 depth 1", ["--eval-mode", "static"]),
+        ("", 0, "bestmove none score 0 depth 0", ["--eval-mode", "static"]),
+        (FORCED_PASS_MOVES, 2, "bestmove pass score 0 depth 2", ["--eval-mode", "static"]),
+        (TERMINAL_MOVES, 4, "bestmove none score 0 depth 4", ["--eval-mode", "static"]),
     ]
-    for moves, depth, expected in cases:
-        run_case(args.exe, moves, depth, expected)
+    for moves, depth, expected, extra_args in cases:
+        run_case(args.exe, moves, depth, expected, extra_args)
+
+    default_manifest = (
+        args.source_dir
+        / "data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json"
+    )
+    run_case(args.exe, "", 1, "bestmove d3 score 0 depth 1")
+    run_case(
+        args.exe,
+        "",
+        1,
+        "bestmove d3 score 0 depth 1",
+        ["--eval-artifact", str(default_manifest)],
+    )
 
     with tempfile.TemporaryDirectory() as temp_dir:
         weights = Path(temp_dir) / "zero-tiny.weights.bin"

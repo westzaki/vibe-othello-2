@@ -278,8 +278,9 @@ Rules:
 
 Weights are data, not code.
 
-Use a versioned binary artifact for production and a readable JSON manifest for
-metadata.
+Use a versioned binary artifact for runtime weights and a readable JSON
+manifest for loader metadata. Default artifact resolution and committed
+artifact policy are specified in `docs/architecture/evaluation-artifacts.md`.
 
 Recommended layout:
 
@@ -317,8 +318,8 @@ Rules:
 * each phase starts with one explicit bias weight slot before pattern tables
 * pattern tables are stored in manifest pattern order; `pattern_set` identifies
   the whole ordered schema, and changing that order requires a new pattern set id
-* large artifacts should live in releases, Git LFS, or local download cache, not
-  normal git history
+* only explicitly promoted final runtime artifacts may be committed to normal
+  git history
 * raw training corpora must not be committed to the repository
 
 ## Calibration and Explanation

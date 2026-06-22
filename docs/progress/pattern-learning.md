@@ -257,6 +257,13 @@ Existing foundations include:
   report diagnostics. The overlay is not a strength claim, Elo result, match
   bench, self-play result, production artifact, or generated-output
   publication flow.
+* the first committed learned evaluation artifact,
+  `pattern-v2-endgame-lite-100k-mt-v0`, selected from the fair connected 100k
+  move-teacher validation and broader bounded arena validation. The committed
+  payload includes only the final runtime weights, runtime manifest,
+  provenance, README, NOTICE, and default pointer. Raw transcripts, normalized
+  corpora, selected TSVs, teacher labels, move-teacher cache files, reports,
+  logs, and generated intermediates remain local-only.
 * `tools/pattern/train/run_egaroucid_local_training.py` can now apply teacher
   labels after sampling and measurement split policy but before pattern dataset
   generation, so the dataset builder consumes the exact overlaid normalized

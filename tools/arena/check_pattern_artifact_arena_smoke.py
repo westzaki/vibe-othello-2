@@ -570,9 +570,18 @@ def main(argv: list[str]) -> int:
         )
         assert_failure(missing_weights, "cannot read artifact weights")
 
+        bad_manifest = temp_dir / "bad-pattern.manifest.json"
+        bad_manifest.write_text(
+            (temp_dir / "candidate.manifest.json")
+            .read_text(encoding="utf-8")
+            .replace("fixed-pattern-fixture-v1", "missing-pattern-set-v1", 1),
+            encoding="utf-8",
+        )
         mismatched_pattern = common_command.copy()
-        mismatched_pattern[mismatched_pattern.index("tiny")] = "pattern-v1-buro-lite"
-        assert_failure(mismatched_pattern, "manifest pattern_set_id mismatch")
+        mismatched_pattern[mismatched_pattern.index(str(temp_dir / "candidate.manifest.json"))] = (
+            str(bad_manifest)
+        )
+        assert_failure(mismatched_pattern, "unsupported pattern_set_id")
     return 0
 
 

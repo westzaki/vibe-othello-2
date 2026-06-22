@@ -1,5 +1,6 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/evaluation/pattern.h"
+#include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
 #include "vibe_othello/evaluation/pattern_feature_set.h"
 #include "vibe_othello/evaluation/pattern_weights.h"
@@ -11,6 +12,7 @@
 #include <charconv>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -30,6 +32,10 @@ using vibe_othello::search::Depth;
 using vibe_othello::search::Evaluator;
 using vibe_othello::search::Score;
 
+#ifndef VIBE_OTHELLO_SOURCE_DIR
+#define VIBE_OTHELLO_SOURCE_DIR "."
+#endif
+
 class DiscDifferenceEvaluator final : public Evaluator {
 public:
   Score evaluate(const Position& position) const noexcept override {
@@ -38,11 +44,20 @@ public:
   }
 };
 
+enum class EvaluatorChoice : std::uint8_t {
+  default_artifact,
+  static_eval,
+  explicit_artifact,
+  legacy_pattern_weights,
+};
+
 struct Args {
   std::string moves;
-  std::string evaluator = "disc-diff";
+  std::string legacy_eval;
   std::string pattern_set = "tiny";
   std::string pattern_weights_path;
+  std::filesystem::path eval_artifact_path;
+  EvaluatorChoice evaluator = EvaluatorChoice::default_artifact;
   Depth depth = 0;
 };
 
@@ -144,6 +159,7 @@ bool replay_moves(std::string_view moves, Position* position, std::string* error
 std::optional<Args> parse_args(int argc, char** argv) {
   if (argc < 2 || std::string_view{argv[1]} != "bestmove") {
     std::cerr << "usage: vibe-othello-engine-cli bestmove --moves \"d3 c3\" --depth 4 "
+                 "[--eval-mode static] [--eval-artifact MANIFEST] "
                  "[--eval disc-diff|pattern --pattern-set tiny|buro-lite|endgame-lite "
                  "--pattern-weights PATH]\n";
     return std::nullopt;
@@ -151,6 +167,8 @@ std::optional<Args> parse_args(int argc, char** argv) {
 
   Args args;
   bool saw_depth = false;
+  bool saw_eval_mode = false;
+  bool static_mode_requested = false;
   for (int index = 2; index < argc; ++index) {
     const std::string_view arg{argv[index]};
     if (arg == "--moves") {
@@ -164,7 +182,30 @@ std::optional<Args> parse_args(int argc, char** argv) {
         std::cerr << "--eval requires a value\n";
         return std::nullopt;
       }
-      args.evaluator = argv[++index];
+      args.legacy_eval = argv[++index];
+    } else if (arg == "--eval-mode") {
+      if (index + 1 >= argc) {
+        std::cerr << "--eval-mode requires a value\n";
+        return std::nullopt;
+      }
+      const std::string_view mode{argv[++index]};
+      if (mode == "static") {
+        args.evaluator = EvaluatorChoice::static_eval;
+        static_mode_requested = true;
+      } else if (mode == "default" || mode == "artifact") {
+        args.evaluator = EvaluatorChoice::default_artifact;
+      } else {
+        std::cerr << "--eval-mode must be static, default, or artifact\n";
+        return std::nullopt;
+      }
+      saw_eval_mode = true;
+    } else if (arg == "--eval-artifact") {
+      if (index + 1 >= argc) {
+        std::cerr << "--eval-artifact requires a value\n";
+        return std::nullopt;
+      }
+      args.eval_artifact_path = argv[++index];
+      args.evaluator = EvaluatorChoice::explicit_artifact;
     } else if (arg == "--pattern-set") {
       if (index + 1 >= argc) {
         std::cerr << "--pattern-set requires a value\n";
@@ -177,6 +218,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.pattern_weights_path = argv[++index];
+      args.evaluator = EvaluatorChoice::legacy_pattern_weights;
     } else if (arg == "--depth") {
       if (index + 1 >= argc) {
         std::cerr << "--depth requires a value\n";
@@ -198,15 +240,33 @@ std::optional<Args> parse_args(int argc, char** argv) {
     std::cerr << "--depth is required\n";
     return std::nullopt;
   }
-  if (args.evaluator != "disc-diff" && args.evaluator != "pattern") {
-    std::cerr << "--eval must be disc-diff or pattern\n";
+  if (!args.legacy_eval.empty()) {
+    if (args.legacy_eval == "disc-diff" || args.legacy_eval == "static") {
+      args.evaluator = EvaluatorChoice::static_eval;
+      static_mode_requested = true;
+    } else if (args.legacy_eval == "pattern") {
+      if (args.eval_artifact_path.empty() && args.pattern_weights_path.empty()) {
+        std::cerr << "--eval pattern requires --eval-artifact or --pattern-weights\n";
+        return std::nullopt;
+      }
+      if (!args.pattern_weights_path.empty()) {
+        args.evaluator = EvaluatorChoice::legacy_pattern_weights;
+      }
+    } else {
+      std::cerr << "--eval must be disc-diff, static, or pattern\n";
+      return std::nullopt;
+    }
+  }
+  if (saw_eval_mode && static_mode_requested && !args.eval_artifact_path.empty()) {
+    std::cerr << "--eval-mode static cannot be combined with --eval-artifact\n";
     return std::nullopt;
   }
-  if (!args.pattern_weights_path.empty()) {
-    args.evaluator = "pattern";
+  if (static_mode_requested && !args.pattern_weights_path.empty()) {
+    std::cerr << "--eval-mode static cannot be combined with --pattern-weights\n";
+    return std::nullopt;
   }
-  if (args.evaluator == "pattern" && args.pattern_weights_path.empty()) {
-    std::cerr << "--pattern-weights is required when --eval pattern is used\n";
+  if (!args.eval_artifact_path.empty() && !args.pattern_weights_path.empty()) {
+    std::cerr << "--eval-artifact cannot be combined with --pattern-weights\n";
     return std::nullopt;
   }
   return args;
@@ -323,7 +383,27 @@ int main(int argc, char** argv) {
   DiscDifferenceEvaluator disc_difference_evaluator;
   std::optional<vibe_othello::evaluation::PatternEvaluator> pattern_evaluator;
   const Evaluator* evaluator = &disc_difference_evaluator;
-  if (args->evaluator == "pattern") {
+  if (args->evaluator == EvaluatorChoice::default_artifact ||
+      args->evaluator == EvaluatorChoice::explicit_artifact) {
+    namespace eval = vibe_othello::evaluation;
+    const eval::PatternArtifactLoadResult result =
+        args->evaluator == EvaluatorChoice::default_artifact
+            ? eval::load_default_pattern_artifact(
+                  eval::default_eval_root(std::filesystem::path{VIBE_OTHELLO_SOURCE_DIR}))
+            : eval::load_pattern_artifact(args->eval_artifact_path);
+    if (!result.ok()) {
+      std::cerr << result.error << '\n';
+      return 2;
+    }
+    eval::LoadedPatternArtifact artifact = std::move(*result.artifact);
+    try {
+      pattern_evaluator.emplace(std::move(artifact.weights), std::move(artifact.feature_set));
+    } catch (const std::exception& error) {
+      std::cerr << "pattern evaluator rejected artifact: " << error.what() << '\n';
+      return 2;
+    }
+    evaluator = &*pattern_evaluator;
+  } else if (args->evaluator == EvaluatorChoice::legacy_pattern_weights) {
     const std::optional<PatternRuntime> runtime = select_pattern_runtime(args->pattern_set);
     if (!runtime.has_value()) {
       std::cerr << "--pattern-set must be tiny, fixed-pattern-fixture-v1, buro-lite, "

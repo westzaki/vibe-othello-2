@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "artifact_id": "pattern-v2-endgame-lite-100k-mt-v0",
+  "artifact_version": 0,
+  "status": "experimental-default",
+  "pattern_set": "pattern-v2-endgame-lite",
+  "trainer_mode": "pattern-sgd-v0c",
+  "teacher_kind": "exact_move_teacher_child_final_disc_diff",
+  "root_label_derivation": "max(root_move_score_side_to_move)",
+  "selected_source_checksum": "sha256:260102a58ead4522169d7298ba828fa983930c902c261c49d18da4b11b6d0ce7",
+  "source_attribution": "Egaroucid training data: Egaroucid 7.8.0 lv.11 vs Edax 4.5.5 lv.11 game transcripts",
+  "teacher_label_source": "vibe-othello exact solver",
+  "raw_data_redistributed": false,
+  "normalized_data_redistributed": false,
+  "selected_tsv_redistributed": false,
+  "teacher_labels_redistributed": false,
+  "move_teacher_cache_redistributed": false,
+  "local_reports_redistributed": false,
+  "not_official_egaroucid_artifact": true,
+  "weights_sha256": "sha256:fd567e21ea655af2a1287d0eef0b9647229ccc479c2224fd8039323549b4951e",
+  "runtime_checksum": "0x3d50ed72",
+  "validation_summary": {
+    "growth_cycle_100k": {
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "result": "positive decision-leverage deltas against fair same-source exact-root v2 baseline"
+    },
+    "broader_arena": {
+      "runs": 75,
+      "games": 150000,
+      "failed_games": 0,
+      "move_teacher_v2_vs_exact_root_v2": {
+        "runs": 15,
+        "non_negative_runs": 14,
+        "mean_score_rate": 0.503517,
+        "mean_average_disc_diff": 0.202
+      },
+      "move_teacher_v2_vs_v1": {
+        "runs": 15,
+        "non_negative_runs": 15,
+        "mean_score_rate": 0.52615,
+        "mean_average_disc_diff": 1.6194
+      },
+      "same_artifact_sanity": "exactly neutral",
+      "swap_sanity": "expected reverse direction"
+    }
+  },
+  "non_claims": [
+    "not an Elo result",
+    "not a self-play improvement claim",
+    "not a production strength claim",
+    "not publication readiness",
+    "not artifact publication readiness",
+    "not an official Egaroucid artifact"
+  ]
+}

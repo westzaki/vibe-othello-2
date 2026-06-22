@@ -1,9 +1,28 @@
-# Keep local learned weights and large generated artifacts out of normal git history.
-/artifacts/
+# Keep local generated data and non-promoted artifacts out of normal git history.
 /local/
-*.bin
 *.npy
 *.npz
 *.onnx
 *.weights
 *.weights.bin
+*.tsv
+*.log
+*normalized*
+*selected*
+*teacher-label*
+*teacher_labels*
+*move-teacher*
+*move_teacher*
+*cache*
+*report.json
+*trainer-report*
+*dataset*
+
+# Promoted runtime artifacts are allow-listed by the commit-policy checker.
+!/artifacts/
+!/artifacts/*/
+!/artifacts/*/weights.bin
+!/artifacts/*/manifest.json
+!/artifacts/*/provenance.json
+!/artifacts/*/README.md
+!/artifacts/*/NOTICE.md

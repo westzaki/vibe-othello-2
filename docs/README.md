@@ -29,6 +29,7 @@ Read only the document needed for the current task.
 | Pattern learning growth cycle 100k stretch status | `experiments/pattern-learning-growth-cycle-100k.md` |
 | Pattern 100k move-teacher broader arena validation | `experiments/pattern-arena-100k-move-teacher-broader.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
+| Evaluation artifact architecture | `architecture/evaluation-artifacts.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
 | Pattern learning implementation status | `progress/pattern-learning.md` |

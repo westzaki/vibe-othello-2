@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "default_artifact_id": "pattern-v2-endgame-lite-100k-mt-v0",
+  "status": "experimental-default",
+  "artifact_manifest": "artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-endgame-lite-100k-mt-v0/provenance.json",
+  "reason": "first committed learned evaluation artifact after fair connected 100k move-teacher validation and broader bounded arena validation",
+  "override": {
+    "custom_artifact": "--eval-artifact <manifest-path>",
+    "static_eval": "--eval-mode static"
+  },
+  "non_claims": [
+    "not an Elo result",
+    "not a self-play improvement claim",
+    "not a production strength claim",
+    "not publication readiness",
+    "not an official Egaroucid artifact"
+  ]
+}

@@ -2,6 +2,7 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/position.h"
 #include "vibe_othello/evaluation/pattern.h"
+#include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
 #include "vibe_othello/evaluation/pattern_feature_set.h"
 #include "vibe_othello/evaluation/pattern_weights.h"
@@ -636,83 +637,26 @@ std::array<std::uint8_t, eval::PatternWeights::kDiscCountEntries> phase_by_disc_
 
 std::optional<LoadedEvaluator> load_evaluator(std::string name, std::string weights_path,
                                               std::string manifest_path) {
-  const std::optional<PatternRuntime> runtime = select_pattern_runtime(name);
-  if (!runtime.has_value()) {
-    std::cerr << "unknown pattern set name: " << name << '\n';
-    return std::nullopt;
-  }
-
-  const std::optional<std::string> manifest_text = read_text_file(manifest_path, "manifest");
-  if (!manifest_text.has_value()) {
-    return std::nullopt;
-  }
-  const std::optional<std::string> manifest_pattern_set =
-      json_string_field(*manifest_text, "pattern_set_id");
-  if (!manifest_pattern_set.has_value()) {
-    std::cerr << "manifest is missing string field pattern_set_id: " << manifest_path << '\n';
-    return std::nullopt;
-  }
-  if (*manifest_pattern_set != runtime->pattern_set->id) {
-    std::cerr << "manifest pattern_set_id mismatch for " << name << ": expected "
-              << runtime->pattern_set->id << ", got " << *manifest_pattern_set << '\n';
-    return std::nullopt;
-  }
-  const std::optional<std::string> manifest_checksum =
-      json_string_field(*manifest_text, "weights_checksum");
-  if (!manifest_checksum.has_value()) {
-    std::cerr << "manifest is missing string field weights_checksum: " << manifest_path << '\n';
-    return std::nullopt;
-  }
-
-  const std::optional<std::vector<std::uint8_t>> artifact =
-      read_binary_file(weights_path, "artifact weights");
-  if (!artifact.has_value()) {
-    return std::nullopt;
-  }
-  if (artifact->size() < sizeof(std::uint32_t)) {
-    std::cerr << "artifact is too small: " << weights_path << '\n';
-    return std::nullopt;
-  }
-  const std::string artifact_checksum = crc32_checksum_string(
-      std::span<const std::uint8_t>(*artifact).first(artifact->size() - sizeof(std::uint32_t)));
-  if (artifact_checksum != *manifest_checksum) {
-    std::cerr << "artifact checksum mismatch for " << name << ": manifest " << *manifest_checksum
-              << ", actual " << artifact_checksum << '\n';
-    return std::nullopt;
-  }
-
-  const eval::PatternManifest manifest{
-      .format_version = eval::kPatternWeightFormatVersion,
-      .bit_order = eval::PatternBitOrder::a1_lsb,
-      .score_unit = eval::PatternScoreUnit::disc_diff,
-      .score_scale = 1,
-      .phase_count = 13,
-      .pattern_set_id = runtime->pattern_set->id,
-      .patterns = runtime->pattern_set->patterns,
-  };
-  const eval::PatternWeightsLoadResult loaded = eval::load_pattern_weights(manifest, *artifact);
-  if (!loaded.ok()) {
-    std::cerr << "runtime loader rejected artifact for " << name << '\n';
-    return std::nullopt;
-  }
-  std::optional<eval::PatternWeights> weights =
-      eval::make_pattern_weights(*loaded.weights, phase_by_disc_count_13());
-  if (!weights.has_value()) {
-    std::cerr << "loaded artifact could not be converted to runtime weights for " << name << '\n';
+  eval::PatternArtifactLoadResult result = eval::load_pattern_artifact(manifest_path, weights_path);
+  if (!result.ok()) {
+    std::cerr << result.error << '\n';
     return std::nullopt;
   }
 
   try {
-    eval::PatternFeatureSet feature_set = std::move(runtime->feature_set);
+    eval::LoadedPatternArtifact artifact = std::move(*result.artifact);
+    eval::PatternFeatureSet feature_set = std::move(artifact.feature_set);
+    eval::PatternFeatureSet evaluator_feature_set = feature_set;
     return LoadedEvaluator{
         .name = std::move(name),
         .weights_path = std::move(weights_path),
         .manifest_path = std::move(manifest_path),
-        .manifest_pattern_set_id = *manifest_pattern_set,
-        .runtime_pattern_set_id = runtime->pattern_set->id,
-        .artifact_checksum = artifact_checksum,
+        .manifest_pattern_set_id = artifact.pattern_set_id,
+        .runtime_pattern_set_id = feature_set.id,
+        .artifact_checksum = artifact.weights_checksum,
         .feature_set = feature_set,
-        .evaluator = eval::PatternEvaluator{std::move(*weights), std::move(feature_set)},
+        .evaluator =
+            eval::PatternEvaluator{std::move(artifact.weights), std::move(evaluator_feature_set)},
     };
   } catch (const std::exception& error) {
     std::cerr << "pattern evaluator rejected artifact for " << name << ": " << error.what() << '\n';
