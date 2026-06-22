@@ -328,6 +328,18 @@ Existing foundations include:
   full-set, held-out validation+test, and bounded arena direction metrics
   without duplicating campaign generation, training, export, ranking, or arena
   logic
+* local-only pattern-learning growth-cycle runner at
+  `tools/pattern/train/run_pattern_growth_cycle.py` that preflights normalized
+  low-empty inputs and baseline artifacts, downgrades requested root counts
+  when the input has fewer eligible roots, runs or reuses the move-teacher
+  campaign matrix, schedules bounded artifact arenas for the strongest local
+  candidates against v1 and exact-root v2 baselines, checks same-artifact and
+  swap sanity, emits `growth-cycle-report.json` plus
+  `growth-cycle-summary.md`, and produces a promotion scorecard with an
+  evidence-backed next action. The runner is local-only orchestration; it does
+  not commit generated labels, datasets, weights, artifacts, raw logs, or raw
+  local reports, and it is not Elo, not self-play, not production strength, and
+  not a publication gate.
 * CTest-backed move-teacher decision smoke that uses only synthetic fixtures to
   check move-teacher TSV and child-normalized schemas, sign convention,
   pass handling, duplicate root handling, deterministic capped sampling,
@@ -401,6 +413,17 @@ runs. Details live in
 `docs/experiments/pattern-move-teacher-decision-leverage-scale.md`. The result
 is a robust local decision-leverage signal, not strength, Elo, self-play,
 production readiness, or an artifact publication gate.
+
+A local growth-cycle run then reused that matrix, completed 34 bounded
+side-swapped artifact arena variants, and selected
+`promote_to_larger_local_validation`. Move-teacher v2 was non-negative in every
+arena comparison against both v1 and exact-root v2, same-artifact sanity was
+exactly neutral, swap sanity moved in the expected opposite direction, and
+failed games were zero. The next recommended action is to build or select a
+larger low-empty input that can support 50,000 roots, then rerun the growth
+cycle. Details live in `docs/experiments/pattern-learning-growth-cycle.md`.
+This remains local-only evidence, not Elo, not self-play, not production
+strength, and not an artifact publication gate.
 
 The Egaroucid normalized dataset report currently records:
 
@@ -650,6 +673,7 @@ Status values:
 | Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can now emit local-only diagnostics for where v1/v2 signal is lost: static scoring, root move choice, depth, side assignment, exact low-empty disagreement adjudication, phase/sign perspective, manifest/runtime compatibility, or feature family activation |
 | Add move-teacher decision-leverage pipeline | done | Low-empty normalized schema v2 roots can now produce exact per-move teacher labels and child-normalized exact labels; child-label artifacts can be trained with existing v0c/v0d trainers and evaluated by root move-ranking metrics before optional bounded artifact arena checks |
 | Add move-teacher decision campaign matrix | done | `run_move_teacher_campaign_matrix.py` wraps the existing campaign helper over bounded root-count/seed matrices, preserves local-only outputs and resume validation, aggregates full-set, held-out, and arena direction metrics, and recorded a 5k/10k/20k x seeds 0/1/2 robust local decision-leverage diagnostic plus bounded 20k arena variations without committing generated artifacts |
+| Add pattern-learning growth cycle runner | done | `run_pattern_growth_cycle.py` turns the current local pattern-learning pieces into a repeatable preflight -> decision-leverage matrix -> bounded artifact arena -> promotion scorecard -> next-action loop, with synthetic CTest coverage for promote/hold/negative/rank-objective/missing-input/dry-run report behavior and no committed generated local outputs |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
 | Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
 | Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
