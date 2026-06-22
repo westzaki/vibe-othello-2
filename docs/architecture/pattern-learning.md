@@ -2,536 +2,323 @@
 
 ## Purpose
 
-Pattern learning produces evaluation weights for the runtime pattern evaluator.
+Pattern learning turns local training sources into learned runtime evaluation
+artifacts for the pattern evaluator.
 
-It turns game records, labeled positions, engine-generated scores, and self-play
-results into versioned artifacts that can be loaded by the evaluation module.
+This document defines the stable architecture contract: ownership boundaries,
+data flow, local-only data rules, normalized training schemas, label contracts,
+feature contracts, trainer/exporter responsibilities, and the handoff to
+runtime artifacts. It does not track current project status, experiment history,
+command lines, or artifact-specific evidence.
 
-The goal is to train a strong pattern-only evaluator while keeping the engine
-runtime small, deterministic, and license-safe.
+Pattern learning must keep the engine runtime deterministic, small, and
+license-safe. Learned artifacts are not strength, Elo, self-play, or production
+claims unless separate validation gates say so.
 
-Implementation status and milestone tracking live in
-`docs/progress/pattern-learning.md`.
-
-## Boundary
+## Boundaries
 
 Pattern learning owns:
 
-* training data ingestion
-* corpus manifests
-* data license and provenance tracking
-* position normalization for training
-* label generation
-* feature extraction for training
-* train/validation/test splits
-* weight fitting
-* regularization and smoothing
-* calibration datasets
-* artifact export
-* training metrics and reports
+* source ingestion into training-oriented normalized data
+* local corpus manifests and provenance metadata needed by training runs
+* training-position normalization
+* label overlays and generated teacher-label datasets
+* train/validation/test measurement split assignment
+* pattern dataset construction
+* training-time pattern feature extraction
+* fitting local weights and trainer diagnostics
+* exporting candidate runtime payloads for artifact review
 
 Pattern learning does not own:
 
-* board rules
-* runtime move generation
-* search algorithm semantics
-* recursive evaluator hot path
-* UI rendering
-* opening book lookup
-* source repository license selection
+* board rules, legal move generation, pass handling, or terminal detection
+* search algorithm semantics or exact endgame ownership
+* recursive runtime evaluator behavior
+* runtime pattern set definitions
+* default artifact resolution, promotion, rollback, or commit policy
+* UI rendering or analysis presentation
 
-Runtime evaluation consumes trained artifacts.
+Board core is the source of truth for positions and move application. Runtime
+evaluation owns the production pattern definitions and artifact loading
+contract. Pattern learning may use search/endgame tools to generate local
+labels, but search and runtime evaluation must not depend on training code.
 
-Pattern learning may use search tools to generate labels, but search must not
-depend on training code.
+## Data Flow
 
-## Core Approach
-
-Use an explicit, reproducible pipeline.
+The architecture flow is:
 
 ```text
-external corpora / self-play / engine labels
+local source records or generated positions
         |
         v
-tools/data-import
-        | normalized records + source manifests
+sequence/transcript import
+        |
         v
-tools/pattern/labels
-        | optional local-only teacher label overlay
+normalized TSV schema v2
+        |
         v
-tools/pattern/dataset
-        | positions, labels, split ids
+optional local teacher labels or move-teacher child labels
+        |
         v
-tools/pattern/features
-        | sparse pattern indices by phase
+pattern dataset rows
+        |
         v
-tools/pattern/train
-        | fitted weights + metrics
+trainer outputs and diagnostics
+        |
         v
-tools/pattern/calibrate
-        | optional score-to-probability mapping
+exporter candidate payload
+        |
         v
-data/eval artifacts --> engine/src/evaluation runtime loader
+reviewed data/eval runtime artifact
 ```
 
-Recommended repository ownership:
-
-```text
-engine/
-|-- include/vibe_othello/evaluation/
-|   |-- pattern_evaluator.h
-|   |-- pattern_weights.h
-|   `-- pattern_schema.h
-|-- src/evaluation/
-|   |-- pattern_evaluator.cc
-|   |-- pattern_weights.cc
-|   `-- pattern_schema.cc
-`-- tests/evaluation/
-
-tools/
-|-- data-import/
-|-- data-policy/
-|-- pattern/
-|   |-- dataset/
-|   |-- features/
-|   |-- train/
-|   |-- calibrate/
-|   `-- export/
-
-data/
-|-- corpora/README.md
-`-- eval/README.md
-```
-
-The repository may store small synthetic fixtures.
-
-Large or restricted corpora should be downloaded locally by scripts and
-described by manifests.
-
-Local sequence replay caches are allowed only as uncommitted measurement
-accelerators. Cache keys must be content-addressed from source bytes, manifest
-bytes, importer identity, normalized schema identity, dataset id, identity
-policy, and semantic importer options. They must not include local absolute
-paths, output directories, run ids, timestamps, or temporary paths. Cached
-normalized TSVs and import reports must be checksum-validated before reuse and
-rebuilt when metadata or payload validation fails.
+Source import, teacher labels, datasets, trainer outputs, diagnostics, and
+candidate exports before final artifact review are local-only intermediate
+outputs. Only reviewed runtime artifact payloads may cross into `data/eval/**`,
+and that handoff follows `docs/architecture/evaluation-artifacts.md`.
 
 ## Source Data Policy
 
-Every dataset must have a manifest before it can be used for training.
+Raw external data is not committed to the repository.
 
-Minimum manifest fields:
+The following generated or derived files are local-only unless a separate
+artifact policy explicitly allows them:
 
-```json
-{
-  "dataset_id": "example-dataset-v1",
-  "source_name": "Example Dataset",
-  "source_url": "https://example.invalid/dataset",
-  "retrieved_at": "YYYY-MM-DD",
-  "license_or_terms": "unknown | custom | public-domain | cc-by | ...",
-  "redistribution_allowed": false,
-  "commercial_use_allowed": "unknown",
-  "derived_weights_allowed": "unknown",
-  "required_attribution": "...",
-  "local_path": "not committed",
-  "sha256": "...",
-  "notes": "..."
-}
-```
+* normalized TSVs
+* selected TSVs
+* teacher labels
+* move-teacher TSVs
+* child-normalized TSVs
+* sequence replay caches
+* cache materialization outputs
+* measurement reports
+* trainer reports
+* logs
+* temporary pattern datasets
+* sweep outputs
+* trainer weights before final artifact export
+* candidate artifact exports before review
 
-Rules:
+Every external or generated source used for training must have enough manifest
+or provenance metadata to identify the source, terms, checksum, and intended
+local path. Detailed corpus-source policy belongs to
+`data/corpora/README.md`. Detailed teacher-label file policy belongs to
+`data/labels/README.md`.
 
-* raw third-party data is not committed unless redistribution is explicitly
-  allowed
-* generated intermediate datasets are not committed unless their source terms
-  allow redistribution
-* trained weights derived from restricted data require a release decision before
-  publication
-* every training run records the exact dataset manifests used
-* local measurement reports may include stage telemetry and cache hit/miss
-  status so repeated runs can distinguish replay cost from training cost
-* unknown license means internal experiment only
-* GPL engine code, GPL evaluation weights, and GPL-derived code are not copied
-  into this repository
+Committed learned runtime artifacts live under `data/eval/**` and must follow
+the artifact layout, default pointer, promotion, rollback, provenance, and
+commit-policy contracts in `docs/architecture/evaluation-artifacts.md`.
 
-## Data Sources
+## Normalized Position Schema
 
-Recommended source classes:
+Sequence and transcript importers read local source material and write
+normalized TSV schema v2. Importers must use board-core replay and serialization
+semantics rather than independent Othello rules.
 
-| Source class | Use | Risk |
-| --- | --- | --- |
-| Human game records | opening realism and natural play distribution | database terms may restrict redistribution |
-| Engine self-play transcripts | large-scale supervised labels | engine output provenance matters |
-| Own self-play | safest long-term source | compute cost and bootstrapping quality |
-| Solved/endgame labels | high-quality endgame supervision | expensive; source terms matter |
-| Synthetic/random positions | coverage and invariants | distribution mismatch |
-
-Practical path:
-
-1. use tiny synthetic fixtures for importer and feature tests
-2. use local-only external corpora for experiments
-3. generate own self-play as soon as search is stable enough
-4. publish only artifacts whose source manifests are cleared
-
-## Position Normalization
-
-Training positions must use board-core semantics.
-
-Rules:
-
-* all imported records are converted into `board_core::Position`
-* side to move is explicit
-* labels are side-to-move-relative
-* illegal records are rejected or quarantined
-* pass moves are represented explicitly when the source format requires them
-* position text fixtures use canonical board-core serialization
-* duplicate handling is deterministic and recorded in the dataset report
-* sequence transcript identity separates semantic game groups from source
-  occurrences: split assignment is derived from `dataset_id + game_group_id`,
-  where `game_group_id` comes from canonical replayed move/pass content; local
-  path, archive member, and line number are provenance only
-* exact side-to-move-relative board identifiers are reported separately from
-  game grouping so local measurements can distinguish game-held-out metrics
-  from exact-board-disjoint metrics
-
-The feature extractor must not implement independent Othello rules.
-
-It should call board-core parsing and move application helpers.
-
-## Labels
-
-Supported label types:
-
-| Label type | Meaning | First use |
-| --- | --- | --- |
-| `final_disc_diff` | final disc difference from side to move | human/self-play game records |
-| `observed_final_disc_diff` | observed transcript final disc difference from side to move, not searched | imported complete game transcripts |
-| `engine_disc_estimate` | searched engine estimate of final disc difference | teacher-generated positions |
-| `teacher_exact_move_child_final_disc_diff` | exact after-move child final disc difference from child side to move | local move-teacher decision diagnostics |
-| `wld` | win/draw/loss only | exact or solved data |
-| `policy_move` | played/best move target | later policy or ordering experiments |
-
-Pattern-only evaluation should start with observed final-disc-difference labels
-and `engine_disc_estimate`. Transcript-derived observed labels must not be
-reported as teacher-search estimates.
-
-Local teacher label overlays are an explicit intermediate step between
-normalized TSV generation and pattern dataset generation. The overlay consumes
-normalized schema v2 rows and a local teacher label TSV keyed by `board_id`,
-then writes another normalized schema v2 TSV with only label fields replaced.
-Sampling and measurement split policy should run before overlay so the teacher
-file is applied to the exact normalized rows that feed training.
-
-Teacher label TSV schema:
+Normalized schema v2 records the identities needed to distinguish game,
+board, source occurrence, split, and side-to-move label perspective:
 
 ```text
-board_id	label_kind	label_unit	label_perspective	label_score_side_to_move	teacher_source	teacher_depth	teacher_nodes
+record_id
+position_id
+game_group_id
+board_id
+source_occurrence_id
+source_dataset_id
+split
+board_a1_to_h8
+label_kind
+label_unit
+label_perspective
+label_score_side_to_move
+occupied_count
+phase
+player_disc_count
+opponent_disc_count
+empty_count
 ```
 
-Teacher label rules:
+Schema rules:
 
-* `board_id` must match normalized schema v2 `board_id`
-* `label_kind` should be `teacher_exact_final_disc_diff`,
-  `teacher_search_final_disc_diff`, or `teacher_static_eval_disc_diff`
-* `label_unit` is `disc`
-* `label_perspective` is `side_to_move`
-* `label_score_side_to_move` is an integer in `[-64, 64]`
-* `teacher_source` is a generic non-empty source label
-* `teacher_depth` and `teacher_nodes` are non-negative integers, or empty
+* `game_group_id` identifies the semantic replayed game or transcript group.
+* `board_id` identifies the exact side-to-move-relative board.
+* `source_occurrence_id` identifies the source occurrence without driving
+  semantic grouping.
+* `split` is one of `train`, `validation`, or `test`.
+* `board_a1_to_h8` uses the normalized side-to-move `X`/`O` convention.
+* labels are side-to-move-relative unless the row explicitly declares another
+  perspective.
+* `occupied_count`, `empty_count`, and `phase` are derived from board state and
+  artifact-compatible phase rules.
 
-Teacher label overlays are local-only fitting diagnostics. Generated teacher
-label files and overlaid normalized TSVs must not be committed. Exact/search
-teacher labels are not strength claims, Elo results, match bench results,
-self-play results, or production artifacts until separate gates exist.
+The connected-board-game split is a measurement split policy for
+sequence-derived validation. It keeps rows sharing a semantic game or identical
+side-to-move-relative board in the same measurement split. It is split hygiene,
+not a strength claim, label-quality claim, or artifact release gate.
 
-Exact endgame teacher labels are generated only for low-empty normalized schema
-v2 rows by `tools/pattern/labels/generate_exact_endgame_teacher_labels.cc`.
-The generator streams the normalized TSV, keeps only eligible de-duplicated
-`board_id` candidates in memory, uses the existing public exact endgame search
-API, and writes teacher label TSV rows in sorted `board_id` order. It does not
-generate opening or midgame teacher labels, does not add neural evaluator logic,
-does not run self-play, and does not publish production artifacts. Bounded
-local comparisons should use validation MAE as the primary selector; test MAE
-is reporting and tie-break only.
+## Label Contracts
 
-Move-teacher labels are the root-level complement to static exact labels. The
-local tool `tools/pattern/labels/generate_exact_move_teacher_dataset.cc` reads
-normalized schema v2 low-empty root rows, enumerates legal root moves, exact
-solves each child position, and writes both a move-teacher TSV and a
-child-normalized schema v2 TSV. This changes the training distribution from
-observed or exact root values to exact after-move child values, so fitting is
-connected to root move choice instead of only static root labels.
+Labels must declare kind, unit, perspective, and score field semantics.
 
-Sign convention is fixed at the child boundary:
+Supported architecture-level label kinds include:
 
-* root boards and child boards use the side-to-move-relative `X`/`O`
-  normalized convention
-* exact child solves return final disc difference from the child side to move
-* `root_move_score_side_to_move = -child_label_score_side_to_move`
-* child normalized rows keep `label_perspective = side_to_move`
-* child normalized rows use
-  `label_kind = teacher_exact_move_child_final_disc_diff`
+| Label kind | Contract |
+| --- | --- |
+| `observed_final_disc_diff` | Observed transcript final disc difference from the side-to-move perspective; not a searched teacher estimate. |
+| `teacher_exact_final_disc_diff` | Exact final disc difference from the side-to-move perspective for eligible local rows. |
+| `teacher_search_final_disc_diff` | Search-generated final disc estimate from the side-to-move perspective. |
+| `teacher_static_eval_disc_diff` | Static-evaluator estimate in disc units from the side-to-move perspective. |
+| `teacher_exact_move_child_final_disc_diff` | Exact after-move child final disc difference from the child side-to-move perspective. |
+| `wld` | Win/draw/loss labels only; not silently converted to exact disc differences. |
+| `policy_move` | Move target for later policy or ordering work. |
 
-Terminal roots are skipped and counted. Forced pass roots emit a `pass` move
-when the current side has no legal normal move and the opponent does.
-`teacher_depth` in move-teacher rows is the child empty count solved exactly.
+Teacher label overlays consume normalized schema v2 rows and a local
+teacher-label TSV keyed by `board_id`, then emit normalized schema v2 rows with
+only label fields changed. The teacher-label TSV contract is defined in
+`data/labels/README.md`.
 
-Move-teacher ranking diagnostics live in
-`tools/pattern/labels/evaluate_move_teacher_ranking.cc`. Given a move-teacher
-TSV and an exported local pattern artifact, it evaluates each child board once,
-converts artifact child scores to predicted root move scores with
-`-eval(child)`, and reports root-level decision metrics:
+Move-teacher labels connect local exact child solves to root move choice. Root
+and child boards use the normalized side-to-move `X`/`O` convention, exact child
+labels are from the child side-to-move perspective, predicted root move scores
+are derived as the negative child score, and child-normalized rows use
+`label_kind = teacher_exact_move_child_final_disc_diff`.
 
-* top-1 exact-best move accuracy
-* tie-aware top-1 accuracy
-* exact best in predicted top 2
-* pairwise move-ranking accuracy
-* mean and median teacher regret
-* predicted rank of an exact-best move
-* roots where all legal moves receive the same predicted score
-* breakdowns by empty count, phase, and split
+Generated teacher-label, move-teacher, and child-normalized files are local-only
+intermediate outputs. They are not Elo results, self-play results, production
+strength claims, or runtime artifacts.
 
-These diagnostics answer whether learned artifacts rank better exact moves
-higher. They are local-only decision diagnostics, not Elo, self-play,
-production strength, or publication gates.
+## Pattern Dataset Contract
 
-Rules:
+Pattern datasets are derived local training inputs built from normalized schema
+v2 rows and runtime-owned pattern definitions.
 
-* labels must declare unit and perspective
-* early random opening moves may be excluded by dataset policy
-* weak or noisy labels are allowed only if split metrics are tracked separately
-* WLD labels are not silently converted into exact disc differences
+The dataset builder must preserve:
 
-## Pattern Definitions
+* normalized row identity needed for diagnostics
+* split assignment
+* label kind, unit, perspective, and score
+* phase
+* deterministic feature order
+* enough source/provenance metadata for local reports
 
-Pattern definitions are versioned schema, not training script details.
+Expanded dataset rows, when used, emit one row per feature occurrence.
+Compact dataset rows are the scalable local training shape. A compact row emits
+one normalized position/example with a deterministic `pattern_features` payload:
 
-Each pattern definition should include:
+```text
+pattern_id:instance:ternary_index,pattern_id:instance:ternary_index,...
+```
 
-* `pattern_id`
-* square list in board-core coordinates
-* symmetry handling
+Compact feature order must match expanded emission order: pattern table order,
+then feature instance order. Duplicate feature occurrences are preserved.
+Trainer weight keys ignore `instance`, so repeated occurrences remain repeated
+contributions rather than distinct runtime weights.
+
+## Pattern Feature Contract
+
+Pattern feature extraction must use runtime-owned pattern set definitions and
+deterministic ternary indexing.
+
+The runtime pattern definitions specify:
+
+* pattern set id
+* pattern ids
+* square lists in board-core coordinates
+* symmetry policy
 * ternary index order
 * phase applicability
-* table offset in the artifact
+* table offsets and sizes
 
-Example schema:
+Ternary feature values are:
 
-```json
-{
-  "pattern_set": "pattern-v1-buro-style",
-  "patterns": [
-    {
-      "pattern_id": "edge-8",
-      "squares": ["a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1"],
-      "symmetry": "d4-canonical",
-      "index_base": 3
-    }
-  ]
-}
-```
+* empty square: `0`
+* side-to-move disc: `1`
+* opponent disc: `2`
 
-Runtime and training must share the same schema tests.
-
-Current local research pattern sets:
-
-* `pattern-v1-buro-lite` keeps the raw edge, near-edge, diagonal,
-  `corner-2x5`, and `corner-3x3` families in a stable ordered schema.
-* `pattern-v2-endgame-lite` preserves the `pattern-v1-buro-lite` order and
-  appends bounded endgame-oriented raw tables:
-  `corner-2x4-8`, `edge-plus-x-10`, `corner-wing-8`,
-  `near-edge-segment-8`, and `diagonal-corner-8`. Added table lengths are at
-  most 10, the largest table is `3^10`, and the set has 185,895 table entries
-  per phase plus the phase-bias slot.
-
-## Feature Encoding
-
-Use ternary pattern indices.
-
-For each square in a pattern:
-
-* empty = 0
-* player disc = 1
-* opponent disc = 2
-
-Index calculation:
+The index is:
 
 ```text
 index = sum(value[i] * 3^i)
 ```
 
-Rules:
+Training, export, and runtime evaluation must agree on the same pattern set
+definition and index semantics. Runtime definitions and production evaluator
+behavior belong to `docs/architecture/evaluation.md`.
 
-* index order is documented and tested
-* equivalent symmetries map to canonical indices when configured
-* missing or invalid squares are impossible by construction
-* phase is computed from occupied disc count using artifact metadata
+`pattern-v1-buro-lite` is the earlier production-ish schema. It keeps the raw
+edge, near-edge, diagonal, `corner-2x5`, and `corner-3x3` families in a stable
+ordered runtime schema.
 
-The pattern dataset builder supports two TSV layouts for local training input:
+`pattern-v2-endgame-lite` is the bounded endgame-oriented pattern set used by
+the current experimental default artifact. It preserves the v1 order and adds
+bounded late-phase families with table lengths capped for the existing runtime
+artifact shape.
 
-* `expanded-tsv` emits one row per feature occurrence and remains the default
-  compatibility format.
-* `compact-tsv` emits one row per normalized position/example with
-  `pattern_features` encoded as
-  `pattern_id:instance:ternary_index,pattern_id:instance:ternary_index,...`.
+Future pattern-set investigations such as `pattern-v3`, pairwise rank
+training, or larger objective changes are not part of the current architecture
+contract until adopted through separate design and validation.
 
-Compact feature order is deterministic and matches expanded emission order:
-pattern table order, then feature instance order. Duplicate feature occurrences
-are preserved. Trainer weight keys continue to ignore `instance`, so repeated
-feature occurrences remain repeated contributions rather than distinct weights.
-The compact format is local measurement infrastructure for reducing dataset
-row count and trainer input overhead; it is not strength evidence by itself.
+## Trainer and Exporter Responsibilities
 
-## Learning Algorithm
-
-Start with regularized linear regression or SGD over pattern indices.
-
-The first trainer should optimize clarity and reproducibility, not maximum
-throughput.
-
-Recommended progression:
-
-1. per-phase mean or bias baseline
-2. per-pattern table fitting with L2 regularization
-3. frequency-based shrinkage for rare indices
-4. phase smoothing between adjacent phases
-5. held-out calibration from score to win probability
-6. high-throughput sparse trainer only after metrics are stable
-
-Training must be deterministic when given the same input manifests, seed, and
+Trainers consume local pattern datasets and produce local fitting outputs,
+diagnostics, and candidate weights. Trainer behavior must be deterministic for
+the same input data, manifest/provenance metadata, seed, pattern set, and
 options.
 
-The local `pattern-sgd-v0c` trainer keeps the runtime-compatible v0b score
-shape while making optimizer semantics and diagnostics explicit. It learns
-train-split phase biases first, then keeps those biases fixed while SGD updates
-only pattern weights over residual labels. The per-example error gradient is
-distributed over feature occurrences, optional gradient clipping applies to
-that per-feature error gradient, and weight decay applies only to pattern
-weights. The learned weight key remains `phase + pattern_id + ternary_index`;
-`instance` is validated input metadata, not part of the runtime weight key.
+Trainer diagnostics may include fitting error, split and phase summaries,
+optimizer statistics, residual summaries, weight norms, sparsity, and local
+decision diagnostics. These diagnostics are local review evidence only. They do
+not publish a runtime artifact and do not imply playing strength.
 
-`pattern-sgd-v0c` is local research infrastructure. Its fitting reports may be
-used to compare train/validation/test behavior, residuals, optimizer behavior,
-and split-by-phase coverage, but they are not Elo, match bench, self-play, or
-production artifact claims.
+Trainer outputs before final artifact export are local-only intermediate
+outputs. Do not commit raw trainer weights, temporary datasets, reports, logs,
+or sweep outputs as architecture artifacts.
 
-## Metrics
+Exporters convert reviewed local trainer outputs into candidate runtime payloads
+with binary weights and manifest metadata. Export must preserve the runtime
+loader contract: score unit, scale, phase count, pattern set id, weight checksum,
+binary format, and pattern table layout.
 
-Every training run should emit a report.
+Exporter and artifact publication boundaries are delegated to
+`docs/architecture/evaluation-artifacts.md`. That document owns committed
+artifact layout, default pointer handling, promotion, rollback, provenance, and
+commit policy.
 
-Minimum fitting metrics:
+## Runtime Artifact Handoff
 
-* number of source records
-* number of valid positions
-* number of rejected positions
-* duplicate rate
-* train/validation/test split sizes
-* MAE by phase
-* RMSE by phase
-* exact sign accuracy
-* WLD accuracy when WLD labels exist
-* score calibration curve when calibration exists
-* artifact size
-* evaluation speed with the exported artifact
+Pattern learning hands off only reviewed final runtime payloads. A committed
+learned artifact must live under `data/eval/**` and satisfy the evaluation
+artifact contract before it becomes part of default runtime resolution.
 
-Research trainer reports should also include residual metrics against fixed
-phase bias, split-by-phase empty buckets, optimizer settings, epoch diagnostics,
-and weight diagnostics such as nonzero count, L2 norm, maximum absolute weight,
-phase/pattern counts, and largest absolute weights.
+The handoff must keep local-only material out of the committed payload:
 
-Strength metrics are separate from fitting metrics.
+* raw source transcripts or archives
+* normalized corpora
+* selected TSVs
+* teacher labels
+* move-teacher TSVs
+* child-normalized TSVs
+* sequence caches
+* trainer datasets
+* trainer reports
+* logs
+* temporary or sweep outputs
 
-Minimum strength checks:
+Runtime evaluation loads artifacts through the contract in
+`docs/architecture/evaluation-artifacts.md` and evaluates positions through the
+runtime evaluation architecture in `docs/architecture/evaluation.md`.
 
-* fixed-position search benchmark
-* short self-play regression
-* match bench versus previous artifact
-* move agreement with a trusted teacher on a fixed position set
+## What Belongs Elsewhere
 
-## Artifact Export
+Current implementation status belongs in `docs/progress/pattern-learning.md`.
 
-The exporter writes both binary weights and a JSON manifest.
+Experiment history and evidence belong in `docs/experiments/README.md`.
 
-Rules:
+Artifact layout, default pointer, promotion, rollback, and commit policy belong
+in `docs/architecture/evaluation-artifacts.md`.
 
-* binary weight file is little-endian
-* manifest includes schema version and checksums
-* exporter refuses to publish artifacts with unclear dataset terms unless forced
-  locally
-* artifact is reproducible from the training manifest, or the run report
-  explains why not
-* runtime loader validates compatibility before use
+Corpus source policy belongs in `data/corpora/README.md`.
 
-## License and Provenance Gates
+Label schema and local teacher-label policy belong in `data/labels/README.md`.
 
-Pattern learning has stricter provenance rules than normal code.
-
-Before using a dataset in a publishable artifact, answer:
-
-1. Can we download and use the data for training?
-2. Can we redistribute the raw data?
-3. Can we redistribute derived datasets?
-4. Can we redistribute trained weights derived from it?
-5. Is attribution required?
-6. Is commercial use allowed?
-7. Is the source produced by GPL software, and do its terms say anything about
-   generated outputs?
-
-If any answer is unknown, mark the run as local-only and do not publish the raw
-data, derived data, or weights.
-
-Code-copying policy:
-
-* do not copy GPL engine code
-* do not copy GPL evaluation tables or weights
-* do not translate GPL implementation details line-by-line
-* use papers, public descriptions, black-box comparison, and independently
-  written code
-
-## Testing Strategy
-
-Pattern-learning tests should cover:
-
-* importer accepts known-good tiny fixtures
-* importer rejects malformed records
-* imported positions replay with board core
-* pass handling round-trips where the source format has pass
-* feature extraction matches hand-computed indices
-* symmetry canonicalization is stable
-* phase mapping boundaries are correct
-* train split is deterministic
-* tiny trainer smoke test produces deterministic weights
-* exported artifact loads in runtime evaluation
-* manifest checksum mismatch is rejected
-
-Training tests should use tiny synthetic data.
-
-They should not require external corpora.
-
-## Build Order
-
-Recommended build order:
-
-1. add `data/corpora/README.md` with data policy
-2. add tiny synthetic fixture records
-3. add import manifest schema and validator
-4. add transcript importer for one simple text format
-5. add feature schema and hand-computed feature tests
-6. add tiny deterministic trainer smoke test
-7. add artifact exporter and runtime loader compatibility test
-8. add local-only external corpus scripts
-9. add match bench against previous weights
-10. add publication gate for artifacts
-
-## Completion Bar
-
-Pattern learning is ready to support production evaluation when:
-
-* all training inputs have manifests
-* raw external corpora are kept out of git by default
-* feature schema is versioned
-* tiny trainer is deterministic
-* exported artifacts load in runtime evaluation
-* validation metrics are generated automatically
-* match benchmarks can compare two artifacts
-* license/provenance status is visible before publishing weights
+Runtime evaluation architecture belongs in `docs/architecture/evaluation.md`.
