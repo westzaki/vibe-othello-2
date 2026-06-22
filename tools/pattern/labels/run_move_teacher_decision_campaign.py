@@ -37,6 +37,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=0.0001)
     parser.add_argument("--dataset-output-format", choices=("compact-tsv", "expanded-tsv"), default="compact-tsv")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--move-teacher-cache-dir", type=Path)
+    parser.add_argument("--reuse-move-teacher-cache", action="store_true")
+    parser.add_argument("--write-move-teacher-cache", action="store_true")
+    parser.add_argument("--allow-cache-miss-solve", action="store_true")
 
     parser.add_argument("--previous-weights", type=Path)
     parser.add_argument("--previous-manifest", type=Path)
@@ -73,6 +77,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "build/tools/arena/vibe-othello-pattern-artifact-arena",
     )
+    parser.add_argument(
+        "--move-teacher-cache-helper",
+        type=Path,
+        default=root / "tools/pattern/labels/materialize_move_teacher_from_cache.py",
+    )
     args = parser.parse_args()
 
     if args.max_empty < 0 or args.max_empty > 64:
@@ -91,6 +100,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--previous-weights and --previous-manifest must be supplied together")
     if (args.arena_baseline_weights is None) != (args.arena_baseline_manifest is None):
         parser.error("--arena-baseline-weights and --arena-baseline-manifest must be supplied together")
+    if (args.reuse_move_teacher_cache or args.write_move_teacher_cache or args.allow_cache_miss_solve) and (
+        args.move_teacher_cache_dir is None
+    ):
+        parser.error("move-teacher cache flags require --move-teacher-cache-dir")
+    if args.allow_cache_miss_solve and not args.reuse_move_teacher_cache:
+        parser.error("--allow-cache-miss-solve requires --reuse-move-teacher-cache")
     if args.arena_depth <= 0:
         parser.error("--arena-depth must be positive")
     if args.arena_max_positions <= 0:
@@ -236,6 +251,109 @@ def run_stage(
         encoding="utf-8",
     )
     stages[name]["status"] = "ok"
+
+
+def cache_materialize_command(
+    args: argparse.Namespace,
+    move_teacher: Path,
+    child_normalized: Path,
+    report: Path,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(args.move_teacher_cache_helper),
+        "--normalized-tsv",
+        str(args.normalized_tsv),
+        "--cache-dir",
+        str(args.move_teacher_cache_dir),
+        "--move-teacher-out",
+        str(move_teacher),
+        "--child-normalized-out",
+        str(child_normalized),
+        "--report-out",
+        str(report),
+        "--max-empty",
+        str(args.max_empty),
+        "--max-roots",
+        str(args.max_roots),
+        "--seed",
+        str(args.seed),
+        "--require-full-hit",
+    ]
+
+
+def run_cache_materialization_stage(
+    args: argparse.Namespace,
+    move_teacher: Path,
+    child_normalized: Path,
+    report: Path,
+    stages: dict[str, dict[str, Any]],
+) -> str:
+    command = cache_materialize_command(args, move_teacher, child_normalized, report)
+    outputs = [move_teacher, child_normalized, report]
+    metadata_path = args.output_dir / "materialize_move_teacher_from_cache.resume.json"
+    expected_resume = resume_expected_metadata(command, {"normalized_tsv": args.normalized_tsv})
+    stages["materialize_move_teacher_from_cache"] = {
+        "command": command_for_report(command),
+        "outputs": [report_path(path) for path in outputs],
+        "resume_metadata": report_path(metadata_path),
+    }
+    if args.resume and all(path.exists() for path in outputs):
+        validate_resume_metadata("materialize_move_teacher_from_cache", metadata_path, expected_resume, outputs)
+        stages["materialize_move_teacher_from_cache"]["status"] = "skipped-resume-validated"
+        return "ok"
+    result = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.returncode == 3:
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+        stages["materialize_move_teacher_from_cache"]["status"] = "cache-miss"
+        stages["materialize_move_teacher_from_cache"]["allow_cache_miss_solve"] = args.allow_cache_miss_solve
+        return "cache-miss"
+    if result.returncode != 0:
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+        raise RuntimeError(f"command failed: {' '.join(command)}")
+    metadata_path.write_text(
+        stable_json(resume_complete_metadata(expected_resume, outputs)),
+        encoding="utf-8",
+    )
+    stages["materialize_move_teacher_from_cache"]["status"] = "ok"
+    return "ok"
+
+
+def populate_move_teacher_cache(
+    args: argparse.Namespace,
+    move_teacher: Path,
+    report: Path,
+    stages: dict[str, dict[str, Any]],
+) -> None:
+    command = [
+        sys.executable,
+        str(args.move_teacher_cache_helper),
+        "--normalized-tsv",
+        str(args.normalized_tsv),
+        "--cache-dir",
+        str(args.move_teacher_cache_dir),
+        "--report-out",
+        str(report),
+        "--max-empty",
+        str(args.max_empty),
+        "--max-roots",
+        str(args.max_roots),
+        "--seed",
+        str(args.seed),
+        "--source-move-teacher-tsv",
+        str(move_teacher),
+        "--populate-only",
+    ]
+    stages["populate_move_teacher_cache"] = {
+        "command": command_for_report(command),
+        "outputs": [report_path(report)],
+    }
+    run_or_fail(command)
+    stages["populate_move_teacher_cache"]["status"] = "ok"
 
 
 def build_dataset(args: argparse.Namespace, child_normalized: Path, dataset: Path, report: Path, stages: dict[str, dict[str, Any]]) -> None:
@@ -492,6 +610,8 @@ def write_summary(path: Path, report: dict[str, Any]) -> None:
     trained = report["ranking"].get("move_teacher_child_value")
     comparison = report["ranking"].get("comparison", {})
     arena = report.get("arena")
+    cache = report.get("move_teacher_cache")
+    cache_summary = cache.get("cache") if isinstance(cache, dict) and isinstance(cache.get("cache"), dict) else cache
     lines = [
         "# Move-Teacher Decision Campaign",
         "",
@@ -502,6 +622,15 @@ def write_summary(path: Path, report: dict[str, Any]) -> None:
         f"- move-teacher rows: {report['move_teacher_dataset'].get('move_rows')}",
         f"- selected roots: {report['move_teacher_dataset'].get('selected_roots')}",
         f"- max empty: {report.get('max_empty')}",
+        "",
+        "## Cache",
+        "",
+        f"- enabled: {cache_summary is not None}",
+        f"- mode: {None if cache_summary is None else cache_summary.get('cache_mode')}",
+        f"- root hits: {None if cache_summary is None else cache_summary.get('root_hits')}",
+        f"- root misses: {None if cache_summary is None else cache_summary.get('root_misses')}",
+        f"- exact nodes newly solved: {None if cache_summary is None else cache_summary.get('exact_nodes_newly_solved')}",
+        f"- exact nodes saved estimate: {None if cache_summary is None else cache_summary.get('exact_nodes_saved_estimate')}",
         "",
         "## Ranking",
         "",
@@ -529,6 +658,7 @@ def main() -> int:
         move_teacher = args.output_dir / "move-teacher.tsv"
         child_normalized = args.output_dir / "child-normalized.tsv"
         generator_report = args.output_dir / "move-teacher-report.json"
+        cache_report = args.output_dir / "move-teacher-cache-report.json"
         dataset = args.output_dir / "child-pattern-dataset.tsv"
         dataset_report = args.output_dir / "child-pattern-dataset-report.json"
         weights_json = args.output_dir / "move-teacher-child-weights.json"
@@ -544,32 +674,50 @@ def main() -> int:
         campaign_report = args.output_dir / "campaign-report.json"
         campaign_summary = args.output_dir / "campaign-summary.md"
 
-        run_stage(
-            args,
-            "generate_exact_move_teacher_dataset",
-            [
-                str(args.generator),
-                "--normalized-tsv",
-                str(args.normalized_tsv),
-                "--move-teacher-out",
-                str(move_teacher),
-                "--child-normalized-out",
-                str(child_normalized),
-                "--report-out",
-                str(generator_report),
-                "--max-empty",
-                str(args.max_empty),
-                "--max-roots",
-                str(args.max_roots),
-                "--seed",
-                str(args.seed),
-                "--progress-every",
-                "100",
-            ],
-            [move_teacher, child_normalized, generator_report],
-            stages,
-            resume_inputs={"normalized_tsv": args.normalized_tsv},
-        )
+        generated_from_cache = False
+        if args.reuse_move_teacher_cache:
+            cache_status = run_cache_materialization_stage(args, move_teacher, child_normalized, generator_report, stages)
+            if cache_status == "ok":
+                generated_from_cache = True
+            elif args.allow_cache_miss_solve:
+                raise RuntimeError(
+                    "partial move-teacher cache miss solving is not implemented yet; "
+                    "populate the cache first or rerun without --reuse-move-teacher-cache"
+                )
+            else:
+                raise RuntimeError(
+                    "move-teacher cache miss; rerun with --write-move-teacher-cache on a solved campaign "
+                    "or remove --reuse-move-teacher-cache"
+                )
+        if not generated_from_cache:
+            run_stage(
+                args,
+                "generate_exact_move_teacher_dataset",
+                [
+                    str(args.generator),
+                    "--normalized-tsv",
+                    str(args.normalized_tsv),
+                    "--move-teacher-out",
+                    str(move_teacher),
+                    "--child-normalized-out",
+                    str(child_normalized),
+                    "--report-out",
+                    str(generator_report),
+                    "--max-empty",
+                    str(args.max_empty),
+                    "--max-roots",
+                    str(args.max_roots),
+                    "--seed",
+                    str(args.seed),
+                    "--progress-every",
+                    "100",
+                ],
+                [move_teacher, child_normalized, generator_report],
+                stages,
+                resume_inputs={"normalized_tsv": args.normalized_tsv},
+            )
+        if args.write_move_teacher_cache:
+            populate_move_teacher_cache(args, move_teacher, cache_report, stages)
         build_dataset(args, child_normalized, dataset, dataset_report, stages)
         train(args, dataset, weights_json, trainer_report, stages)
         export_artifact(args, weights_json, weights_bin, manifest, stages)
@@ -637,6 +785,7 @@ def main() -> int:
             "lr_schedule": args.lr_schedule,
             "weight_decay": args.weight_decay,
             "move_teacher_dataset": load_json(generator_report),
+            "move_teacher_cache": load_json(cache_report) if cache_report.exists() else load_json(generator_report).get("cache"),
             "child_pattern_dataset": load_json(dataset_report),
             "trainer": load_json(trainer_report),
             "ranking": {
@@ -658,6 +807,7 @@ def main() -> int:
                 if previous_ranking_report.exists()
                 else None,
                 "arena_report": report_path(arena_report) if arena_report.exists() else None,
+                "move_teacher_cache_report": report_path(cache_report) if cache_report.exists() else None,
             },
             "warnings": [
                 "local-only diagnostic; generated labels, datasets, weights, artifacts, reports, and logs must not be committed",

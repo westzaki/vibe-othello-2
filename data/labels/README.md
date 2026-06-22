@@ -154,6 +154,37 @@ label_perspective = side_to_move
 source_dataset_id = exact-move-teacher-v1
 ```
 
+Exact move-teacher solving is expensive, but the solved move rows are
+split-independent. Reuse a local cache when the same root `board_id` and
+`board_a1_to_h8` are available:
+
+```sh
+python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
+  --normalized-tsv "$RUN_DIR/selected-low-empty-normalized.tsv" \
+  --output-dir "$RUN_DIR/move-teacher-decision" \
+  --max-empty 12 \
+  --max-roots 50000 \
+  --seed 1 \
+  --pattern-set pattern-v2-endgame-lite \
+  --move-teacher-cache-dir "$VIBE_OTHELLO_MOVE_TEACHER_CACHE" \
+  --reuse-move-teacher-cache \
+  --resume
+```
+
+Populate the cache during a solved run with `--write-move-teacher-cache`, or
+from an existing solved `move-teacher.tsv` with
+`tools/pattern/labels/materialize_move_teacher_from_cache.py --populate-only`.
+Materialization uses the current normalized TSV for record ids, split
+assignments, root phase, game group ids, and selected row order, so connected
+split remaps can reuse exact move-teacher labels when board identity and board
+contents match.
+
+Cache reuse validates schema/semantic metadata, `max_empty`, label
+kind/unit/perspective, solver semantic version, `board_id`, board contents,
+empty count, and cached legal moves. Full-hit mode fails on missing roots.
+Partial-miss solve is not implemented yet; do not silently drop missing roots
+or compare a partially materialized run as if it were complete.
+
 Build a child pattern dataset, train with an existing value trainer, export,
 and evaluate move ranking:
 

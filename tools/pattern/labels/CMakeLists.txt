@@ -74,6 +74,18 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_campaign_matrix.py)
 
   add_test(
+    NAME vibe_othello_pattern_move_teacher_cache_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_move_teacher_cache_smoke.py
+      --materializer
+      ${CMAKE_CURRENT_SOURCE_DIR}/materialize_move_teacher_from_cache.py
+      --matrix-helper
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_campaign_matrix.py
+      --growth-cycle-helper
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/run_pattern_growth_cycle.py)
+
+  add_test(
     NAME vibe_othello_pattern_select_low_empty_roots_smoke
     COMMAND
       ${Python3_EXECUTABLE}

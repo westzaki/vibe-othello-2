@@ -99,6 +99,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--keep-going", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--move-teacher-cache-dir", type=Path)
+    parser.add_argument("--reuse-move-teacher-cache", action="store_true")
+    parser.add_argument("--write-move-teacher-cache", action="store_true")
+    parser.add_argument("--allow-cache-miss-solve", action="store_true")
 
     parser.add_argument("--previous-weights", type=Path)
     parser.add_argument("--previous-manifest", type=Path)
@@ -140,6 +144,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "build/tools/arena/vibe-othello-pattern-artifact-arena",
     )
+    parser.add_argument(
+        "--move-teacher-cache-helper",
+        type=Path,
+        default=root / "tools/pattern/labels/materialize_move_teacher_from_cache.py",
+    )
     args = parser.parse_args()
 
     if args.max_empty < 0 or args.max_empty > 64:
@@ -154,6 +163,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--previous-weights and --previous-manifest must be supplied together")
     if (args.arena_baseline_weights is None) != (args.arena_baseline_manifest is None):
         parser.error("--arena-baseline-weights and --arena-baseline-manifest must be supplied together")
+    if (args.reuse_move_teacher_cache or args.write_move_teacher_cache or args.allow_cache_miss_solve) and (
+        args.move_teacher_cache_dir is None
+    ):
+        parser.error("move-teacher cache flags require --move-teacher-cache-dir")
+    if args.allow_cache_miss_solve and not args.reuse_move_teacher_cache:
+        parser.error("--allow-cache-miss-solve requires --reuse-move-teacher-cache")
     if args.arena_depth <= 0:
         parser.error("--arena-depth must be positive")
     if args.arena_max_positions <= 0:
@@ -211,6 +226,14 @@ def command_template(args: argparse.Namespace) -> str:
     ]
     if args.resume:
         command.append("--resume")
+    if args.move_teacher_cache_dir is not None:
+        command.extend(["--move-teacher-cache-dir", str(args.move_teacher_cache_dir)])
+    if args.reuse_move_teacher_cache:
+        command.append("--reuse-move-teacher-cache")
+    if args.write_move_teacher_cache:
+        command.append("--write-move-teacher-cache")
+    if args.allow_cache_miss_solve:
+        command.append("--allow-cache-miss-solve")
     return shell_join(command)
 
 
@@ -227,6 +250,8 @@ def preflight(args: argparse.Namespace) -> None:
     require_file(args.trainer, "pattern trainer", args)
     require_file(args.exporter, "pattern exporter", args)
     require_file(args.ranking_evaluator, "move-teacher ranking evaluator", args)
+    if args.reuse_move_teacher_cache or args.write_move_teacher_cache:
+        require_file(args.move_teacher_cache_helper, "move-teacher cache helper", args)
     if args.previous_weights is not None and args.previous_manifest is not None:
         require_file(args.previous_weights, "previous artifact weights", args)
         require_file(args.previous_manifest, "previous artifact manifest", args)
@@ -282,6 +307,21 @@ def campaign_command(args: argparse.Namespace, output_dir: Path, root_count: int
         "--ranking-evaluator",
         str(args.ranking_evaluator),
     ]
+    if args.move_teacher_cache_dir is not None:
+        command.extend(
+            [
+                "--move-teacher-cache-dir",
+                str(args.move_teacher_cache_dir),
+                "--move-teacher-cache-helper",
+                str(args.move_teacher_cache_helper),
+            ]
+        )
+    if args.reuse_move_teacher_cache:
+        command.append("--reuse-move-teacher-cache")
+    if args.write_move_teacher_cache:
+        command.append("--write-move-teacher-cache")
+    if args.allow_cache_miss_solve:
+        command.append("--allow-cache-miss-solve")
     if args.previous_weights is not None and args.previous_manifest is not None:
         command.extend(
             [
@@ -475,7 +515,6 @@ def run_summary(
     previous_heldout = split_aggregate(previous)
     trained_heldout = split_aggregate(trained)
     arena_status = campaign.get("arena") if isinstance(campaign.get("arena"), dict) else {}
-
     arena = {
         "status": arena_status.get("status", "missing" if arena_raw is None else "ok"),
         "games_played": None if arena_raw is None else arena_raw.get("games_played"),
@@ -488,6 +527,9 @@ def run_summary(
         else arena_raw.get("candidate_score_rate_interval_95"),
     }
     dataset = campaign.get("move_teacher_dataset") if isinstance(campaign.get("move_teacher_dataset"), dict) else {}
+    cache_status = campaign.get("move_teacher_cache")
+    if not isinstance(cache_status, dict):
+        cache_status = dataset.get("cache") if isinstance(dataset.get("cache"), dict) else None
     return {
         "run_id": run_dir.name,
         "root_count": root_count,
@@ -500,6 +542,7 @@ def run_summary(
         "child_rows": dataset.get("child_normalized_rows"),
         "exact_teacher_nodes": dataset.get("teacher_nodes_sum"),
         "generation_wall_time_sec": dataset.get("wall_time_sec"),
+        "move_teacher_cache": cache_status,
         "previous": metric_subset(previous),
         "trained": metric_subset(trained),
         "deltas": delta_map(previous, trained),
@@ -906,6 +949,14 @@ def main() -> int:
                 "max_positions": args.arena_max_positions,
                 "depth": args.arena_depth,
                 "side_swap": args.arena_side_swap,
+            },
+            "move_teacher_cache": {
+                "enabled": args.move_teacher_cache_dir is not None,
+                "cache_dir": report_path(args.move_teacher_cache_dir),
+                "reuse": args.reuse_move_teacher_cache,
+                "write": args.write_move_teacher_cache,
+                "allow_cache_miss_solve": args.allow_cache_miss_solve,
+                "partial_miss_solve": "not_implemented",
             },
             "runs": runs,
             "aggregate": aggregate(runs),
