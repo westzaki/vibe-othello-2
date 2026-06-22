@@ -106,6 +106,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("move-teacher cache flags require --move-teacher-cache-dir")
     if args.allow_cache_miss_solve and not args.reuse_move_teacher_cache:
         parser.error("--allow-cache-miss-solve requires --reuse-move-teacher-cache")
+    if args.allow_cache_miss_solve and not args.write_move_teacher_cache:
+        parser.error("--allow-cache-miss-solve requires --write-move-teacher-cache")
     if args.arena_depth <= 0:
         parser.error("--arena-depth must be positive")
     if args.arena_max_positions <= 0:
@@ -288,19 +290,21 @@ def run_cache_materialization_stage(
     child_normalized: Path,
     report: Path,
     stages: dict[str, dict[str, Any]],
+    *,
+    stage_name: str = "materialize_move_teacher_from_cache",
 ) -> str:
     command = cache_materialize_command(args, move_teacher, child_normalized, report)
     outputs = [move_teacher, child_normalized, report]
-    metadata_path = args.output_dir / "materialize_move_teacher_from_cache.resume.json"
+    metadata_path = args.output_dir / f"{stage_name}.resume.json"
     expected_resume = resume_expected_metadata(command, {"normalized_tsv": args.normalized_tsv})
-    stages["materialize_move_teacher_from_cache"] = {
+    stages[stage_name] = {
         "command": command_for_report(command),
         "outputs": [report_path(path) for path in outputs],
         "resume_metadata": report_path(metadata_path),
     }
     if args.resume and all(path.exists() for path in outputs):
-        validate_resume_metadata("materialize_move_teacher_from_cache", metadata_path, expected_resume, outputs)
-        stages["materialize_move_teacher_from_cache"]["status"] = "skipped-resume-validated"
+        validate_resume_metadata(stage_name, metadata_path, expected_resume, outputs)
+        stages[stage_name]["status"] = "skipped-resume-validated"
         return "ok"
     result = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.stdout:
@@ -308,8 +312,8 @@ def run_cache_materialization_stage(
     if result.returncode == 3:
         if result.stderr:
             sys.stderr.write(result.stderr)
-        stages["materialize_move_teacher_from_cache"]["status"] = "cache-miss"
-        stages["materialize_move_teacher_from_cache"]["allow_cache_miss_solve"] = args.allow_cache_miss_solve
+        stages[stage_name]["status"] = "cache-miss"
+        stages[stage_name]["allow_cache_miss_solve"] = args.allow_cache_miss_solve
         return "cache-miss"
     if result.returncode != 0:
         if result.stderr:
@@ -319,8 +323,234 @@ def run_cache_materialization_stage(
         stable_json(resume_complete_metadata(expected_resume, outputs)),
         encoding="utf-8",
     )
-    stages["materialize_move_teacher_from_cache"]["status"] = "ok"
+    stages[stage_name]["status"] = "ok"
     return "ok"
+
+
+def rewrite_cache_materialization_resume_metadata(
+    args: argparse.Namespace,
+    move_teacher: Path,
+    child_normalized: Path,
+    report: Path,
+) -> None:
+    command = cache_materialize_command(args, move_teacher, child_normalized, report)
+    outputs = [move_teacher, child_normalized, report]
+    expected_resume = resume_expected_metadata(command, {"normalized_tsv": args.normalized_tsv})
+    metadata_path = args.output_dir / "materialize_move_teacher_from_cache.resume.json"
+    metadata_path.write_text(
+        stable_json(resume_complete_metadata(expected_resume, outputs)),
+        encoding="utf-8",
+    )
+
+
+def cache_probe_command(
+    args: argparse.Namespace,
+    report: Path,
+    missing_normalized: Path,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(args.move_teacher_cache_helper),
+        "--normalized-tsv",
+        str(args.normalized_tsv),
+        "--cache-dir",
+        str(args.move_teacher_cache_dir),
+        "--report-out",
+        str(report),
+        "--max-empty",
+        str(args.max_empty),
+        "--max-roots",
+        str(args.max_roots),
+        "--seed",
+        str(args.seed),
+        "--probe-only",
+        "--missing-normalized-out",
+        str(missing_normalized),
+    ]
+
+
+def run_cache_probe_stage(
+    args: argparse.Namespace,
+    report: Path,
+    missing_normalized: Path,
+    stages: dict[str, dict[str, Any]],
+    stage_name: str,
+) -> dict[str, Any]:
+    command = cache_probe_command(args, report, missing_normalized)
+    stages[stage_name] = {
+        "command": command_for_report(command),
+        "outputs": [report_path(report), report_path(missing_normalized)],
+    }
+    run_or_fail(command)
+    stages[stage_name]["status"] = "ok"
+    return load_json(report)
+
+
+def generate_missing_move_teacher(
+    args: argparse.Namespace,
+    missing_normalized: Path,
+    missing_count: int,
+    move_teacher: Path,
+    child_normalized: Path,
+    report: Path,
+    stages: dict[str, dict[str, Any]],
+) -> None:
+    command = [
+        str(args.generator),
+        "--normalized-tsv",
+        str(missing_normalized),
+        "--move-teacher-out",
+        str(move_teacher),
+        "--child-normalized-out",
+        str(child_normalized),
+        "--report-out",
+        str(report),
+        "--max-empty",
+        str(args.max_empty),
+        "--max-roots",
+        str(missing_count),
+        "--seed",
+        str(args.seed),
+        "--progress-every",
+        "100",
+    ]
+    run_stage(
+        args,
+        "generate_missing_exact_move_teacher_dataset",
+        command,
+        [move_teacher, child_normalized, report],
+        stages,
+        resume_inputs={"missing_normalized_tsv": missing_normalized},
+    )
+
+
+def populate_missing_move_teacher_cache(
+    args: argparse.Namespace,
+    missing_normalized: Path,
+    missing_move_teacher: Path,
+    report: Path,
+    stages: dict[str, dict[str, Any]],
+) -> None:
+    command = [
+        sys.executable,
+        str(args.move_teacher_cache_helper),
+        "--normalized-tsv",
+        str(missing_normalized),
+        "--cache-dir",
+        str(args.move_teacher_cache_dir),
+        "--report-out",
+        str(report),
+        "--max-empty",
+        str(args.max_empty),
+        "--max-roots",
+        str(args.max_roots),
+        "--seed",
+        str(args.seed),
+        "--source-move-teacher-tsv",
+        str(missing_move_teacher),
+        "--populate-only",
+    ]
+    stages["merge_missing_move_teacher_cache"] = {
+        "command": command_for_report(command),
+        "outputs": [report_path(report)],
+    }
+    run_or_fail(command)
+    stages["merge_missing_move_teacher_cache"]["status"] = "ok"
+
+
+def cache_section(report: dict[str, Any]) -> dict[str, Any]:
+    cache = report.get("cache")
+    if not isinstance(cache, dict):
+        raise RuntimeError("cache report is missing cache section")
+    return cache
+
+
+def cache_int(cache: dict[str, Any], key: str) -> int:
+    value = cache.get(key)
+    if not isinstance(value, int):
+        raise RuntimeError(f"cache report field {key} is missing or non-integer")
+    return value
+
+
+def augment_partial_cache_report(
+    args: argparse.Namespace,
+    final_report_path: Path,
+    initial_probe: dict[str, Any],
+    missing_move_teacher_path: Path,
+    missing_report_path: Path,
+    merge_report_path: Path,
+    final_probe_report_path: Path,
+    final_probe: dict[str, Any],
+) -> None:
+    final_report = load_json(final_report_path)
+    final_cache = cache_section(final_report)
+    initial_cache = cache_section(initial_probe)
+    final_probe_cache = cache_section(final_probe)
+    missing_report = load_json(missing_report_path)
+    merge_report = load_json(merge_report_path)
+    merge_cache = cache_section(merge_report)
+    initial_reused_nodes = cache_int(initial_cache, "exact_nodes_reused")
+    newly_solved_nodes = int(missing_report.get("teacher_nodes_sum", merge_cache.get("teacher_nodes_cached", 0)))
+    missing_roots = cache_int(initial_cache, "root_misses")
+    final_cache.update(
+        {
+            "cache_mode": "partial-miss-solve-then-cache-materialization",
+            "partial_miss_solve": True,
+            "root_hits_initial": cache_int(initial_cache, "root_hits"),
+            "root_misses_initial": missing_roots,
+            "cache_hit_ratio_initial": initial_cache.get("cache_hit_ratio"),
+            "roots_newly_solved": int(missing_report.get("selected_roots", missing_roots)),
+            "root_hits_after_merge": cache_int(final_probe_cache, "root_hits"),
+            "root_misses_after_merge": cache_int(final_probe_cache, "root_misses"),
+            "exact_nodes_reused": initial_reused_nodes,
+            "exact_nodes_saved_estimate": initial_reused_nodes,
+            "exact_nodes_newly_solved": newly_solved_nodes,
+            "exact_nodes_materialized_from_cache": int(final_report.get("teacher_nodes_sum", 0)),
+            "missing_normalized_sha256": initial_cache.get("missing_normalized_sha256"),
+            "missing_move_teacher_sha256": sha256_file(missing_move_teacher_path),
+            "missing_generator_report_sha256": sha256_file(missing_report_path),
+            "cache_merge_report_sha256": sha256_file(merge_report_path),
+            "final_probe_report_sha256": sha256_file(final_probe_report_path),
+        }
+    )
+    final_report["partial_cache_miss_solve"] = {
+        "enabled": True,
+        "initial_root_hits": cache_int(initial_cache, "root_hits"),
+        "initial_root_misses": missing_roots,
+        "roots_newly_solved": int(missing_report.get("selected_roots", missing_roots)),
+        "exact_nodes_reused": initial_reused_nodes,
+        "exact_nodes_newly_solved": newly_solved_nodes,
+        "missing_generator_report": report_path(missing_report_path),
+        "cache_merge_report": report_path(merge_report_path),
+        "final_probe_report": "move-teacher-cache-final-probe-report.json",
+    }
+    final_report_path.write_text(stable_json(final_report), encoding="utf-8")
+
+
+def partial_cache_miss_resume_command(args: argparse.Namespace) -> str:
+    command = [
+        "python3",
+        "tools/pattern/labels/run_move_teacher_decision_campaign.py",
+        "--normalized-tsv",
+        str(args.normalized_tsv),
+        "--output-dir",
+        str(args.output_dir),
+        "--max-empty",
+        str(args.max_empty),
+        "--max-roots",
+        str(args.max_roots),
+        "--seed",
+        str(args.seed),
+        "--pattern-set",
+        args.pattern_set,
+        "--move-teacher-cache-dir",
+        str(args.move_teacher_cache_dir),
+        "--reuse-move-teacher-cache",
+        "--write-move-teacher-cache",
+        "--allow-cache-miss-solve",
+        "--resume",
+    ]
+    return " ".join(command)
 
 
 def populate_move_teacher_cache(
@@ -659,6 +889,14 @@ def main() -> int:
         child_normalized = args.output_dir / "child-normalized.tsv"
         generator_report = args.output_dir / "move-teacher-report.json"
         cache_report = args.output_dir / "move-teacher-cache-report.json"
+        cache_probe_report = args.output_dir / "move-teacher-cache-probe-report.json"
+        cache_final_probe_report = args.output_dir / "move-teacher-cache-final-probe-report.json"
+        missing_normalized = args.output_dir / "missing-move-teacher-roots-normalized.tsv"
+        missing_after_merge_normalized = args.output_dir / "missing-move-teacher-roots-after-merge-normalized.tsv"
+        missing_move_teacher = args.output_dir / "missing-move-teacher.tsv"
+        missing_child_normalized = args.output_dir / "missing-child-normalized.tsv"
+        missing_generator_report = args.output_dir / "missing-move-teacher-report.json"
+        cache_merge_report = args.output_dir / "move-teacher-cache-merge-report.json"
         dataset = args.output_dir / "child-pattern-dataset.tsv"
         dataset_report = args.output_dir / "child-pattern-dataset-report.json"
         weights_json = args.output_dir / "move-teacher-child-weights.json"
@@ -675,19 +913,93 @@ def main() -> int:
         campaign_summary = args.output_dir / "campaign-summary.md"
 
         generated_from_cache = False
+        partial_cache_miss_solved = False
         if args.reuse_move_teacher_cache:
             cache_status = run_cache_materialization_stage(args, move_teacher, child_normalized, generator_report, stages)
             if cache_status == "ok":
                 generated_from_cache = True
             elif args.allow_cache_miss_solve:
-                raise RuntimeError(
-                    "partial move-teacher cache miss solving is not implemented yet; "
-                    "populate the cache first or rerun without --reuse-move-teacher-cache"
+                stages["materialize_move_teacher_from_cache_initial"] = stages.pop(
+                    "materialize_move_teacher_from_cache"
                 )
+                initial_probe = run_cache_probe_stage(
+                    args,
+                    cache_probe_report,
+                    missing_normalized,
+                    stages,
+                    "probe_move_teacher_cache_before_missing_solve",
+                )
+                initial_cache = cache_section(initial_probe)
+                missing_count = cache_int(initial_cache, "root_misses")
+                if missing_count <= 0:
+                    raise RuntimeError("cache materialization reported a miss but probe found no missing roots")
+                generate_missing_move_teacher(
+                    args,
+                    missing_normalized,
+                    missing_count,
+                    missing_move_teacher,
+                    missing_child_normalized,
+                    missing_generator_report,
+                    stages,
+                )
+                populate_missing_move_teacher_cache(
+                    args,
+                    missing_normalized,
+                    missing_move_teacher,
+                    cache_merge_report,
+                    stages,
+                )
+                final_probe = run_cache_probe_stage(
+                    args,
+                    cache_final_probe_report,
+                    missing_after_merge_normalized,
+                    stages,
+                    "probe_move_teacher_cache_after_missing_merge",
+                )
+                final_probe_cache = cache_section(final_probe)
+                if cache_int(final_probe_cache, "root_misses") != 0:
+                    raise RuntimeError(
+                        "move-teacher cache still has "
+                        f"{cache_int(final_probe_cache, 'root_misses')} missing roots after merge; "
+                        "final complete materialization was not written"
+                    )
+                final_status = run_cache_materialization_stage(
+                    args,
+                    move_teacher,
+                    child_normalized,
+                    generator_report,
+                    stages,
+                    stage_name="materialize_move_teacher_from_cache",
+                )
+                if final_status != "ok":
+                    raise RuntimeError("move-teacher cache did not materialize as a full hit after missing merge")
+                augment_partial_cache_report(
+                    args,
+                    generator_report,
+                    initial_probe,
+                    missing_move_teacher,
+                    missing_generator_report,
+                    cache_merge_report,
+                    cache_final_probe_report,
+                    final_probe,
+                )
+                rewrite_cache_materialization_resume_metadata(args, move_teacher, child_normalized, generator_report)
+                generated_from_cache = True
+                partial_cache_miss_solved = True
             else:
+                probe = run_cache_probe_stage(
+                    args,
+                    cache_probe_report,
+                    missing_normalized,
+                    stages,
+                    "probe_move_teacher_cache_after_miss",
+                )
+                cache = cache_section(probe)
                 raise RuntimeError(
-                    "move-teacher cache miss; rerun with --write-move-teacher-cache on a solved campaign "
-                    "or remove --reuse-move-teacher-cache"
+                    "partial move-teacher cache hit is incomplete: "
+                    f"hits={cache_int(cache, 'root_hits')} misses={cache_int(cache, 'root_misses')}. "
+                    "Rerun with --allow-cache-miss-solve and --write-move-teacher-cache to solve only missing roots. "
+                    f"Resume command: {partial_cache_miss_resume_command(args)}"
                 )
         if not generated_from_cache:
             run_stage(
@@ -716,7 +1028,7 @@ def main() -> int:
                 stages,
                 resume_inputs={"normalized_tsv": args.normalized_tsv},
             )
-        if args.write_move_teacher_cache:
+        if args.write_move_teacher_cache and not generated_from_cache:
             populate_move_teacher_cache(args, move_teacher, cache_report, stages)
         build_dataset(args, child_normalized, dataset, dataset_report, stages)
         train(args, dataset, weights_json, trainer_report, stages)
@@ -808,7 +1120,14 @@ def main() -> int:
                 else None,
                 "arena_report": report_path(arena_report) if arena_report.exists() else None,
                 "move_teacher_cache_report": report_path(cache_report) if cache_report.exists() else None,
+                "move_teacher_cache_probe_report": report_path(cache_probe_report)
+                if cache_probe_report.exists()
+                else None,
+                "move_teacher_cache_merge_report": report_path(cache_merge_report)
+                if cache_merge_report.exists()
+                else None,
             },
+            "partial_cache_miss_solved": partial_cache_miss_solved,
             "warnings": [
                 "local-only diagnostic; generated labels, datasets, weights, artifacts, reports, and logs must not be committed",
                 "not a local-neighborhood optimizer sweep",

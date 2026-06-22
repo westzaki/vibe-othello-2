@@ -195,6 +195,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("move-teacher cache flags require --move-teacher-cache-dir")
     if args.allow_cache_miss_solve and not args.reuse_move_teacher_cache:
         parser.error("--allow-cache-miss-solve requires --reuse-move-teacher-cache")
+    if args.allow_cache_miss_solve and not args.write_move_teacher_cache:
+        parser.error("--allow-cache-miss-solve requires --write-move-teacher-cache")
     return args
 
 
@@ -1608,7 +1610,7 @@ def main() -> int:
                 "reuse": args.reuse_move_teacher_cache,
                 "write": args.write_move_teacher_cache,
                 "allow_cache_miss_solve": args.allow_cache_miss_solve,
-                "partial_miss_solve": "not_implemented",
+                "partial_miss_solve": "enabled" if args.allow_cache_miss_solve else "disabled",
             },
             "decision_leverage": {
                 "summary": decision_summary,
