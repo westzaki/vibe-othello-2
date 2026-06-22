@@ -51,7 +51,7 @@ The architecture flow is:
 local source records or generated positions
         |
         v
-sequence/transcript import
+source import or sequence/transcript replay
         |
         v
 normalized TSV schema v2
@@ -279,7 +279,7 @@ with binary weights and manifest metadata. Export must preserve the runtime
 loader contract: score unit, scale, phase count, pattern set id, weight checksum,
 binary format, and pattern table layout.
 
-Exporter and artifact publication boundaries are delegated to
+Exporter and committed artifact boundaries are delegated to
 `docs/architecture/evaluation-artifacts.md`. That document owns committed
 artifact layout, default pointer handling, promotion, rollback, provenance, and
 commit policy.
