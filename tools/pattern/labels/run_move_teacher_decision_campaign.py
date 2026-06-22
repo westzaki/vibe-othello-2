@@ -155,10 +155,12 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def run_or_fail(command: list[str], stdout_path: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    # Keep stdout capturable for dataset-producing stages, but stream stderr so
+    # long exact-teacher runs expose their progress messages in real time.
+    result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
     if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        sys.stderr.write(result.stdout)
+        if result.stdout:
+            sys.stderr.write(result.stdout)
         raise RuntimeError(f"command failed: {' '.join(command)}")
     if stdout_path is not None:
         stdout_path.write_text(result.stdout, encoding="utf-8")
