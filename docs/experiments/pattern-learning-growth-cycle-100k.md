@@ -44,129 +44,166 @@ Selection result:
 | train / validation / test roots | 79,742 / 9,909 / 10,349 |
 | phase 10 / 11 / 12 roots | 25,171 / 41,758 / 33,071 |
 
-## Status
+## Results
 
-The 100k selected source exists. The exact move-teacher cache now supports
-safe partial-miss solve and merge, but the full 100k partial-miss solve was
-not run in this PR. The fair 100k exact-root v2 baseline was not built, and no
-100k move-teacher growth-cycle attempt was started.
+The full connected 100k partial-miss move-teacher solve completed. The run
+reused the already cached 50k roots, solved the 50k missing roots, merged those
+roots into the local cache, re-probed to a full hit, and materialized complete
+100k `move-teacher.tsv` and `child-normalized.tsv` outputs from the original
+selected normalized TSV.
 
-Exact blocker:
+Generated TSVs, teacher labels, datasets, weights, artifacts, raw reports,
+logs, and cache entries remain local-only and are not committed.
 
-* a fair 100k comparison cannot reuse the 50k exact-root baseline
-* full connected 100k cache probe against the PR #168 scratch cache found
-  50,000 hits and 50,000 misses, so the next full move-teacher run should
-  reuse the solved 50k subset and solve only the missing 50k roots
-* a capped real validation selected 40 roots from this source, copied only the
-  20 cached-hit entries into a scratch cache, solved exactly the 20 missing
-  roots, merged them, re-probed to 40/40 hits, and materialized complete
-  `move-teacher.tsv` and `child-normalized.tsv`
-* capped validation metrics: 152 final move rows, 152 child-normalized rows,
-  377,529 exact nodes reused/saved, 467,555 exact nodes newly solved, 845,084
-  exact nodes materialized from cache after merge
-* exact-root labels were derived for the capped 40-root output, but the fair
-  full 100k exact-root v2 baseline was not built
+### Cache And Label Generation
 
-Do not claim 100k growth-cycle validation from the capped run. It validates the
-partial-miss cache path only.
+| Metric | Value |
+| --- | ---: |
+| initial cache hits / misses | 50,000 / 50,000 |
+| final cache hits / misses | 100,000 / 0 |
+| roots newly solved | 50,000 |
+| exact nodes reused / saved before solve | 1,591,232,496 |
+| exact nodes newly solved | 1,630,297,760 |
+| exact nodes materialized after merge | 3,221,530,256 |
+| missing-root exact solve wall time | 3,790.633 sec |
+| cache merge wall time | 20.123 sec |
+| final 100k cache materialization wall time | 48.759 sec |
+| final move rows / child-normalized rows | 390,802 / 390,802 |
+| move-teacher checksum | `sha256:5cc5910392dd87d026835879cc6e11254165cd1a5caefc19396b10762b767a16` |
+| child-normalized checksum | `sha256:0f9a1a3dedf922fdda70c1db926495080dcd5e620fd611494db5a049e57130d7` |
 
-## Resume Commands
+The exact-root labels were derived from the complete 100k move-teacher TSV with
+`--missing-policy fail`.
 
-Run the full 100k partial-miss move-teacher solve:
+| Metric | Value |
+| --- | ---: |
+| derived roots | 100,000 |
+| missing roots | 0 |
+| move-teacher rows consumed | 390,802 |
+| root score rule | `max(root_move_score_side_to_move)` |
+| teacher node aggregate | sum child `teacher_nodes` for each root |
+| derived label checksum | `sha256:1dd049f72772cc009230b2bbd5cbde83ac587de6e7b19c144de9b065bb5a9a5f` |
 
-```sh
-python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/selected-low-empty-normalized.tsv" \
-  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-v1/move-teacher-seed0" \
-  --max-empty 12 \
-  --max-roots 100000 \
-  --seed 0 \
-  --pattern-set pattern-v2-endgame-lite \
-  --move-teacher-cache-dir "$VIBE_OTHELLO_MOVE_TEACHER_CACHE" \
-  --reuse-move-teacher-cache \
-  --write-move-teacher-cache \
-  --allow-cache-miss-solve \
-  --resume
-```
+### Fair Exact-Root v2 Baseline
 
-Derive exact root labels from the complete move-teacher TSV:
+The fair exact-root v2 baseline uses the same selected 100k normalized input and
+the derived exact-root labels. The overlay used `--missing-policy fail`.
 
-```sh
-python3 tools/pattern/labels/derive_exact_root_labels_from_move_teacher.py \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/selected-low-empty-normalized.tsv" \
-  --move-teacher-tsv "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-v1/move-teacher-seed0/move-teacher.tsv" \
-  --teacher-labels-out "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-derived-teacher-labels.tsv" \
-  --report-out "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-derived-report.json" \
-  --missing-policy fail
-```
+| Metric | Value |
+| --- | ---: |
+| overlay matched / missing / dropped rows | 100,000 / 0 / 0 |
+| exact-root v2 normalized checksum | `sha256:26cf9c2f3023d426b27b6a6816db5b2e692447de3224e1305894b7b927baab72` |
+| dataset rows train / validation / test | 79,742 / 9,909 / 10,349 |
+| dataset checksum | `sha256:163130de008393d589c11ae04e39a786ac4cea86538f3de9cc970eed4de7b182` |
+| trainer mode / epochs | `pattern-sgd-v0c` / 8 |
+| validation MAE / test MAE | 6.18869251346 / 6.13597468098 |
+| weights JSON checksum | `sha256:5637f1e3f8620824439d62427a29196ccba740d4ae3455434c91d06a2b2e413a` |
+| exported weights checksum | `sha256:5c881edb9d72bcb05b97a1b7c739d86e51e7d89c308c3295d51df06a7ddb2c14` |
+| exported manifest checksum | `sha256:077023941a9d94dc9432b3c02212b2c68993eb47dd6edc5b8b2b2e53148b9308` |
 
-Overlay derived labels onto the exact selected rows:
+This is the fair same-source 100k exact-root v2 comparator. No 100k result in
+this note compares against a 50k exact-root baseline.
 
-```sh
-python3 tools/pattern/labels/apply_teacher_labels.py \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/selected-low-empty-normalized.tsv" \
-  --teacher-labels "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-derived-teacher-labels.tsv" \
-  --output "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-normalized.tsv" \
-  --report "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-overlay-report.json" \
-  --missing-policy drop
-```
+### Decision-Leverage Results
 
-Build, train, and export the fair exact-root v2 baseline:
+The connected 100k growth-cycle ran seeds 0, 1, and 2 against the fair
+exact-root v2 baseline. All three seeds reused the complete move-teacher cache
+with 100,000 hits, 0 misses, and 0 newly solved exact nodes.
 
-```sh
-./build/tools/pattern/dataset/vibe-othello-pattern-dataset-smoke \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-normalized.tsv" \
-  --report "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-dataset-report.json" \
-  --output-format compact-tsv \
-  --pattern-set pattern-v2-endgame-lite \
-  > "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-dataset.tsv"
+| Seed | Top1 Delta | Top2 Delta | Pairwise Delta | Mean Regret Delta | All-Same Roots Delta |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | +0.037640 | +0.024250 | +0.037097 | -0.479560 | -59 |
+| 1 | +0.037640 | +0.024500 | +0.037104 | -0.480370 | -69 |
+| 2 | +0.036030 | +0.023860 | +0.036797 | -0.476070 | -90 |
 
-python3 tools/pattern/train/train_v0a.py \
-  --dataset "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-dataset.tsv" \
-  --mode pattern-sgd-v0c \
-  --epochs 8 \
-  --learning-rate 0.1 \
-  --lr-schedule inverse-sqrt \
-  --weight-decay 0.0001 \
-  --weights-out "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-weights.json" \
-  --report-out "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-trainer-report.json" \
-  --seed 0
+Held-out validation/test support was positive for each repeated 100k seed:
 
-python3 tools/pattern/export/export_v0b.py \
-  --weights-json "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2-weights.json" \
-  --weights-out "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2.weights.bin" \
-  --manifest-out "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2.manifest.json" \
-  --pattern-set pattern-v2-endgame-lite
-```
+| Seed | Split | Top1 Delta | Top2 Delta | Pairwise Delta | Mean Regret Delta |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 0 | validation | +0.016752 | +0.018669 | +0.020849 | -0.270057 |
+| 0 | test | +0.026862 | +0.014784 | +0.021599 | -0.330467 |
+| 1 | validation | +0.018771 | +0.018972 | +0.021381 | -0.260672 |
+| 1 | test | +0.023867 | +0.014494 | +0.020740 | -0.319258 |
+| 2 | validation | +0.017459 | +0.018064 | +0.020596 | -0.272782 |
+| 2 | test | +0.025799 | +0.015268 | +0.021710 | -0.346314 |
 
-Run the first fair 100k growth-cycle attempt:
+### Arena Results
 
-```sh
-python3 tools/pattern/train/run_pattern_growth_cycle.py \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/selected-low-empty-normalized.tsv" \
-  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-v1" \
-  --pattern-set pattern-v2-endgame-lite \
-  --baseline-root-label-weights "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2.weights.bin" \
-  --baseline-root-label-manifest "$VIBE_OTHELLO_MEASUREMENTS/pattern-growth-cycle-100k-connected-source-v1/exact-root-v2.manifest.json" \
-  --baseline-root-label-pattern-set pattern-v2-endgame-lite \
-  --baseline-v1-weights "$VIBE_OTHELLO_MEASUREMENTS/pattern-signal-bottleneck-diagnostics/artifacts/v1-exact-teacher.weights.bin" \
-  --baseline-v1-manifest "$VIBE_OTHELLO_MEASUREMENTS/pattern-signal-bottleneck-diagnostics/artifacts/v1-exact-teacher.manifest.json" \
-  --root-counts 100000 \
-  --seeds 0 \
-  --arena-depths 3 \
-  --arena-seeds 0 \
-  --arena-max-positions 1000 \
-  --move-teacher-cache-dir "$VIBE_OTHELLO_MOVE_TEACHER_CACHE" \
-  --reuse-move-teacher-cache \
-  --write-move-teacher-cache \
-  --allow-cache-miss-solve \
-  --resume
-```
+All arena entries below are bounded local artifact comparisons over 1,000
+selected positions with side swap, for 2,000 games per row. Failed games were
+zero in every row.
+
+| Comparison | Depth | Training Seed | Arena Seed | Score Rate | Avg Disc Diff |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| same artifact sanity | 3 | 0 | 0 | 0.500000 | +0.0000 |
+| same artifact sanity | 3 | 0 | 10 | 0.500000 | +0.0000 |
+| same artifact sanity | 5 | 0 | 0 | 0.500000 | +0.0000 |
+| same artifact sanity | 3 | 1 | 0 | 0.500000 | +0.0000 |
+| same artifact sanity | 3 | 2 | 0 | 0.500000 | +0.0000 |
+| exact-root v2 vs v1 | 3 | n/a | 0 | 0.537750 | +2.2670 |
+| exact-root v2 vs v1 | 3 | n/a | 10 | 0.538750 | +2.1350 |
+| exact-root v2 vs v1 | 3 | n/a | 20 | 0.529500 | +2.2750 |
+| exact-root v2 vs v1 | 5 | n/a | 0 | 0.529250 | +1.5480 |
+| move-teacher v2 vs v1 | 3 | 0 | 0 | 0.543000 | +2.7020 |
+| move-teacher v2 vs v1 | 3 | 0 | 10 | 0.535750 | +2.3430 |
+| move-teacher v2 vs v1 | 3 | 0 | 20 | 0.533750 | +2.5270 |
+| move-teacher v2 vs v1 | 5 | 0 | 0 | 0.529250 | +1.6835 |
+| move-teacher v2 vs v1 | 3 | 1 | 0 | 0.541750 | +2.6105 |
+| move-teacher v2 vs v1 | 3 | 2 | 0 | 0.544000 | +2.7565 |
+| move-teacher v2 vs exact-root v2 | 3 | 0 | 0 | 0.509750 | +0.4475 |
+| move-teacher v2 vs exact-root v2 | 3 | 0 | 10 | 0.505750 | +0.4865 |
+| move-teacher v2 vs exact-root v2 | 3 | 0 | 20 | 0.507250 | +0.4415 |
+| move-teacher v2 vs exact-root v2 | 5 | 0 | 0 | 0.503250 | +0.1480 |
+| move-teacher v2 vs exact-root v2 | 3 | 1 | 0 | 0.507500 | +0.3925 |
+| move-teacher v2 vs exact-root v2 | 3 | 2 | 0 | 0.507000 | +0.4385 |
+
+### Scorecard
+
+Scorecard category: `promote_to_repeated_100k_validation_complete`.
+
+Rationale:
+
+* seed 0 passed the top1, pairwise, regret, held-out, arena, sanity, and failed-game gates
+* repeated 100k seeds 1 and 2 also improved top1, top2, pairwise, and regret
+* move-teacher v2 vs exact-root v2 was non-negative at depth 3 seeds 0/10/20,
+  depth 5 seed 0, and training seeds 1/2
+* move-teacher v2 vs v1 was supportive in every bounded arena run
+* same-artifact sanity passed in every bounded arena run
+* failed games were zero
+
+Important non-claims:
+
+* no Elo result
+* no self-play improvement claim
+* no production strength claim
+* no publication-readiness or artifact-publication-readiness claim
+
+### Runner Fix
+
+The optional seed 1 run exposed an arena resume-key collision in
+`candidate_baseline_swap_sanity`: the output directory key used only the
+candidate artifact name, so different training seeds collided against the seed
+0 swap sanity report. The runner now uses the `swap_of` run id when present,
+which keeps swap sanity resume metadata distinct across training seeds. A smoke
+check covers the key identity.
 
 ## Next Action
 
-Run the full connected 100k partial-miss move-teacher solve, derive the fair
-100k exact-root labels from the complete move-teacher TSV, build/export the
-100k exact-root v2 baseline, and then run 100k seed 0. Do not compare 100k
-move-teacher against the 50k exact-root baseline, and do not start pattern-v3,
-a pairwise trainer, or an LR/WD sweep before this fair 100k validation exists.
+The immediate repeated 100k validation target is complete. The next evidence
+step should be broader bounded arena/search-depth validation for the 100k
+move-teacher v2 and fair exact-root v2 artifacts, then decide whether the
+remaining gap to exact-root v2 is meaningful enough to justify a rank-objective
+experiment.
+
+Do not do the following next:
+
+* do not claim Elo, self-play improvement, production strength, publication
+  readiness, or artifact publication readiness
+* do not introduce pattern-v3 before broader bounded arena/search-depth
+  validation explains the current 100k result
+* do not add a pairwise rank trainer unless the broader validation shows
+  pairwise/regret or exact-root-v2 comparisons stalling
+* do not run an LR/WD sweep as the main next step
+
+No stages are incomplete. If local reports need to be regenerated, rerun the
+commands in the PR body with `--resume`; generated outputs remain local-only.

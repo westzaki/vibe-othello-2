@@ -215,6 +215,41 @@ def check_all_same_rank_need(module: Any) -> bool:
     return True
 
 
+def check_swap_sanity_variant_identity(module: Any) -> bool:
+    seed0 = {
+        "comparison": "candidate_baseline_swap_sanity",
+        "candidate": None,
+        "candidate_name": "pattern-v1-buro-lite",
+        "swap_of": "roots-100000-seed-0",
+        "depth": 3,
+        "arena_seed": 0,
+    }
+    seed1 = dict(seed0, swap_of="roots-100000-seed-1")
+    seed0_key = module.variant_key(
+        seed0["comparison"],
+        module.arena_variant_identity(seed0),
+        "depth",
+        seed0["depth"],
+        "arena-seed",
+        seed0["arena_seed"],
+    )
+    seed1_key = module.variant_key(
+        seed1["comparison"],
+        module.arena_variant_identity(seed1),
+        "depth",
+        seed1["depth"],
+        "arena-seed",
+        seed1["arena_seed"],
+    )
+    if seed0_key == seed1_key:
+        print(f"swap sanity keys should differ: {seed0_key}", file=sys.stderr)
+        return False
+    if "roots-100000-seed-0" not in seed0_key or "roots-100000-seed-1" not in seed1_key:
+        print(f"swap sanity keys should include swap_of run ids: {seed0_key} {seed1_key}", file=sys.stderr)
+        return False
+    return True
+
+
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -444,6 +479,7 @@ def main() -> int:
         check_single_seed_hold(module),
         check_negative_pairwise(module),
         check_all_same_rank_need(module),
+        check_swap_sanity_variant_identity(module),
     )
     if not all(checks):
         return 1

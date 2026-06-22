@@ -915,6 +915,13 @@ def variant_key(*parts: Any) -> str:
     return "".join(char if char.isalnum() or char in ("-", "_") else "-" for char in text)
 
 
+def arena_variant_identity(variant: dict[str, Any]) -> Any:
+    candidate = variant.get("candidate")
+    if isinstance(candidate, dict):
+        return candidate.get("run_id")
+    return variant.get("swap_of") or variant.get("candidate_name")
+
+
 def arena_variant_plan(args: argparse.Namespace, candidates: list[dict[str, Any]], decision: dict[str, Any]) -> list[dict[str, Any]]:
     if args.skip_arenas:
         return []
@@ -1112,6 +1119,7 @@ def arena_result_from_report(path: Path, variant: dict[str, Any], status: str) -
         "status": status,
         "comparison": variant.get("comparison"),
         "run_id": candidate.get("run_id") if isinstance(candidate, dict) else None,
+        "swap_of": variant.get("swap_of"),
         "root_count": candidate.get("root_count") if isinstance(candidate, dict) else None,
         "training_seed": candidate.get("seed") if isinstance(candidate, dict) else None,
         "depth": variant.get("depth"),
@@ -1167,7 +1175,7 @@ def run_arena_matrix(
             candidate = variant.get("candidate")
             key = variant_key(
                 variant.get("comparison"),
-                candidate.get("run_id") if isinstance(candidate, dict) else variant.get("candidate_name"),
+                arena_variant_identity(variant),
                 "depth",
                 variant.get("depth"),
                 "arena-seed",
@@ -1192,7 +1200,7 @@ def run_arena_matrix(
         candidate = variant.get("candidate")
         key = variant_key(
             variant.get("comparison"),
-            candidate.get("run_id") if isinstance(candidate, dict) else variant.get("candidate_name"),
+            arena_variant_identity(variant),
             "depth",
             variant.get("depth"),
             "arena-seed",
@@ -1252,17 +1260,16 @@ def run_arena_matrix(
         completed_keys = {
             (
                 result.get("comparison"),
-                result.get("run_id"),
+                result.get("run_id") or result.get("swap_of"),
                 result.get("depth"),
                 result.get("arena_seed"),
             )
             for result in results
         }
         for variant in variants:
-            candidate = variant.get("candidate")
             key_tuple = (
                 variant.get("comparison"),
-                candidate.get("run_id") if isinstance(candidate, dict) else None,
+                arena_variant_identity(variant),
                 variant.get("depth"),
                 variant.get("arena_seed"),
             )
