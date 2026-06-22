@@ -131,6 +131,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-arenas", action="store_true")
     parser.add_argument("--created-at-utc")
+    parser.add_argument("--move-teacher-cache-dir", type=Path)
+    parser.add_argument("--reuse-move-teacher-cache", action="store_true")
+    parser.add_argument("--write-move-teacher-cache", action="store_true")
+    parser.add_argument("--allow-cache-miss-solve", action="store_true")
 
     parser.add_argument("--baseline-root-label-weights", type=Path)
     parser.add_argument("--baseline-root-label-manifest", type=Path)
@@ -168,6 +172,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "build/tools/arena/vibe-othello-pattern-artifact-arena",
     )
+    parser.add_argument(
+        "--move-teacher-cache-helper",
+        type=Path,
+        default=root / "tools/pattern/labels/materialize_move_teacher_from_cache.py",
+    )
     args = parser.parse_args()
 
     if args.max_empty < 0 or args.max_empty > 64:
@@ -180,6 +189,12 @@ def parse_args() -> argparse.Namespace:
         parser.error("--learning-rate must be non-negative")
     if args.weight_decay < 0.0:
         parser.error("--weight-decay must be non-negative")
+    if (args.reuse_move_teacher_cache or args.write_move_teacher_cache or args.allow_cache_miss_solve) and (
+        args.move_teacher_cache_dir is None
+    ):
+        parser.error("move-teacher cache flags require --move-teacher-cache-dir")
+    if args.allow_cache_miss_solve and not args.reuse_move_teacher_cache:
+        parser.error("--allow-cache-miss-solve requires --reuse-move-teacher-cache")
     return args
 
 
@@ -408,6 +423,16 @@ def preflight(args: argparse.Namespace, cache: dict[Path, str]) -> tuple[dict[st
                         "template": build_tool_template(),
                     }
                 )
+        if (args.reuse_move_teacher_cache or args.write_move_teacher_cache) and missing_file(
+            args.move_teacher_cache_helper
+        ):
+            missing.append(
+                {
+                    "input": "move-teacher cache helper",
+                    "path": sanitize_path(args.move_teacher_cache_helper, "repo-tool"),
+                    "template": "use the checked-in tools/pattern/labels/materialize_move_teacher_from_cache.py",
+                }
+            )
         if missing_file(args.baseline_root_label_weights) or missing_file(args.baseline_root_label_manifest):
             missing.append(
                 {
@@ -546,6 +571,21 @@ def matrix_command(args: argparse.Namespace, matrix_dir: Path, root_counts: list
         "--ranking-evaluator",
         str(args.ranking_evaluator),
     ]
+    if args.move_teacher_cache_dir is not None:
+        command.extend(
+            [
+                "--move-teacher-cache-dir",
+                str(args.move_teacher_cache_dir),
+                "--move-teacher-cache-helper",
+                str(args.move_teacher_cache_helper),
+            ]
+        )
+    if args.reuse_move_teacher_cache:
+        command.append("--reuse-move-teacher-cache")
+    if args.write_move_teacher_cache:
+        command.append("--write-move-teacher-cache")
+    if args.allow_cache_miss_solve:
+        command.append("--allow-cache-miss-solve")
     if args.resume:
         command.append("--resume")
     if args.keep_going:
@@ -1562,6 +1602,14 @@ def main() -> int:
                 },
             },
             "baseline_inventory": inventory,
+            "move_teacher_cache": {
+                "enabled": args.move_teacher_cache_dir is not None,
+                "cache_dir": sanitize_path(args.move_teacher_cache_dir, "move-teacher-cache"),
+                "reuse": args.reuse_move_teacher_cache,
+                "write": args.write_move_teacher_cache,
+                "allow_cache_miss_solve": args.allow_cache_miss_solve,
+                "partial_miss_solve": "not_implemented",
+            },
             "decision_leverage": {
                 "summary": decision_summary,
                 "matrix_report": matrix_report,

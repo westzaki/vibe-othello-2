@@ -22,6 +22,7 @@ Read only the document needed for the current task.
 | Pattern signal bottleneck diagnostics | `experiments/pattern-signal-bottleneck-diagnostics.md` |
 | Pattern move-teacher decision leverage diagnostic | `experiments/pattern-move-teacher-decision-leverage.md` |
 | Pattern move-teacher decision leverage scale matrix | `experiments/pattern-move-teacher-decision-leverage-scale.md` |
+| Pattern move-teacher exact label cache | `experiments/pattern-move-teacher-cache.md` |
 | Pattern learning growth cycle local run | `experiments/pattern-learning-growth-cycle.md` |
 | Pattern learning growth cycle 50k local run | `experiments/pattern-learning-growth-cycle-50k.md` |
 | Pattern learning growth cycle 50k repeat and connected split check | `experiments/pattern-learning-growth-cycle-50k-repeat.md` |
