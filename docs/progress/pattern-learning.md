@@ -1,785 +1,160 @@
 # Pattern Learning Progress
 
-## Purpose
+This document is the short current-status entry point for pattern learning.
 
-This document tracks current implementation status for pattern learning.
+Intended design and stable contracts live in architecture and data-policy docs.
+Detailed experiment notes live in `docs/experiments/README.md` and the archive
+documents linked from it.
 
-The intended design lives in `docs/architecture/pattern-learning.md`.
+## Current State
 
-Runtime evaluation implementation status lives in
-`docs/progress/evaluation.md`.
+`pattern-v2-endgame-lite-100k-mt-v0` is the committed learned evaluation
+artifact v0 and is the current experimental default.
 
-This file may change frequently as implementation progresses.
+The default pointer is `data/eval/default-artifact.json`, with status
+`experimental-default`, resolving to:
 
-## Design Sources
-
-Relevant design documents:
-
-* `docs/architecture/pattern-learning.md`
-* `docs/architecture/evaluation.md`
-* `docs/architecture/search.md`
-* `docs/architecture/board-core.md`
-
-## Current Foundation
-
-The current repository has stable board-core semantics and search/endgame
-surfaces that future pattern-learning tools can build on.
-
-Existing foundations include:
-
-* board-core position, move, serialization, and hashing APIs
-* search-facing `Evaluator` interface
-* exact endgame search for small positions
-* deterministic search and endgame golden-check tooling
-* benchmark infrastructure for board core, search, and endgame
-* runtime-owned fixed pattern schema fixture with validation coverage
-* repository data policy READMEs for corpus manifests and evaluation artifacts
-* dataset manifest JSON schema with a tiny synthetic sample
-* CTest-backed dataset manifest smoke validation
-* CTest-backed board-core replay smoke validation for tiny synthetic TSV records
-* CTest-backed pattern dataset builder smoke over accepted tiny synthetic TSV
-  records using deterministic split ids, runtime pattern feature indices, and
-  final-disc-difference labels; raw ternary indices remain the default, with
-  opt-in canonical ternary index output for smoke comparison; expanded
-  one-feature-row-per-occurrence TSV remains the default, and explicit
-  `--output-format compact-tsv` emits one row per normalized example with
-  deterministic `pattern_id:instance:ternary_index` feature lists
-* CTest-backed pattern feature extraction smoke over accepted tiny synthetic TSV
-  records using runtime tiny pattern geometry and ternary encoding; raw ternary
-  indices remain the default, with opt-in canonical ternary index output
-* runtime-owned `pattern-v1-buro-lite` production-ish pattern schema and
-  feature geometry with raw `edge-8`, `near-edge-8`, `diagonal-8`,
-  `diagonal-7`, `corner-2x5`, and `corner-3x3` tables, 26 total feature
-  instances, and no learned weights committed
-* runtime-owned `pattern-v2-endgame-lite` local research pattern schema and
-  feature geometry that preserves the `pattern-v1-buro-lite` order, appends
-  bounded raw `corner-2x4-8`, `edge-plus-x-10`, `corner-wing-8`,
-  `near-edge-segment-8`, and `diagonal-corner-8` families, has 58 total
-  feature instances, and keeps the largest table at `3^10`
-* `tools/pattern/common` now keeps production-safe helpers separate from
-  smoke-only fixture helpers: dataset and feature smoke tools share the same
-  raw/canonical index policy and feature-set validation through production-safe
-  targets, while tiny phase mapping and fixture pattern-set selection live in a
-  smoke-only helper target
-* runtime-owned opt-in pattern symmetry canonicalization primitives that future
-  feature extraction, training, and export steps can share
-* a symmetry-aware tiny pattern-set fixture used only by canonical smoke tooling
-  today (`edge-8` uses `reverse`, `corner-3x3` uses `square_d4`)
-* CTest-backed tiny deterministic pattern trainer smoke that consumes the
-  pattern dataset TSV, fits a train-split-only phase-bias baseline, and fixes
-  summary counts, a representative learned value, and checksum
-* `tools/pattern/train/train_v0a.py` consumes pattern rows TSV from the dataset
-  builder, groups emitted feature rows into `record_id` examples, rejects
-  examples with inconsistent `ply`, split, label, or phase metadata, learns only
-  13-phase train-split example label means, writes `phase,bias` weights TSV, and
-  reports example-level train/validation/test plus phase-level MAE, RMSE, and
-  sign accuracy; it detects compact example-row TSV by header and preserves the
-  same feature occurrence semantics as expanded input
-* `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0b` adds the first
-  example-level pattern weight learning path on top of the same grouped
-  examples: it initializes fixed per-phase train label means, learns
-  `phase + pattern_id + ternary_index` weights with deterministic train-only
-  SGD, writes local intermediate JSON weights, and reports baseline vs final
-  split, phase, and epoch metrics with deterministic checksums; `instance` is
-  validated and duplicate occurrences are reported, while learned weight keys
-  continue to ignore `instance`
-* `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0c` adds an explicitly
-  versioned local research trainer mode that preserves the same runtime score
-  shape and v0b-compatible intermediate weights while improving diagnostics and
-  optimizer controls. v0c learns phase bias from train examples only, keeps
-  phase bias fixed during pattern SGD, learns residual pattern weights with
-  deterministic feature-occurrence updates, supports constant or inverse-sqrt
-  learning-rate schedules, optional per-feature gradient clipping, pattern-only
-  weight decay, and validation-MAE early stopping, and reports split,
-  split-by-phase, residual, epoch, and weight diagnostics. The report is a
-  fitting diagnostic only, not a production trainer, match bench, Elo,
-  self-play result, or strength claim.
-* `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0d` adds a local
-  research trainer mode for phase-balanced residual SGD on top of v0c
-  semantics. v0d keeps fixed train-only phase bias, residual pattern weights,
-  deterministic feature-occurrence updates, v0b-compatible intermediate
-  weights, compact/expanded dataset input support, and v0c split diagnostics,
-  then weights each train example by a deterministic phase-balance schedule
-  (`none`, `inverse-count`, or `sqrt-inverse-count`) with configurable floor
-  and cap. Reported train/validation/test metrics remain unweighted for
-  comparison, while phase weights, train phase counts, and weighted train
-  residual MAE are diagnostic fields only. v0d is not a strength claim, Elo
-  result, match bench, self-play result, production artifact, or publication
-  gate.
-* CTest-backed Egaroucid importer -> dataset builder -> trainer v0a smoke checks
-  deterministic report/weights output, train-only bias fitting, held-out
-  validation/test metrics, invalid-row rejection counts, malformed example
-  rejection, and duplicate feature row reporting
-* CTest-backed Egaroucid importer -> dataset builder -> trainer v0b smoke checks
-  deterministic report/weights output, train-only pattern fitting, held-out
-  validation/test metrics, invalid-row rejection counts, malformed example
-  rejection, duplicate feature row reporting, and no train-metric regression
-  versus the v0a phase-bias baseline on the tiny fixture
-* `tools/pattern/export/export_v0b.py` accepts trainer v0b local intermediate
-  JSON weights, validates schema/trainer versions, 13 phase biases, selected
-  pattern-set ids, phase ids, ternary index bounds, and numeric weights, then
-  writes a runtime-loader-compatible local smoke artifact; the default remains
-  the tiny fixture set, while `--pattern-set pattern-v1-buro-lite` and
-  `--pattern-set pattern-v2-endgame-lite` write wider local artifact layouts
-* CTest-backed tiny artifact exporter smoke that converts the deterministic
-  trainer summary into a runtime-loader-compatible artifact with phase bias
-  slots and zero-filled tiny fixture pattern tables
-* CTest-backed runtime loader compatibility smoke that loads the tiny exported
-  artifact, converts it to `PatternWeights`, constructs `PatternEvaluator`, and
-  fixes a representative deterministic score
-* CTest-backed tiny Egaroucid importer -> dataset builder -> trainer v0b ->
-  exporter -> runtime loader -> `PatternEvaluator` smoke that confirms v0b
-  learned weights can now be exported and loaded by runtime smoke, keeps all
-  generated datasets and artifacts in temporary directories, compares against
-  the v0a phase-bias smoke artifact, and checks deterministic exporter/loader
-  round-trip checksums
-* CTest-backed fixed-position evaluation smoke that generates both the v0a
-  phase-bias artifact and the v0b pattern-SGD artifact from the checked-in tiny
-  Egaroucid fixture, loads both with the runtime loader, evaluates a
-  deterministic fixed position set, emits a checksum-stable JSON report, and
-  confirms learned v0b scores can differ from the v0a baseline
-* CTest-backed fixed-position search smoke that generates the same temp-only
-  v0a/v0b learned artifacts, loads them through `PatternEvaluator`, runs the
-  same explicitly configured depth-1 fixed-depth smoke settings for both
-  evaluators, and reports deterministic best move, score, and node rows
-* local-only Egaroucid board-score corpus manifest for
-  `Egaroucid_Train_Data.zip`, plus a streaming importer smoke that accepts raw
-  zip files, extracted text files, and extracted directories without committing
-  the payload; train/validation/test split ids are derived from
-  `dataset_id + board`, while `record_id` is distinct from `position_id` so
-  multiple labels for the same position stay in the same split
-* local-only Egaroucid v0002 sequence/transcript importer at
-  `tools/data-import/import_egaroucid_sequences.py` that accepts local files,
-  directories containing `.txt` files and/or `.zip` archives, and zip archives,
-  replays Othello transcripts with legal move
-  validation plus explicit or implicit pass handling, emits normalized TSV
-  schema v2 with explicit `game_group_id`, `board_id`, and
-  `source_occurrence_id`, and writes an import report with identity policy,
-  game, duplicate occurrence, exact-board leakage, reject, pass, terminal,
-  split, phase, label, checksum, streaming-target / bounded-dev sampling
-  frames, and provenance
-  notes; checked-in coverage uses only a synthetic transcript fixture, not raw
-  Egaroucid data. Direct raw zip full-scan import remains the accurate
-  full-corpus top-k path, but it can be slow for local iteration because every
-  selected transcript must be replayed. The `streaming-target` sampling mode
-  fingerprints candidate sources, deterministically walks content-addressed
-  source order until the requested retained position target is reached, reports
-  progress, keeps traversal independent of local paths and zip member names,
-  and bounds replay cost by target size; it is not a full-corpus exact top-k
-  sample. The opt-in
-  `bounded-dev` sampling mode deterministically bounds files and games before
-  replay, reports progress and sampling-frame fields, and is only for
-  repeatable local measurement loops, not full-corpus exact sampling or a
-  production strength claim.
-* CTest-backed Egaroucid importer -> pattern dataset builder smoke that feeds
-  the normalized TSV into `tools/pattern/dataset`, validates board/count/label
-  columns, preserves importer-provided `position_id` and `split`, keeps same
-  position rows in one split, emits `ply` as `occupied_count - 4`, and retains
-  exact duplicate records in input order
-* local-only Egaroucid subset training runner at
-  `tools/pattern/train/run_egaroucid_local_training.py` that runs importer or
-  normalized TSV input through deterministic position-id subset sampling,
-  dataset building, configurable trainer v0b/v0c/v0d, v0b-compatible export,
-  optional v0a baseline export,
-  fixed-position evaluation smoke, fixed-position search smoke, and a local
-  training run report JSON; it also supports sequence/transcript input through
-  the local sequence importer, can bound sequence import/conversion itself with
-  ply, max-position, file/game cap, sample-rate, hash file ordering, and
-  progress controls before the normalized TSV is materialized, can cap
-  evaluation/search smoke input rows independently from the training sample
-  for large local measurements, and can fail local measurement early with
-  `--strict-board-disjoint-splits` when schema v2 exact boards appear across
-  train/validation/test splits. The sequence-input path can also use an
-  opt-in local-only content-addressed replay cache keyed by canonical source
-  content bytes (including zip member text bytes, independent of local paths or
-  zip member names), manifest bytes, importer identity, schema/policy versions,
-  dataset id, and semantic importer options; cache hits, misses, invalidations,
-  source fingerprints, file sizes, and per-stage wall/CPU/RSS telemetry are
-  recorded in the local run report. For sequence-derived normalized schema v2
-  measurements, `--measurement-split-policy connected-board-game` can rewrite
-  only the sampled `split` column into `resplit-normalized.tsv` before dataset
-  generation. This groups rows by connected components over `game_group_id`
-  and side-to-move-relative `board_id`, assigns each component with a
-  deterministic 80/10/10 hash of dataset id, policy version, and component
-  representative, and records before/after board and game leakage audits. The
-  policy is recommended for honest local validation/test diagnostics on
-  sequence-derived data, but it is not a strength, Elo, match bench, self-play,
-  production artifact, or noisy-label quality claim.
-* CTest-backed local training runner smoke that uses only the checked-in tiny
-  Egaroucid fixture, checks deterministic report output, verifies sample split
-  and phase counts, confirms trainer/export checksums are present, and keeps
-  generated files under the test temporary directory; additional smokes cover
-  the same local runner path with `pattern-v1-buro-lite`,
-  `pattern-v2-endgame-lite`, compact v0c, and compact v0d
-* local training run analyzer at
-  `tools/pattern/train/analyze_local_training_runs.py` that compares one or
-  more `local-training-run-report.json` files, emits stable JSON and optional
-  Markdown summaries, validates the runner report shape, extracts available
-  v0b/v0c/v0d trainer metrics, surfaces v0c/v0d best/final validation MAE,
-  test MAE, weight diagnostics, optional v0d phase-balance diagnostics,
-  optional measurement split policy and after-resplit board/game collision
-  counts, optional sequence cache status, and stage
-  telemetry, and records warning-only review flags for small, incomplete,
-  mixed cache-hit/cache-miss, mixed trainer-mode, mixed expanded/compact
-  dataset, preserve-policy exact-board leakage, connected-policy residual
-  board/game leakage, and suspicious split-by-phase local measurements
-* local-only pattern measurement suite runner at
-  `tools/pattern/train/run_pattern_measurement_suite.py` that orchestrates
-  repeatable sequence-derived smoke, 10k, 100k, and 1M preset runs through the
-  local sequence cache, compact dataset output, `pattern-v1-buro-lite`, trainer
-  v0c/v0d diagnostics, scalable real-preset final-epoch diagnostics, trainer
-  progress stderr, per-run stdout/stderr logs, resume/skip handling, optional
-  measurement split policy pass-through, suite JSON and Markdown reports, and
-  analyzer comparison outputs without committing any
-  generated corpora, datasets, caches, weights, artifacts, or summaries
-* local-only v0c/v0d trainer sweep runner at
-  `tools/pattern/train/run_pattern_trainer_sweep.py` that runs multiple
-  optimizer configurations against one fixed pattern dataset TSV without
-  rerunning sequence import, resplitting, dataset generation, export, or smoke
-  checks for every optimizer setting. The built-in `v0c-100k-core` preset is a
-  deterministic local diagnostic sweep over existing v0c options, writes JSON
-  and Markdown summaries plus per-config trainer reports, weights, and logs,
-  supports dry-run/resume/keep-going iteration, can inherit dataset provenance
-  from a local training run report, and selects the best config by validation
-  MAE only. The `v0d-100k-phase-core` preset compares a small set of
-  phase-balanced residual-SGD configurations. Test MAE is reported and used
-  only as a tie-breaker; the sweep is not a strength claim, Elo result, match
-  bench, self-play result, production artifact, publication gate, or
-  generated-output publication flow.
-* local-only teacher label overlay tool at
-  `tools/pattern/labels/apply_teacher_labels.py` that accepts normalized schema
-  v2 TSV rows plus a teacher label TSV keyed by `board_id`, validates teacher
-  label schema and value ranges, de-duplicates identical teacher rows, rejects
-  conflicts, applies configurable missing-label policy (`fail`,
-  `keep-observed`, or `drop`), preserves non-label normalized fields and input
-  order, writes a teacher-overlaid normalized TSV, and emits coverage, label
-  kind, split, phase, teacher source, depth/node, checksum, and local-only
-  report diagnostics. The overlay is not a strength claim, Elo result, match
-  bench, self-play result, production artifact, or generated-output
-  publication flow.
-* the first committed learned evaluation artifact,
-  `pattern-v2-endgame-lite-100k-mt-v0`, selected from the fair connected 100k
-  move-teacher validation and broader bounded arena validation. The committed
-  payload includes only the final runtime weights, runtime manifest,
-  provenance, README, NOTICE, and default pointer. Raw transcripts, normalized
-  corpora, selected TSVs, teacher labels, move-teacher cache files, reports,
-  logs, and generated intermediates remain local-only.
-* `tools/pattern/train/run_egaroucid_local_training.py` can now apply teacher
-  labels after sampling and measurement split policy but before pattern dataset
-  generation, so the dataset builder consumes the exact overlaid normalized
-  rows selected for a run. Local reports surface teacher label enablement,
-  policies, report checksum, label kind counts after overlay, source counts,
-  fallback/drop coverage, and a warning note when teacher labels are combined
-  with preserve split while exact-board leakage remains.
-* `tools/pattern/train/run_pattern_measurement_suite.py` passes optional
-  teacher label arguments through to local runs without changing suite
-  defaults or generating labels itself.
-* `tools/pattern/train/analyze_local_training_runs.py` remains backward
-  compatible with older reports and surfaces teacher label diagnostics when
-  present, including warnings for observed fallback and teacher-label runs that
-  do not use `connected-board-game`.
-* CTest-backed local training analyzer smoke that uses temp-only synthetic
-  report fixtures, checks deterministic JSON and Markdown output, fixes the
-  expected warning list, and keeps Egaroucid-derived generated reports out of
-  the repository
-* local-only exact endgame teacher label generator at
-  `tools/pattern/labels/generate_exact_endgame_teacher_labels.cc` that reads
-  normalized schema v2 TSV rows, rejects schema v1, filters to
-  `empty_count <= --max-empty`, de-duplicates by `board_id`, optionally caps
-  candidates with deterministic `board_id` hash sampling, solves with the
-  public exact endgame API, emits teacher label TSV rows in sorted `board_id`
-  order, and writes local-only report diagnostics with solve counts, depth,
-  node, score, checksum, timing, and no-strength-claim notes
-* local-only late-phase exact teacher campaign helper at
-  `tools/pattern/labels/run_exact_teacher_late_phase_campaign.py` that selects
-  low-empty normalized schema v2 rows, generates exact labels, overlays them
-  with drop policy, builds observed-label and exact-teacher pattern datasets,
-  trains a bounded v0c/v0d fitting diagnostic, and compares by validation MAE
-  first while treating test MAE as reporting/tie-break only
-* CTest-backed exact teacher label generator smoke that uses only synthetic
-  low-empty fixtures, checks exact teacher label schema/report behavior,
-  max-empty filtering, deterministic max-position sampling, duplicate
-  `board_id` handling, schema/malformed-row failures, overlay compatibility,
-  `pattern-v2-endgame-lite` compact pattern dataset generation, and a v0c
-  trainer integration path
-* local-only exact move-teacher dataset generator at
-  `tools/pattern/labels/generate_exact_move_teacher_dataset.cc` that reads
-  normalized schema v2 low-empty root rows, rejects schema v1, de-duplicates by
-  `board_id`, optionally caps roots by deterministic `board_id` hash and seed,
-  enumerates legal normal moves plus forced pass moves, skips and counts
-  terminal roots, exact-solves each child with the public endgame API, emits a
-  move-teacher TSV, emits child-normalized schema v2 rows labeled
-  `teacher_exact_move_child_final_disc_diff`, and records local-only report
-  diagnostics without committing generated labels or artifacts
-* local-only move-teacher ranking evaluator at
-  `tools/pattern/labels/evaluate_move_teacher_ranking.cc` that loads one
-  exported pattern artifact once, evaluates each legal child board, converts
-  child side-to-move scores to predicted root move scores with `-eval(child)`,
-  and reports top-1 accuracy, tie-aware top-1, exact best in top 2, pairwise
-  accuracy, root regret, exact-best predicted rank, all-same predicted roots,
-  score range, and breakdowns by empty count, phase, and split
-* local-only move-teacher decision campaign helper at
-  `tools/pattern/labels/run_move_teacher_decision_campaign.py` that orchestrates
-  exact move-teacher generation, child pattern dataset building, v0c/v0d
-  child-value training, v0b-compatible export, ranking evaluation for the new
-  artifact and an optional previous/root-label artifact, and an optional
-  bounded late-game artifact arena when a baseline artifact is supplied. Its
-  `--resume` path validates per-stage command, input checksum, and output
-  checksum metadata before skipping, so stale campaign artifacts are not mixed
-  into a new report
-* local-only exact move-teacher cache materializer at
-  `tools/pattern/labels/materialize_move_teacher_from_cache.py` that stores
-  split-independent solved root move payloads, probes hit/miss coverage,
-  writes missing-root normalized TSVs for opt-in partial solves, validates
-  cache schema/semantic metadata plus root board identity, and materializes
-  complete `move-teacher.tsv` and `child-normalized.tsv` outputs from cache
-  using the current normalized TSV row order and split metadata
-* local-only exact root derivation helper at
-  `tools/pattern/labels/derive_exact_root_labels_from_move_teacher.py` that
-  turns a complete move-teacher TSV into `apply_teacher_labels.py`-compatible
-  exact root teacher labels using `max(root_move_score_side_to_move)`, with
-  missing-root and duplicate root/move validation
-* local-only move-teacher campaign matrix helper at
-  `tools/pattern/labels/run_move_teacher_campaign_matrix.py` that runs the
-  existing decision campaign helper over bounded root-count and seed matrices,
-  preserves the campaign helper's stage-level resume validation, writes
-  local-only `matrix-report.json` and `matrix-summary.md`, and aggregates
-  full-set, held-out validation+test, and bounded arena direction metrics
-  without duplicating campaign generation, training, export, ranking, or arena
-  logic
-* local-only pattern-learning growth-cycle runner at
-  `tools/pattern/train/run_pattern_growth_cycle.py` that preflights normalized
-  low-empty inputs and baseline artifacts, downgrades requested root counts
-  when the input has fewer eligible roots, runs or reuses the move-teacher
-  campaign matrix, schedules bounded artifact arenas for the strongest local
-  candidates against v1 and exact-root v2 baselines, checks same-artifact and
-  swap sanity, emits `growth-cycle-report.json` plus
-  `growth-cycle-summary.md`, and produces a promotion scorecard with an
-  evidence-backed next action. The runner is local-only orchestration; it does
-  not commit generated labels, datasets, weights, artifacts, raw logs, or raw
-  local reports, and it is not Elo, not self-play, not production strength, and
-  not a publication gate.
-* CTest-backed move-teacher decision smoke that uses only synthetic fixtures to
-  check move-teacher TSV and child-normalized schemas, sign convention,
-  pass handling, duplicate root handling, deterministic capped sampling,
-  schema-v1 rejection, child-label dataset builder compatibility, v0c trainer
-  and v0b export integration, ranking evaluator sign behavior with a synthetic
-  nonzero artifact, campaign resume safety, and matrix helper aggregation plus
-  resume pass-through
-* persistent local pattern artifact arena at
-  `tools/arena/pattern_artifact_arena.cc` that compares two exported local
-  artifacts over normalized schema v2 late-game positions, loads both artifacts
-  once, reuses both `PatternEvaluator` instances across deterministic games,
-  supports `board_id` de-duplication, max-empty filtering, deterministic
-  bounded sampling, side-swapped pairings, progress logging, JSON/Markdown
-  reports, and synthetic CTest smoke coverage without committing generated
-  artifacts, logs, reports, or corpus payloads
-* optional pattern signal bottleneck diagnostics in the persistent artifact
-  arena that report selected-position static score deltas, fixed-depth root
-  best-move disagreements, search score deltas, exact low-empty adjudication for
-  capped disagreements, depth-sweep arena aggregates, candidate/baseline swap
-  sanity inputs, side-assignment buckets, manifest/runtime pattern-set checks,
-  normalized phase and side-to-move label sanity, and feature activation counts
-  by family so `pattern-v2-endgame-lite` additions can be checked for actual
-  late-game activation before changing trainer knobs or adding more patterns
-
-A bounded local 5,000-board low-empty exact-teacher diagnostic on the connected
-100k sequence-derived corpus showed `pattern-v2-endgame-lite` improving fitting
-metrics versus `pattern-v1-buro-lite`, but exact teacher labels did not produce
-a meaningful validation-MAE jump within v2. A separate persistent local
-artifact-vs-artifact arena is now available to check whether that fitting signal
-survives deterministic late-game play diagnostics. Details on the exact-teacher
-fitting diagnostic live in
-`docs/experiments/pattern-sequence-v0002-endgame-lite-exact-teacher.md`.
-
-PR #161's bottleneck diagnostics showed that better static value fitting and
-active v2-added features did not reliably change root best moves. The
-move-teacher pipeline addresses that by measuring and training on
-root-position legal move decisions: exact child labels give the existing value
-trainer a decision-relevant after-move distribution, and the ranking evaluator
-reports whether artifacts actually rank exact-better legal moves higher. If
-move-teacher child-value training improves MAE but does not improve top-1,
-pairwise accuracy, or regret, the next likely bottleneck is the linear
-pattern-evaluator score shape or a need for a localized pairwise rank trainer,
-not another small learning-rate, weight-decay, or pattern-family tweak.
-
-A local 5,000-root move-teacher decision campaign on the connected 100k
-low-empty selection showed a positive decision-leverage signal for
-`pattern-v2-endgame-lite` child-label training versus the same-root exact
-root-label artifact. On the full selected set, top1, tie-aware top1,
-best-in-top2, pairwise accuracy, mean regret, and exact-best predicted rank all
-improved; on validation+test, pairwise accuracy, top2, mean regret, and
-exact-best predicted rank improved, while tie-aware top1 dipped slightly. The
-optional bounded side-swapped arena against the existing v1 exact-teacher
-artifact was non-negative but remains a local diagnostic only. Details live in
-`docs/experiments/pattern-move-teacher-decision-leverage.md`. This is not Elo,
-not self-play, not a production strength claim, not a publication gate, and no
-generated labels, datasets, weights, artifacts, logs, or reports are committed.
-
-A follow-up local matrix repeated the move-teacher child-label campaign over
-5,000, 10,000, and 20,000 selected roots with deterministic seeds 0, 1, and 2.
-All nine runs improved full-set top1, tie-aware top1, best-in-top2, pairwise
-accuracy, mean regret, exact-best predicted rank, and all-same predicted-score
-roots versus the previous exact root-label v2 artifact. Held-out
-validation+test pairwise, top2, and mean regret supported the full-set
-direction on all nine runs; 5,000-root held-out tie-aware top1 remained mixed,
-while 10,000-root and 20,000-root held-out tie-aware top1 were positive. The
-bounded side-swapped arena score rate was non-negative on all nine matrix
-arenas. The 20,000-root depth-3 arena intervals were above 0.5, while the
-additional depth-5 20,000-root arena intervals still included 0.5. The current
-input contained enough selected roots for 20,000-root runs but not 50,000-root
-runs. Details live in
-`docs/experiments/pattern-move-teacher-decision-leverage-scale.md`. The result
-is a robust local decision-leverage signal, not strength, Elo, self-play,
-production readiness, or an artifact publication gate.
-
-A local growth-cycle run then reused that matrix, completed 34 bounded
-side-swapped artifact arena variants, and selected
-`promote_to_larger_local_validation`. Move-teacher v2 was non-negative in every
-arena comparison against both v1 and exact-root v2, same-artifact sanity was
-exactly neutral, swap sanity moved in the expected opposite direction, and
-failed games were zero. The next recommended action is to build or select a
-larger low-empty input that can support 50,000 roots, then rerun the growth
-cycle. Details live in `docs/experiments/pattern-learning-growth-cycle.md`.
-This remains local-only evidence, not Elo, not self-play, not production
-strength, and not an artifact publication gate.
-
-A follow-up local 50,000-root attempt selected a larger low-empty normalized
-schema v2 source from the existing 1m sequence measurement. The source had
-230,045 unique roots with `empty_count <= 12`; the new selector wrote a
-deterministic 50,000-root TSV with preserved splits and checksum-tracked
-reporting. A fair exact-root v2 baseline was built for that selected source,
-then the growth-cycle runner completed one 50,000-root seed. The completed
-seed improved top1, tie-aware top1, top2, pairwise accuracy, mean teacher
-regret, exact-best rank mean, and all-same predicted roots versus the
-same-source exact-root v2 baseline; held-out validation+test also supported the
-direction. Fourteen bounded arenas completed with zero failed games:
-move-teacher v2 was supportive against v1 and non-negative against exact-root
-v2, same-artifact sanity passed, and swap sanity moved in the expected
-opposite direction. The scorecard now holds for more data because only seed 0
-completed at 50,000 roots; seeds 1 and 2 remain the next validation step before
-claiming stable 50k support. Details live in
-`docs/experiments/pattern-learning-growth-cycle-50k.md`. This remains
-local-only evidence, not Elo, not self-play, not production strength, and not
-an artifact publication gate.
-
-A broader local 100k move-teacher arena/search-depth validation then ran the
-fair same-source 100k move-teacher child-value artifact against the fair
-same-source exact-root v2 baseline and the existing v1 exact-teacher artifact.
-The matrix covered depths 3, 5, and 7; seeds 0, 10, 20, 30, and 40; 1,000
-sampled positions; side swap; same-artifact sanity; and candidate/baseline
-swap sanity. All 75 runs completed with 150,000 games and zero failed games.
-Move-teacher v2 vs exact-root v2 was non-negative in 14 of 15 runs with mean
-score rate `0.503517` and mean average disc difference `+0.2020`; depth 7
-was close, including one slightly negative score-rate row. Move-teacher v2 vs
-v1 and exact-root v2 vs v1 were supportive in all 15 runs, same-artifact
-sanity was exactly neutral, and swap sanity complemented the primary
-comparison in all 15 paired checks. The scorecard is
-`promote_to_experimental_default_candidate`, meaning the next PR may add the
-learned eval artifact v0 as an experimental default candidate with policy and
-loader checks. Details live in
-`docs/experiments/pattern-arena-100k-move-teacher-broader.md`. This remains
-local-only bounded validation, not Elo, not self-play, not production
-strength, not publication readiness, and not artifact-publication readiness.
-
-The Egaroucid normalized dataset report currently records:
-
-* `schema_version`
-* `normalized_schema_version`
-* `output_format`
-* `example_rows`, `feature_occurrence_count`,
-  `average_features_per_example`, and `max_features_per_example`
-* `pattern_set_id` and `index_mode`
-* `feature_families` with per-family pattern id, length, instance count, and
-  table size
-* `total_table_entries`
-* `source_dataset_ids`
-* `input_rows`, `accepted_rows`, and `rejected_rows`
-* `counts_by_split`, `counts_by_phase`, and `counts_by_label_kind`
-* `label_min`, `label_max`, and `label_mean`
-* `repeated_position_count` and `exact_duplicate_record_count`
-* for sequence schema v2, `game_group_count`, `unique_board_count`,
-  `cross_split_board_collision_count`, and collision counts by split pair
-* `checksum`
-* `split_policy`, which remains `position-sha256` for board-score v1 data and
-  records importer-preserved `dataset_id + game_group_id` splitting for
-  sequence schema v2
-* `duplicate_policy: keep_all_input_order`
-
-The dataset builder treats Egaroucid importer splits as authoritative. It does
-not recompute split from `record_id`; it validates that every repeated
-`position_id` stays in one importer-provided split.
-
-The local training runner sample report records:
-
-* `schema_version`
-* `input_rows` and `sampled_rows`
-* `source_dataset_ids`
-* `counts_by_split` and `counts_by_phase`
-* `label_min`, `label_max`, and `label_mean`
-* `checksum`
-* `board_leakage_audit` for schema v2 inputs
-* `sample_policy` with method, limits, seed, split policy, memory policy, and
-  strict exact-board setting
-
-The current sampler uses deterministic `sha256(seed, position_id)` top-k
-selection over `position_id` groups. `--max-examples` and `--max-per-phase`
-therefore limit selected position groups before duplicate-label expansion; any
-duplicate labels for a selected position are preserved so importer-provided
-split assignments are not broken.
-
-Local-only measurement directories should normally live outside the git
-repository and any disposable worktree:
-
-```sh
-export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
-export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
-export VIBE_OTHELLO_SEQUENCE_CACHE="${VIBE_OTHELLO_SEQUENCE_CACHE:-$VIBE_OTHELLO_LOCAL/sequence-cache}"
-export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$VIBE_OTHELLO_LOCAL/measurements}"
-
-mkdir -p "$VIBE_OTHELLO_CORPORA"
-mkdir -p "$VIBE_OTHELLO_SEQUENCE_CACHE"
-mkdir -p "$VIBE_OTHELLO_MEASUREMENTS"
+```text
+data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json
 ```
 
-`VIBE_OTHELLO_CORPORA` is a local-only input root, but corpus filenames and
-manifests are still explicit command inputs. Generated corpora, sequence
-caches, measurements, TSVs, weights, artifacts, logs, and reports remain
-local-only and must not be committed. Use generic paths in docs and examples;
-do not commit personal local paths.
+The committed artifact payload is limited to final runtime files:
 
-Example local run:
+* `data/eval/default-artifact.json`
+* `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/weights.bin`
+* `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json`
+* `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/provenance.json`
+* `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/README.md`
+* `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/NOTICE.md`
 
-```sh
-python3 tools/pattern/train/run_egaroucid_local_training.py \
-  --raw-input "$VIBE_OTHELLO_CORPORA/<sequence-input>.zip" \
-  --manifest data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json \
-  --max-examples 100000 \
-  --max-per-phase 10000 \
-  --epochs 8 \
-  --learning-rate 0.1 \
-  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/local-training-smoke-100k"
-```
+Raw transcripts, normalized corpora, selected TSVs, teacher labels,
+move-teacher TSVs, child-normalized TSVs, caches, local reports, logs,
+temporary datasets, and sweep outputs are local-only and must not be committed.
 
-These pieces can later support import validation, teacher labels, fixed-position
-evaluation checks, fixed-position search smoke checks, and later strength
-comparisons.
+The current trainer/runtime route is:
 
-The analyzer is intended for local measurement review of 10k, 100k, 1M, and
-similar subset runs. It reports warnings for suspicious inputs, missing smoke
-summaries, missing artifact checksums, unknown source kinds, and zero v0a/v0b
-score-difference summaries, plus mixed expanded/compact pattern dataset
-comparisons, but these warnings do not fail the analysis.
-`egaroucid-local` and `egaroucid-sequence-local` are both recognized local
-Egaroucid source kinds. Egaroucid-derived `local-training-run-report.json`
-files may contain local artifact names and measurement results derived from
-external data, so they must remain under ignored local run directories and must
-not be committed.
+* `pattern-v2-endgame-lite` runtime pattern set
+* move-teacher child-label training
+* fair same-source exact-root baseline comparison
+* repeated 100k move-teacher validation
+* broader bounded arena validation
+* committed learned artifact v0 as an experimental default
 
-The board-score importer and sequence importer intentionally use different
-identity policies. The board-score importer uses `dataset_id + board` for
-`position_id` so repeated boards stay together. The sequence importer derives
-`game_group_id` from canonical replayed move/pass content, keeps local path,
-archive member, and line number only in `source_occurrence_id`, derives split
-from `dataset_id + game_group_id`, and builds `position_id` from
-`dataset_id + game_group_id + ply + board_id`. Duplicate source copies of the
-same semantic game share `game_group_id`, `position_id`, `board_id`, and split,
-while `record_id` remains occurrence-scoped. Cross-game duplicate boards are
-reported through `board_id` leakage audit instead of being hidden by
-game-scoped position ids.
+This is an experimental default, not an Elo result, not a self-play result,
+not a production strength claim, and not publication readiness.
 
-Sequence-derived labels use `observed_final_disc_diff`: final-disc-difference
-labels computed from the transcript final board and converted to side-to-move
-perspective at each emitted ply. They are not teacher-search scores. A local
-10k / 100k / 1M review
-using Egaroucid v0002 sequence-derived normalized TSV showed trainer v0b
-held-out MAE improving as data increased (10k test MAE 11.616, 100k test MAE
-9.256, 1M partial test MAE 7.486) while v0a phase-bias baseline validation/test
-MAE stayed around 14. This is evidence that the tiny pattern set plus v0b
-trainer reacts to more data, but it is not a match bench, Elo result,
-self-play result, production artifact, or strength claim. The 1M local run was
-interrupted during uncapped search smoke, so large local runs should use the
-runner's sequence import cap plus search smoke cap, for example importing a
-bounded 1M sequence-derived position pool and using 10k search smoke positions,
-while keeping the training sample uncapped by smoke settings.
+Artifact safety, promotion, rollback, and commit-policy details belong to:
 
-For repeatable 10k / 100k / 1M raw sequence local runs, prefer either a
-prebuilt normalized local cache, the runner's `--sequence-cache-dir`, or the
-runner's scalable sequence sampling options, for example
-`--sequence-sampling-mode streaming-target`, `--sequence-file-order hash`,
-`--sequence-max-positions`, `--sequence-progress-every-games`, and
-`--sequence-progress-every-files`. Use `--sequence-sampling-mode
-full-scan-topk` only when an exact full-corpus top-k import is required and the
-full replay cost is acceptable. Generated normalized caches, local run reports,
-weights, artifacts, and raw Egaroucid payloads remain ignored local-only files.
-Metrics from `streaming-target` and `bounded-dev` runs are useful measurement
-signals for iteration, but they are not full-corpus exact measurements, match
-bench results, Elo results, self-play results, production artifacts, or
-strength claims.
+* `docs/architecture/evaluation-artifacts.md`
+* `data/eval/README.md`
+* `tools/pattern/artifacts/check_eval_artifact_commit_policy.py`
 
-The suite runner wraps the same local runner for comparable preset runs:
+For normal development, use this doc for current status, architecture docs for
+current contracts, and `docs/experiments/README.md` for historical evidence.
 
-```sh
-python3 tools/pattern/train/run_pattern_measurement_suite.py \
-  --sequence-input "$VIBE_OTHELLO_CORPORA/<sequence-input>.zip" \
-  --sequence-manifest "$VIBE_OTHELLO_CORPORA/<sequence-manifest>.json" \
-  --sequence-cache-dir "$VIBE_OTHELLO_SEQUENCE_CACHE" \
-  --suite-output-dir "$VIBE_OTHELLO_MEASUREMENTS/<suite-name>" \
-  --preset all \
-  --resume
-```
+## Adopted Route
 
-When `VIBE_OTHELLO_MEASUREMENTS` or `VIBE_OTHELLO_LOCAL` is set, the suite
-runner can derive a safe output root; when `VIBE_OTHELLO_SEQUENCE_CACHE` or
-`VIBE_OTHELLO_LOCAL` is set, it can derive the shared sequence cache:
+The adopted path is the move-teacher child-label route that led to the
+experimental default artifact:
 
-```sh
-python3 tools/pattern/train/run_pattern_measurement_suite.py \
-  --sequence-input "$VIBE_OTHELLO_CORPORA/<sequence-input>.zip" \
-  --sequence-manifest "$VIBE_OTHELLO_CORPORA/<sequence-manifest>.json" \
-  --preset smoke
-```
+1. Sequence/transcript importer for local Egaroucid-derived game transcripts.
+2. Normalized TSV schema v2 with explicit game, board, occurrence, split, and
+   side-to-move label identity.
+3. Connected-board-game split for more honest sequence-derived validation.
+4. Compact pattern dataset rows for scalable local training and diagnostics.
+5. Trainer v0c/v0d diagnostics on `pattern-v2-endgame-lite`, keeping runtime
+   artifact shape compatible with the existing pattern evaluator.
+6. Exact move-teacher child labels for legal after-move boards.
+7. Move-teacher cache and partial-miss solve flow to reuse exact solves without
+   committing labels or generated datasets.
+8. Fair 100k exact-root baseline derived from the same move-teacher source.
+9. Repeated 100k move-teacher validation against the fair exact-root baseline.
+10. Broader bounded arena validation against exact-root v2 and v1 artifacts.
+11. Learned artifact v0 committed as the experimental default.
 
-Use `--preset smoke --dry-run` to inspect planned commands without executing a
-training run. `--preset all` expands to the stable 10k, 100k, and 1M local
-measurement presets. Those presets use `streaming-target`, hash file ordering,
-importer progress logging, trainer progress logging, and final-epoch-only v0c
-diagnostics by default so replay stops at the target after canonical source
-fingerprinting, and repeated diagnostic passes do not dominate 1M training;
-pass `--sequence-sampling-mode full-scan-topk` to intentionally run the exact
-full replay path, or `--trainer-eval-every-epoch` to restore per-epoch v0c
-metrics.
-Smoke remains an explicit CTest/local iteration preset. Suite reports, per-run
-stdout/stderr logs, and analyzer summaries are local-only measurement
-diagnostics, not strength, Elo, match bench, self-play, production artifact, or
-publication claims.
+Detailed PR-by-PR logs, command lines, sweep settings, and metric tables are in
+the archive starting at `docs/experiments/README.md`.
 
-## Current Gaps
+The current route does not rely on the old observed-label MAE-only path as a
+promotion signal. Fitting metrics remain useful diagnostics, but the adopted
+route uses move-ranking and bounded arena evidence before default selection.
 
-The current implementation does not yet have:
+## Key Decisions
 
-* local-only corpus download scripts
-* production trainer with pattern weights
-* calibration tool
-* production artifact exporter
-* production pattern-set symmetry enablement with a new pattern set id and any
-  required artifact version changes
-* match bench or Elo/strength measurement
-* publication gate for license and provenance status
+Fitting MAE alone is not enough. Review pattern-learning changes with
+move-ranking metrics, decision leverage, bounded arena checks, and sign/sanity
+diagnostics where applicable.
 
-No raw external corpora, derived datasets, or learned weights are currently
-tracked in the repository. The checked-in TSV records are repository-local
-synthetic smoke fixtures only. Publication of weights derived from Egaroucid
-data remains unknown and gated by provenance review. Trainer v0a is an
-example-level phase-bias baseline only. Trainer v0b is the first
-example-level pattern weight learning smoke trainer, but it is not a production
-trainer. The v0b local intermediate weights JSON can now be exported into a
-runtime-loader-compatible local smoke artifact, loaded by `PatternEvaluator`,
-measured by a fixed-position evaluation smoke in CTest, and measured in a
-fixed-position search smoke against the v0a phase-bias baseline. Production
-artifact publication, full Egaroucid training, committed learned weights,
-self-play, ridge regression, Elo-style match bench validation, production
-strength claims, production-ish pattern set implementation, and publishable
-learned artifacts remain for later PRs. The persistent artifact arena is a
-local late-game diagnostic only, not a replacement for production validation.
-Local training run reports may contain
-Egaroucid-derived metrics and local artifact names, so they should stay under
-ignored local run directories and should not be committed. Publication of
-Egaroucid-derived learned artifacts remains unknown and gated by provenance
-review.
+Exact root-label training is not the current adopted default route.
+Move-teacher child-label training is the adopted route for the current
+experimental default.
 
-## Implementation Plan
+`pattern-v3`, a pairwise rank trainer, and larger objective changes should not
+be mixed with artifact default changes. Keep trainer/objective investigations
+separate from default-artifact promotion PRs.
 
-Status values:
+Artifact promotion and rollback must go through the committed manifest,
+provenance, default pointer, validation summary, and commit-policy checker.
+Do not overwrite an existing artifact directory with semantically different
+weights.
 
-* `done` means implemented in the repository
-* `not started` means no production implementation exists yet
-* `deferred` means intentionally left for a later phase
+Local-only runner outputs are not repository artifacts. Do not commit raw
+external data, normalized corpora, selected TSVs, generated teacher labels,
+move-teacher outputs, child-normalized outputs, caches, sweep reports, trainer
+reports, temporary datasets, or local logs.
 
-| Step | Status | Notes |
-| --- | --- | --- |
-| Add pattern-learning architecture document | done | `docs/architecture/pattern-learning.md` |
-| Add pattern-learning progress document | done | this file |
-| Add docs index rows | done | `docs/README.md` |
-| Add corpus data policy README | done | `data/corpora/README.md` |
-| Add evaluation artifact README | done | `data/eval/README.md` |
-| Add dataset manifest schema | done | `data/corpora/dataset-manifest.schema.json` plus CTest smoke validation |
-| Add tiny synthetic fixture records | done | `data/corpora/samples/tiny-local-synthetic.records.tsv` contains checked-in synthetic good and bad replay smoke records |
-| Add importer for one simple text format | done | Minimal `tools/data-import` replay smoke accepts expected-good rows and rejects malformed, illegal, or bad-pass rows through board-core move application |
-| Add dataset builder and deterministic splitter | done | Minimal `tools/pattern/dataset` smoke replays expected-good tiny records, emits labeled pattern rows, records `split_policy`, keeps duplicate input rows in deterministic input order, supports opt-in canonical index output for smoke comparison, and depends on smoke fixture helpers only through an explicit smoke-only target |
-| Add pattern schema fixtures | done | Runtime evaluation owns fixed `edge-8` and `corner-3x3` fixture schemas |
-| Add symmetry canonicalization primitive | done | Evaluation exposes an isolated helper for raw, reverse, and square D4 canonical ternary indices; default tools still emit raw ternary indices, while canonical smoke mode opts in through the shared helper |
-| Add feature extractor | done | Minimal `tools/pattern/features` smoke replays accepted tiny synthetic records through board core and emits `edge-8` / `corner-3x3` `record_id`, `ply`, `phase`, `pattern_id`, `instance`, and runtime ternary indices, with opt-in canonical index output for smoke comparison |
-| Add tiny deterministic trainer smoke test | done | Minimal `tools/pattern/train` smoke consumes the pattern dataset TSV, trains a phase-bias baseline from train rows only, counts validation/test rows, and fixes the summary checksum |
-| Add trainer v0a phase-bias report | done | `tools/pattern/train/train_v0a.py` reads dataset builder pattern rows TSV, groups rows into `record_id` examples, rejects malformed examples, reports duplicate feature rows, learns only train-split example phase means, writes deterministic phase-bias weights TSV and JSON metrics, and is covered by the tiny Egaroucid importer -> dataset -> trainer smoke |
-| Add pattern weight learning | done | First smoke-only example-level trainer v0b learns deterministic train-only `phase + pattern_id + ternary_index` weights from grouped examples; no production trainer, ridge regression, full Egaroucid training, self-play, match bench validation, production strength claim, or learned artifact publication yet |
-| Add calibration tool | not started | Optional score-to-probability mapping |
-| Add tiny artifact exporter smoke | done | Minimal `tools/pattern/export` smoke writes a runtime-compatible binary payload plus manifest from the deterministic phase-bias trainer summary |
-| Add runtime loader compatibility test | done | Exporter CTest round-trips dataset builder -> trainer -> exporter -> runtime loader -> `PatternEvaluator` with a fixed representative score and checksum; the tiny Egaroucid v0b path also round-trips importer -> dataset -> trainer v0b -> exporter -> runtime loader -> `PatternEvaluator` and verifies a score difference from the v0a phase-bias smoke artifact |
-| Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, evaluates fixed positions with runtime `PatternEvaluator`, reports deterministic score rows, and keeps learned Egaroucid-derived artifacts temp-only |
-| Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` generates local-only v0a/v0b artifacts from the tiny Egaroucid fixture, runs explicitly configured deterministic depth-1 search with each artifact-backed `PatternEvaluator`, reports best move, score, nodes, and score deltas, and keeps learned Egaroucid-derived artifacts temp-only |
-| Add local Egaroucid subset training runner | done | `tools/pattern/train/run_egaroucid_local_training.py` runs raw, normalized, or sequence local Egaroucid input through deterministic position-id sampling, dataset builder, trainer v0b, export, optional v0a baseline, fixed-position evaluation/search smoke checks, optional local-only sequence replay cache restore/import keyed by canonical source content bytes, and a local run report with cache/source/stage telemetry; generated corpora, caches, datasets, learned weights, artifacts, and Egaroucid-derived reports remain local-only and uncommitted |
-| Add local training run analyzer | done | `tools/pattern/train/analyze_local_training_runs.py` compares local run reports, emits deterministic JSON/Markdown review summaries, extracts available trainer metrics, surfaces cache hit/miss and major stage timings, and reports warning-only sanity flags using synthetic temp-only CTest coverage |
-| Add compact pattern example dataset format | done | Dataset builder `--output-format compact-tsv` emits one row per normalized example with deterministic feature occurrence lists, trainer v0a/v0b accepts compact input by header detection, local runner can request compact datasets, analyzer surfaces dataset format, and synthetic smoke coverage checks compact/expanded equivalence without changing runtime evaluation, exporter format, pattern definitions, or training semantics |
-| Add local pattern measurement suite runner | done | `tools/pattern/train/run_pattern_measurement_suite.py` runs named smoke/10k/100k/1M sequence presets through local cache, scalable `streaming-target` sequence import by default for real presets, compact dataset output, trainer v0c diagnostics with real-preset final-epoch diagnostics and trainer progress, live per-run logs, resume/skip handling, suite reports, and analyzer comparison; synthetic CTest coverage checks dry-run, execute, resume, failure, and all-preset expansion without committing generated measurement outputs |
-| Add local v0c trainer sweep runner | done | `tools/pattern/train/run_pattern_trainer_sweep.py` runs deterministic v0c optimizer configs over one fixed pattern dataset TSV, writes local-only JSON/Markdown reports, per-config logs, trainer reports, and weights, supports dry-run/resume/keep-going/source-run provenance, and selects by validation MAE with test MAE as reporting/tie-break only; synthetic CTest coverage checks dry-run, execute, resume, source-report dataset resolution, failure, and keep-going behavior without committing generated sweep outputs |
-| Add v0d phase-balanced residual SGD trainer | done | `tools/pattern/train/train_v0a.py --mode pattern-sgd-v0d` keeps v0c residual pattern-SGD semantics and v0b-compatible intermediate weights, adds deterministic per-phase train example weighting with `none`, `inverse-count`, and `sqrt-inverse-count` options plus floor/cap diagnostics, and is covered by synthetic trainer, local-runner, sweep dry-run, and analyzer smokes; this is local research only, not a strength claim or artifact publication gate |
-| Add production-ish pattern set design | done | `pattern-v1-buro-lite` adds raw edge, near-edge, diagonal, and corner table families plus matching runtime feature geometry and local exporter/runner selection; no learned weights or production artifact are committed |
-| Add bounded endgame local pattern set | done | `pattern-v2-endgame-lite` keeps the v1 ordered families and appends bounded endgame-oriented families with table lengths <= 10; dataset, exporter, runtime evaluation/search smoke, local-runner v0c export, and exact-teacher synthetic integration coverage exercise the new set without committing weights or artifacts |
-| Add persistent late-game artifact arena | done | `vibe-othello-pattern-artifact-arena` compares two local pattern artifacts over deterministic normalized schema v2 late-game positions with persistent artifact loading, optional side-swapped pairings, JSON/Markdown reports, and local-only caveats; it is not Elo, self-play, production strength, or a publication gate |
-| Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can now emit local-only diagnostics for where v1/v2 signal is lost: static scoring, root move choice, depth, side assignment, exact low-empty disagreement adjudication, phase/sign perspective, manifest/runtime compatibility, or feature family activation |
-| Add move-teacher decision-leverage pipeline | done | Low-empty normalized schema v2 roots can now produce exact per-move teacher labels and child-normalized exact labels; child-label artifacts can be trained with existing v0c/v0d trainers and evaluated by root move-ranking metrics before optional bounded artifact arena checks |
-| Add move-teacher decision campaign matrix | done | `run_move_teacher_campaign_matrix.py` wraps the existing campaign helper over bounded root-count/seed matrices, preserves local-only outputs and resume validation, aggregates full-set, held-out, and arena direction metrics, and recorded a 5k/10k/20k x seeds 0/1/2 robust local decision-leverage diagnostic plus bounded 20k arena variations without committing generated artifacts |
-| Add pattern-learning growth cycle runner | done | `run_pattern_growth_cycle.py` turns the current local pattern-learning pieces into a repeatable preflight -> decision-leverage matrix -> bounded artifact arena -> promotion scorecard -> next-action loop, with synthetic CTest coverage for promote/hold/negative/rank-objective/missing-input/dry-run report behavior and no committed generated local outputs. Arena resume keys now include `swap_of` for candidate/baseline swap sanity variants so repeated 100k training seeds do not collide on the same swap-sanity report path. |
-| Advance 50k and 100k move-teacher growth validation | done | The local growth route has same-source 50k seeds 0/1/2 complete against a fair exact-root v2 baseline, connected 50k seed 0 positive, and a connected-board-game 100k low-empty source selected with checksum `sha256:260102a58ead4522169d7298ba828fa983930c902c261c49d18da4b11b6d0ce7`. The follow-up connected 100k validation is complete: the full partial-miss move-teacher solve reused 50,000 cached roots, solved 50,000 missing roots, built a fair same-source 100k exact-root v2 baseline from derived labels, and ran 100k seeds 0/1/2 with positive top1/top2/pairwise/regret deltas and supportive bounded arena checks. |
-| Add pattern artifact arena matrix helper | done | `tools/arena/run_pattern_artifact_arena_matrix.py` runs the persistent artifact arena across comparison/depth/seed/max-position matrices, validates artifact manifests and per-run resume checksums, supports multiple comparison pairs plus same-artifact and swap sanity variants, and writes local-only aggregate JSON/Markdown reports. Synthetic CTest coverage checks dry-run planning, fake-arena aggregation, resume metadata mismatch failures, missing artifact failures, manifest checksum mismatch failures, same-artifact sanity aggregation, and swap sanity aggregation without committing generated reports. |
-| Broaden 100k move-teacher arena validation | done | The broader connected 100k move-teacher validation completed 75 side-swapped arena runs across depths 3/5/7, seeds 0/10/20/30/40, and 1,000 sampled positions for move-teacher v2 vs fair exact-root v2, move-teacher v2 vs v1, exact-root v2 vs v1, same-artifact sanity, and primary swap sanity. Total games were 150,000 with zero failed games. Move-teacher v2 vs exact-root v2 was non-negative in 14/15 runs with mean score rate `0.503517` and mean average disc difference `+0.2020`; same-artifact sanity was exactly neutral and swap sanity passed. The scorecard is `promote_to_experimental_default_candidate`, so the next PR may add the learned eval artifact v0 as an experimental default candidate while keeping this PR artifact-free. |
-| Cache exact move-teacher labels | done | `materialize_move_teacher_from_cache.py` stores split-independent exact move-teacher root payloads in a local per-root cache and materializes `move-teacher.tsv` plus `child-normalized.tsv` with current record ids, split assignments, root phases, and row order. The campaign, matrix, and growth-cycle runners pass through cache reuse/write/partial-miss flags; full-hit and partial-miss reuse validate board identity, board contents, schema/semantic metadata, label kind/unit/perspective, solver version, `max_empty`, legal move rows, and cache conflicts. Synthetic smoke coverage checks full-hit remap, partial-hit failure without opt-in, partial-miss fake-generator orchestration, mismatch failures, source conflicts, semantic mismatch failures, report fields, and runner pass-through. Real local validation populated the initial 50k cache, probed the connected 100k source at 50,000 hits / 50,000 misses, then completed the full connected 100k partial-miss solve with 100,000 final hits, 0 misses, 50,000 newly solved roots, 1,591,232,496 exact nodes reused/saved, 1,630,297,760 exact nodes newly solved, and 3,221,530,256 exact nodes materialized after merge. |
-| Derive exact root labels from move-teacher rows | done | `derive_exact_root_labels_from_move_teacher.py` derives `teacher_exact_final_disc_diff` root labels from complete move-teacher TSVs using the max root move score and sum child `teacher_nodes` aggregate, writes `apply_teacher_labels.py`-compatible TSVs, and is covered by synthetic smoke tests for max-score selection, missing-root failure, and duplicate root/move failure. The full connected 100k run derived 100,000 exact-root labels from the complete move-teacher TSV with 0 missing roots, then used `apply_teacher_labels.py --missing-policy fail` to build the fair same-source 100k exact-root v2 baseline. |
-| Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
-| Add Egaroucid board-score local importer | done | Streaming `tools/data-import/import_egaroucid_train_data.py` accepts raw zip or extracted `.txt` input, validates rows, emits `engine_disc_estimate` rows with occupied count and 13-phase ids, uses `dataset_id + board` position hashes for train/validation/test splits, separates `record_id` from `position_id`, keeps exact duplicate board+score rows in deterministic input order with an occurrence suffix, validates manifest JSON `dataset_id`, and keeps raw payloads under ignored `data/corpora/local/**` |
-| Add Egaroucid sequence/transcript local importer | done | `tools/data-import/import_egaroucid_sequences.py` accepts local transcript files, directories containing `.txt` files and/or `.zip` archives, and zip archives, validates legal Othello replay with pass handling, emits normalized TSV with final-disc-difference side-to-move labels, records sequence-specific game-hash split and game/ply-scoped position ids, supports scalable content-addressed streaming-target sampling plus opt-in bounded-dev file/game sampling with progress reporting for local iteration, and is covered by synthetic CTest fixture plus local runner sequence smoke; raw sequence zips and generated TSVs remain ignored local-only inputs |
-| Connect Egaroucid importer TSV to dataset builder | done | `tools/pattern/dataset` accepts the importer normalized TSV schema, validates labels and `a1,b1,...,h8` board counts, preserves importer `position_id` / `split`, emits deterministic pattern rows, writes a dataset report JSON, and has a tiny importer -> dataset CTest smoke |
-| Add local-only external corpus scripts | deferred | Download automation remains out of scope; the importer expects a locally obtained payload |
-| Add match benchmark for artifacts | deferred | Needs at least two comparable artifacts |
-| Add publication gate | not started | Policy documented; enforcement beyond manifest smoke validation is still pending |
+Architecture docs describe the current contract. Experiment docs preserve
+historical evidence. Progress docs summarize current repository state and next
+work.
 
-## Completion Bar
+The committed v0 artifact is acceptable as an experimental engineering default
+because the validation route selected it, the payload is minimal, provenance is
+explicit, and local-only source material is not redistributed.
 
-Pattern learning is strong enough to support production evaluation when:
+Future strength claims need separate validation. The current default should be
+treated as a runtime/default-selection milestone, not as production strength.
 
-* every training input has a manifest
-* raw external corpora are kept out of git by default
-* tiny fixtures exercise import, replay, feature extraction, and export
-* feature schema is versioned and shared with runtime evaluation
-* any production enabled symmetry policy is shared by trainer, feature
-  extractor, exporter, and runtime evaluator through the same canonicalization
-  helper; current canonical feature/dataset smoke coverage is opt-in and does
-  not change trainer, exporter, artifact, or runtime evaluator behavior
-* train/validation/test splits are deterministic
-* tiny trainer output is reproducible
-* exported artifacts load in runtime evaluation
-* validation metrics are generated automatically
-* strength checks can compare two artifacts
-* license and provenance status is visible before publishing weights
+## Next Work
 
-Next implementation steps are adding the learned eval artifact v0 as an
-experimental default candidate with artifact policy and loader checks, or
-continuing trainer diagnostics if reviewers want more depth-7 or larger
-max-position arena margin before that PR. Production artifact publication,
-committed learned weights outside the experimental-default flow, Elo-style
-match bench, and strength-claim work remain out of scope.
+Current next actions:
 
-## Progress Update Rules
+* Run local human-play and default-engine checks against the experimental
+  default to catch obvious play-quality or integration issues.
+* Add larger bounded validation only if the current margin or review feedback
+  needs more evidence.
+* Add NTest or external-engine match validation before making strength claims.
+* Harden artifact promotion gates around manifest/provenance/default-pointer
+  consistency and rollback review.
+* Continue trainer v0e or move-ranking objective work as a separate
+  investigation.
+* Investigate `pattern-v3` separately from artifact default maintenance.
+* Confirm the default artifact rollback path remains simple and documented.
 
-Update this document when:
+Do not treat old local run recommendations as current action items. In
+particular, the 100k partial-miss move-teacher solve, fair 100k exact-root
+baseline, broader 100k bounded arena validation, and learned artifact v0
+experimental-default PR are already complete for the current route.
 
-* an implementation milestone changes status
-* a known gap is discovered
-* a dataset or artifact policy changes
-* a training run format is added or changed
-* benchmark or validation metrics are added
-* a deferred item is intentionally moved into scope
+## Completed History
 
-Update `docs/architecture/pattern-learning.md` only when the intended design,
-boundary, semantics, or correctness rules change.
+Historical details are intentionally not repeated here. Use
+`docs/experiments/README.md` as the archive index when exact metrics, command
+lines, or PR-specific context are needed.
+
+| Area | Current summary |
+| --- | --- |
+| Import and normalization | Sequence transcripts can be replayed into normalized TSV schema v2 with deterministic identity, split, and leakage diagnostics. |
+| Dataset shape | Compact TSV example rows are the scalable path for local pattern training diagnostics. |
+| Pattern sets | `pattern-v1-buro-lite` is the earlier production-ish schema; `pattern-v2-endgame-lite` is the bounded endgame-oriented pattern set used by the current experimental default. |
+| Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics and reports; they are not standalone strength claims. |
+| Exact teacher labels | Exact root-label experiments were useful diagnostics but did not become the adopted default route. |
+| Move-teacher labels | Exact child labels made root move-ranking and decision leverage visible with the existing value trainer. |
+| Cache/materialization | Move-teacher cache and materialization flows support large local reruns while keeping labels and child-normalized TSVs local-only. |
+| Growth cycle | 50k and 100k local growth-cycle validations selected the move-teacher route for broader validation. |
+| Arena validation | Broader bounded validation supported promoting the 100k move-teacher artifact to experimental default. |
+| Artifact v0 | `pattern-v2-endgame-lite-100k-mt-v0` is committed as the first learned experimental default with manifest, provenance, default pointer, and policy checks. |
+| Archive policy | Long logs, tables, command examples, and obsolete next actions belong in `docs/experiments/README.md` and linked experiment docs. |
+
+Update this document when the current status, adopted route, artifact default,
+promotion policy, or active next work changes. Update architecture docs when
+the intended contract changes.
