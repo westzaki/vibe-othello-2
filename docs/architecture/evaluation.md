@@ -2,138 +2,54 @@
 
 ## Purpose
 
-Evaluation assigns heuristic scores to Othello positions.
+Runtime evaluation assigns heuristic scores to Othello board positions.
 
 Search uses those scores at depth cutoffs and may use cheap evaluation signals
-for move ordering.
-
-Tools, WASM adapters, and UI features may use evaluation for live advantage
-display, candidate comparison, and post-game review.
+for move ordering. Tools, WASM adapters, and UI features may also use runtime
+evaluation for live advantage display, candidate comparison, and post-game
+review.
 
 Evaluation must be deterministic, measurable, fast enough for recursive search,
-and explainable enough for analysis workflows.
+and explainable enough for analysis workflows. This document defines the
+runtime architecture contract, not committed artifact policy or training
+workflow status.
 
-Implementation status and milestone tracking live in
-`docs/progress/evaluation.md`.
+## Boundaries
 
-## Boundary
+Runtime evaluation owns:
 
-Evaluation owns:
-
-* heuristic score scale
+* the search-facing evaluator contract
+* side-to-move-relative score semantics
 * runtime evaluator implementations
 * runtime pattern feature definitions
-* pattern weight artifact loading and validation
-* optional incremental evaluator state
-* optional cheap evaluators for move ordering or low-latency analysis
-* score calibration helpers for non-search consumers
-* evaluation breakdown data for analysis tools
+* loaded pattern weights consumed by evaluators
+* optional low-cost evaluators for move ordering or low-latency analysis
+* optional non-search explanation and calibration adapters
 
-Evaluation does not own:
+Runtime evaluation does not own:
 
-* board representation
-* legal move rules
-* flip calculation
-* move application semantics
-* move undo semantics
-* pass legality
-* terminal detection
-* search algorithm choice
-* exact endgame solving
-* training corpus ingestion
-* label generation
-* weight fitting
-* opening book generation
-* UI rendering
-* review policy
-* blunder thresholds
+* board representation, legal move rules, move application, pass handling,
+  terminal detection, serialization, or hashing
+* search algorithm choice, pruning policy, terminal scoring, or exact endgame
+  solving
+* training corpus ingestion, dataset storage, teacher label generation, weight
+  fitting, trainer reports, exporter reports, or experiment logs
+* committed artifact directory layout, default artifact pointer policy,
+  artifact promotion, rollback, or repository commit rules
+* UI rendering, review policy, or blunder thresholds
 
-Board core is the source of truth for positions, moves, pass handling, terminal
-rules, serialization, and hashing.
+Board core is the source of truth for positions and rules. Search decides how
+many positions to evaluate and how scores affect recursive search.
 
-Search decides how many positions to evaluate and how scores affect pruning.
-
-Pattern learning produces artifacts consumed by evaluation, but training is not
-part of recursive search.
-
-## Core Approach
-
-Use a staged evaluator stack.
-
-1. `BaselineEvaluator`: simple handwritten evaluator for early search and
-   regression stability.
-2. `PatternEvaluator`: production pattern-only evaluator backed by learned
-   phase-dependent tables.
-3. `CheapEvaluator`: optional low-cost evaluator for ordering, constrained WASM
-   analysis, or other latency-sensitive paths.
-4. `ExplainingEvaluator`: non-recursive adapter that returns pattern
-   contributions and calibrated UI values.
-
-The production target is a pattern-only evaluator.
-
-Non-pattern terms may exist in baseline evaluators, but the learned production
-evaluator should keep feature ownership explicit and avoid hiding search policy
-inside evaluation.
-
-Correctness comes before speed.
-
-Every optimized evaluator path must have a simple testable path to compare
-against.
-
-## Dependency Direction
-
-```text
-board_core --> evaluation --> search
-      |              |            |
-      |              +----> tools/review adapters
-      +-------------------> tools/training feature extraction
-```
-
-Rules:
-
-* evaluation may depend on board-core public APIs
-* search may depend on the search-facing evaluator interface
-* evaluation must not depend on search internals
-* runtime evaluation must not depend on training tools
-* training feature extraction must use board-core rules
-* UI must go through analysis or review adapters, not recursive evaluator
-  internals
-
-The existing search-facing interface lives under `vibe_othello::search`.
-
-A future evaluation module may provide concrete implementations under
-`vibe_othello::evaluation` while continuing to satisfy the search-facing
-interface.
-
-## Score Semantics
-
-Evaluation returns side-to-move-relative scores.
-
-Positive means the side to move is better.
-
-Negative means the side to move is worse.
-
-The default runtime score unit is expected final disc difference.
-
-A score of `+4` means the evaluator expects the side to move to finish about
-four discs ahead.
-
-If a future artifact uses a scaled unit, the artifact must declare
-`score_scale`, and the loader must convert to search score units before search
-sees the score.
-
-Rules:
-
-* heuristic scores must stay strictly inside search sentinel values
-* evaluation must not return search win/loss sentinels
-* terminal and exact endgame scores remain owned by search/endgame logic
-* UI win-rate values are calibrated views, not search scores
-* score sign is always relative to the current node side to move
-* score scale changes require artifact metadata and tests
+Training and artifact publication may produce data consumed by evaluation, but
+runtime evaluation must not depend on training tools, local datasets, generated
+labels, or trainer reports.
 
 ## Runtime Evaluator Interface
 
-Search consumes the public evaluator interface.
+Search consumes evaluation through a small deterministic interface. The
+interface is a recursive hot path and should remain allocation-free,
+file-I/O-free, and independent of training or committed artifact handling code.
 
 ```cpp
 class Evaluator {
@@ -146,277 +62,159 @@ public:
 };
 ```
 
-Production implementations must keep the recursive hot path allocation-free and
-file-I/O-free.
+Concrete evaluators may live under an evaluation namespace while satisfying the
+search-facing interface. Non-search helpers such as `explain` or calibration
+views are adapters around the evaluator and are measured separately from the
+recursive search path.
 
-Recommended implementation shape:
+## Built-in Evaluators
 
-```cpp
-namespace vibe_othello::evaluation {
+The runtime evaluator stack is intentionally small:
 
-struct EvaluationOptions {
-  bool use_pattern_eval = true;
-  bool use_calibration = false;
-};
+* `StaticEvaluator` or `BaselineEvaluator`: a simple handwritten evaluator for
+  regression stability, fallback analysis, and tests that do not need learned
+  weights.
+* `PatternEvaluator`: the learned runtime evaluator backed by an immutable
+  pattern set definition and loaded phase-dependent weights.
+* `CheapEvaluator`: an optional low-cost evaluator for move ordering,
+  constrained WASM analysis, or other latency-sensitive paths.
+* `ExplainingEvaluator`: a non-recursive adapter that exposes score
+  contribution data or calibrated display values for tools.
 
-struct EvaluationBreakdown {
-  search::Score raw_score = 0;
-  double calibrated_win_rate = 0.0;
-  // Future: compact pattern contribution list for review UI.
-};
+Non-pattern terms may exist in baseline evaluators. Learned runtime evaluators
+should keep feature ownership explicit and avoid hiding search policy inside
+evaluation.
 
-class PatternEvaluator final : public search::Evaluator {
- public:
-  explicit PatternEvaluator(const PatternWeights& weights) noexcept;
+## Pattern Evaluator Runtime Contract
 
-  search::Score evaluate(const board_core::Position& position) const noexcept override;
-
-  EvaluationBreakdown explain(const board_core::Position& position) const;
-};
-
-} // namespace vibe_othello::evaluation
-```
-
-`explain` is not part of recursive search.
-
-It may allocate if needed, but review tools should measure its cost separately
-from search.
-
-## Pattern Evaluator Design
-
-The production pattern evaluator is a phase-dependent linear model.
+The pattern evaluator is a phase-dependent linear model:
 
 ```text
 score(position) = bias[phase] + sum(weight[phase][pattern_id][pattern_index])
 ```
 
+The evaluator consumes a runtime-owned pattern set definition and loaded weight
+tables. The pattern set defines the ordered patterns, cell order, symmetry
+policy, phase mapping policy, table sizes, and score unit expected by runtime
+code. Loaded weights provide the immutable numeric data for that exact runtime
+contract.
+
 The evaluator should:
 
 * normalize positions to side-to-move perspective
 * use board-core bit order and coordinate helpers
-* map disc count to a phase
+* map each position to a deterministic phase
 * encode each pattern as a compact ternary index
-* use symmetry-normalized pattern indices when the pattern definition allows it
+* apply symmetry canonicalization only when the pattern definition declares it
 * sum integer weights from immutable tables
-* clamp only at the final score boundary, not inside each feature contribution
+* clamp only at the final search score boundary
 
-Pattern definitions are runtime contracts.
+Changing a pattern definition without changing the runtime artifact contract is
+a bug. The runtime evaluator must reject incompatible loaded weights rather than
+guessing from file size or partially matching table shapes.
 
-Changing a pattern definition without changing the artifact version is a bug.
+Pattern symmetry canonicalization is part of the pattern definition. Supported
+runtime policies may include raw indices, reversed cell-order canonicalization,
+and square D4 canonicalization. Symmetry transforms must preserve the
+side-to-move-relative digits: empty `0`, player `1`, opponent `2`.
 
-## Pattern Symmetry Policy
+## Score Semantics
 
-Pattern symmetry canonicalization is part of the pattern definition contract.
+Evaluation returns side-to-move-relative scores:
 
-The supported primitive policies are:
+* positive means the side to move is better
+* negative means the side to move is worse
+* zero means the evaluator sees the position as balanced
 
-* `none`: use the ternary index exactly as encoded
-* `reverse`: use the smaller index between forward and reversed cell order
-* `square_d4`: for `3x3` square patterns, use the smallest index across the
-  eight D4 rotations and reflections
-
-The canonical representative is always the minimum ternary index among the
-allowed transforms. Ternary digits remain the side-to-move-relative runtime
-digits: empty `0`, player `1`, opponent `2`. Symmetry transforms must never
-swap player and opponent digits.
-
-Changing a production pattern from raw indices to canonical indices changes the
-meaning and size of its weight table. Any production artifact that changes a
-pattern symmetry policy must use a new `pattern_set` id and, when the binary or
-manifest contract changes, a new artifact format version.
-
-The trainer, feature extractor, exporter, and runtime evaluator should share
-the same canonicalization helper for any pattern set that enables symmetry.
-Until a pattern definition explicitly opts in, existing feature extraction,
-training, export, and runtime evaluation continue to use raw ternary indices.
-
-## Pattern Families
-
-Start with a Buro-style pattern-only baseline rather than inventing a large
-custom feature set.
-
-Recommended first production families:
-
-* edge lines
-* near-edge lines
-* diagonals
-* corner `2x5` regions
-* corner `3x3` regions
-* phase bias
-
-`pattern-v2-endgame-lite` is a local research comparison set, not a production
-replacement. It keeps `pattern-v1-buro-lite` unchanged and appends bounded
-late-phase families with lengths at most 10: `corner-2x4-8`,
-`edge-plus-x-10`, `corner-wing-8`, `near-edge-segment-8`, and
-`diagonal-corner-8`.
-
-Recommended comparison families:
-
-* short systematic n-tuples
-* reduced cheap-eval subset for move ordering
-
-Comparison families are experiments.
-
-They must not silently replace the production pattern set without a new artifact
-version and benchmark evidence.
-
-## Phase Handling
-
-Use disc-count-based phases.
-
-The first version should use 13 phases because it balances game-stage
-specificity and table sparsity.
+The default runtime score unit is expected final disc difference. A score of
+`+4` means the evaluator expects the side to move to finish about four discs
+ahead.
 
 Rules:
 
-* phase mapping is deterministic
-* phase mapping is stored in artifact metadata
-* adjacent phase smoothing belongs to training, not runtime
-* runtime only selects or interpolates according to the declared artifact policy
+* heuristic scores must stay strictly inside search sentinel values
+* evaluation must not return search win/loss sentinels
+* terminal and exact endgame scores remain owned by search and endgame logic
+* score sign is always relative to the current node side to move
+* score scale changes require artifact metadata, loader conversion, and tests
+* UI win-rate values are calibrated views, not search scores
+* calibration must not change recursive search scores
+* explanation totals must match the hot-path evaluator score before
+  calibration
 
-## Weight Artifacts
+Phase mapping is also part of the runtime contract. It must be deterministic and
+declared by the loaded artifact. Adjacent phase smoothing belongs to training;
+runtime only selects or interpolates according to the declared policy.
 
-Weights are data, not code.
+## Search Integration
 
-Use a versioned binary artifact for runtime weights and a readable JSON
-manifest for loader metadata. Default artifact resolution and committed
-artifact policy are specified in `docs/architecture/evaluation-artifacts.md`.
-
-Recommended layout:
-
-```text
-data/
-`-- eval/
-    |-- README.md
-    |-- pattern-v1.manifest.json
-    `-- pattern-v1.weights.bin   # optional local/release artifact, not required in git
-```
-
-Recommended artifact metadata:
-
-```json
-{
-  "format": "vibe-othello-pattern-eval",
-  "format_version": 1,
-  "engine_min_version": "0.1.0",
-  "bit_order": "a1-lsb",
-  "score_unit": "disc-diff",
-  "score_scale": 1,
-  "phase_count": 13,
-  "pattern_set": "pattern-v1-buro-style",
-  "weights_sha256": "...",
-  "training_manifest": "training-run-id-or-url",
-  "source_data_policy": "manifest-only"
-}
-```
+Search integrates with evaluation only through the evaluator interface.
 
 Rules:
 
-* artifact loading validates magic, version, bit order, phase count, and
-  checksum
-* runtime does not infer pattern layout from file size alone
-* each phase starts with one explicit bias weight slot before pattern tables
-* pattern tables are stored in manifest pattern order; `pattern_set` identifies
-  the whole ordered schema, and changing that order requires a new pattern set id
-* only explicitly promoted final runtime artifacts may be committed to normal
-  git history
-* raw training corpora must not be committed to the repository
+* search owns node traversal, terminal detection, pass handling, exact scores,
+  and pruning decisions
+* evaluation owns heuristic scores for non-terminal cutoff positions
+* evaluation must not depend on search internals
+* runtime evaluation must not perform file I/O from recursive search
+* search tests should be able to replace learned evaluation with a simple
+  deterministic evaluator
+* move-ordering evaluators must not change the meaning of final search scores
 
-## Calibration and Explanation
+This keeps search behavior testable and lets learned weights change without
+coupling the recursive algorithm to training or artifact publication details.
 
-Search operates on score values.
+## Artifact Loading Boundary
 
-UI and review tools may display calibrated values.
+Runtime evaluation can load committed evaluation artifacts.
 
-Recommended non-search outputs:
+Default artifact resolution and explicit override behavior are artifact
+architecture concerns. Manifest, provenance, checksum, promotion, rollback, and
+repository policy details are owned by
+`docs/architecture/evaluation-artifacts.md`.
 
-* expected final disc difference
-* calibrated win probability
-* candidate move score list
-* principal variation score graph
-* post-game loss per move
+This document only defines how loaded runtime weights are consumed by
+evaluators: after a loader validates compatibility, the evaluator receives an
+immutable pattern set definition and matching weight tables.
 
-Calibration is a separate mapping from score to probability.
+## Determinism and Safety
 
-It can be trained from held-out games, exact endgame labels, or self-play
-results.
+Runtime evaluation must be deterministic for the same position, side to move,
+pattern set, weights, and options.
 
-Rules:
+Tests should cover:
 
-* calibration must not change search scores
-* calibration metadata must record the validation dataset and metric
-* UI must label probability as a calibrated estimate, not an exact outcome
-* explanation totals must match the hot-path evaluator score before calibration
-
-## Incremental Evaluation
-
-The first production implementation may recompute pattern indices from the
-position.
-
-After correctness is stable, add incremental evaluation only if benchmarks show
-evaluation cost limits search depth.
-
-Incremental evaluation must:
-
-* have one scratch state per search context or worker thread
-* reset from a board-core position
-* apply and undo using board-core deltas
-* round-trip exactly in tests
-* be independently disableable
-
-Search must be able to run with the non-incremental evaluator for regression
-tests.
-
-## Testing and Measurement
-
-Evaluation tests should cover:
-
-* deterministic score for the same position and artifact
+* deterministic scores for fixed positions
 * side-to-move sign consistency
 * black/white view conversion correctness
 * symmetry-normalized feature index stability
 * phase mapping boundaries
-* artifact load success and failure cases
-* artifact checksum mismatch rejection
 * score range inside search sentinels
-* native and WASM parity for fixed positions
-* `explain` totals matching `evaluate`
+* artifact load success and rejection of incompatible data
+* native and WASM parity for fixed positions when both runtimes are supported
+* explanation totals matching `evaluate`
 
-Evaluation benchmarks should track:
+Benchmarks should measure evaluator cost separately from search policy:
 
 * nanoseconds per evaluation
 * pattern index extraction cost
 * table lookup cost
 * native versus WASM score parity and latency
 
-Benchmark results should record artifact id, compiler, build type, hardware
-class, and enabled evaluator options.
+Measurements should record artifact id, compiler, build type, hardware class,
+and enabled evaluator options without committing local machine identifiers or
+generated measurement payloads.
 
-## Build Order
+## What Belongs Elsewhere
 
-Recommended build order:
+Current evaluation implementation status: `docs/progress/evaluation.md`.
 
-1. keep `search::Evaluator` as the stable search-facing interface
-2. add `engine/include/vibe_othello/evaluation/` public runtime types
-3. add a simple baseline evaluator with tests
-4. add artifact metadata structs and loader tests
-5. add pattern definition and index encoder tests
-6. add `PatternEvaluator` with a tiny hand-authored test artifact
-7. add native/WASM parity tests for fixed positions
-8. add explanation API after the hot-path evaluator is stable
-9. connect pattern-learning artifacts only after training smoke tests exist
+Artifact layout, manifest, default pointer, promotion, rollback, and commit
+policy: `docs/architecture/evaluation-artifacts.md`.
 
-## Completion Bar
+Pattern learning data pipeline and trainer/exporter responsibilities:
+`docs/architecture/pattern-learning.md`.
 
-Evaluation is ready for serious search tuning when:
+Evaluation artifact data directory policy: `data/eval/README.md`.
 
-* evaluator output is deterministic
-* score semantics are documented
-* artifact versioning is documented
-* artifact loader rejects incompatible data
-* fixed-position evaluation tests pass
-* native and WASM scores agree for the same artifact
-* benchmark baselines exist
-* search can run with the evaluator disabled or replaced by a reference
-  evaluator
-* UI calibration is separate from search scoring
+Pattern learning current status: `docs/progress/pattern-learning.md`.
