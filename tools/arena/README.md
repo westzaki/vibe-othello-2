@@ -86,6 +86,37 @@ by empty count, phase, split, and side assignment, failed game count, timing,
 command, caveats, and a report checksum. The Markdown summary repeats the key
 settings and result tables for local review.
 
+For repeated local validation across depths, seeds, and comparison pairs, use
+the matrix helper:
+
+```sh
+python3 tools/arena/run_pattern_artifact_arena_matrix.py \
+  --positions-tsv "$VIBE_OTHELLO_MEASUREMENTS/<source>/selected-low-empty-normalized.tsv" \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/<arena-matrix-run>" \
+  --comparison-name move_teacher_v2_vs_exact_root_v2 \
+  --candidate-weights "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/move-teacher-child.weights.bin" \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/move-teacher-child.manifest.json" \
+  --candidate-name move-teacher-v2-100k-seed0 \
+  --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<source>/exact-root-v2.weights.bin" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<source>/exact-root-v2.manifest.json" \
+  --baseline-name exact-root-v2-100k \
+  --depths 3,5,7 \
+  --seeds 0,10,20,30,40 \
+  --max-positions 1000 \
+  --side-swap \
+  --same-artifact-sanity candidate \
+  --swap-sanity primary \
+  --resume
+```
+
+The helper validates artifact manifests before running, writes per-run local
+arena reports under `runs/`, writes aggregate `arena-matrix-report.json` and
+`arena-matrix-summary.md`, and validates per-run resume sidecars with input and
+output checksums. Additional comparison pairs can be supplied with
+`--pair-json`. The helper treats `--candidate-name` and `--baseline-name` as
+display names; the runtime pattern set passed to the arena is read from each
+manifest's `pattern_set_id`.
+
 The same tool can also emit a focused bottleneck diagnostic JSON report without
 reloading artifacts per position:
 
