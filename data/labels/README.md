@@ -50,6 +50,33 @@ emits rows in sorted `board_id` order. The score is the exact final disc
 difference from the side-to-move perspective, using the existing exact endgame
 search API. It is intended for endgame/low-empty coverage only.
 
+## Low-Empty Root Selection
+
+Use `tools/pattern/labels/select_low_empty_roots.py` when a local experiment
+needs a deterministic low-empty normalized schema v2 root TSV:
+
+```sh
+python3 tools/pattern/labels/select_low_empty_roots.py \
+  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/<input-normalized-schema-v2.tsv>" \
+  --output-tsv "$VIBE_OTHELLO_MEASUREMENTS/<run>/selected-low-empty-normalized.tsv" \
+  --report-out "$VIBE_OTHELLO_MEASUREMENTS/<run>/selected-low-empty-report.json" \
+  --max-empty 12 \
+  --max-roots 50000 \
+  --seed 0 \
+  --dedupe-key board_id \
+  --preserve-split \
+  --require-schema-v2
+```
+
+The selector rejects schema v1, filters `empty_count <= --max-empty`,
+de-duplicates by `board_id`, samples by deterministic `board_id + seed` hash,
+preserves the original selected rows and split assignments, and writes a
+local-only report with input/eligible/selected counts, duplicate board rows,
+split/empty/phase counts, checksums, command arguments, and non-claim notes.
+It fails when fewer unique roots are available than `--max-roots` unless
+`--allow-less-than-requested` is explicitly set. Do not use that override for a
+claimed 50k run.
+
 Recommended local workflow:
 
 1. Build a connected-board-game 100k normalized/dataset measurement.

@@ -23,6 +23,7 @@ Read only the document needed for the current task.
 | Pattern move-teacher decision leverage diagnostic | `experiments/pattern-move-teacher-decision-leverage.md` |
 | Pattern move-teacher decision leverage scale matrix | `experiments/pattern-move-teacher-decision-leverage-scale.md` |
 | Pattern learning growth cycle local run | `experiments/pattern-learning-growth-cycle.md` |
+| Pattern learning growth cycle 50k local run | `experiments/pattern-learning-growth-cycle-50k.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation implementation status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
