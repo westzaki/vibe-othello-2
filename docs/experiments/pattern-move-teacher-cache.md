@@ -91,6 +91,34 @@ To populate cache during a solved campaign, add:
 --write-move-teacher-cache
 ```
 
+To solve only missing roots on a partial hit, also add:
+
+```sh
+--allow-cache-miss-solve
+```
+
+This mode requires both `--reuse-move-teacher-cache` and
+`--write-move-teacher-cache`. The campaign probes the full selected root set,
+writes a local missing-root normalized TSV, runs the exact move-teacher
+generator only for those missing roots, merges the solved missing roots into
+cache, re-probes to require a full hit, and then materializes the final
+complete outputs from cache using the original full normalized TSV.
+
+Exact root teacher labels can be derived from a complete move-teacher TSV:
+
+```sh
+python3 tools/pattern/labels/derive_exact_root_labels_from_move_teacher.py \
+  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/<source>/selected-low-empty-normalized.tsv" \
+  --move-teacher-tsv "$VIBE_OTHELLO_MEASUREMENTS/<run>/move-teacher.tsv" \
+  --teacher-labels-out "$VIBE_OTHELLO_MEASUREMENTS/<source>/exact-root-derived-teacher-labels.tsv" \
+  --report-out "$VIBE_OTHELLO_MEASUREMENTS/<source>/exact-root-derived-report.json" \
+  --missing-policy fail
+```
+
+The derived root score is `max(root_move_score_side_to_move)`. The output TSV
+uses `teacher_source = exact-move-teacher-derived-root-v1` and is compatible
+with `apply_teacher_labels.py`.
+
 `run_move_teacher_campaign_matrix.py` and `run_pattern_growth_cycle.py` pass the
 same cache flags through to the campaign runner.
 
@@ -105,11 +133,14 @@ Cache reuse fails loudly when:
   kind, label unit, or label perspective differs
 * cached legal moves do not match cached move rows
 * an existing cache entry differs from a newly supplied source move-teacher row
+* a partial-miss solve does not become a full hit after merge
+* a derived exact-root label input has missing roots, duplicate root/move rows,
+  stale root record/split/phase/empty metadata, or a normalized `board_id` that
+  does not match `board_a1_to_h8`
 
-Partial-hit solving is intentionally not implemented in this PR. If a 100k
-source partially overlaps a cached 50k set, the current next step is to either
-materialize only full-hit subsets for validation or add a follow-up that solves
-only missing roots and then merges them into the cache.
+New cache entries are written through a temporary file in the target root-entry
+directory and then renamed into place. Existing entries are compared before
+reuse, so conflicts fail instead of overwriting solved labels.
 
 ## Local Validation
 
@@ -121,6 +152,9 @@ cycle and wrote a scratch cache outside the repository.
 | populate from same-source 50k seed 0 | 50,000 | 194,835 | n/a | 0 | 1,591,232,496 cached | 8.842 sec |
 | same-source 50k seed 1 materialize | 50,000 | 194,835 | 1.000 | 0 | 1,591,232,496 saved | 22.348 sec |
 | connected 50k seed 0 materialize | 50,000 | 194,835 | 1.000 | 0 | 1,591,232,496 saved | 22.296 sec |
+| connected 100k probe-only | 100,000 | n/a | 0.500 | 0 | 1,591,232,496 reusable from 50k cache | 11.657 sec |
+| connected 40-root capped partial solve | 40 | 152 | 0.500 initial / 1.000 final | 467,555 | 377,529 saved | 1.068 sec missing solve; 0.013 sec final materialize |
+| derive exact-root labels from capped complete move-teacher | 40 | n/a | n/a | 0 | 845,084 represented in derived labels | 0.002 sec |
 
 Previous exact generation wall times for the same class of work were about
 3,695 to 4,636 seconds. Cache-only materialization reduced those stages to
@@ -136,9 +170,35 @@ building, one-epoch training, export, and ranking with:
 * exact nodes saved estimate: 1,929,568
 * arena skipped because no baseline was supplied
 
+The capped real partial-miss validation used a 40-root subset from the connected
+100k source and a scratch cache containing only the 20 overlapping solved
+roots. The campaign solved exactly the 20 missing roots, wrote 20 new cache
+entries, re-probed to 40/40 hits, and materialized complete final outputs:
+
+* initial root hits/misses: 20/20
+* final root hits/misses: 40/0
+* roots newly solved: 20
+* move-teacher rows materialized: 152
+* child-normalized rows materialized: 152
+* exact nodes reused/saved: 377,529
+* exact nodes newly solved: 467,555
+* exact nodes materialized from cache after merge: 845,084
+* final move-teacher checksum:
+  `sha256:5ae20d2a89cc9d40b909bb255daa350a82a4a70c613d7e60059c616dbd41694c`
+* final child-normalized checksum:
+  `sha256:b78fe74b8c6e3a646bab3616197691076f66e46eee5ed4efb6636d3a5200bc43`
+* derived exact-root labels: 40 roots,
+  `sha256:c82ff61c18abdc2d9b006044c9b0eea743edd7545cccbb71db157ca49794957d`
+
+The full connected 100k partial-miss solve was not run in this PR. The full
+100k probe showed 50,000 hits and 50,000 misses against the PR #168 scratch
+cache, so the full run would solve 50k missing roots rather than recomputing
+the already solved 50k subset.
+
 ## Next Action
 
-Use this cache for the next fair 100k exact move-teacher validation. The cache
-should first reuse the solved 50k subset, then a follow-up can add explicit
-partial-miss solving for only the missing 100k roots. Do not compare a 100k
-move-teacher run to a mismatched 50k exact-root baseline.
+Run the full connected 100k partial-miss solve with the existing 50k cache,
+derive exact-root teacher labels from the complete 100k move-teacher TSV, build
+the fair 100k exact-root v2 baseline, and only then run the 100k seed 0 growth
+cycle. Do not compare a 100k move-teacher run to a mismatched 50k exact-root
+baseline.

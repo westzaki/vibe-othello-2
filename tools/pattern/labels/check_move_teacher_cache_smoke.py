@@ -58,6 +58,7 @@ MOVE_TEACHER_HEADER = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--materializer", required=True, type=Path)
+    parser.add_argument("--campaign-helper", required=True, type=Path)
     parser.add_argument("--matrix-helper", required=True, type=Path)
     parser.add_argument("--growth-cycle-helper", required=True, type=Path)
     return parser.parse_args()
@@ -153,6 +154,12 @@ def load_json(path: Path) -> dict[str, Any]:
     return data
 
 
+def make_executable(path: Path, text: str) -> Path:
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, text=True, capture_output=True)
 
@@ -234,6 +241,24 @@ def populate_command(
         str(source),
         "--populate-only",
     ]
+
+
+def partial_source(path: Path, roots: list[dict[str, str]], include: set[str]) -> Path:
+    rows: list[dict[str, str]] = []
+    for root in roots:
+        if root["board_id"] not in include:
+            continue
+        if root["board_id"] == "root-a":
+            rows.extend(
+                [
+                    move_row(root, "a1", board(62, 2, 0), 8, 1, True, 0, 11),
+                    move_row(root, "b1", board(61, 3, 0), 2, 2, False, 6, 17),
+                ]
+            )
+        elif root["board_id"] == "root-b":
+            rows.append(move_row(root, "pass", board(57, 7, 0), -4, 1, True, 0, 23))
+    write_tsv(path, MOVE_TEACHER_HEADER, rows)
+    return path
 
 
 def fixture(root: Path) -> tuple[Path, Path, list[dict[str, str]]]:
@@ -344,10 +369,335 @@ def check_failure_modes(args: argparse.Namespace, root: Path) -> bool:
     data = load_json(first)
     data["solver_semantic_version"] = "bad-version"
     first.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return require_failure(
+    if not require_failure(
         run(materialize_command(args, normalized, cache_dir, root / "semantic-move.tsv", root / "semantic-child.tsv", root / "semantic.json")),
         "cache solver_semantic_version mismatch",
+    ):
+        return False
+
+    conflict_cache = root / "conflict-cache"
+    if not require_success(
+        run(populate_command(args, normalized, conflict_cache, source_move_teacher, root / "populate-conflict.json"))
+    ):
+        return False
+    changed_source = root / "changed-source.tsv"
+    changed_rows = load_tsv(source_move_teacher)
+    changed_rows[0]["teacher_nodes"] = "999"
+    write_tsv(changed_source, MOVE_TEACHER_HEADER, changed_rows)
+    if not require_failure(
+        run(populate_command(args, normalized, conflict_cache, changed_source, root / "populate-conflict-fail.json")),
+        "existing cache entry differs",
+    ):
+        return False
+
+    wrong_source = root / "wrong-source.tsv"
+    wrong_rows = load_tsv(source_move_teacher)
+    wrong_rows[0]["root_board_id"] = "not-selected"
+    write_tsv(wrong_source, MOVE_TEACHER_HEADER, wrong_rows)
+    before_files = sorted(conflict_cache.glob("schema-v1/exact-final-disc-diff/max-empty-12/roots/*/*.json"))
+    if not require_failure(
+        run(populate_command(args, normalized, conflict_cache, wrong_source, root / "populate-wrong-fail.json")),
+        "source move-teacher row is not in selected normalized roots",
+    ):
+        return False
+    after_files = sorted(conflict_cache.glob("schema-v1/exact-final-disc-diff/max-empty-12/roots/*/*.json"))
+    if before_files != after_files:
+        print("failed cache populate changed valid cache entries", file=sys.stderr)
+        return False
+    return True
+
+
+def fake_campaign_tools(root: Path) -> dict[str, Path]:
+    generator = make_executable(
+        root / "fake-generator.py",
+        """#!/usr/bin/env python3
+import argparse, csv, json
+from pathlib import Path
+
+NORMALIZED_HEADER = %(normalized_header)r
+MOVE_HEADER = %(move_header)r
+
+def phase(occupied):
+    return min(12, ((occupied - 4) * 13) // 60)
+
+def counts(board):
+    return {
+        "occupied_count": board.count("X") + board.count("O"),
+        "player_disc_count": board.count("X"),
+        "opponent_disc_count": board.count("O"),
+        "empty_count": board.count("-"),
+    }
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--normalized-tsv", required=True)
+parser.add_argument("--move-teacher-out", required=True)
+parser.add_argument("--child-normalized-out", required=True)
+parser.add_argument("--report-out", required=True)
+parser.add_argument("--max-empty")
+parser.add_argument("--max-roots")
+parser.add_argument("--seed")
+parser.add_argument("--progress-every")
+args = parser.parse_args()
+
+with open(args.normalized_tsv, newline="", encoding="utf-8") as handle:
+    roots = list(csv.DictReader(handle, delimiter="\\t"))
+
+move_rows = []
+child_rows = []
+for index, root in enumerate(roots):
+    child_board = root["board_a1_to_h8"].replace("-", "X", 1)
+    child_counts = counts(child_board)
+    child_id = f"fake-child:{root['board_id']}:a1"
+    move_rows.append({
+        "root_board_id": root["board_id"],
+        "root_record_id": root["record_id"],
+        "root_split": root["split"],
+        "root_phase": root["phase"],
+        "root_empty_count": root["empty_count"],
+        "move": "a1",
+        "child_board_id": child_id,
+        "child_board_a1_to_h8": child_board,
+        "child_empty_count": str(child_counts["empty_count"]),
+        "child_phase": str(phase(child_counts["occupied_count"])),
+        "root_move_score_side_to_move": "5",
+        "child_label_score_side_to_move": "-5",
+        "is_best_move": "1",
+        "best_move_tie_count": "1",
+        "move_rank": "1",
+        "best_score_margin": "0",
+        "teacher_source": "exact-move-teacher-v1",
+        "teacher_depth": str(child_counts["empty_count"]),
+        "teacher_nodes": "31",
+    })
+    child_rows.append({
+        "record_id": child_id,
+        "position_id": child_id,
+        "game_group_id": root["game_group_id"],
+        "board_id": child_id,
+        "source_occurrence_id": child_id + ":source",
+        "source_dataset_id": "exact-move-teacher-v1",
+        "split": root["split"],
+        "board_a1_to_h8": child_board,
+        "label_kind": "teacher_exact_move_child_final_disc_diff",
+        "label_unit": "disc",
+        "label_perspective": "side_to_move",
+        "label_score_side_to_move": "-5",
+        "occupied_count": str(child_counts["occupied_count"]),
+        "phase": str(phase(child_counts["occupied_count"])),
+        "player_disc_count": str(child_counts["player_disc_count"]),
+        "opponent_disc_count": str(child_counts["opponent_disc_count"]),
+        "empty_count": str(child_counts["empty_count"]),
+    })
+
+for path, header, rows in [
+    (args.move_teacher_out, MOVE_HEADER, move_rows),
+    (args.child_normalized_out, NORMALIZED_HEADER, child_rows),
+]:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=header, delimiter="\\t", lineterminator="\\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+Path(args.report_out).write_text(json.dumps({
+    "schema_version": 1,
+    "selected_roots": len(roots),
+    "move_rows": len(move_rows),
+    "child_normalized_rows": len(child_rows),
+    "teacher_nodes_sum": sum(int(row["teacher_nodes"]) for row in move_rows),
+    "wall_time_sec": 0.0,
+}, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+Path(args.report_out).with_suffix(".input.json").write_text(json.dumps({
+    "normalized_tsv": args.normalized_tsv,
+    "root_board_ids": [row["board_id"] for row in roots],
+}, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+""" % {"normalized_header": NORMALIZED_HEADER_V2, "move_header": MOVE_TEACHER_HEADER},
     )
+    dataset = make_executable(
+        root / "fake-dataset.py",
+        """#!/usr/bin/env python3
+import argparse, json
+parser = argparse.ArgumentParser()
+parser.add_argument("--normalized-tsv")
+parser.add_argument("--report")
+parser.add_argument("--output-format")
+parser.add_argument("--pattern-set")
+args = parser.parse_args()
+print("record_id\\tsplit\\tphase\\tlabel\\tfeatures")
+print("example\\ttrain\\t12\\t0\\t0:0:0")
+open(args.report, "w", encoding="utf-8").write(json.dumps({"accepted_rows": 1}, sort_keys=True) + "\\n")
+""",
+    )
+    trainer = make_executable(
+        root / "fake-trainer.py",
+        """#!/usr/bin/env python3
+import argparse, json
+parser = argparse.ArgumentParser()
+parser.add_argument("--dataset")
+parser.add_argument("--mode")
+parser.add_argument("--epochs")
+parser.add_argument("--learning-rate")
+parser.add_argument("--lr-schedule")
+parser.add_argument("--weight-decay")
+parser.add_argument("--weights-out")
+parser.add_argument("--report-out")
+parser.add_argument("--seed")
+args, _ = parser.parse_known_args()
+open(args.weights_out, "w", encoding="utf-8").write(json.dumps({"weights": []}, sort_keys=True) + "\\n")
+open(args.report_out, "w", encoding="utf-8").write(json.dumps({"ok": True}, sort_keys=True) + "\\n")
+""",
+    )
+    exporter = make_executable(
+        root / "fake-exporter.py",
+        """#!/usr/bin/env python3
+import argparse, json
+parser = argparse.ArgumentParser()
+parser.add_argument("--weights-json")
+parser.add_argument("--weights-out")
+parser.add_argument("--manifest-out")
+parser.add_argument("--pattern-set")
+args = parser.parse_args()
+open(args.weights_out, "wb").write(b"fake-weights")
+open(args.manifest_out, "w", encoding="utf-8").write(json.dumps({"pattern_set": args.pattern_set}, sort_keys=True) + "\\n")
+""",
+    )
+    ranking = make_executable(
+        root / "fake-ranking.py",
+        """#!/usr/bin/env python3
+import argparse, json
+parser = argparse.ArgumentParser()
+parser.add_argument("--move-teacher")
+parser.add_argument("--weights")
+parser.add_argument("--manifest")
+parser.add_argument("--pattern-set")
+parser.add_argument("--report-out")
+parser.add_argument("--summary-out")
+args = parser.parse_args()
+report = {
+    "root_count": 2,
+    "legal_move_count": 3,
+    "top1_accuracy": 1.0,
+    "top1_tie_aware_accuracy": 1.0,
+    "best_move_in_top2_rate": 1.0,
+    "pairwise_accuracy": 1.0,
+    "pairwise_count": 1,
+    "mean_teacher_regret": 0.0,
+    "median_teacher_regret": 0.0,
+    "exact_best_predicted_score_rank_mean": 1.0,
+    "exact_best_predicted_score_rank_median": 1.0,
+    "predicted_best_exact_margin_mean": 0.0,
+    "roots_with_all_moves_same_predicted_score": 0,
+}
+open(args.report_out, "w", encoding="utf-8").write(json.dumps(report, sort_keys=True) + "\\n")
+open(args.summary_out, "w", encoding="utf-8").write("# fake ranking\\n")
+""",
+    )
+    return {
+        "generator": generator,
+        "dataset": dataset,
+        "trainer": trainer,
+        "exporter": exporter,
+        "ranking": ranking,
+    }
+
+
+def campaign_command(
+    args: argparse.Namespace,
+    normalized: Path,
+    output_dir: Path,
+    cache_dir: Path,
+    tools: dict[str, Path],
+    *extra: str,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(args.campaign_helper),
+        "--normalized-tsv",
+        str(normalized),
+        "--output-dir",
+        str(output_dir),
+        "--max-empty",
+        "12",
+        "--max-roots",
+        "10",
+        "--seed",
+        "0",
+        "--pattern-set",
+        "pattern-v2-endgame-lite",
+        "--trainer-mode",
+        "pattern-sgd-v0c",
+        "--epochs",
+        "1",
+        "--move-teacher-cache-dir",
+        str(cache_dir),
+        "--move-teacher-cache-helper",
+        str(args.materializer),
+        "--reuse-move-teacher-cache",
+        "--write-move-teacher-cache",
+        "--generator",
+        str(tools["generator"]),
+        "--dataset-exe",
+        str(tools["dataset"]),
+        "--trainer",
+        str(tools["trainer"]),
+        "--exporter",
+        str(tools["exporter"]),
+        "--ranking-evaluator",
+        str(tools["ranking"]),
+        *extra,
+    ]
+
+
+def check_partial_miss_campaign(args: argparse.Namespace, root: Path) -> bool:
+    normalized, _, roots = fixture(root)
+    cache_dir = root / "partial-cache"
+    root_a_source = partial_source(root / "root-a-source.tsv", roots, {"root-a"})
+    if not require_success(run(populate_command(args, normalized, cache_dir, root_a_source, root / "populate-root-a.json"))):
+        return False
+    tools = fake_campaign_tools(root)
+    no_allow = run(campaign_command(args, normalized, root / "campaign-no-allow", cache_dir, tools))
+    if not require_failure(no_allow, "hits=1 misses=1"):
+        return False
+    allowed = run(
+        campaign_command(
+            args,
+            normalized,
+            root / "campaign-allow",
+            cache_dir,
+            tools,
+            "--allow-cache-miss-solve",
+        )
+    )
+    if not require_success(allowed):
+        return False
+    output_dir = root / "campaign-allow"
+    invocation = load_json(output_dir / "missing-move-teacher-report.input.json")
+    if invocation.get("root_board_ids") != ["root-b"]:
+        print(f"fake generator was not limited to missing roots: {invocation}", file=sys.stderr)
+        return False
+    move_rows = load_tsv(output_dir / "move-teacher.tsv")
+    if [row["root_board_id"] for row in move_rows] != ["root-b", "root-a", "root-a"]:
+        print(f"final materialization did not preserve full normalized order: {move_rows}", file=sys.stderr)
+        return False
+    report = load_json(output_dir / "move-teacher-report.json")
+    cache = report.get("cache", {})
+    if cache.get("root_hits") != 2 or cache.get("root_misses") != 0:
+        print(f"final cache report is not full hit: {cache}", file=sys.stderr)
+        return False
+    if cache.get("root_hits_initial") != 1 or cache.get("root_misses_initial") != 1:
+        print(f"initial hit/miss counts missing: {cache}", file=sys.stderr)
+        return False
+    if cache.get("roots_newly_solved") != 1 or cache.get("exact_nodes_newly_solved") != 31:
+        print(f"new solve counts missing: {cache}", file=sys.stderr)
+        return False
+    if cache.get("exact_nodes_saved_estimate") != 28:
+        print(f"saved node estimate should only count initial hits: {cache}", file=sys.stderr)
+        return False
+    campaign = load_json(output_dir / "campaign-report.json")
+    if campaign.get("partial_cache_miss_solved") is not True:
+        print(f"campaign did not record partial solve: {campaign}", file=sys.stderr)
+        return False
+    return True
 
 
 def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
@@ -368,12 +718,17 @@ def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
             str(root / "cache-pass-through"),
             "--reuse-move-teacher-cache",
             "--write-move-teacher-cache",
+            "--allow-cache-miss-solve",
             "--dry-run",
         ]
     )
     if not require_success(matrix):
         return False
-    if "--reuse-move-teacher-cache" not in matrix.stdout or "--write-move-teacher-cache" not in matrix.stdout:
+    if (
+        "--reuse-move-teacher-cache" not in matrix.stdout
+        or "--write-move-teacher-cache" not in matrix.stdout
+        or "--allow-cache-miss-solve" not in matrix.stdout
+    ):
         print(f"matrix dry-run did not pass cache args: {matrix.stdout}", file=sys.stderr)
         return False
 
@@ -393,6 +748,7 @@ def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
             str(root / "cache-pass-through"),
             "--reuse-move-teacher-cache",
             "--write-move-teacher-cache",
+            "--allow-cache-miss-solve",
             "--dry-run",
         ]
     )
@@ -400,7 +756,11 @@ def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
         return False
     report = load_json(root / "growth" / "growth-cycle-report.json")
     command = report.get("stages", {}).get("decision_leverage_matrix", {}).get("command", [])
-    if "--reuse-move-teacher-cache" not in command or "--write-move-teacher-cache" not in command:
+    if (
+        "--reuse-move-teacher-cache" not in command
+        or "--write-move-teacher-cache" not in command
+        or "--allow-cache-miss-solve" not in command
+    ):
         print(f"growth dry-run did not pass cache args: {command}", file=sys.stderr)
         return False
     return True
@@ -413,6 +773,8 @@ def main() -> int:
         if not check_full_hit_and_remap(args, root):
             return 1
         if not check_failure_modes(args, root):
+            return 1
+        if not check_partial_miss_campaign(args, root):
             return 1
         if not check_pass_through(args, root):
             return 1

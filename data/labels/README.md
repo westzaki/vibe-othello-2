@@ -182,8 +182,30 @@ contents match.
 Cache reuse validates schema/semantic metadata, `max_empty`, label
 kind/unit/perspective, solver semantic version, `board_id`, board contents,
 empty count, and cached legal moves. Full-hit mode fails on missing roots.
-Partial-miss solve is not implemented yet; do not silently drop missing roots
-or compare a partially materialized run as if it were complete.
+Partial-miss solve is opt-in through `--allow-cache-miss-solve` and requires
+`--write-move-teacher-cache`. On a partial hit, the campaign writes a
+missing-root normalized TSV, solves only those missing roots, merges them into
+the cache with temp-file cache entry writes, re-probes for a full hit, and then
+materializes the final complete `move-teacher.tsv` and `child-normalized.tsv`
+from cache using the original full normalized TSV. Missing roots are never
+silently dropped, and partial outputs are not treated as complete outputs.
+
+To derive exact root teacher labels from a complete move-teacher TSV without a
+second exact-root solve, use:
+
+```sh
+python3 tools/pattern/labels/derive_exact_root_labels_from_move_teacher.py \
+  --normalized-tsv "$RUN_DIR/selected-low-empty-normalized.tsv" \
+  --move-teacher-tsv "$RUN_DIR/move-teacher.tsv" \
+  --teacher-labels-out "$RUN_DIR/exact-root-derived-teacher-labels.tsv" \
+  --report-out "$RUN_DIR/exact-root-derived-report.json" \
+  --missing-policy fail
+```
+
+The derived TSV is compatible with `apply_teacher_labels.py` and uses
+`teacher_source = exact-move-teacher-derived-root-v1`. The root exact score is
+`max(root_move_score_side_to_move)`, and `teacher_nodes` is the sum of child
+move-teacher `teacher_nodes` for that root.
 
 Build a child pattern dataset, train with an existing value trainer, export,
 and evaluate move ranking:

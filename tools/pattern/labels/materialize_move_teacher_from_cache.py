@@ -7,7 +7,9 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -87,6 +89,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--source-move-teacher-tsv", type=Path)
     parser.add_argument("--populate-only", action="store_true")
+    parser.add_argument("--probe-only", action="store_true")
+    parser.add_argument("--missing-normalized-out", type=Path)
     parser.add_argument("--require-full-hit", action="store_true", default=True)
     args = parser.parse_args()
 
@@ -99,8 +103,10 @@ def parse_args() -> argparse.Namespace:
     if args.populate_only:
         if args.source_move_teacher_tsv is None:
             parser.error("--populate-only requires --source-move-teacher-tsv")
+        if args.probe_only:
+            parser.error("--populate-only and --probe-only cannot be combined")
     else:
-        if args.move_teacher_out is None or args.child_normalized_out is None:
+        if not args.probe_only and (args.move_teacher_out is None or args.child_normalized_out is None):
             parser.error("--move-teacher-out and --child-normalized-out are required unless --populate-only")
     return args
 
@@ -211,6 +217,7 @@ def write_tsv(path: Path, header: list[str], rows: list[dict[str, str]]) -> None
 def select_roots(path: Path, max_empty: int, max_roots: int | None, seed: int) -> tuple[list[dict[str, str]], dict[str, Any]]:
     rows = load_tsv(path, NORMALIZED_HEADER_V2)
     seen_boards: set[str] = set()
+    board_contents_by_id: dict[str, str] = {}
     unique_eligible: dict[str, dict[str, str]] = {}
     duplicate_board_rows = 0
     skipped_too_many_empty = 0
@@ -226,6 +233,10 @@ def select_roots(path: Path, max_empty: int, max_roots: int | None, seed: int) -
         if row["label_perspective"] != LABEL_PERSPECTIVE:
             raise CacheError(f"{board_id}: label_perspective must be {LABEL_PERSPECTIVE}")
         validate_counts(row)
+        previous_board = board_contents_by_id.get(board_id)
+        if previous_board is not None and previous_board != row["board_a1_to_h8"]:
+            raise CacheError(f"{board_id}: same board_id has different board contents")
+        board_contents_by_id.setdefault(board_id, row["board_a1_to_h8"])
         occupied = parse_int(row["occupied_count"], "occupied_count")
         phase = parse_int(row["phase"], "phase")
         empty = parse_int(row["empty_count"], "empty_count")
@@ -292,6 +303,7 @@ def cache_entry_from_rows(root: dict[str, str], rows: list[dict[str, str]], max_
         raise CacheError(f"{root['board_id']}: cannot cache empty move row set")
     cached_rows: list[dict[str, Any]] = []
     moves: list[str] = []
+    seen_moves: set[str] = set()
     for row in sorted(rows, key=lambda item: item["move"]):
         if row["root_board_id"] != root["board_id"]:
             raise CacheError(f"{root['board_id']}: root_board_id mismatch in move-teacher row")
@@ -299,6 +311,9 @@ def cache_entry_from_rows(root: dict[str, str], rows: list[dict[str, str]], max_
             raise CacheError(f"{root['board_id']}: teacher_source must be {TEACHER_SOURCE}")
         if row["root_empty_count"] != root["empty_count"]:
             raise CacheError(f"{root['board_id']}: root_empty_count does not match normalized TSV")
+        if row["move"] in seen_moves:
+            raise CacheError(f"{root['board_id']} {row['move']}: duplicate move-teacher row")
+        seen_moves.add(row["move"])
         counts = child_counts_payload(row["child_board_a1_to_h8"])
         child_empty = parse_int(row["child_empty_count"], "child_empty_count")
         child_phase = parse_int(row["child_phase"], "child_phase")
@@ -393,6 +408,8 @@ def validate_cache_entry(entry: dict[str, Any], root: dict[str, str], max_empty:
         raise CacheError(f"{root['board_id']}: cache rows must be a non-empty list")
     if not isinstance(moves, list) or moves != [row.get("move") for row in rows]:
         raise CacheError(f"{root['board_id']}: cache legal_moves do not match rows")
+    if len(set(moves)) != len(moves):
+        raise CacheError(f"{root['board_id']}: cache legal_moves contains duplicates")
 
 
 def write_cache_entry(cache_dir: Path, max_empty: int, entry: dict[str, Any]) -> None:
@@ -404,7 +421,34 @@ def write_cache_entry(cache_dir: Path, max_empty: int, entry: dict[str, Any]) ->
             raise CacheError(f"{board_id}: existing cache entry differs from source move-teacher rows")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(stable_json(entry), encoding="utf-8")
+    text = stable_json(entry)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            tmp_path = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        parsed = json.loads(tmp_path.read_text(encoding="utf-8"))
+        validate_cache_entry(parsed, {"board_id": board_id, "board_a1_to_h8": entry["root"]["board_a1_to_h8"], "empty_count": str(entry["root"]["empty_count"])}, max_empty)
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if normalize_entry_for_compare(existing) != normalize_entry_for_compare(entry):
+                raise CacheError(f"{board_id}: existing cache entry differs from source move-teacher rows")
+            tmp_path.unlink(missing_ok=True)
+            return
+        tmp_path.replace(path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 def populate_cache(
@@ -492,18 +536,78 @@ def child_normalized_row(root: dict[str, str], cached: dict[str, Any]) -> dict[s
 
 def load_cache_entries(
     roots: list[dict[str, str]], cache_dir: Path, max_empty: int
-) -> tuple[list[tuple[dict[str, str], dict[str, Any]]], list[str]]:
+) -> tuple[list[tuple[dict[str, str], dict[str, Any]]], list[dict[str, str]]]:
     hits: list[tuple[dict[str, str], dict[str, Any]]] = []
-    misses: list[str] = []
+    misses: list[dict[str, str]] = []
     for root in roots:
         path = root_cache_path(cache_dir, max_empty, root["board_id"])
         if not path.exists():
-            misses.append(root["board_id"])
+            misses.append(root)
             continue
         entry = json.loads(path.read_text(encoding="utf-8"))
         validate_cache_entry(entry, root, max_empty)
         hits.append((root, entry))
     return hits, misses
+
+
+def cached_teacher_nodes(hits: list[tuple[dict[str, str], dict[str, Any]]]) -> int:
+    return sum(int(row["teacher_nodes"]) for _, entry in hits for row in entry["rows"])
+
+
+def cache_probe_report(
+    roots: list[dict[str, str]],
+    root_stats: dict[str, Any],
+    args: argparse.Namespace,
+    started: float,
+) -> dict[str, Any]:
+    hits, misses = load_cache_entries(roots, args.cache_dir, args.max_empty)
+    teacher_nodes_sum = cached_teacher_nodes(hits)
+    missing_sha256 = None
+    if args.missing_normalized_out is not None:
+        write_tsv(args.missing_normalized_out, NORMALIZED_HEADER_V2, misses)
+        missing_sha256 = sha256_file(args.missing_normalized_out)
+    return {
+        "schema_version": 1,
+        "max_empty": args.max_empty,
+        "max_roots": args.max_roots,
+        "seed": args.seed,
+        "normalized_input_path": report_path(args.normalized_tsv),
+        "wall_time_sec": time.monotonic() - started,
+        "cache": {
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "cache_semantic_version": CACHE_SEMANTIC_VERSION,
+            "cache_base": report_path(cache_base(args.cache_dir, args.max_empty)),
+            "cache_mode": "probe-only",
+            "root_count_requested": len(roots),
+            "root_hits": len(hits),
+            "root_misses": len(misses),
+            "cache_hit_ratio": (len(hits) / len(roots)) if roots else 0.0,
+            "exact_nodes_reused": teacher_nodes_sum,
+            "exact_nodes_saved_estimate": teacher_nodes_sum,
+            "exact_nodes_newly_solved": 0,
+            "missing_board_ids_sample": [row["board_id"] for row in misses[:10]],
+            "missing_normalized_out": report_path(args.missing_normalized_out),
+            "missing_normalized_sha256": missing_sha256,
+            "normalized_input_sha256": sha256_file(args.normalized_tsv),
+            "ordered_root_digest": root_stats["ordered_root_digest"],
+            "unordered_root_digest": root_stats["unordered_root_digest"],
+            "board_contents_digest": root_stats["board_contents_digest"],
+            "generator_semantic_version": GENERATOR_SEMANTIC_VERSION,
+            "solver_semantic_version": SOLVER_SEMANTIC_VERSION,
+            "label_kind": CHILD_LABEL_KIND,
+            "label_unit": LABEL_UNIT,
+            "label_perspective": LABEL_PERSPECTIVE,
+        },
+        "notes": [
+            "local-only exact move-teacher cache probe",
+            "missing roots are reported but not materialized as a complete output",
+            "not a strength claim",
+            "not an Elo result",
+            "not self-play",
+            "not a production artifact",
+            "generated cache, labels, and artifacts must not be committed",
+        ],
+    }
 
 
 def materialize(
@@ -516,7 +620,7 @@ def materialize(
     if misses and args.require_full_hit:
         raise CacheMissError(
             f"move-teacher cache full hit required but {len(misses)} roots are missing; "
-            f"first missing board_id: {misses[0]}"
+            f"first missing board_id: {misses[0]['board_id']}"
         )
 
     move_rows: list[dict[str, str]] = []
@@ -602,7 +706,7 @@ def materialize(
             "exact_nodes_reused": teacher_nodes_sum,
             "exact_nodes_saved_estimate": teacher_nodes_sum,
             "exact_nodes_newly_solved": 0,
-            "missing_board_ids_sample": misses[:10],
+            "missing_board_ids_sample": [row["board_id"] for row in misses[:10]],
             "normalized_input_sha256": sha256_file(args.normalized_tsv),
             "move_teacher_sha256": sha256_file(args.move_teacher_out),
             "child_normalized_sha256": sha256_file(args.child_normalized_out),
@@ -684,6 +788,13 @@ def main() -> int:
                 )
                 print(f"cache_report={args.report_out}")
                 return 0
+        if args.probe_only:
+            report = cache_probe_report(roots, root_stats, args, started)
+            args.report_out.write_text(stable_json(report), encoding="utf-8")
+            print(f"cache_probe_report={args.report_out}")
+            print(f"cache_hits={report['cache']['root_hits']}")
+            print(f"cache_misses={report['cache']['root_misses']}")
+            return 0
         report = materialize(roots, root_stats, args, started)
         args.report_out.write_text(stable_json(report), encoding="utf-8")
         print(f"move_teacher={args.move_teacher_out}")
