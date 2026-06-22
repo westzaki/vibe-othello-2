@@ -11,7 +11,7 @@ review.
 
 Evaluation must be deterministic, measurable, fast enough for recursive search,
 and explainable enough for analysis workflows. This document defines the
-runtime architecture contract, not artifact publication policy or training
+runtime architecture contract, not committed artifact policy or training
 workflow status.
 
 ## Boundaries
@@ -49,7 +49,7 @@ labels, or trainer reports.
 
 Search consumes evaluation through a small deterministic interface. The
 interface is a recursive hot path and should remain allocation-free,
-file-I/O-free, and independent of training or artifact publication code.
+file-I/O-free, and independent of training or committed artifact handling code.
 
 ```cpp
 class Evaluator {
