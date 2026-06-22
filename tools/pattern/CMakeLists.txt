@@ -1,4 +1,5 @@
 add_subdirectory(common)
+add_subdirectory(artifacts)
 add_subdirectory(dataset)
 add_subdirectory(features)
 add_subdirectory(labels)

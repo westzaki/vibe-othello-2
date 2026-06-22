@@ -47,6 +47,7 @@ add_executable(
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
   evaluation/pattern_evaluator_test.cc
+  evaluation/pattern_artifact_test.cc
   evaluation/pattern_schema_test.cc
   evaluation/pattern_weights_test.cc
   evaluation/tiny_pattern_evaluator_test.cc

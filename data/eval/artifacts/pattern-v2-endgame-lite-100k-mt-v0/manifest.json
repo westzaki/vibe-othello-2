@@ -1,0 +1,87 @@
+{
+  "artifact_id": "pattern-v2-endgame-lite-100k-mt-v0",
+  "bit_order": "a1-lsb",
+  "format": "vibe-othello-pattern-eval",
+  "format_version": 1,
+  "nonzero_pattern_weights": 237037,
+  "pattern_set_id": "pattern-v2-endgame-lite",
+  "patterns": [
+    {
+      "length": 8,
+      "pattern_id": "edge-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "near-edge-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "diagonal-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 7,
+      "pattern_id": "diagonal-7",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 10,
+      "pattern_id": "corner-2x5",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 9,
+      "pattern_id": "corner-3x3",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "corner-2x4-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 10,
+      "pattern_id": "edge-plus-x-10",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "corner-wing-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "near-edge-segment-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "diagonal-corner-8",
+      "weights": "sparse-v0b-import"
+    }
+  ],
+  "phase_bias": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    2,
+    1
+  ],
+  "phase_count": 13,
+  "quantization": "round-half-away-from-zero to int32 search::Score",
+  "score_scale": 1,
+  "score_unit": "disc-diff",
+  "weights_checksum": "0x3d50ed72",
+  "weights_file": "weights.bin",
+  "weights_size_bytes": 9666647
+}

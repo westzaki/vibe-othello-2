@@ -131,6 +131,17 @@ Existing evaluation tests cover:
   runtime/export compatibility for a tiny nonzero feature weight, normalized
   phase versus runtime phase mapping, label sign convention, and feature family
   activation counts without committing generated artifacts or reports
+* a committed experimental-default learned artifact at
+  `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/`
+* a central default artifact pointer at `data/eval/default-artifact.json`
+* manifest-based runtime artifact loading through
+  `vibe_othello::evaluation::load_default_pattern_artifact` and
+  `load_pattern_artifact`
+* engine CLI default evaluation through the committed artifact, with
+  `--eval-artifact <manifest-path>` for custom artifacts and
+  `--eval-mode static` for the legacy static evaluator
+* CTest-backed evaluation artifact commit-policy validation for required
+  artifact files, checksums, redistribution flags, and local path exclusion
 
 The current repository already documents that:
 
@@ -150,16 +161,19 @@ The current implementation does not yet have:
 * evaluation explanation API
 * calibration API
 * incremental evaluator state
-* trained weights
 * production trainer tooling
 * calibrated score scale
+
+The first committed learned artifact is experimental-default only. It is not an
+Elo result, self-play improvement claim, production-strength claim, publication
+readiness claim, or official Egaroucid artifact.
 
 Trainer v0b learned weights can now be exported, loaded, measured by a
 fixed-position evaluation smoke, measured by a fixed-position search smoke,
 exercised by the local-only Egaroucid subset training runner, and compared in a
-persistent local artifact-vs-artifact late-game arena. Full training,
-production artifact publication, Elo-style match-bench validation, self-play,
-and production strength claims remain unimplemented.
+persistent local artifact-vs-artifact late-game arena. Full production trainer
+hardening, Elo-style match-bench validation, self-play, and production strength
+claims remain unimplemented.
 
 The existing `search::Evaluator` interface is the production boundary for
 heuristic evaluation today.
@@ -199,6 +213,7 @@ Status values:
 | Add local training runner evaluation smoke integration | done | The local-only Egaroucid subset training runner can export local v0b artifacts and include the fixed-position evaluation smoke summary/checksum in its local run report; sequence-derived local runs may cap evaluation smoke input rows independently from training rows; this remains smoke coverage, not a production benchmark |
 | Add persistent pattern artifact arena | done | `vibe-othello-pattern-artifact-arena` loads two local pattern artifacts once, reuses both artifact-backed evaluators across deterministic late-game side-swapped games, emits JSON/Markdown diagnostics, and stays scoped to local artifact-vs-artifact review rather than Elo, self-play, production strength, or publication gating |
 | Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can optionally emit diagnostics for selected-position static score deltas, fixed-depth root move disagreements, search score deltas, exact low-empty disagreement adjudication, depth-sweep arena results, side-assignment buckets, manifest/runtime pattern-set compatibility, phase/sign sanity, and feature activation by family |
+| Add experimental default learned artifact | done | `pattern-v2-endgame-lite-100k-mt-v0` is committed under `data/eval/artifacts/`, selected by `data/eval/default-artifact.json`, loaded by default in the engine CLI, and guarded by commit-policy checks |
 | Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
 | Add calibration API | not started | Must not alter search scores |
 | Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
@@ -228,12 +243,10 @@ Evaluation is strong enough to build on when:
 * evaluation benchmark baselines exist
 * UI calibration remains separate from search scoring
 
-Next evaluation steps for learned artifacts are repeatable local v1/v2
-Egaroucid sequence subset reports with capped smoke inputs before any
-production publication decision. Sequence-derived labels are
-final-disc-difference labels, not teacher-search labels. Learned
-Egaroucid-derived weights and artifacts remain uncommitted, local-only, and
-publication-gated until provenance review is resolved.
+Next evaluation steps for learned artifacts are local human-play/default-engine
+checks, optional human-play CLI/UI wiring, and later NTest or external-engine
+match validation. The committed v0 remains experimental and does not establish
+production strength.
 
 ## Progress Update Rules
 
