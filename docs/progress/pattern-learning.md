@@ -456,6 +456,25 @@ claiming stable 50k support. Details live in
 local-only evidence, not Elo, not self-play, not production strength, and not
 an artifact publication gate.
 
+A broader local 100k move-teacher arena/search-depth validation then ran the
+fair same-source 100k move-teacher child-value artifact against the fair
+same-source exact-root v2 baseline and the existing v1 exact-teacher artifact.
+The matrix covered depths 3, 5, and 7; seeds 0, 10, 20, 30, and 40; 1,000
+sampled positions; side swap; same-artifact sanity; and candidate/baseline
+swap sanity. All 75 runs completed with 150,000 games and zero failed games.
+Move-teacher v2 vs exact-root v2 was non-negative in 14 of 15 runs with mean
+score rate `0.503517` and mean average disc difference `+0.2020`; depth 7
+was close, including one slightly negative score-rate row. Move-teacher v2 vs
+v1 and exact-root v2 vs v1 were supportive in all 15 runs, same-artifact
+sanity was exactly neutral, and swap sanity complemented the primary
+comparison in all 15 paired checks. The scorecard is
+`promote_to_experimental_default_candidate`, meaning the next PR may add the
+learned eval artifact v0 as an experimental default candidate with policy and
+loader checks. Details live in
+`docs/experiments/pattern-arena-100k-move-teacher-broader.md`. This remains
+local-only bounded validation, not Elo, not self-play, not production
+strength, not publication readiness, and not artifact-publication readiness.
+
 The Egaroucid normalized dataset report currently records:
 
 * `schema_version`
@@ -705,7 +724,9 @@ Status values:
 | Add move-teacher decision-leverage pipeline | done | Low-empty normalized schema v2 roots can now produce exact per-move teacher labels and child-normalized exact labels; child-label artifacts can be trained with existing v0c/v0d trainers and evaluated by root move-ranking metrics before optional bounded artifact arena checks |
 | Add move-teacher decision campaign matrix | done | `run_move_teacher_campaign_matrix.py` wraps the existing campaign helper over bounded root-count/seed matrices, preserves local-only outputs and resume validation, aggregates full-set, held-out, and arena direction metrics, and recorded a 5k/10k/20k x seeds 0/1/2 robust local decision-leverage diagnostic plus bounded 20k arena variations without committing generated artifacts |
 | Add pattern-learning growth cycle runner | done | `run_pattern_growth_cycle.py` turns the current local pattern-learning pieces into a repeatable preflight -> decision-leverage matrix -> bounded artifact arena -> promotion scorecard -> next-action loop, with synthetic CTest coverage for promote/hold/negative/rank-objective/missing-input/dry-run report behavior and no committed generated local outputs. Arena resume keys now include `swap_of` for candidate/baseline swap sanity variants so repeated 100k training seeds do not collide on the same swap-sanity report path. |
-| Advance 50k move-teacher growth validation | done | The local growth route has same-source 50k seeds 0/1/2 complete against a fair exact-root v2 baseline, connected 50k seed 0 positive, and a connected-board-game 100k low-empty source selected with checksum `sha256:260102a58ead4522169d7298ba828fa983930c902c261c49d18da4b11b6d0ce7`. The follow-up connected 100k validation is now complete: the full partial-miss move-teacher solve reused 50,000 cached roots, solved 50,000 missing roots, built a fair same-source 100k exact-root v2 baseline from derived labels, and ran 100k seeds 0/1/2 with positive top1/top2/pairwise/regret deltas and supportive bounded arena checks. The next evidence step is broader bounded arena/search-depth validation, not pattern-v3, a pairwise rank trainer, or an optimizer sweep. |
+| Advance 50k and 100k move-teacher growth validation | done | The local growth route has same-source 50k seeds 0/1/2 complete against a fair exact-root v2 baseline, connected 50k seed 0 positive, and a connected-board-game 100k low-empty source selected with checksum `sha256:260102a58ead4522169d7298ba828fa983930c902c261c49d18da4b11b6d0ce7`. The follow-up connected 100k validation is complete: the full partial-miss move-teacher solve reused 50,000 cached roots, solved 50,000 missing roots, built a fair same-source 100k exact-root v2 baseline from derived labels, and ran 100k seeds 0/1/2 with positive top1/top2/pairwise/regret deltas and supportive bounded arena checks. |
+| Add pattern artifact arena matrix helper | done | `tools/arena/run_pattern_artifact_arena_matrix.py` runs the persistent artifact arena across comparison/depth/seed/max-position matrices, validates artifact manifests and per-run resume checksums, supports multiple comparison pairs plus same-artifact and swap sanity variants, and writes local-only aggregate JSON/Markdown reports. Synthetic CTest coverage checks dry-run planning, fake-arena aggregation, resume metadata mismatch failures, missing artifact failures, manifest checksum mismatch failures, same-artifact sanity aggregation, and swap sanity aggregation without committing generated reports. |
+| Broaden 100k move-teacher arena validation | done | The broader connected 100k move-teacher validation completed 75 side-swapped arena runs across depths 3/5/7, seeds 0/10/20/30/40, and 1,000 sampled positions for move-teacher v2 vs fair exact-root v2, move-teacher v2 vs v1, exact-root v2 vs v1, same-artifact sanity, and primary swap sanity. Total games were 150,000 with zero failed games. Move-teacher v2 vs exact-root v2 was non-negative in 14/15 runs with mean score rate `0.503517` and mean average disc difference `+0.2020`; same-artifact sanity was exactly neutral and swap sanity passed. The scorecard is `promote_to_experimental_default_candidate`, so the next PR may add the learned eval artifact v0 as an experimental default candidate while keeping this PR artifact-free. |
 | Cache exact move-teacher labels | done | `materialize_move_teacher_from_cache.py` stores split-independent exact move-teacher root payloads in a local per-root cache and materializes `move-teacher.tsv` plus `child-normalized.tsv` with current record ids, split assignments, root phases, and row order. The campaign, matrix, and growth-cycle runners pass through cache reuse/write/partial-miss flags; full-hit and partial-miss reuse validate board identity, board contents, schema/semantic metadata, label kind/unit/perspective, solver version, `max_empty`, legal move rows, and cache conflicts. Synthetic smoke coverage checks full-hit remap, partial-hit failure without opt-in, partial-miss fake-generator orchestration, mismatch failures, source conflicts, semantic mismatch failures, report fields, and runner pass-through. Real local validation populated the initial 50k cache, probed the connected 100k source at 50,000 hits / 50,000 misses, then completed the full connected 100k partial-miss solve with 100,000 final hits, 0 misses, 50,000 newly solved roots, 1,591,232,496 exact nodes reused/saved, 1,630,297,760 exact nodes newly solved, and 3,221,530,256 exact nodes materialized after merge. |
 | Derive exact root labels from move-teacher rows | done | `derive_exact_root_labels_from_move_teacher.py` derives `teacher_exact_final_disc_diff` root labels from complete move-teacher TSVs using the max root move score and sum child `teacher_nodes` aggregate, writes `apply_teacher_labels.py`-compatible TSVs, and is covered by synthetic smoke tests for max-score selection, missing-root failure, and duplicate root/move failure. The full connected 100k run derived 100,000 exact-root labels from the complete move-teacher TSV with 0 missing roots, then used `apply_teacher_labels.py --missing-policy fail` to build the fair same-source 100k exact-root v2 baseline. |
 | Add production artifact exporter | not started | Production publication flow, provenance gates, and non-smoke training reports are still missing |
@@ -735,11 +756,12 @@ Pattern learning is strong enough to support production evaluation when:
 * strength checks can compare two artifacts
 * license and provenance status is visible before publishing weights
 
-Next implementation steps are running broader local diagnostics for
-`pattern-v2-endgame-lite` with the persistent artifact arena, trainer
-improvements, or production pattern-set symmetry enablement before any
-production artifact publication, committed learned weights, Elo-style match
-bench, or strength-claim work.
+Next implementation steps are adding the learned eval artifact v0 as an
+experimental default candidate with artifact policy and loader checks, or
+continuing trainer diagnostics if reviewers want more depth-7 or larger
+max-position arena margin before that PR. Production artifact publication,
+committed learned weights outside the experimental-default flow, Elo-style
+match bench, and strength-claim work remain out of scope.
 
 ## Progress Update Rules
 

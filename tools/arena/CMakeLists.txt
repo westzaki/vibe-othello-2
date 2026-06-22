@@ -30,4 +30,10 @@ if(BUILD_TESTING)
     NAME vibe_othello_pattern_artifact_arena_smoke
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_artifact_arena_smoke.py
             --exe $<TARGET_FILE:vibe_othello_pattern_artifact_arena>)
+
+  add_test(
+    NAME vibe_othello_pattern_artifact_arena_matrix_smoke
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_artifact_arena_matrix_smoke.py
+            --helper ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_artifact_arena_matrix.py)
 endif()

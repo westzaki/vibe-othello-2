@@ -187,22 +187,23 @@ candidate artifact name, so different training seeds collided against the seed
 which keeps swap sanity resume metadata distinct across training seeds. A smoke
 check covers the key identity.
 
-## Next Action
+## Follow-Up
 
-The immediate repeated 100k validation target is complete. The next evidence
-step should be broader bounded arena/search-depth validation for the 100k
-move-teacher v2 and fair exact-root v2 artifacts, then decide whether the
-remaining gap to exact-root v2 is meaningful enough to justify a rank-objective
-experiment.
+The immediate repeated 100k validation target is complete. The follow-up
+broader bounded arena/search-depth validation also completed and selected
+`promote_to_experimental_default_candidate`; details live in
+`docs/experiments/pattern-arena-100k-move-teacher-broader.md`.
+
+The next evidence-backed action may be adding the learned eval artifact v0 as
+an experimental default candidate in a separate PR. This note still does not
+commit or publish generated weights.
 
 Do not do the following next:
 
 * do not claim Elo, self-play improvement, production strength, publication
   readiness, or artifact publication readiness
-* do not introduce pattern-v3 before broader bounded arena/search-depth
-  validation explains the current 100k result
-* do not add a pairwise rank trainer unless the broader validation shows
-  pairwise/regret or exact-root-v2 comparisons stalling
+* do not introduce pattern-v3 as part of the artifact-default PR
+* do not add a pairwise rank trainer as part of the artifact-default PR
 * do not run an LR/WD sweep as the main next step
 
 No stages are incomplete. If local reports need to be regenerated, rerun the
