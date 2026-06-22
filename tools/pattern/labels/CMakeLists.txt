@@ -72,4 +72,12 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py
       --matrix-helper
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_campaign_matrix.py)
+
+  add_test(
+    NAME vibe_othello_pattern_select_low_empty_roots_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_select_low_empty_roots_smoke.py
+      --selector
+      ${CMAKE_CURRENT_SOURCE_DIR}/select_low_empty_roots.py)
 endif()

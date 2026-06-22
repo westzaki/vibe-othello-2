@@ -727,7 +727,8 @@ def summarize_decision_leverage(matrix_report: dict[str, Any] | None) -> dict[st
         and regret_decrease > most_threshold
         and heldout_support > most_threshold
     )
-    stable = run_count > 0 and negative == 0 and all(
+    replicated = run_count >= 2 and all(data["run_count"] >= 2 for data in by_root_count.values())
+    stable = replicated and negative == 0 and all(
         data["positive_count"] > data["run_count"] / 2.0 and data["heldout_support_count"] > data["run_count"] / 2.0
         for data in by_root_count.values()
     )
@@ -744,6 +745,7 @@ def summarize_decision_leverage(matrix_report: dict[str, Any] | None) -> dict[st
         "high_all_same_count": high_all_same,
         "compressed_static_score_range_count": compressed,
         "gate_passed": gate_passed,
+        "replicated_root_count_seed_support": replicated,
         "stable_across_root_counts_and_seeds": stable,
         "metrics": {metric: summarize_metric(runs, metric) for metric in RANKING_METRICS},
         "by_root_count": by_root_count,

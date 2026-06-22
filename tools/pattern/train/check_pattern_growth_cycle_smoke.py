@@ -142,6 +142,33 @@ def check_neutral_arena_hold(module: Any) -> bool:
     return True
 
 
+def check_single_seed_hold(module: Any) -> bool:
+    runs = [
+        synthetic_run(
+            50000,
+            0,
+            top1_delta=0.04,
+            top2_delta=0.03,
+            pairwise_delta=0.04,
+            regret_delta=-0.5,
+            heldout_top2_delta=0.02,
+            heldout_pairwise_delta=0.02,
+            heldout_regret_delta=-0.3,
+        )
+    ]
+    decision, arena, scorecard = decide(module, synthetic_matrix(runs), supportive_arenas())
+    if not decision.get("gate_passed") or not arena.get("gate_passed"):
+        print(f"single seed should still pass gates: {decision} {arena}", file=sys.stderr)
+        return False
+    if decision.get("stable_across_root_counts_and_seeds"):
+        print(f"single seed should not count as stable: {decision}", file=sys.stderr)
+        return False
+    if scorecard.get("category") != "hold_for_more_data":
+        print(f"single seed should hold for more data: {scorecard}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_negative_pairwise(module: Any) -> bool:
     runs = [
         synthetic_run(
@@ -414,6 +441,7 @@ def main() -> int:
     checks = (
         check_robust_positive(module),
         check_neutral_arena_hold(module),
+        check_single_seed_hold(module),
         check_negative_pairwise(module),
         check_all_same_rank_need(module),
     )

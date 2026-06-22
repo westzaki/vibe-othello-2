@@ -425,6 +425,25 @@ cycle. Details live in `docs/experiments/pattern-learning-growth-cycle.md`.
 This remains local-only evidence, not Elo, not self-play, not production
 strength, and not an artifact publication gate.
 
+A follow-up local 50,000-root attempt selected a larger low-empty normalized
+schema v2 source from the existing 1m sequence measurement. The source had
+230,045 unique roots with `empty_count <= 12`; the new selector wrote a
+deterministic 50,000-root TSV with preserved splits and checksum-tracked
+reporting. A fair exact-root v2 baseline was built for that selected source,
+then the growth-cycle runner completed one 50,000-root seed. The completed
+seed improved top1, tie-aware top1, top2, pairwise accuracy, mean teacher
+regret, exact-best rank mean, and all-same predicted roots versus the
+same-source exact-root v2 baseline; held-out validation+test also supported the
+direction. Fourteen bounded arenas completed with zero failed games:
+move-teacher v2 was supportive against v1 and non-negative against exact-root
+v2, same-artifact sanity passed, and swap sanity moved in the expected
+opposite direction. The scorecard now holds for more data because only seed 0
+completed at 50,000 roots; seeds 1 and 2 remain the next validation step before
+claiming stable 50k support. Details live in
+`docs/experiments/pattern-learning-growth-cycle-50k.md`. This remains
+local-only evidence, not Elo, not self-play, not production strength, and not
+an artifact publication gate.
+
 The Egaroucid normalized dataset report currently records:
 
 * `schema_version`
