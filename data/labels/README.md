@@ -1,291 +1,113 @@
-# Teacher Label Data Policy
+# Teacher Label Data
 
-This directory documents local-only teacher label files for pattern learning.
+## Purpose
 
-Do not commit generated teacher label TSVs, teacher-overlaid normalized TSVs,
-pattern datasets, weights, artifacts, local reports, logs, raw corpus payloads,
-or personal absolute paths.
+`data/labels/` is for teacher label schema notes, tiny safe fixtures, and
+directory policy documentation.
 
-Teacher label TSVs consumed by `tools/pattern/labels/apply_teacher_labels.py`
-use this header:
+Generated teacher labels are local-only by default. This directory should not
+contain local solve output, campaign output, training output, cache payloads, or
+machine-specific paths.
 
-```text
-board_id	label_kind	label_unit	label_perspective	label_score_side_to_move	teacher_source	teacher_depth	teacher_nodes
-```
+## What May Be Committed
 
-Field rules:
+Commit OK:
 
-* `board_id` is the non-empty normalized schema v2 board id.
-* `label_kind` is one of `teacher_exact_final_disc_diff`,
-  `teacher_search_final_disc_diff`, or `teacher_static_eval_disc_diff`.
-* `label_unit` is `disc`.
-* `label_perspective` is `side_to_move`.
-* `label_score_side_to_move` is an integer in `[-64, 64]`.
-* `teacher_source` is a non-empty generic source label such as
-  `synthetic-fixture`, `exact-endgame`, or `search-depth-N`.
-* `teacher_depth` and `teacher_nodes` are non-negative integers, or empty when
-  not applicable.
+* this README
+* schema and policy docs
+* tiny repo-owned synthetic fixtures used by tests
+* manifest-like metadata files only when they do not contain raw external
+  payloads or local machine paths
 
-Teacher labels and overlaid normalized TSVs are fitting diagnostics only. They
-are not strength claims, Elo results, match bench results, self-play results,
-or production artifacts.
+Checked-in files should stay limited to schema/policy docs and tiny
+repo-owned fixtures.
 
-Exact endgame teacher labels can be generated locally for low-empty normalized
-schema v2 rows:
+## What Must Stay Local
 
-```sh
-./build/tools/pattern/labels/vibe-othello-generate-exact-endgame-teacher-labels \
-  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
-  --teacher-labels-out "$RUN_DIR/exact-teacher-labels.tsv" \
-  --report-out "$RUN_DIR/exact-teacher-report.json" \
-  --max-empty 12 \
-  --max-positions 5000 \
-  --seed 0 \
-  --progress-every 100
-```
+Commit NG:
 
-The generator reads normalized schema v2 only, rejects schema v1, uses
-`board_id` as the key, solves only rows with `empty_count <= --max-empty`, and
-emits rows in sorted `board_id` order. The score is the exact final disc
-difference from the side-to-move perspective, using the existing exact endgame
-search API. It is intended for endgame/low-empty coverage only.
+* generated exact teacher label TSVs
+* generated search teacher label TSVs
+* generated move-teacher TSVs
+* generated child-normalized TSVs
+* teacher-overlaid normalized TSVs
+* exact solve caches
+* move-teacher caches
+* materialized cache outputs
+* local campaign outputs
+* local matrix outputs
+* local growth-cycle outputs
+* local reports
+* trainer reports
+* sweep reports
+* logs
+* temporary datasets
+* source archives
+* extracted source files
+* local machine paths
 
-## Low-Empty Root Selection
+Generated teacher, move-teacher, and child-normalized files are not Elo
+results, self-play results, production strength claims, or runtime artifacts.
 
-Use `tools/pattern/labels/select_low_empty_roots.py` when a local experiment
-needs a deterministic low-empty normalized schema v2 root TSV:
+## Teacher Label Schema
 
-```sh
-python3 tools/pattern/labels/select_low_empty_roots.py \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/<input-normalized-schema-v2.tsv>" \
-  --output-tsv "$VIBE_OTHELLO_MEASUREMENTS/<run>/selected-low-empty-normalized.tsv" \
-  --report-out "$VIBE_OTHELLO_MEASUREMENTS/<run>/selected-low-empty-report.json" \
-  --max-empty 12 \
-  --max-roots 50000 \
-  --seed 0 \
-  --dedupe-key board_id \
-  --preserve-split \
-  --require-schema-v2
-```
+Teacher label TSVs are keyed by `board_id`. A teacher row must declare:
 
-The selector rejects schema v1, filters `empty_count <= --max-empty`,
-de-duplicates by `board_id`, samples by deterministic `board_id + seed` hash,
-preserves the original selected rows and split assignments, and writes a
-local-only report with input/eligible/selected counts, duplicate board rows,
-split/empty/phase counts, checksums, command arguments, and non-claim notes.
-It fails when fewer unique roots are available than `--max-roots` unless
-`--allow-less-than-requested` is explicitly set. Do not use that override for a
-claimed 50k run.
+* `board_id`
+* `label_kind`
+* `label_unit`
+* `label_perspective`
+* `label_score_side_to_move`
+* `teacher_source`
+* enough solve/search metadata for local review, such as depth and node counts
 
-Recommended local workflow:
+`label_unit` is `disc`, and `label_perspective` is `side_to_move` for the
+teacher labels covered by this policy.
 
-1. Build a connected-board-game 100k normalized/dataset measurement.
-2. Generate exact endgame labels from the exact normalized rows used for
-   training.
-3. Apply local teacher labels with `apply_teacher_labels.py`, usually with
-   `--missing-policy drop` for low-empty-only experiments.
-4. Train v0c/v0d on the observed-label low-empty rows and exact-teacher
-   low-empty rows.
-5. Compare observed-label and teacher-label runs by validation diagnostics.
-6. Later, run match bench, Elo, or self-play gates before making strength
-   claims.
+Duplicate identical teacher rows may be tolerated by tools. Conflicting
+teacher rows for the same key must be rejected.
 
-The optional local campaign helper performs steps 2 through 5 for a bounded
-late-phase diagnostic:
+Missing-label handling belongs in tool or workflow docs, not in committed data.
 
-```sh
-python3 tools/pattern/labels/run_exact_teacher_late_phase_campaign.py \
-  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
-  --output-dir "$RUN_DIR/exact-teacher-late-phase" \
-  --max-empty 12 \
-  --max-positions 5000 \
-  --seed 0 \
-  --trainer-mode pattern-sgd-v0c
-```
+## Move-Teacher Label Contract
 
-Pass `--pattern-set pattern-v2-endgame-lite` to run the same local diagnostic
-with the bounded endgame-lite research pattern set.
+Move-teacher labels connect root legal moves to exact child board labels.
 
-The campaign selects by validation MAE first. Test MAE is reporting and
-tie-break only. Treat exact labels as helpful only after at least 0.2 MAE
-absolute validation improvement or at least 1 percent relative validation
-improvement.
+Child exact labels are from the child side-to-move perspective. The root move
+score is derived as the negative child score.
 
-## Move-Teacher Decision Labels
-
-Static root labels did not reliably create root best-move changes in the
-pattern signal bottleneck diagnostics. Move-teacher data connects exact labels
-to root decisions by enumerating legal moves at low-empty roots, exact-solving
-each child, and training/evaluating artifacts on after-move child positions.
-
-Generate a local move-teacher dataset:
-
-```sh
-./build/tools/pattern/labels/vibe-othello-generate-exact-move-teacher-dataset \
-  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
-  --move-teacher-out "$RUN_DIR/move-teacher.tsv" \
-  --child-normalized-out "$RUN_DIR/child-normalized.tsv" \
-  --report-out "$RUN_DIR/move-teacher-report.json" \
-  --max-empty 12 \
-  --max-roots 5000 \
-  --seed 0 \
-  --progress-every 100
-```
-
-The move-teacher TSV header is:
-
-```text
-root_board_id	root_record_id	root_split	root_phase	root_empty_count	move	child_board_id	child_board_a1_to_h8	child_empty_count	child_phase	root_move_score_side_to_move	child_label_score_side_to_move	is_best_move	best_move_tie_count	move_rank	best_score_margin	teacher_source	teacher_depth	teacher_nodes
-```
-
-Sign convention:
-
-* root and child boards use normalized side-to-move-relative `X`/`O`
-* exact child labels are from the child side-to-move perspective
-* root move scores are `-child_label_score_side_to_move`
-* `teacher_depth` is the child empty count solved exactly
-
-The child-normalized TSV is schema v2-compatible and uses:
+Child-normalized rows use:
 
 ```text
 label_kind = teacher_exact_move_child_final_disc_diff
 label_unit = disc
 label_perspective = side_to_move
-source_dataset_id = exact-move-teacher-v1
 ```
 
-Exact move-teacher solving is expensive, but the solved move rows are
-split-independent. Reuse a local cache when the same root `board_id` and
-`board_a1_to_h8` are available:
+Move-teacher and child-normalized TSVs are generated local outputs and must
+stay out of the repository unless a future tiny repo-owned fixture is added for
+tests.
 
-```sh
-python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
-  --normalized-tsv "$RUN_DIR/selected-low-empty-normalized.tsv" \
-  --output-dir "$RUN_DIR/move-teacher-decision" \
-  --max-empty 12 \
-  --max-roots 50000 \
-  --seed 1 \
-  --pattern-set pattern-v2-endgame-lite \
-  --move-teacher-cache-dir "$VIBE_OTHELLO_MOVE_TEACHER_CACHE" \
-  --reuse-move-teacher-cache \
-  --resume
-```
+## Directory Rules
 
-Populate the cache during a solved run with `--write-move-teacher-cache`, or
-from an existing solved `move-teacher.tsv` with
-`tools/pattern/labels/materialize_move_teacher_from_cache.py --populate-only`.
-Materialization uses the current normalized TSV for record ids, split
-assignments, root phase, game group ids, and selected row order, so connected
-split remaps can reuse exact move-teacher labels when board identity and board
-contents match.
+Keep this directory small and reviewable.
 
-Cache reuse validates schema/semantic metadata, `max_empty`, label
-kind/unit/perspective, solver semantic version, `board_id`, board contents,
-empty count, and cached legal moves. Full-hit mode fails on missing roots.
-Partial-miss solve is opt-in through `--allow-cache-miss-solve` and requires
-`--write-move-teacher-cache`. On a partial hit, the campaign writes a
-missing-root normalized TSV, solves only those missing roots, merges them into
-the cache with temp-file cache entry writes, re-probes for a full hit, and then
-materializes the final complete `move-teacher.tsv` and `child-normalized.tsv`
-from cache using the original full normalized TSV. Missing roots are never
-silently dropped, and partial outputs are not treated as complete outputs.
+Do not add generated label payloads, cache payloads, local reports, local
+workflow outputs, source payloads, or absolute local paths.
 
-To derive exact root teacher labels from a complete move-teacher TSV without a
-second exact-root solve, use:
+Do not use files in this directory to make strength, release, or runtime
+artifact claims. This directory only defines the label data boundary and the
+minimum schema contract.
 
-```sh
-python3 tools/pattern/labels/derive_exact_root_labels_from_move_teacher.py \
-  --normalized-tsv "$RUN_DIR/selected-low-empty-normalized.tsv" \
-  --move-teacher-tsv "$RUN_DIR/move-teacher.tsv" \
-  --teacher-labels-out "$RUN_DIR/exact-root-derived-teacher-labels.tsv" \
-  --report-out "$RUN_DIR/exact-root-derived-report.json" \
-  --missing-policy fail
-```
+## Where Details Live
 
-The derived TSV is compatible with `apply_teacher_labels.py` and uses
-`teacher_source = exact-move-teacher-derived-root-v1`. The root exact score is
-`max(root_move_score_side_to_move)`, and `teacher_nodes` is the sum of child
-move-teacher `teacher_nodes` for that root.
+Use these docs for the broader workflow and historical context:
 
-Build a child pattern dataset, train with an existing value trainer, export,
-and evaluate move ranking:
-
-```sh
-python3 tools/pattern/labels/run_move_teacher_decision_campaign.py \
-  --normalized-tsv "$RUN_DIR/resplit-normalized.tsv" \
-  --output-dir "$RUN_DIR/move-teacher-decision" \
-  --max-empty 12 \
-  --max-roots 5000 \
-  --seed 0 \
-  --pattern-set pattern-v2-endgame-lite \
-  --trainer-mode pattern-sgd-v0c \
-  --learning-rate 0.1 \
-  --lr-schedule inverse-sqrt \
-  --weight-decay 0.0001 \
-  --resume
-```
-
-Ranking reports include top-1 exact-best accuracy, tie-aware top-1 accuracy,
-exact best in predicted top 2, pairwise accuracy, mean/median teacher regret,
-exact-best predicted rank, all-same predicted roots, and breakdowns by empty
-count, phase, and split.
-
-`--resume` is conservative: each skipped stage must have a matching
-`*.resume.json` sidecar with the current command, input checksums, and output
-checksums. If metadata is missing or mismatched, the helper fails instead of
-mixing stale move-teacher rows, datasets, weights, ranking reports, or arena
-reports into a new campaign report.
-
-To repeat the same campaign over bounded root-count and seed matrices, use the
-local-only matrix wrapper:
-
-```sh
-python3 tools/pattern/labels/run_move_teacher_campaign_matrix.py \
-  --normalized-tsv "$RUN_DIR/selected-low-empty-normalized.tsv" \
-  --output-dir "$RUN_DIR/move-teacher-decision-matrix" \
-  --root-counts 5000,10000 \
-  --seeds 0,1,2 \
-  --pattern-set pattern-v2-endgame-lite \
-  --trainer-mode pattern-sgd-v0c \
-  --resume
-```
-
-The matrix wrapper delegates generation, training, export, ranking, arena, and
-resume safety to `run_move_teacher_decision_campaign.py`, then writes local-only
-`matrix-report.json` and `matrix-summary.md`.
-
-To turn that matrix into a policy-driven local growth cycle, run the higher
-level orchestrator:
-
-```sh
-python3 tools/pattern/train/run_pattern_growth_cycle.py \
-  --normalized-tsv "$VIBE_OTHELLO_MEASUREMENTS/<connected-or-low-empty-normalized.tsv>" \
-  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/<pattern-growth-cycle-run>" \
-  --pattern-set pattern-v2-endgame-lite \
-  --baseline-root-label-weights "$VIBE_OTHELLO_MEASUREMENTS/<exact-root-v2.weights.bin>" \
-  --baseline-root-label-manifest "$VIBE_OTHELLO_MEASUREMENTS/<exact-root-v2.manifest.json>" \
-  --baseline-v1-weights "$VIBE_OTHELLO_MEASUREMENTS/<v1.weights.bin>" \
-  --baseline-v1-manifest "$VIBE_OTHELLO_MEASUREMENTS/<v1.manifest.json>" \
-  --root-counts 5000,10000,20000 \
-  --seeds 0,1,2 \
-  --arena-depths 3,5 \
-  --arena-seeds 0,10,20 \
-  --arena-max-positions 1000 \
-  --resume
-```
-
-The growth-cycle runner writes local-only `growth-cycle-report.json` and
-`growth-cycle-summary.md`. It preflights input availability, downgrades root
-counts when the low-empty input is smaller than requested, runs or reuses the
-move-teacher matrix, schedules bounded artifact arenas for promotable
-candidates, checks same-artifact and swap sanity, and emits a promotion
-category plus the next recommended action. It may also stop early when the
-decision-leverage gate fails, a critical sanity check fails, or local inputs are
-insufficient.
-
-When `--resume` is used without an explicit `--matrix-report`, the growth-cycle
-runner delegates back to the matrix helper so its resume metadata and checksum
-validation runs before the growth-cycle scorecard loads the matrix report.
-
-These files remain local-only diagnostics. They are not Elo, not self-play, not
-production strength, and not publication gates.
+* Pattern learning architecture and data flow:
+  `../../docs/architecture/pattern-learning.md`
+* Pattern learning current status: `../../docs/progress/pattern-learning.md`
+* Historical experiment logs: `../../docs/experiments/README.md`
+* Corpus source policy: `../corpora/README.md`
+* Evaluation artifact directory policy: `../eval/README.md`
+* Artifact layout and commit policy:
+  `../../docs/architecture/evaluation-artifacts.md`
