@@ -61,6 +61,8 @@ Teacher label TSVs are keyed by `board_id`. A teacher row must declare:
 * `teacher_source`
 * enough solve/search metadata for local review, such as depth and node counts
 
+Typical solve/search metadata fields are `teacher_depth` and `teacher_nodes`.
+
 `label_unit` is `disc`, and `label_perspective` is `side_to_move` for the
 teacher labels covered by this policy.
 
