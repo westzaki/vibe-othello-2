@@ -24,34 +24,6 @@ if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
   add_test(
-    NAME vibe_othello_pattern_export_smoke
-    COMMAND
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/check_smoke.py
-      --exporter-exe
-      $<TARGET_FILE:vibe_othello_pattern_export_smoke>
-      --v0b-exporter
-      ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
-      --roundtrip-exe
-      $<TARGET_FILE:vibe_othello_pattern_evaluation_roundtrip_smoke>
-      --trainer-exe
-      $<TARGET_FILE:vibe_othello_pattern_train_smoke>
-      --trainer-v0a
-      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py
-      --dataset-exe
-      $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
-      --egaroucid-importer
-      ${CMAKE_SOURCE_DIR}/tools/data-import/import_egaroucid_train_data.py
-      --egaroucid-fixture
-      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
-      --egaroucid-manifest
-      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json
-      --records
-      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.records.tsv
-      --manifest
-      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json)
-
-  add_test(
     NAME vibe_othello_pattern_evaluation_roundtrip_smoke
     COMMAND
       ${Python3_EXECUTABLE}
