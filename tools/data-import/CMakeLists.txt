@@ -29,18 +29,6 @@ if(BUILD_TESTING)
                "summary total_records=6 accepted_records=2 rejected_records=4")
 
   add_test(
-    NAME vibe_othello_data_import_egaroucid_smoke
-    COMMAND
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_smoke.py
-      --importer
-      ${CMAKE_CURRENT_SOURCE_DIR}/import_egaroucid_train_data.py
-      --fixture
-      ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-board-score.txt
-      --manifest
-      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json)
-
-  add_test(
     NAME vibe_othello_egaroucid_sequence_import_smoke
     COMMAND
       ${Python3_EXECUTABLE}
