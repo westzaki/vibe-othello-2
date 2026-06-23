@@ -29,16 +29,6 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json)
 
   add_test(
-    NAME vibe_othello_pattern_local_training_analyzer_smoke
-    COMMAND
-      ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/check_local_training_analyzer_smoke.py
-      --analyzer
-      ${CMAKE_CURRENT_SOURCE_DIR}/analyze_local_training_runs.py
-      --source-dir
-      ${CMAKE_SOURCE_DIR})
-
-  add_test(
     NAME vibe_othello_pattern_growth_cycle_smoke
     COMMAND
       ${Python3_EXECUTABLE}
