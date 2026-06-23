@@ -11,8 +11,7 @@ The cache is local-only infrastructure. Cache payloads, generated
 move-teacher TSVs, child-normalized TSVs, teacher labels, datasets, weights,
 reports, logs, corpora, and scratch outputs must stay out of git.
 
-Historical decision-leverage results live in
-`pattern-learning-move-teacher-decision-history.md`.
+Historical decision-leverage results live in `pattern-learning-history.md`.
 
 ## Cache Responsibility
 
