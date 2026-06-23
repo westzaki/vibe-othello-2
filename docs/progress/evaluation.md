@@ -1,262 +1,109 @@
 # Evaluation Progress
 
-## Purpose
+## Current State
 
-This document tracks current implementation status for evaluation.
+This document is the short current-status entry point for runtime evaluation.
+Intended design and stable contracts live in `docs/architecture/evaluation.md`.
+Artifact layout, default resolution, promotion, rollback, and commit policy live
+in `docs/architecture/evaluation-artifacts.md`. Pattern-learning pipeline
+status lives in `docs/progress/pattern-learning.md`.
 
-The intended design lives in `docs/architecture/evaluation.md`.
+Runtime evaluation is implemented around the search-facing
+`search::Evaluator` boundary in
+`engine/include/vibe_othello/search/evaluator.h`.
 
-Pattern-learning implementation status lives in
-`docs/progress/pattern-learning.md`.
-
-This file may change frequently as implementation progresses.
-
-## Design Sources
-
-Relevant design documents:
-
-* `docs/architecture/evaluation.md`
-* `docs/architecture/pattern-learning.md`
-* `docs/architecture/search.md`
-* `docs/architecture/board-core.md`
-
-## Current Foundation
-
-The current repository has the first runtime evaluation module and a stable
-search-facing evaluator interface.
-
-Existing search public types include:
-
-* `Score`
-* `kScoreWin`
-* `kScoreLoss`
-* `Evaluator`
-
-The current search-facing evaluator interface is:
-
-* `engine/include/vibe_othello/search/evaluator.h`
-
-The current evaluation runtime includes:
-
-* public evaluation headers under `engine/include/vibe_othello/evaluation/`
-* minimal pattern schema types
-* `LoadedPatternWeights` for artifact-loader output
-* explicit runtime `PatternWeights` container for phase maps, phase biases, and
-  immutable evaluator tables
-* ternary pattern index encoding
-* opt-in ternary pattern symmetry canonicalization primitives for `none`,
-  `reverse`, and `square_d4`
-* a symmetry-aware tiny pattern-set fixture for smoke tooling, with `edge-8`
-  using `reverse` and `corner-3x3` using `square_d4`
-* a runtime-owned raw `pattern-v1-buro-lite` production-ish pattern set and
-  feature geometry covering edge, near-edge, diagonal, and corner families for
-  larger local measurements
-* a runtime-owned raw `pattern-v2-endgame-lite` local research pattern set that
-  preserves `pattern-v1-buro-lite` order and appends bounded endgame-oriented
-  families for exact-teacher fitting diagnostics
-* explicit runtime `PatternFeatureSet` geometry for mapping weight tables to
-  board instances
-* production-facing `PatternEvaluator` that consumes `PatternWeights` and a
-  `PatternFeatureSet`
-* fixed tiny pattern instances for edges and corners
-* explicit pattern schema validation
-* `TinyPatternEvaluator`
-
-Ternary pattern digits are:
-
-* empty square: `0`
-* side-to-move disc: `1`
-* opponent disc: `2`
-
-`TinyPatternEvaluator` implements `search::Evaluator`, returns side-to-move
-relative scores, performs no file I/O, and reads scores from explicit
-`PatternWeights`. Tiny fixture weights are now test-only helpers rather than
-the evaluator implementation. Scores are kept strictly inside the search
-sentinel range by construction.
-
-`PatternEvaluator` implements `search::Evaluator`, returns side-to-move
-relative scores, performs no file I/O in the evaluator hot path, validates the
-runtime feature set against `PatternWeights`, and sums phase-dependent table
-weights over each declared pattern instance. Its runtime model now matches the
-documented linear model:
+`PatternEvaluator` is the current learned runtime evaluator. It implements
+`search::Evaluator`, returns side-to-move-relative scores, performs no file I/O
+in the evaluator hot path, consumes immutable `PatternWeights` plus an explicit
+`PatternFeatureSet`, validates that runtime geometry matches the loaded
+weights, and evaluates the documented phase-dependent linear model:
 
 ```text
 bias[phase] + sum(pattern weights)
 ```
 
-Existing evaluation tests cover:
+The runtime evaluation module also includes pattern schema types, loaded
+artifact weight containers, runtime `PatternWeights`, ternary pattern indexing,
+declared pattern-symmetry support, pattern-set feature geometry, and the
+test-oriented `TinyPatternEvaluator`. Existing trainer/exporter tooling can
+produce runtime-compatible learned artifacts; the learned evaluator itself is
+not missing.
 
-* deterministic scoring
-* side-to-move score convention
-* generic runtime feature set scoring
-* hand-computed ternary pattern index
-* fixture-backed score compatibility
-* rejection of corrupted or incompatible tiny and generic pattern inputs
-* phase boundary behavior
-* phase bias preservation from loaded artifacts into runtime `PatternWeights`
-* phase bias contribution to `PatternEvaluator` scores
-* search sentinel score range
-* isolated pattern symmetry canonicalization for none, reverse, square D4,
-  determinism, player/opponent digit preservation, and malformed inputs
-* CTest-backed raw and opt-in canonical tiny feature/dataset smoke outputs,
-  including shared row counts, changed representative canonical indices, and a
-  boundary check that production-safe pattern helper targets do not depend on
-  tiny smoke fixture helpers
-* artifact loader success and rejection paths
-* conversion from loaded artifact data to runtime `PatternWeights`
-* CTest-backed learning-pipeline round-trip from tiny trainer summary to
-  exported artifact, runtime loader, `PatternWeights`, and `PatternEvaluator`
-* CTest-backed trainer v0b local weights JSON export into the existing runtime
-  artifact format, followed by runtime loader, `PatternWeights`, and
-  `PatternEvaluator` smoke evaluation
-* CTest-backed fixed-position evaluation smoke that generates local-only v0a
-  phase-bias and v0b pattern-SGD artifacts from the checked-in tiny Egaroucid
-  fixture, loads both through the runtime artifact path, evaluates a
-  deterministic fixed position set, and reports v0a/v0b score deltas
-* CTest-backed fixed-position search smoke that reuses those local-only learned
-  artifacts through `PatternEvaluator` and measures v0a versus v0b under the
-  same explicitly configured deterministic depth-1 smoke search settings
-* local smoke coverage for exporting, loading, and evaluating
-  `pattern-v1-buro-lite` and `pattern-v2-endgame-lite` artifacts without
-  committing learned weights
-* CTest-backed persistent pattern artifact arena smoke that loads candidate and
-  baseline local artifacts once, reuses both `PatternEvaluator` instances across
-  deterministic side-swapped late-game games, checks JSON/Markdown report
-  emission, deterministic stable payloads, `board_id` de-duplication,
-  max-empty filtering, and artifact validation failures without committing
-  generated artifacts or reports
-* CTest-backed pattern artifact arena diagnostics that reuse loaded runtime
-  evaluators to compare static scores, root best moves, search scores,
-  same-artifact mirror sanity, candidate/baseline swap complement behavior,
-  runtime/export compatibility for a tiny nonzero feature weight, normalized
-  phase versus runtime phase mapping, label sign convention, and feature family
-  activation counts without committing generated artifacts or reports
-* a committed experimental-default learned artifact at
-  `data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/`
-* a central default artifact pointer at `data/eval/default-artifact.json`
-* manifest-based runtime artifact loading through
-  `vibe_othello::evaluation::load_default_pattern_artifact` and
-  `load_pattern_artifact`
-* engine CLI default evaluation through the committed artifact, with
-  `--eval-artifact <manifest-path>` for custom artifacts and
-  `--eval-mode static` for the legacy static evaluator
-* CTest-backed evaluation artifact commit-policy validation for required
-  artifact files, checksums, redistribution flags, and local path exclusion
+The legacy static evaluator path remains available as an explicit override and
+as a simple deterministic reference path for tooling and tests.
 
-The current repository already documents that:
+## Runtime and Artifact Status
 
-* search depends on an evaluation interface for heuristic leaf scores
-* search does not own evaluation feature definitions
-* endgame exact search must not call heuristic evaluation
-* board core is the source of truth for positions and moves
-* evaluation artifact manifests and binary weights live under the `data/eval/`
-  policy
+`pattern-v2-endgame-lite-100k-mt-v0` is the committed learned evaluation
+artifact v0 and is the current experimental default.
 
-## Current Gaps
+Default resolution is controlled by `data/eval/default-artifact.json`, whose
+status is `experimental-default` and whose manifest pointer resolves to:
 
-The current implementation does not yet have:
+```text
+data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json
+```
 
-* production baseline evaluator
-* production learned pattern evaluator
-* evaluation explanation API
-* calibration API
-* incremental evaluator state
-* production trainer tooling
-* calibrated score scale
+The committed runtime payload is limited to `weights.bin`, `manifest.json`,
+`provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
-The first committed learned artifact is experimental-default only. It is not an
-Elo result, self-play improvement claim, production-strength claim, publication
-readiness claim, or official Egaroucid artifact.
+The runtime loader entry points are
+`vibe_othello::evaluation::load_default_pattern_artifact` and
+`vibe_othello::evaluation::load_pattern_artifact`. The loader validates the
+default pointer, manifest paths, weights path, runtime checksum, embedded binary
+checksum, pattern set, phase count, score unit, score scale, and pattern table
+layout before constructing `PatternEvaluator`.
 
-Trainer v0b learned weights can now be exported, loaded, measured by a
-fixed-position evaluation smoke, measured by a fixed-position search smoke,
-exercised by the local-only Egaroucid subset training runner, and compared in a
-persistent local artifact-vs-artifact late-game arena. Full production trainer
-hardening, Elo-style match-bench validation, self-play, and production strength
-claims remain unimplemented.
+The engine CLI uses the committed default artifact unless an explicit override
+is supplied. `--eval-artifact` selects a specific artifact manifest.
+`--eval-mode static` forces the legacy static evaluator. Loader failure is loud:
+missing, corrupt, or incompatible artifact data exits with an error instead of
+silently falling back to static evaluation.
 
-The existing `search::Evaluator` interface is the production boundary for
-heuristic evaluation today.
+The current default artifact is not an Elo result, not a self-play improvement
+claim, not a production-strength claim, not publication readiness, and not an
+official Egaroucid artifact.
 
-## Implementation Plan
+## Known Gaps
 
-Status values:
+Runtime evaluation still lacks:
 
-* `done` means implemented in the repository
-* `not started` means no production implementation exists yet
-* `deferred` means intentionally left for a later phase
+* an evaluation explanation API for tools and UI
+* a calibration API for display-only score views
+* native/WASM parity coverage for fixed evaluator fixtures
+* an incremental evaluator state path, if benchmarks later justify one
+* a separately promoted production baseline evaluator beyond the legacy static
+  override
+* production-strength validation for a default artifact through Elo-style or
+  self-play measurement
+* hardened production trainer workflow documentation and promotion criteria
 
-| Step | Status | Notes |
-| --- | --- | --- |
-| Add evaluation architecture document | done | `docs/architecture/evaluation.md` |
-| Add evaluation progress document | done | this file |
-| Add docs index rows | done | `docs/README.md` |
-| Add evaluation artifact policy README | done | `data/eval/README.md` |
-| Keep search-facing evaluator interface stable | done | `engine/include/vibe_othello/search/evaluator.h` |
-| Add evaluation namespace and public runtime headers | done | `engine/include/vibe_othello/evaluation/` |
-| Add simple baseline evaluator | not started | Useful before learned artifacts are available |
-| Add minimal pattern schema types | done | `evaluation/pattern.h` |
-| Add explicit pattern weight container | done | `LoadedPatternWeights` stores loader output; runtime `PatternWeights` stores phase maps, phase biases, and immutable tables |
-| Add explicit pattern schema validation | done | Validates ids, lengths, squares, duplicate policy, and pattern table size overflow |
-| Add ternary pattern index encoding | done | Empty/player/opponent digits are `0/1/2` |
-| Add pattern symmetry canonicalization primitives | done | Pure opt-in helper covers `none`, edge `reverse`, and `square_d4` `3x3` representatives; tiny feature/dataset smoke tooling can opt in to canonical indices without changing runtime evaluator outputs |
-| Add tiny fixed edge and corner pattern instances | done | Runtime pattern geometry only |
-| Add tiny pattern-only evaluator | done | Implements `search::Evaluator` and consumes `PatternWeights` |
-| Add evaluator unit coverage | done | Determinism, sign convention, index, fixture compatibility, weight validation, phase, phase bias scoring, range, schema validation, artifact loader paths, and loaded-to-runtime conversion |
-| Add artifact manifest and binary loader | done | First binary loader validates version, bit order, score unit, phase count, pattern set id, pattern shape, weight count, and checksum |
-| Add tiny hand-authored artifact fixture | done | Synthetic in-test fixture covers deterministic loader success and rejection paths |
-| Add production `PatternEvaluator` | done | Consumes runtime `PatternWeights` plus explicit `PatternFeatureSet` geometry and applies per-phase bias before pattern table contributions |
-| Add production-ish pattern-set geometry | done | `pattern-v1-buro-lite` provides raw edge, near-edge, diagonal, `corner-2x5`, and `corner-3x3` runtime schema/feature geometry for local measurements; `pattern-v2-endgame-lite` adds bounded raw endgame-oriented local research families after the v1 order; symmetry-enabled production tables remain future work |
-| Add learning artifact round-trip smoke | done | `tools/pattern/export` CTest generates a tiny artifact from deterministic trainer output, loads it through runtime evaluation, and fixes checksum plus representative `PatternEvaluator` score; the tiny Egaroucid v0b smoke also exports learned pattern-SGD JSON into the existing artifact format and verifies loader/evaluator determinism |
-| Add learned artifact fixed-position evaluation smoke | done | `vibe_othello_pattern_evaluation_bench_smoke` compares local-only v0a phase-bias and v0b pattern-SGD artifacts over deterministic fixed positions, emits a checksum-stable JSON report, verifies at least one v0a/v0b score difference, and keeps Egaroucid-derived artifacts temp-only |
-| Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` injects local-only v0a/v0b artifacts through `PatternEvaluator`, compares depth-1 fixed-depth search best move, score, and nodes over deterministic fixed positions, explicitly disables TT/endgame search options, and keeps wall-time out of pass/fail semantics |
-| Add persistent pattern artifact arena | done | `vibe-othello-pattern-artifact-arena` loads two local pattern artifacts once, reuses both artifact-backed evaluators across deterministic late-game side-swapped games, emits JSON/Markdown diagnostics, and stays scoped to local artifact-vs-artifact review rather than Elo, self-play, production strength, or publication gating |
-| Add pattern signal bottleneck diagnostics | done | The persistent artifact arena can optionally emit diagnostics for selected-position static score deltas, fixed-depth root move disagreements, search score deltas, exact low-empty disagreement adjudication, depth-sweep arena results, side-assignment buckets, manifest/runtime pattern-set compatibility, phase/sign sanity, and feature activation by family |
-| Add experimental default learned artifact | done | `pattern-v2-endgame-lite-100k-mt-v0` is committed under `data/eval/artifacts/`, selected by `data/eval/default-artifact.json`, loaded by default in the engine CLI, and guarded by commit-policy checks |
-| Add evaluation explanation API | not started | Non-recursive adapter for tools and UI |
-| Add calibration API | not started | Must not alter search scores |
-| Add incremental evaluator path | deferred | Only after benchmarks show it is needed |
-| Add evaluation benchmarks | done | `engine/benchmarks/evaluation_bench.cc` measures `PatternEvaluator` and `TinyPatternEvaluator` direct-call latency over the checked-in search corpus |
-| Add native/WASM parity coverage | not started | Requires WASM target and fixed fixtures |
-| Add trainer | not started | Tracked under pattern learning |
+These are real gaps in the current repository. They do not mean that
+`PatternEvaluator`, manifest-based loading, learned artifact export, or the
+committed experimental default are absent.
 
-## Completion Bar
+## Next Work
 
-Evaluation is strong enough to build on when:
+Keep upcoming work limited to unfinished items:
 
-* the runtime module has public headers and tests
-* evaluator output is deterministic for fixed positions
-* scores remain strictly inside search sentinels
-* side-to-move-relative score signs are tested
-* artifact loading rejects incompatible data
-* artifact-backed pattern schemas validate ids, lengths, square lists, duplicate policy, and pattern table size overflow
-* artifact-backed phase bias slots survive loaded-to-runtime conversion
-* pattern evaluator scores include the selected phase bias
-* pattern index encoding is tested against hand-computed fixtures
-* pattern symmetry canonicalization is tested as an isolated helper while
-  existing evaluator, trainer, exporter, and default smoke outputs keep raw
-  ternary indices; canonical smoke output is opt-in through shared helper usage
-* fixture-weight runtime evaluation is separated from future artifact loading
-* search can run with the evaluator enabled or replaced by a reference evaluator
-* exact endgame paths still avoid heuristic evaluation
-* evaluation benchmark baselines exist
-* UI calibration remains separate from search scoring
+* add explanation support outside the recursive search hot path
+* add calibration support without changing recursive search scores
+* add native/WASM parity checks once the WASM evaluator path is in scope
+* decide whether an incremental evaluator state is needed from benchmarks
+* define the evidence required before any learned artifact can claim production
+  strength
+* document the hardened trainer and artifact-promotion workflow when that
+  workflow is ready to be treated as current behavior
 
-Next evaluation steps for learned artifacts are local human-play/default-engine
-checks, optional human-play CLI/UI wiring, and later NTest or external-engine
-match validation. The committed v0 remains experimental and does not establish
-production strength.
+## Update Rules
 
-## Progress Update Rules
+Update this document only when current repository behavior changes or a real
+known gap is added, resolved, or reclassified.
 
-Update this document when:
+Keep detailed architecture in `docs/architecture/evaluation.md`, artifact
+policy in `docs/architecture/evaluation-artifacts.md`, pattern-learning status
+in `docs/progress/pattern-learning.md`, and experiment history in
+`docs/experiments/README.md`.
 
-* an implementation milestone changes status
-* a known gap is discovered
-* an evaluator option changes from planned to real behavior
-* an artifact format is added or changed
-* a benchmark baseline is added or replaced
-* a deferred item is intentionally moved into scope
-
-Update `docs/architecture/evaluation.md` only when the intended design,
-boundary, semantics, or correctness rules change.
+Do not add PR-by-PR history, completed implementation plans, generated output
+inventories, benchmark payloads, or test inventories here.
