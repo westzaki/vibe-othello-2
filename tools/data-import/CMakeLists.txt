@@ -1,3 +1,22 @@
+add_library(vibe_othello_data_import_egaroucid_sequence_replay STATIC
+            egaroucid_sequence_replay.cc)
+
+target_link_libraries(vibe_othello_data_import_egaroucid_sequence_replay
+                      PUBLIC vibe_othello::engine)
+
+target_include_directories(
+  vibe_othello_data_import_egaroucid_sequence_replay
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(vibe_othello_egaroucid_sequence_replay
+               egaroucid_sequence_replay_main.cc)
+
+target_link_libraries(vibe_othello_egaroucid_sequence_replay
+                      PRIVATE vibe_othello_data_import_egaroucid_sequence_replay)
+
+set_target_properties(vibe_othello_egaroucid_sequence_replay
+                      PROPERTIES OUTPUT_NAME vibe-othello-egaroucid-sequence-replay)
+
 add_library(vibe_othello_data_import_replay_records STATIC replay_records.cc)
 
 target_link_libraries(vibe_othello_data_import_replay_records PUBLIC vibe_othello::engine)
@@ -35,6 +54,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_sequence_smoke.py
       --importer
       ${CMAKE_CURRENT_SOURCE_DIR}/import_egaroucid_sequences.py
+      --replay-helper
+      $<TARGET_FILE:vibe_othello_egaroucid_sequence_replay>
       --fixture
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-sequences.txt
       --manifest

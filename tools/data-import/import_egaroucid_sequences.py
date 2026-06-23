@@ -25,7 +25,8 @@ import hashlib
 import heapq
 import io
 import json
-import re
+import os
+import subprocess
 import sys
 import time
 import zipfile
@@ -45,8 +46,6 @@ PHASE_COUNT = 13
 MIN_OCCUPIED_COUNT = 4
 MAX_EGAROUCID_OCCUPIED_COUNT = 64
 SPLITS = ("train", "validation", "test")
-COORD_RE = re.compile(r"^[a-h][1-8]$", re.IGNORECASE)
-COMPACT_RE = re.compile(r"^(?:[a-h][1-8])+$", re.IGNORECASE)
 HEADER = (
     "record_id",
     "position_id",
@@ -65,16 +64,6 @@ HEADER = (
     "player_disc_count",
     "opponent_disc_count",
     "empty_count",
-)
-DIRECTIONS = (
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
 )
 NOTES = (
     "local-only external corpus",
@@ -274,10 +263,146 @@ class ProgressState:
     last_files_report: int = 0
 
 
+@dataclass(frozen=True)
+class ReplaySnapshot:
+    ply: int
+    board_text: str
+    label: int
+    player_disc_count: int
+    opponent_disc_count: int
+    empty_count: int
+
+
+@dataclass(frozen=True)
+class ReplayResult:
+    accepted: bool
+    error: str = ""
+    pass_count: int = 0
+    terminal: bool = False
+    canonical_moves: str = ""
+    snapshots: tuple[ReplaySnapshot, ...] = ()
+
+
+def default_replay_helper_path() -> Path | None:
+    env_path = os.environ.get("VIBE_OTHELLO_EGAROUCID_REPLAY_HELPER")
+    if env_path:
+        return Path(env_path)
+    sibling = Path(__file__).with_name("vibe-othello-egaroucid-sequence-replay")
+    if sibling.exists():
+        return sibling
+    return None
+
+
+class ReplayHelper:
+    def __init__(self, path: Path | None) -> None:
+        self.path = path or default_replay_helper_path()
+        self.process: subprocess.Popen[str] | None = None
+
+    def __enter__(self) -> "ReplayHelper":
+        if self.path is None:
+            raise ImportErrorWithLocation(
+                "Egaroucid replay helper is required; pass --replay-helper or set "
+                "VIBE_OTHELLO_EGAROUCID_REPLAY_HELPER"
+            )
+        self.process = subprocess.Popen(
+            [str(self.path)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        if self.process is None:
+            return
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        return_code = self.process.wait()
+        if return_code != 0 and _exc_type is None:
+            stderr = self.process.stderr.read() if self.process.stderr is not None else ""
+            raise ImportErrorWithLocation(
+                f"Egaroucid replay helper exited with {return_code}: {stderr.strip()}"
+            )
+
+    def replay(self, source_occurrence_id: str, text: str) -> ReplayResult:
+        if self.process is None or self.process.stdin is None or self.process.stdout is None:
+            raise ImportErrorWithLocation("Egaroucid replay helper is not running")
+        self.process.stdin.write(f"{source_occurrence_id}\t{text}\n")
+        self.process.stdin.flush()
+
+        begin = self.process.stdout.readline()
+        if begin == "":
+            stderr = self.process.stderr.read() if self.process.stderr is not None else ""
+            raise ImportErrorWithLocation(f"Egaroucid replay helper stopped: {stderr.strip()}")
+        begin_fields = begin.rstrip("\n").split("\t")
+        if begin_fields != ["begin", source_occurrence_id]:
+            raise ImportErrorWithLocation(f"Egaroucid replay helper protocol error: {begin!r}")
+
+        status = self.process.stdout.readline()
+        if status == "":
+            raise ImportErrorWithLocation("Egaroucid replay helper ended mid-response")
+        status_fields = status.rstrip("\n").split("\t")
+        snapshots: list[ReplaySnapshot] = []
+        if status_fields[0] == "error":
+            error = status_fields[1] if len(status_fields) > 1 else "replay failed"
+            self._expect_end()
+            return ReplayResult(accepted=False, error=error)
+        if len(status_fields) != 4 or status_fields[0] != "ok":
+            raise ImportErrorWithLocation(f"Egaroucid replay helper protocol error: {status!r}")
+
+        pass_count = int(status_fields[1])
+        terminal = status_fields[2] == "1"
+        canonical_moves = status_fields[3]
+        while True:
+            line = self.process.stdout.readline()
+            if line == "":
+                raise ImportErrorWithLocation("Egaroucid replay helper ended mid-response")
+            line = line.rstrip("\n")
+            if line == "end":
+                break
+            fields = line.split("\t")
+            if len(fields) != 7 or fields[0] != "row":
+                raise ImportErrorWithLocation(f"Egaroucid replay helper protocol error: {line!r}")
+            snapshots.append(
+                ReplaySnapshot(
+                    ply=int(fields[1]),
+                    board_text=fields[2],
+                    label=int(fields[3]),
+                    player_disc_count=int(fields[4]),
+                    opponent_disc_count=int(fields[5]),
+                    empty_count=int(fields[6]),
+                )
+            )
+        return ReplayResult(
+            accepted=True,
+            pass_count=pass_count,
+            terminal=terminal,
+            canonical_moves=canonical_moves,
+            snapshots=tuple(snapshots),
+        )
+
+    def _expect_end(self) -> None:
+        if self.process is None or self.process.stdout is None:
+            raise ImportErrorWithLocation("Egaroucid replay helper is not running")
+        line = self.process.stdout.readline()
+        if line.rstrip("\n") != "end":
+            raise ImportErrorWithLocation(f"Egaroucid replay helper protocol error: {line!r}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", action="append", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument(
+        "--replay-helper",
+        type=Path,
+        help=(
+            "Path to vibe-othello-egaroucid-sequence-replay. Defaults to "
+            "VIBE_OTHELLO_EGAROUCID_REPLAY_HELPER or a sibling executable."
+        ),
+    )
     parser.add_argument("--dataset-id", default=DATASET_ID)
     parser.add_argument("--report", type=Path, help="Write JSON import report.")
     parser.add_argument("--min-ply", type=int, default=8)
@@ -694,82 +819,6 @@ def load_manifest_dataset_id(path: Path) -> str:
     return dataset_id
 
 
-def initial_board() -> list[str]:
-    board = ["-"] * 64
-    board[3 * 8 + 3] = "O"
-    board[4 * 8 + 4] = "O"
-    board[3 * 8 + 4] = "X"
-    board[4 * 8 + 3] = "X"
-    return board
-
-
-def opponent(side: str) -> str:
-    return "O" if side == "X" else "X"
-
-
-def legal_moves(board: list[str], side: str) -> list[int]:
-    other = opponent(side)
-    moves: list[int] = []
-    for index, value in enumerate(board):
-        if value != "-":
-            continue
-        x = index % 8
-        y = index // 8
-        legal = False
-        for dx, dy in DIRECTIONS:
-            nx = x + dx
-            ny = y + dy
-            seen_other = False
-            while 0 <= nx < 8 and 0 <= ny < 8 and board[ny * 8 + nx] == other:
-                seen_other = True
-                nx += dx
-                ny += dy
-            if seen_other and 0 <= nx < 8 and 0 <= ny < 8 and board[ny * 8 + nx] == side:
-                legal = True
-                break
-        if legal:
-            moves.append(index)
-    return moves
-
-
-def apply_move(board: list[str], side: str, move_index: int) -> None:
-    if board[move_index] != "-":
-        raise ImportErrorWithLocation("move targets an occupied square")
-    x = move_index % 8
-    y = move_index // 8
-    other = opponent(side)
-    flips: list[int] = []
-    for dx, dy in DIRECTIONS:
-        nx = x + dx
-        ny = y + dy
-        line: list[int] = []
-        while 0 <= nx < 8 and 0 <= ny < 8 and board[ny * 8 + nx] == other:
-            line.append(ny * 8 + nx)
-            nx += dx
-            ny += dy
-        if line and 0 <= nx < 8 and 0 <= ny < 8 and board[ny * 8 + nx] == side:
-            flips.extend(line)
-    if not flips:
-        raise ImportErrorWithLocation("move flips no discs")
-    board[move_index] = side
-    for index in flips:
-        board[index] = side
-
-
-def parse_transcript(text: str) -> list[str]:
-    tokens = text.strip().split()
-    if len(tokens) == 1 and COMPACT_RE.fullmatch(tokens[0]) is not None:
-        compact = tokens[0].lower()
-        return [compact[index : index + 2] for index in range(0, len(compact), 2)]
-    return [token.lower() for token in tokens]
-
-
-def move_index(token: str) -> int | None:
-    if COORD_RE.fullmatch(token) is None:
-        return None
-    return (int(token[1]) - 1) * 8 + (ord(token[0].lower()) - ord("a"))
-
-
 def should_emit(ply: int, is_terminal: bool, args: argparse.Namespace) -> bool:
     if ply < args.min_ply:
         return False
@@ -782,25 +831,17 @@ def should_emit(ply: int, is_terminal: bool, args: argparse.Namespace) -> bool:
     return True
 
 
-def relative_board(board: list[str], side_to_move: str) -> str:
-    if side_to_move == "X":
-        return "".join(board)
-    return "".join("X" if value == "O" else "O" if value == "X" else "-" for value in board)
-
-
 def make_row(
     args: argparse.Namespace,
     game_group_id: str,
     source_occurrence_id: str,
     split: str,
-    board: list[str],
-    side_to_move: str,
+    snapshot: ReplaySnapshot,
     ply: int,
     occurrence: int,
-    black_final_diff: int,
 ) -> CandidateRow:
-    board_text = relative_board(board, side_to_move)
-    label = black_final_diff if side_to_move == "X" else -black_final_diff
+    board_text = snapshot.board_text
+    label = snapshot.label
     board_id = prefixed_id("board", digest_for_parts("board-v1", board_text))
     position_digest = digest_for_parts(args.dataset_id, game_group_id, ply, board_id)
     record_digest = digest_for_parts(
@@ -808,9 +849,9 @@ def make_row(
     )
     record_id = f"{args.dataset_id}-{record_digest[:16]}-{occurrence:06d}"
     position_id = f"{args.dataset_id}-{game_group_id}-{ply:03d}-{position_digest[:16]}"
-    player_count = board_text.count("X")
-    opponent_count = board_text.count("O")
-    empty_count = board_text.count("-")
+    player_count = snapshot.player_disc_count
+    opponent_count = snapshot.opponent_disc_count
+    empty_count = snapshot.empty_count
     occupied_count = player_count + opponent_count
     phase = phase_for_occupied_count(occupied_count)
     fields = (
@@ -851,64 +892,23 @@ def make_row(
 def replay_game(
     args: argparse.Namespace, source_occurrence_id: str, text: str
 ) -> tuple[list[CandidateRow], int, bool, str]:
-    tokens = parse_transcript(text)
-    if not tokens:
-        raise ImportErrorWithLocation("transcript is empty")
-    board = initial_board()
-    side = "X"
-    snapshots: list[tuple[int, list[str], str]] = []
-    canonical_moves: list[str] = []
-    move_ply = 0
-    pass_count = 0
+    replay_helper = getattr(args, "replay_helper_client", None)
+    if replay_helper is None:
+        raise ImportErrorWithLocation("Egaroucid replay helper is not configured")
+    result = replay_helper.replay(source_occurrence_id, text)
+    if not result.accepted:
+        raise ImportErrorWithLocation(result.error)
 
-    for token_index, token in enumerate(tokens, start=1):
-        side_moves = legal_moves(board, side)
-        if token in {"pass", "p"}:
-            if side_moves:
-                raise ImportErrorWithLocation(f"token {token_index}: pass is illegal with legal moves")
-            if not legal_moves(board, opponent(side)):
-                raise ImportErrorWithLocation(f"token {token_index}: pass after terminal position")
-            side = opponent(side)
-            canonical_moves.append("pass")
-            pass_count += 1
-            continue
-
-        index = move_index(token)
-        if index is None:
-            raise ImportErrorWithLocation(f"token {token_index}: invalid move token {token!r}")
-        if index not in side_moves:
-            other = opponent(side)
-            if not side_moves and index in legal_moves(board, other):
-                side = other
-                canonical_moves.append("pass")
-                pass_count += 1
-            else:
-                raise ImportErrorWithLocation(f"token {token_index}: illegal move {token!r}")
-
-        apply_move(board, side, index)
-        canonical_moves.append(f"{chr(ord('a') + (index % 8))}{(index // 8) + 1}")
-        move_ply += 1
-        side = opponent(side)
-        snapshots.append((move_ply, board.copy(), side))
-
-    while not legal_moves(board, side) and legal_moves(board, opponent(side)):
-        side = opponent(side)
-        pass_count += 1
-    terminal = not legal_moves(board, side) and not legal_moves(board, opponent(side))
-    if not terminal:
-        raise ImportErrorWithLocation("transcript ended before terminal position")
-
-    canonical_game = " ".join(canonical_moves)
     game_group_id = prefixed_id(
-        "game", digest_for_parts(args.dataset_id, IDENTITY_POLICY_VERSION, canonical_game)
+        "game", digest_for_parts(args.dataset_id, IDENTITY_POLICY_VERSION, result.canonical_moves)
     )
     split = split_for_digest(digest_for_parts(args.dataset_id, game_group_id))
-    black_final_diff = board.count("X") - board.count("O")
     rows: list[CandidateRow] = []
     occurrence = 0
-    for ply, snapshot, side_to_move in snapshots:
-        is_terminal_snapshot = ply == move_ply
-        if not should_emit(ply, is_terminal_snapshot, args):
+    final_ply = result.snapshots[-1].ply if result.snapshots else 0
+    for snapshot in result.snapshots:
+        is_terminal_snapshot = snapshot.ply == final_ply
+        if not should_emit(snapshot.ply, is_terminal_snapshot, args):
             continue
         occurrence += 1
         rows.append(
@@ -918,13 +918,11 @@ def replay_game(
                 source_occurrence_id,
                 split,
                 snapshot,
-                side_to_move,
-                ply,
+                snapshot.ply,
                 occurrence,
-                black_final_diff,
             )
         )
-    return rows, pass_count, terminal, game_group_id
+    return rows, result.pass_count, result.terminal, game_group_id
 
 
 def process_text_stream(
@@ -1520,13 +1518,15 @@ def main() -> int:
                 f"{args.manifest}: manifest dataset_id {manifest_dataset_id!r} does not match "
                 f"--dataset-id {args.dataset_id!r}"
             )
-        if args.sampling_mode == "streaming-target":
-            process_streaming_target_inputs(args, args.input, summary, rows, progress)
-        else:
-            for input_path in args.input:
-                if processing_limit_reached(args, summary, rows):
-                    break
-                process_input(args, input_path, summary, rows, progress)
+        with ReplayHelper(args.replay_helper) as replay_helper:
+            args.replay_helper_client = replay_helper
+            if args.sampling_mode == "streaming-target":
+                process_streaming_target_inputs(args, args.input, summary, rows, progress)
+            else:
+                for input_path in args.input:
+                    if processing_limit_reached(args, summary, rows):
+                        break
+                    process_input(args, input_path, summary, rows, progress)
         selected_rows = rows.rows()
         if not selected_rows:
             raise ImportErrorWithLocation("no positions emitted")
