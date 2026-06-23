@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.util
 import json
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import tempfile
 import zipfile
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 
@@ -192,6 +194,24 @@ def check_report(report: dict[str, Any], rows: list[dict[str, str]]) -> bool:
     if not isinstance(report.get("cross_split_board_collision_count"), int):
         print("missing cross split collision count", file=sys.stderr)
         return False
+    for key in ("board_leakage_audit_before", "board_leakage_audit_after"):
+        audit = report.get(key)
+        if not isinstance(audit, dict) or not isinstance(
+            audit.get("cross_split_board_collision_count"), int
+        ):
+            print(f"missing board audit: {key}={audit!r}", file=sys.stderr)
+            return False
+    for key in ("game_group_leakage_audit_before", "game_group_leakage_audit_after"):
+        audit = report.get(key)
+        if not isinstance(audit, dict) or not isinstance(
+            audit.get("cross_split_game_group_collision_count"), int
+        ):
+            print(f"missing game group audit: {key}={audit!r}", file=sys.stderr)
+            return False
+    split_policy = report.get("split_policy")
+    if not isinstance(split_policy, dict) or split_policy.get("measurement_split_policy") != "game-group":
+        print(f"unexpected split policy: {split_policy!r}", file=sys.stderr)
+        return False
     expected_sampling = {
         "sampling_mode": "full-scan-topk",
         "file_order": "path",
@@ -214,6 +234,189 @@ def check_report(report: dict[str, Any], rows: list[dict[str, str]]) -> bool:
     if not isinstance(notes, list) or "not a teacher-search label" not in notes:
         print(f"missing notes: {notes!r}", file=sys.stderr)
         return False
+    return True
+
+
+def load_importer_module(importer: Path) -> Any:
+    spec = importlib.util.spec_from_file_location("egaroucid_sequence_importer_under_test", importer)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load importer module from {importer}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def coordinate(index: int) -> str:
+    return f"{chr(ord('a') + (index % 8))}{(index // 8) + 1}"
+
+
+def transcript_with_shared_prefix(module: Any, base_transcript: str, seed: int) -> str:
+    base_tokens = module.parse_transcript(base_transcript)
+    prefix = base_tokens[:4]
+    board = module.initial_board()
+    side = "X"
+    emitted: list[str] = []
+    for token in prefix:
+        index = module.move_index(token)
+        if index is None or index not in module.legal_moves(board, side):
+            raise RuntimeError("base prefix is not a legal explicit sequence")
+        module.apply_move(board, side, index)
+        emitted.append(token)
+        side = module.opponent(side)
+
+    base_next = module.move_index(base_tokens[4])
+    legal = [move for move in module.legal_moves(board, side) if move != base_next]
+    if not legal:
+        raise RuntimeError("base prefix has no alternate legal continuation")
+    first = legal[seed % len(legal)]
+    module.apply_move(board, side, first)
+    emitted.append(coordinate(first))
+    side = module.opponent(side)
+
+    step = 0
+    while True:
+        legal = module.legal_moves(board, side)
+        if legal:
+            move = legal[(seed + step) % len(legal)]
+            module.apply_move(board, side, move)
+            emitted.append(coordinate(move))
+            side = module.opponent(side)
+            step += 1
+            continue
+        other = module.opponent(side)
+        if module.legal_moves(board, other):
+            emitted.append("pass")
+            side = other
+            step += 1
+            continue
+        return " ".join(emitted)
+
+
+def semantic_split(module: Any, transcript: str) -> tuple[str, str]:
+    args = SimpleNamespace(
+        dataset_id=DATASET_ID,
+        min_ply=4,
+        max_ply=4,
+        ply_stride=1,
+        emit_terminal=True,
+        seed=0,
+    )
+    _rows, _pass_count, _terminal, game_group_id = module.replay_game(args, "occ-test", transcript)
+    split = module.split_for_digest(module.digest_for_parts(DATASET_ID, game_group_id))
+    return game_group_id, split
+
+
+def collision_fixture_text(importer: Path, fixture: Path) -> str | None:
+    module = load_importer_module(importer)
+    base = fixture.read_text(encoding="utf-8").splitlines()[0]
+    base_group, base_split = semantic_split(module, base)
+    for seed in range(200):
+        candidate = transcript_with_shared_prefix(module, base, seed)
+        candidate_group, candidate_split = semantic_split(module, candidate)
+        if candidate_group != base_group and candidate_split != base_split:
+            return f"{base}\n{candidate}\n"
+    print("could not generate connected split collision fixture", file=sys.stderr)
+    return None
+
+
+def check_connected_split_policy(importer: Path, fixture: Path, manifest: Path) -> bool:
+    fixture_text = collision_fixture_text(importer, fixture)
+    if fixture_text is None:
+        return False
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        collision_fixture = temp_path / "collision-sequences.txt"
+        collision_fixture.write_text(fixture_text, encoding="utf-8")
+
+        preserve_report = temp_path / "preserve-report.json"
+        preserve = run_importer(
+            importer,
+            collision_fixture,
+            manifest,
+            preserve_report,
+            extra_args=["--min-ply", "4", "--max-ply", "4", "--ply-stride", "1"],
+        )
+        if preserve.returncode != 0:
+            sys.stderr.write(preserve.stderr)
+            sys.stderr.write(preserve.stdout)
+            return False
+        preserve_rows = parse_rows(preserve.stdout)
+        preserve_data = load_report(preserve_report)
+        if preserve_rows is None or preserve_data is None:
+            return False
+        if len({row["board_id"] for row in preserve_rows}) != 1:
+            print("collision fixture did not emit the shared board", file=sys.stderr)
+            return False
+        if len({row["game_group_id"] for row in preserve_rows}) != 2:
+            print("collision fixture did not emit distinct game groups", file=sys.stderr)
+            return False
+        if preserve_data.get("cross_split_board_collision_count") != 1:
+            print(f"preserve split did not expose board leakage: {preserve_data!r}", file=sys.stderr)
+            return False
+
+        strict = run_importer(
+            importer,
+            collision_fixture,
+            manifest,
+            temp_path / "strict-report.json",
+            extra_args=[
+                "--min-ply",
+                "4",
+                "--max-ply",
+                "4",
+                "--ply-stride",
+                "1",
+                "--strict-board-disjoint-splits",
+            ],
+        )
+        if strict.returncode == 0 or "exact board leakage detected" not in strict.stderr:
+            print(f"strict preserve split did not reject leakage: {strict.stderr!r}", file=sys.stderr)
+            return False
+
+        connected_report = temp_path / "connected-report.json"
+        connected = run_importer(
+            importer,
+            collision_fixture,
+            manifest,
+            connected_report,
+            extra_args=[
+                "--min-ply",
+                "4",
+                "--max-ply",
+                "4",
+                "--ply-stride",
+                "1",
+                "--split-policy",
+                "connected-board-game",
+                "--strict-board-disjoint-splits",
+            ],
+        )
+        if connected.returncode != 0:
+            sys.stderr.write(connected.stderr)
+            sys.stderr.write(connected.stdout)
+            return False
+        connected_rows = parse_rows(connected.stdout)
+        connected_data = load_report(connected_report)
+        if connected_rows is None or connected_data is None:
+            return False
+        if len({row["split"] for row in connected_rows}) != 1:
+            print("connected split did not keep the component in one split", file=sys.stderr)
+            return False
+        before = connected_data.get("board_leakage_audit_before")
+        after = connected_data.get("board_leakage_audit_after")
+        game_after = connected_data.get("game_group_leakage_audit_after")
+        if (
+            not isinstance(before, dict)
+            or before.get("cross_split_board_collision_count") != 1
+            or not isinstance(after, dict)
+            or after.get("cross_split_board_collision_count") != 0
+            or not isinstance(game_after, dict)
+            or game_after.get("cross_split_game_group_collision_count") != 0
+            or connected_data.get("connected_component_count") != 1
+        ):
+            print(f"connected split report mismatch: {connected_data!r}", file=sys.stderr)
+            return False
     return True
 
 
@@ -608,6 +811,8 @@ def main() -> int:
         if not check_streaming_target(args.importer, args.fixture, args.manifest):
             return 1
         if not check_sampling_mode_validation(args.importer, args.fixture, args.manifest):
+            return 1
+        if not check_connected_split_policy(args.importer, args.fixture, args.manifest):
             return 1
         if not check_storage_independent_identity(args.importer, args.fixture, args.manifest):
             return 1

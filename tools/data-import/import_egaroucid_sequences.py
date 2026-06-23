@@ -84,9 +84,14 @@ NOTES = (
     "not production strength evidence",
     "game_group_id is derived from canonical replayed move/pass sequence",
     "source paths, archive members, and line numbers are provenance only and do not affect normalized identity",
-    "split is derived from dataset_id + game_group_id",
+    "default split is derived from dataset_id + game_group_id",
     "board_id is derived from the side-to-move-relative board only",
 )
+SPLIT_POLICIES = ("game-group", "connected-board-game")
+SPLIT_POLICY_VERSIONS = {
+    "game-group": "game-group-v1",
+    "connected-board-game": "connected-board-game-v1",
+}
 BOUNDED_DEV_NOTES = (
     "bounded-dev mode is for local measurement iteration",
     "bounded-dev is not a full-corpus exact top-k sample",
@@ -228,6 +233,41 @@ class Summary:
 
 
 @dataclass
+class ComponentInfo:
+    row_count: int = 0
+    nodes: set[str] = field(default_factory=set)
+    source_dataset_ids: set[str] = field(default_factory=set)
+
+
+class UnionFind:
+    def __init__(self) -> None:
+        self.parent: dict[str, str] = {}
+
+    def add(self, value: str) -> None:
+        self.parent.setdefault(value, value)
+
+    def find(self, value: str) -> str:
+        self.add(value)
+        root = value
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[value] != value:
+            parent = self.parent[value]
+            self.parent[value] = root
+            value = parent
+        return root
+
+    def union(self, left: str, right: str) -> None:
+        left_root = self.find(left)
+        right_root = self.find(right)
+        if left_root == right_root:
+            return
+        if right_root < left_root:
+            left_root, right_root = right_root, left_root
+        self.parent[right_root] = left_root
+
+
+@dataclass
 class ProgressState:
     start_time: float = field(default_factory=time.monotonic)
     last_games_report: int = 0
@@ -260,9 +300,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--emit-terminal", dest="emit_terminal", action="store_true", default=False)
     parser.add_argument("--no-emit-terminal", dest="emit_terminal", action="store_false")
     parser.add_argument(
+        "--split-policy",
+        choices=SPLIT_POLICIES,
+        default="game-group",
+        help=(
+            "Measurement split policy. connected-board-game assigns connected "
+            "components of game_group_id and board_id to one split."
+        ),
+    )
+    parser.add_argument(
         "--strict-board-disjoint-splits",
         action="store_true",
-        help="Fail if an exact side-to-move-relative board appears in more than one split.",
+        help="Fail if an exact side-to-move-relative board appears in more than one output split.",
     )
     args = parser.parse_args()
     if args.min_ply < 0:
@@ -1159,13 +1208,15 @@ def split_pair(left: str, right: str) -> str:
     return "__".join(sorted((left, right)))
 
 
-def leakage_audit(selected_rows: list[CandidateRow]) -> dict[str, object]:
-    board_splits: dict[str, set[str]] = {}
-    for row in selected_rows:
-        board_splits.setdefault(row.board_id, set()).add(row.split)
+def cross_split_audit(
+    entity_splits: dict[str, set[str]],
+    *,
+    entity_label: str,
+    collision_label: str,
+) -> dict[str, object]:
     pair_counts: dict[str, int] = {}
     collision_count = 0
-    for splits in board_splits.values():
+    for splits in entity_splits.values():
         if len(splits) < 2:
             continue
         collision_count += 1
@@ -1175,10 +1226,115 @@ def leakage_audit(selected_rows: list[CandidateRow]) -> dict[str, object]:
                 pair = split_pair(left, right)
                 pair_counts[pair] = pair_counts.get(pair, 0) + 1
     return {
-        "unique_board_count": len(board_splits),
-        "cross_split_board_collision_count": collision_count,
-        "cross_split_board_collision_counts_by_pair": dict(sorted(pair_counts.items())),
+        f"unique_{entity_label}_count": len(entity_splits),
+        f"cross_split_{collision_label}_collision_count": collision_count,
+        f"cross_split_{collision_label}_collision_counts_by_pair": dict(sorted(pair_counts.items())),
     }
+
+
+def leakage_audits(selected_rows: list[CandidateRow]) -> dict[str, dict[str, object]]:
+    board_splits: dict[str, set[str]] = {}
+    game_splits: dict[str, set[str]] = {}
+    for row in selected_rows:
+        board_splits.setdefault(row.board_id, set()).add(row.split)
+        game_splits.setdefault(row.game_group_id, set()).add(row.split)
+    return {
+        "board": cross_split_audit(
+            board_splits,
+            entity_label="board",
+            collision_label="board",
+        ),
+        "game_group": cross_split_audit(
+            game_splits,
+            entity_label="game_group",
+            collision_label="game_group",
+        ),
+    }
+
+
+def component_split(source_dataset_ids: set[str], representative: str, policy_version: str) -> str:
+    dataset_id = ",".join(sorted(source_dataset_ids))
+    digest = hashlib.sha256(
+        f"{dataset_id}\t{policy_version}\t{representative}".encode("utf-8")
+    ).hexdigest()
+    bucket = int(digest[:16], 16) % 100
+    if bucket < 80:
+        return "train"
+    if bucket < 90:
+        return "validation"
+    return "test"
+
+
+def with_split(row: CandidateRow, split: str) -> CandidateRow:
+    fields = list(row.fields)
+    fields[6] = split
+    return CandidateRow(
+        key=row.key,
+        ordinal=row.ordinal,
+        fields=tuple(fields),
+        line_text="\t".join(fields),
+        position_id=row.position_id,
+        game_group_id=row.game_group_id,
+        board_id=row.board_id,
+        split=split,
+        phase=row.phase,
+        label=row.label,
+    )
+
+
+def connected_board_game_resplit(selected_rows: list[CandidateRow]) -> tuple[list[CandidateRow], dict[str, object]]:
+    policy = "connected-board-game"
+    policy_version = SPLIT_POLICY_VERSIONS[policy]
+    union_find = UnionFind()
+    for row in selected_rows:
+        union_find.union(f"game:{row.game_group_id}", f"board:{row.board_id}")
+
+    component_infos: dict[str, ComponentInfo] = {}
+    for row in selected_rows:
+        game_node = f"game:{row.game_group_id}"
+        board_node = f"board:{row.board_id}"
+        root = union_find.find(game_node)
+        info = component_infos.setdefault(root, ComponentInfo())
+        info.row_count += 1
+        info.nodes.add(game_node)
+        info.nodes.add(board_node)
+        info.source_dataset_ids.add(row.fields[5])
+
+    component_splits: dict[str, str] = {}
+    largest_component_row_count = 0
+    largest_component_node_count = 0
+    for root, info in component_infos.items():
+        representative = min(info.nodes)
+        component_splits[root] = component_split(
+            info.source_dataset_ids,
+            representative,
+            policy_version,
+        )
+        largest_component_row_count = max(largest_component_row_count, info.row_count)
+        largest_component_node_count = max(largest_component_node_count, len(info.nodes))
+
+    resplit_rows: list[CandidateRow] = []
+    for row in selected_rows:
+        root = union_find.find(f"game:{row.game_group_id}")
+        resplit_rows.append(with_split(row, component_splits[root]))
+
+    return resplit_rows, {
+        "connected_component_count": len(component_infos),
+        "largest_connected_component_row_count": largest_component_row_count,
+        "largest_connected_component_node_count": largest_component_node_count,
+    }
+
+
+def apply_split_policy(selected_rows: list[CandidateRow], args: argparse.Namespace) -> tuple[list[CandidateRow], dict[str, object]]:
+    if args.split_policy == "game-group":
+        return selected_rows, {
+            "measurement_split_policy": "game-group",
+            "measurement_split_policy_version": SPLIT_POLICY_VERSIONS["game-group"],
+            "connected_component_count": None,
+            "largest_connected_component_row_count": None,
+            "largest_connected_component_node_count": None,
+        }
+    return connected_board_game_resplit(selected_rows)
 
 
 def write_rows(selected_rows: list[CandidateRow], output: TextIO, summary: Summary) -> str:
@@ -1200,7 +1356,12 @@ def write_rows(selected_rows: list[CandidateRow], output: TextIO, summary: Summa
 
 
 def report_for(
-    args: argparse.Namespace, summary: Summary, checksum: str, audit: dict[str, object]
+    args: argparse.Namespace,
+    summary: Summary,
+    checksum: str,
+    audit_before: dict[str, dict[str, object]],
+    audit_after: dict[str, dict[str, object]],
+    split_report: dict[str, object],
 ) -> dict[str, object]:
     label_mean = None
     if summary.emitted_positions:
@@ -1227,6 +1388,21 @@ def report_for(
         )
     notes = list(NOTES)
     notes.extend(sampling_frame_notes)
+    board_after = audit_after["board"]
+    game_after = audit_after["game_group"]
+    if args.split_policy == "connected-board-game":
+        split_method = "connected-board-game component sha256"
+        game_leakage_policy = (
+            "all emitted positions from connected components of semantic games and exact boards "
+            "stay in one split"
+        )
+        exact_board_audit = (
+            "side-to-move-relative board_id collisions are audited before and after connected resplit"
+        )
+    else:
+        split_method = "dataset_id + game_group_id sha256"
+        game_leakage_policy = "all emitted positions from one semantic game stay in one split"
+        exact_board_audit = "side-to-move-relative board_id collisions across splits are counted"
     return {
         "schema_version": 2,
         "importer_version": IMPORTER_VERSION,
@@ -1267,11 +1443,29 @@ def report_for(
         "source_files": summary.source_files,
         "game_group_count": len(summary.game_group_occurrences),
         "duplicate_game_occurrence_count": duplicate_game_occurrences,
-        "unique_board_count": audit["unique_board_count"],
-        "cross_split_board_collision_count": audit["cross_split_board_collision_count"],
-        "cross_split_board_collision_counts_by_pair": audit[
+        "unique_board_count": board_after["unique_board_count"],
+        "cross_split_board_collision_count": board_after["cross_split_board_collision_count"],
+        "cross_split_board_collision_counts_by_pair": board_after[
             "cross_split_board_collision_counts_by_pair"
         ],
+        "unique_game_group_count": game_after["unique_game_group_count"],
+        "cross_split_game_group_collision_count": game_after[
+            "cross_split_game_group_collision_count"
+        ],
+        "cross_split_game_group_collision_counts_by_pair": game_after[
+            "cross_split_game_group_collision_counts_by_pair"
+        ],
+        "board_leakage_audit_before": audit_before["board"],
+        "board_leakage_audit_after": board_after,
+        "game_group_leakage_audit_before": audit_before["game_group"],
+        "game_group_leakage_audit_after": game_after,
+        "connected_component_count": split_report.get("connected_component_count"),
+        "largest_connected_component_row_count": split_report.get(
+            "largest_connected_component_row_count"
+        ),
+        "largest_connected_component_node_count": split_report.get(
+            "largest_connected_component_node_count"
+        ),
         "rejected_reasons": summary.rejected_reasons,
         "source_provenance_samples": summary.provenance_samples,
         "sampling_policy": {
@@ -1294,17 +1488,19 @@ def report_for(
             "sample_policy": sample_policy,
         },
         "split_policy": {
-            "method": "dataset_id + game_group_id sha256",
+            "method": split_method,
+            "measurement_split_policy": args.split_policy,
+            "measurement_split_policy_version": SPLIT_POLICY_VERSIONS[args.split_policy],
             "ratio": "80/10/10 by hash bucket",
             "game_group_id": "sha256 of dataset_id + identity_policy_version + canonical replayed move/pass sequence",
             "source_occurrence_id": "sha256 of dataset_id + transcript content digest + content occurrence index",
             "position_id": "dataset_id + game_group_id + ply + board_id hash",
             "board_id": "sha256 of side-to-move-relative 64-cell board only",
-            "game_leakage_policy": "all emitted positions from one semantic game stay in one split",
+            "game_leakage_policy": game_leakage_policy,
             "duplicate_position_policy": "duplicate semantic games share game_group_id, position_id, board_id, and split; content occurrences keep distinct source_occurrence_id and record_id",
         },
         "leakage_policy": {
-            "exact_board_audit": "side-to-move-relative board_id collisions across splits are counted",
+            "exact_board_audit": exact_board_audit,
             "strict_board_disjoint_splits": args.strict_board_disjoint_splits,
         },
         "notes": notes,
@@ -1334,14 +1530,27 @@ def main() -> int:
         selected_rows = rows.rows()
         if not selected_rows:
             raise ImportErrorWithLocation("no positions emitted")
-        audit = leakage_audit(selected_rows)
-        if args.strict_board_disjoint_splits and audit["cross_split_board_collision_count"] != 0:
+        audit_before = leakage_audits(selected_rows)
+        selected_rows, split_report = apply_split_policy(selected_rows, args)
+        audit_after = leakage_audits(selected_rows)
+        board_after = audit_after["board"]
+        game_after = audit_after["game_group"]
+        if args.split_policy == "connected-board-game":
+            if board_after["cross_split_board_collision_count"] != 0:
+                raise ImportErrorWithLocation(
+                    "connected-board-game failed to eliminate board_id cross-split leakage"
+                )
+            if game_after["cross_split_game_group_collision_count"] != 0:
+                raise ImportErrorWithLocation(
+                    "connected-board-game failed to eliminate game_group_id cross-split leakage"
+                )
+        if args.strict_board_disjoint_splits and board_after["cross_split_board_collision_count"] != 0:
             raise ImportErrorWithLocation(
                 "exact board leakage detected across splits: "
-                f"{audit['cross_split_board_collision_count']} board_id collision(s)"
+                f"{board_after['cross_split_board_collision_count']} board_id collision(s)"
             )
         checksum = write_rows(selected_rows, sys.stdout, summary)
-        report = report_for(args, summary, checksum, audit)
+        report = report_for(args, summary, checksum, audit_before, audit_after, split_report)
         if args.report is not None:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(stable_json(report), encoding="utf-8")

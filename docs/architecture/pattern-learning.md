@@ -89,7 +89,6 @@ artifact policy explicitly allows them:
 * teacher labels
 * move-teacher TSVs
 * child-normalized TSVs
-* sequence replay caches
 * cache materialization outputs
 * measurement reports
 * trainer reports
@@ -298,7 +297,6 @@ The handoff must keep local-only material out of the committed payload:
 * teacher labels
 * move-teacher TSVs
 * child-normalized TSVs
-* sequence caches
 * trainer datasets
 * trainer reports
 * logs

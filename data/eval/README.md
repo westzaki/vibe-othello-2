@@ -34,7 +34,6 @@ Do not commit generated or source data under `data/eval/`, including:
 * teacher labels
 * move-teacher TSVs
 * child-normalized TSVs
-* sequence replay caches
 * cache materialization outputs
 * local training reports
 * trainer reports
