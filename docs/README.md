@@ -17,7 +17,7 @@ Read only the document needed for the current task.
 | 20-empty endgame experiment notes | `experiments/endgame-high-empty-20.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation artifact architecture | `architecture/evaluation-artifacts.md` |
-| Evaluation implementation status | `progress/evaluation.md` |
+| Evaluation current status | `progress/evaluation.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
 | Pattern learning implementation status | `progress/pattern-learning.md` |
 | Pattern learning corpus data policy | `../data/corpora/README.md` |
