@@ -5,143 +5,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
-
-def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
-
-
-def run_or_report(command: list[str]) -> subprocess.CompletedProcess[str] | None:
-    result = run_capture(command)
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        sys.stderr.write(result.stdout)
-        return None
-    return result
-
-
-def parse_key_values(text: str) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in text.splitlines():
-        key, separator, value = line.partition("=")
-        if not separator:
-            raise ValueError(f"line is missing '=': {line}")
-        if key in values:
-            raise ValueError(f"duplicate key: {key}")
-        values[key] = value
-    return values
-
-
-def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str | None:
-    result = run_or_report(
-        [
-            sys.executable,
-            str(importer),
-            "--input",
-            str(fixture),
-            "--manifest",
-            str(manifest),
-        ]
-    )
-    return None if result is None else result.stdout
-
-
-def run_dataset_from_normalized(
-    exe: Path, normalized_tsv: Path, report: Path, pattern_set: str
-) -> str | None:
-    result = run_or_report(
-        [
-            str(exe),
-            "--normalized-tsv",
-            str(normalized_tsv),
-            "--report",
-            str(report),
-            "--pattern-set",
-            pattern_set,
-        ]
-    )
-    return None if result is None else result.stdout
-
-
-def run_trainer(
-    script: Path,
-    dataset: Path,
-    mode: str,
-    weights: Path,
-    report: Path,
-) -> bool:
-    command = [
-        sys.executable,
-        str(script),
-        "--dataset",
-        str(dataset),
-        "--mode",
-        mode,
-        "--weights-out",
-        str(weights),
-        "--report-out",
-        str(report),
-    ]
-    if mode == "pattern-sgd-v0b":
-        command.extend(["--epochs", "8", "--learning-rate", "0.5", "--l2", "0.0", "--seed", "7"])
-    return run_or_report(command) is not None
-
-
-def export_v0a(
-    exporter: Path, weights_tsv: Path, weights_out: Path, manifest_out: Path, pattern_set: str
-) -> str | None:
-    result = run_or_report(
-        [
-            sys.executable,
-            str(exporter),
-            "--weights-tsv",
-            str(weights_tsv),
-            "--weights-out",
-            str(weights_out),
-            "--manifest-out",
-            str(manifest_out),
-            "--pattern-set",
-            pattern_set,
-        ]
-    )
-    if result is None:
-        return None
-    return parse_key_values(result.stdout)["weights_checksum"]
-
-
-def export_v0b(
-    exporter: Path, weights_json: Path, weights_out: Path, manifest_out: Path, pattern_set: str
-) -> str | None:
-    result = run_or_report(
-        [
-            sys.executable,
-            str(exporter),
-            "--weights-json",
-            str(weights_json),
-            "--weights-out",
-            str(weights_out),
-            "--manifest-out",
-            str(manifest_out),
-            "--pattern-set",
-            pattern_set,
-        ]
-    )
-    if result is None:
-        return None
-    return parse_key_values(result.stdout)["weights_checksum"]
+from smoke_pipeline import build_v0a_v0b_artifacts, parse_key_values, run_or_report
 
 
 def smoke_source_for(pattern_set: str) -> str:
     if pattern_set == "fixed-pattern-fixture-v1" or pattern_set == "tiny":
-        return "tiny-egaroucid-v0b-smoke"
+        return "tiny-synthetic-v0b-smoke"
     if pattern_set == "pattern-v2-endgame-lite" or pattern_set == "endgame-lite":
-        return "endgame-lite-egaroucid-v0b-smoke"
-    return "buro-lite-egaroucid-v0b-smoke"
+        return "endgame-lite-synthetic-v0b-smoke"
+    return "buro-lite-synthetic-v0b-smoke"
 
 
 def canonical_pattern_set_id(pattern_set: str) -> str:
@@ -163,7 +40,7 @@ def check_report(report_path: Path, first_summary: dict[str, str], pattern_set: 
     expected_notes = [
         "local smoke only",
         "not production benchmark",
-        "Egaroucid-derived artifacts are temp-only",
+        "synthetic artifacts are temp-only",
         "publication remains gated / unknown",
     ]
     expected_fields: dict[str, Any] = {
@@ -229,74 +106,40 @@ def main() -> int:
     parser.add_argument("--v0b-exporter", required=True, type=Path)
     parser.add_argument("--trainer-v0a", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
-    parser.add_argument("--egaroucid-importer", required=True, type=Path)
-    parser.add_argument("--egaroucid-fixture", required=True, type=Path)
-    parser.add_argument("--egaroucid-manifest", required=True, type=Path)
+    parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
-        pattern_dataset = temp_dir / "egaroucid-pattern-dataset.tsv"
-        dataset_report = temp_dir / "egaroucid-dataset-report.json"
-
-        imported_tsv = run_egaroucid_importer(
-            args.egaroucid_importer,
-            args.egaroucid_fixture,
-            args.egaroucid_manifest,
+        artifacts = build_v0a_v0b_artifacts(
+            trainer=args.trainer_v0a,
+            dataset_exe=args.dataset_exe,
+            normalized_tsv=args.normalized_tsv,
+            temp_dir=temp_dir,
+            pattern_set=args.pattern_set,
+            v0a_exporter=args.v0a_exporter,
+            v0b_exporter=args.v0b_exporter,
+            v0b_extra_args=["--epochs", "8", "--learning-rate", "0.5", "--l2", "0.0", "--seed", "7"],
         )
-        if imported_tsv is None:
+        if artifacts is None:
             return 1
-        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
-
-        dataset_text = run_dataset_from_normalized(
-            args.dataset_exe, normalized_tsv, dataset_report, args.pattern_set
-        )
-        if dataset_text is None:
-            return 1
-        pattern_dataset.write_text(dataset_text, encoding="utf-8")
-
-        v0a_weights_tsv = temp_dir / "v0a-weights.tsv"
-        v0a_report = temp_dir / "v0a-report.json"
-        v0b_weights_json = temp_dir / "v0b-weights.json"
-        v0b_report = temp_dir / "v0b-report.json"
-        if not run_trainer(
-            args.trainer_v0a, pattern_dataset, "phase-bias-v0a", v0a_weights_tsv, v0a_report
-        ):
-            return 1
-        if not run_trainer(
-            args.trainer_v0a, pattern_dataset, "pattern-sgd-v0b", v0b_weights_json, v0b_report
-        ):
-            return 1
-
-        v0a_weights = temp_dir / "v0a.weights.bin"
-        v0a_manifest = temp_dir / "v0a.manifest.json"
-        v0b_weights = temp_dir / "v0b.weights.bin"
-        v0b_manifest = temp_dir / "v0b.manifest.json"
-        v0a_checksum = export_v0a(
-            args.v0a_exporter, v0a_weights_tsv, v0a_weights, v0a_manifest, args.pattern_set
-        )
-        v0b_checksum = export_v0b(
-            args.v0b_exporter, v0b_weights_json, v0b_weights, v0b_manifest, args.pattern_set
-        )
-        if v0a_checksum is None or v0b_checksum is None:
-            return 1
+        v0a_weights, v0b_weights, v0a_export, v0b_export = artifacts
 
         first_report = temp_dir / "fixed-position-report.json"
         second_report = temp_dir / "fixed-position-report-second.json"
         command = [
             str(args.bench_exe),
             "--positions-tsv",
-            str(normalized_tsv),
+            str(args.normalized_tsv),
             "--v0a-weights",
             str(v0a_weights),
             "--v0b-weights",
             str(v0b_weights),
             "--v0a-artifact-checksum",
-            v0a_checksum,
+            v0a_export["weights_checksum"],
             "--v0b-artifact-checksum",
-            v0b_checksum,
+            v0b_export["weights_checksum"],
             "--pattern-set",
             args.pattern_set,
         ]
