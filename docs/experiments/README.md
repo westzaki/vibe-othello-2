@@ -2,8 +2,7 @@
 
 This directory contains historical experiment notes. These docs are not part of
 the default reading path for normal development; read them only when a task needs
-the specific experiment context. The original experiment documents are still in
-place and are not moved or deleted by this index.
+the specific experiment context.
 
 For current pattern learning design and workflow, start with
 `../architecture/pattern-learning.md`, `../architecture/evaluation-artifacts.md`,
@@ -20,8 +19,4 @@ For current pattern learning design and workflow, start with
 | `pattern-move-teacher-decision-leverage.md` | Move-teacher decision-leverage campaign and bounded arena check. | Historical experiment log. | Superseded by later scale and growth-cycle validation notes. |
 | `pattern-move-teacher-decision-leverage-scale.md` | Scale matrix for move-teacher decision-leverage runs. | Historical experiment log. | Later growth-cycle notes summarize the follow-up path. |
 | `pattern-move-teacher-cache.md` | Move-teacher exact label cache behavior, CLI, and local validation notes. | Historical workflow note. | Use current data policy docs before adding or materializing labels. |
-| `pattern-learning-growth-cycle.md` | Initial pattern-learning growth cycle run and promotion decision. | Historical experiment log. | Superseded by 50k, repeat, and 100k growth-cycle notes. |
-| `pattern-learning-growth-cycle-50k.md` | 50k pattern-learning growth cycle, exact-root baseline, decision leverage, and arena results. | Historical experiment log. | Superseded by the repeat and 100k growth-cycle notes. |
-| `pattern-learning-growth-cycle-50k-repeat.md` | 50k repeat, connected split check, and 100k stretch setup. | Historical experiment log. | Followed by the 100k growth-cycle note. |
-| `pattern-learning-growth-cycle-100k.md` | 100k growth-cycle status, exact-root baseline, decision leverage, arena, and scorecard notes. | Historical experiment log. | Use current pattern learning progress for present implementation status. |
-| `pattern-arena-100k-move-teacher-broader.md` | Broader arena validation for the 100k move-teacher artifact. | Historical validation log. | Use current evaluation artifact docs for artifact selection and policy. |
+| `pattern-learning-validation-history.md` | Consolidated validation history for the initial growth-cycle, 50k, repeated 50k, connected 100k, and broader arena path. | Historical summary. | Use current pattern learning progress and evaluation artifact docs for present implementation status and artifact policy. |
