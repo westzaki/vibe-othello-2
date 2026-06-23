@@ -143,7 +143,7 @@ lines, or PR-specific context are needed.
 
 | Area | Current summary |
 | --- | --- |
-| Import and normalization | Sequence transcripts can be replayed into normalized TSV schema v2 with deterministic identity, split, and leakage diagnostics. |
+| Import and normalization | Sequence transcripts can be replayed into normalized TSV schema v2 with deterministic identity, connected-board-game split support, and leakage diagnostics. |
 | Dataset shape | Compact TSV example rows are the scalable path for local pattern training diagnostics. |
 | Pattern sets | `pattern-v1-buro-lite` is the earlier production-ish schema; `pattern-v2-endgame-lite` is the bounded endgame-oriented pattern set used by the current experimental default. |
 | Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics and reports; they are not standalone strength claims. |

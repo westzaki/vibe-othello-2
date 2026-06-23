@@ -42,9 +42,7 @@ def repo_root() -> Path:
 def parse_args() -> argparse.Namespace:
     root = repo_root()
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--normalized-tsv", type=Path)
-    source.add_argument("--local-training-run-report", type=Path)
+    parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--max-empty", type=int, default=12)
     parser.add_argument("--max-positions", type=int)
@@ -100,26 +98,6 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"JSON root must be an object: {path}")
     return data
-
-
-def resolve_normalized_from_run_report(report_path: Path) -> Path:
-    report = load_json(report_path)
-    output_files = report.get("output_files")
-    if not isinstance(output_files, dict):
-        raise RuntimeError("--local-training-run-report is missing output_files")
-    candidates = (
-        output_files.get("resplit_normalized_tsv"),
-        output_files.get("sampled_normalized_tsv"),
-        output_files.get("normalized_tsv"),
-    )
-    for candidate in candidates:
-        if isinstance(candidate, str) and candidate:
-            path = Path(candidate)
-            if not path.is_absolute():
-                path = report_path.parent / path
-            if path.exists():
-                return path
-    raise RuntimeError("could not resolve normalized TSV from local training run report")
 
 
 def fnv1a64(text: str) -> int:
@@ -322,7 +300,7 @@ def write_summary(path: Path, report: dict[str, Any]) -> None:
 def main() -> int:
     args = parse_args()
     try:
-        normalized = args.normalized_tsv or resolve_normalized_from_run_report(args.local_training_run_report)
+        normalized = args.normalized_tsv
         rows = read_rows(normalized)
         selected_rows, selection_report = selected_low_empty_rows(rows, args.max_empty, args.max_positions, args.seed)
         if not selected_rows:

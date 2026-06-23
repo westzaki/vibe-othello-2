@@ -35,7 +35,6 @@ including:
 * selected TSVs
 * resplit normalized TSVs
 * generated pattern datasets
-* sequence replay caches
 * local import reports
 * local training reports
 * sweep reports
