@@ -39,24 +39,6 @@ def parse_summary(text: str) -> dict[str, str]:
     return summary
 
 
-def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str | None:
-    result = run_capture(
-        [
-            sys.executable,
-            str(importer),
-            "--input",
-            str(fixture),
-            "--manifest",
-            str(manifest),
-        ]
-    )
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        sys.stderr.write(result.stdout)
-        return None
-    return result.stdout
-
-
 def run_dataset(
     exe: Path, normalized_tsv: Path, report: Path, output_format: str = "expanded-tsv"
 ) -> str | None:
@@ -861,19 +843,11 @@ def check_compact_v0c_equivalence(
     return True
 
 
-def check_trainer_v0a(
-    trainer_script: Path, dataset_exe: Path, importer: Path, fixture: Path, manifest: Path
-) -> bool:
-    imported_tsv = run_egaroucid_importer(importer, fixture, manifest)
-    if imported_tsv is None:
-        return False
-
+def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
         dataset_report = temp_dir / "dataset-report.json"
         dataset_path = temp_dir / "pattern-dataset.tsv"
-        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
 
         dataset_text = run_dataset(dataset_exe, normalized_tsv, dataset_report)
         if dataset_text is None:
@@ -988,19 +962,11 @@ def check_trainer_v0a(
     return True
 
 
-def check_trainer_v0b(
-    trainer_script: Path, dataset_exe: Path, importer: Path, fixture: Path, manifest: Path
-) -> bool:
-    imported_tsv = run_egaroucid_importer(importer, fixture, manifest)
-    if imported_tsv is None:
-        return False
-
+def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
         dataset_report = temp_dir / "dataset-report.json"
         dataset_path = temp_dir / "pattern-dataset.tsv"
-        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
 
         dataset_text = run_dataset(dataset_exe, normalized_tsv, dataset_report)
         if dataset_text is None:
@@ -1162,9 +1128,7 @@ def main() -> int:
     parser.add_argument("--trainer-exe", required=True, type=Path)
     parser.add_argument("--trainer-v0a", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
-    parser.add_argument("--egaroucid-importer", required=True, type=Path)
-    parser.add_argument("--egaroucid-fixture", required=True, type=Path)
-    parser.add_argument("--egaroucid-manifest", required=True, type=Path)
+    parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--records", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     args = parser.parse_args()
@@ -1228,17 +1192,13 @@ def main() -> int:
     if not check_trainer_v0a(
         args.trainer_v0a,
         args.dataset_exe,
-        args.egaroucid_importer,
-        args.egaroucid_fixture,
-        args.egaroucid_manifest,
+        args.normalized_tsv,
     ):
         return 1
     if not check_trainer_v0b(
         args.trainer_v0a,
         args.dataset_exe,
-        args.egaroucid_importer,
-        args.egaroucid_fixture,
-        args.egaroucid_manifest,
+        args.normalized_tsv,
     ):
         return 1
     with tempfile.TemporaryDirectory() as temp_dir_name:

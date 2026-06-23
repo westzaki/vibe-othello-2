@@ -5,10 +5,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from smoke_pipeline import (
+    parse_key_values,
+    run_capture,
+    run_dataset_from_normalized,
+    run_or_report,
+    run_trainer,
+)
 
 
 EXPECTED_EXPORT_SUMMARY = {
@@ -34,82 +41,15 @@ EXPECTED_ROUNDTRIP_SUMMARY = {
 }
 
 
-def parse_key_values(text: str) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in text.splitlines():
-        key, separator, value = line.partition("=")
-        if not separator:
-            raise ValueError(f"line is missing '=': {line}")
-        if key in values:
-            raise ValueError(f"duplicate key: {key}")
-        values[key] = value
-    return values
-
-
-def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, capture_output=True, text=True)
-
-
-def run_or_report(command: list[str]) -> subprocess.CompletedProcess[str] | None:
-    result = run_capture(command)
-    if result.returncode != 0:
-        sys.stderr.write(result.stderr)
-        sys.stderr.write(result.stdout)
-        return None
-    return result
-
-
-def run_egaroucid_importer(importer: Path, fixture: Path, manifest: Path) -> str | None:
-    result = run_or_report(
-        [
-            sys.executable,
-            str(importer),
-            "--input",
-            str(fixture),
-            "--manifest",
-            str(manifest),
-        ]
-    )
-    return None if result is None else result.stdout
-
-
-def run_dataset_from_normalized(exe: Path, normalized_tsv: Path, report: Path) -> str | None:
-    result = run_or_report(
-        [
-            str(exe),
-            "--normalized-tsv",
-            str(normalized_tsv),
-            "--report",
-            str(report),
-        ]
-    )
-    return None if result is None else result.stdout
-
-
 def run_trainer_v0b(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
-    result = run_or_report(
-        [
-            sys.executable,
-            str(script),
-            "--dataset",
-            str(dataset),
-            "--mode",
-            "pattern-sgd-v0b",
-            "--epochs",
-            "8",
-            "--learning-rate",
-            "0.1",
-            "--l2",
-            "0.0",
-            "--seed",
-            "7",
-            "--weights-out",
-            str(weights),
-            "--report-out",
-            str(report),
-        ]
+    return run_trainer(
+        script,
+        dataset,
+        "pattern-sgd-v0b",
+        weights,
+        report,
+        ["--epochs", "8", "--learning-rate", "0.1", "--l2", "0.0", "--seed", "7"],
     )
-    return result is not None
 
 
 def check_v0b_manifest(
@@ -270,9 +210,7 @@ def main() -> int:
     parser.add_argument("--trainer-exe", required=True, type=Path)
     parser.add_argument("--trainer-v0a", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
-    parser.add_argument("--egaroucid-importer", required=True, type=Path)
-    parser.add_argument("--egaroucid-fixture", required=True, type=Path)
-    parser.add_argument("--egaroucid-manifest", required=True, type=Path)
+    parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--records", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     args = parser.parse_args()
@@ -379,29 +317,22 @@ def main() -> int:
             print(f"unexpected roundtrip summary: {roundtrip_summary}", file=sys.stderr)
             return 1
 
-        imported_tsv = run_egaroucid_importer(
-            args.egaroucid_importer,
-            args.egaroucid_fixture,
-            args.egaroucid_manifest,
-        )
-        if imported_tsv is None:
-            return 1
-        normalized_tsv = temp_dir / "egaroucid-normalized.tsv"
-        egaroucid_dataset_report = temp_dir / "egaroucid-dataset-report.json"
-        egaroucid_dataset = temp_dir / "egaroucid-pattern-dataset.tsv"
-        normalized_tsv.write_text(imported_tsv, encoding="utf-8")
-        egaroucid_dataset_text = run_dataset_from_normalized(
+        normalized_tsv = args.normalized_tsv
+        synthetic_dataset_report = temp_dir / "synthetic-dataset-report.json"
+        synthetic_dataset = temp_dir / "synthetic-pattern-dataset.tsv"
+        synthetic_dataset_text = run_dataset_from_normalized(
             args.dataset_exe,
             normalized_tsv,
-            egaroucid_dataset_report,
+            synthetic_dataset_report,
+            "fixed-pattern-fixture-v1",
         )
-        if egaroucid_dataset_text is None:
+        if synthetic_dataset_text is None:
             return 1
-        egaroucid_dataset.write_text(egaroucid_dataset_text, encoding="utf-8")
+        synthetic_dataset.write_text(synthetic_dataset_text, encoding="utf-8")
 
         v0b_weights = temp_dir / "v0b-weights.json"
         v0b_report = temp_dir / "v0b-report.json"
-        if not run_trainer_v0b(args.trainer_v0a, egaroucid_dataset, v0b_weights, v0b_report):
+        if not run_trainer_v0b(args.trainer_v0a, synthetic_dataset, v0b_weights, v0b_report):
             return 1
         if not check_v0b_roundtrip(
             args.v0b_exporter,
