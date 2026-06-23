@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import importlib.util
 import json
 import subprocess
 import sys
@@ -13,7 +12,6 @@ import tempfile
 import zipfile
 from io import StringIO
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 
@@ -41,6 +39,7 @@ EXPECTED_HEADER = [
 
 def run_importer(
     importer: Path,
+    replay_helper: Path,
     fixture: Path,
     manifest: Path,
     report: Path,
@@ -51,6 +50,8 @@ def run_importer(
         [
             sys.executable,
             str(importer),
+            "--replay-helper",
+            str(replay_helper),
             "--input",
             str(fixture),
             "--manifest",
@@ -237,93 +238,14 @@ def check_report(report: dict[str, Any], rows: list[dict[str, str]]) -> bool:
     return True
 
 
-def load_importer_module(importer: Path) -> Any:
-    spec = importlib.util.spec_from_file_location("egaroucid_sequence_importer_under_test", importer)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"could not load importer module from {importer}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+CONNECTED_SPLIT_COLLISION_FIXTURE = """\
+d3 c3 b3 e3 f3 c5 f6 g2 b5 c6 f4 a5 h1 f5 d6 e7 d7 e6 d8 c4 c7 b7 a8 b6 a4 f8 g4 b4 e8 a3 a7 g5 g8 c2 h4 g3 a2 h3 c1 d1 d2 e1 f1 f7 a6 h6 e2 b8 g7 c8 h5 g6 h2 h7 h8 g1 b2 f2 pass a1 pass b1
+d3 c3 b3 e3 f6 a3 e2 d6 c6 b6 c7 g7 e6 f2 h8 e1 a5 d7 b2 f3 c5 f4 e7 e8 g1 d2 g2 h2 h1 f5 h3 g6 f7 d8 h6 g8 c1 b1 f8 a7 a1 c2 c4 h5 h4 g3 a6 g4 g5 d1 a2 b8 a8 h7 b7 c8 f1 b5 a4 pass b4
+"""
 
 
-def coordinate(index: int) -> str:
-    return f"{chr(ord('a') + (index % 8))}{(index // 8) + 1}"
-
-
-def transcript_with_shared_prefix(module: Any, base_transcript: str, seed: int) -> str:
-    base_tokens = module.parse_transcript(base_transcript)
-    prefix = base_tokens[:4]
-    board = module.initial_board()
-    side = "X"
-    emitted: list[str] = []
-    for token in prefix:
-        index = module.move_index(token)
-        if index is None or index not in module.legal_moves(board, side):
-            raise RuntimeError("base prefix is not a legal explicit sequence")
-        module.apply_move(board, side, index)
-        emitted.append(token)
-        side = module.opponent(side)
-
-    base_next = module.move_index(base_tokens[4])
-    legal = [move for move in module.legal_moves(board, side) if move != base_next]
-    if not legal:
-        raise RuntimeError("base prefix has no alternate legal continuation")
-    first = legal[seed % len(legal)]
-    module.apply_move(board, side, first)
-    emitted.append(coordinate(first))
-    side = module.opponent(side)
-
-    step = 0
-    while True:
-        legal = module.legal_moves(board, side)
-        if legal:
-            move = legal[(seed + step) % len(legal)]
-            module.apply_move(board, side, move)
-            emitted.append(coordinate(move))
-            side = module.opponent(side)
-            step += 1
-            continue
-        other = module.opponent(side)
-        if module.legal_moves(board, other):
-            emitted.append("pass")
-            side = other
-            step += 1
-            continue
-        return " ".join(emitted)
-
-
-def semantic_split(module: Any, transcript: str) -> tuple[str, str]:
-    args = SimpleNamespace(
-        dataset_id=DATASET_ID,
-        min_ply=4,
-        max_ply=4,
-        ply_stride=1,
-        emit_terminal=True,
-        seed=0,
-    )
-    _rows, _pass_count, _terminal, game_group_id = module.replay_game(args, "occ-test", transcript)
-    split = module.split_for_digest(module.digest_for_parts(DATASET_ID, game_group_id))
-    return game_group_id, split
-
-
-def collision_fixture_text(importer: Path, fixture: Path) -> str | None:
-    module = load_importer_module(importer)
-    base = fixture.read_text(encoding="utf-8").splitlines()[0]
-    base_group, base_split = semantic_split(module, base)
-    for seed in range(200):
-        candidate = transcript_with_shared_prefix(module, base, seed)
-        candidate_group, candidate_split = semantic_split(module, candidate)
-        if candidate_group != base_group and candidate_split != base_split:
-            return f"{base}\n{candidate}\n"
-    print("could not generate connected split collision fixture", file=sys.stderr)
-    return None
-
-
-def check_connected_split_policy(importer: Path, fixture: Path, manifest: Path) -> bool:
-    fixture_text = collision_fixture_text(importer, fixture)
-    if fixture_text is None:
-        return False
+def check_connected_split_policy(importer: Path, replay_helper: Path, manifest: Path) -> bool:
+    fixture_text = CONNECTED_SPLIT_COLLISION_FIXTURE
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
         collision_fixture = temp_path / "collision-sequences.txt"
@@ -332,6 +254,7 @@ def check_connected_split_policy(importer: Path, fixture: Path, manifest: Path) 
         preserve_report = temp_path / "preserve-report.json"
         preserve = run_importer(
             importer,
+            replay_helper,
             collision_fixture,
             manifest,
             preserve_report,
@@ -357,6 +280,7 @@ def check_connected_split_policy(importer: Path, fixture: Path, manifest: Path) 
 
         strict = run_importer(
             importer,
+            replay_helper,
             collision_fixture,
             manifest,
             temp_path / "strict-report.json",
@@ -377,6 +301,7 @@ def check_connected_split_policy(importer: Path, fixture: Path, manifest: Path) 
         connected_report = temp_path / "connected-report.json"
         connected = run_importer(
             importer,
+            replay_helper,
             collision_fixture,
             manifest,
             connected_report,
@@ -420,7 +345,7 @@ def check_connected_split_policy(importer: Path, fixture: Path, manifest: Path) 
     return True
 
 
-def check_bounded_sampling(importer: Path, fixture: Path, manifest: Path) -> bool:
+def check_bounded_sampling(importer: Path, replay_helper: Path, fixture: Path, manifest: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
         first_report = temp_path / "bounded-first-report.json"
@@ -441,8 +366,12 @@ def check_bounded_sampling(importer: Path, fixture: Path, manifest: Path) -> boo
             "--progress-every-files",
             "1",
         ]
-        first = run_importer(importer, fixture, manifest, first_report, extra_args=extra_args)
-        second = run_importer(importer, fixture, manifest, second_report, extra_args=extra_args)
+        first = run_importer(
+            importer, replay_helper, fixture, manifest, first_report, extra_args=extra_args
+        )
+        second = run_importer(
+            importer, replay_helper, fixture, manifest, second_report, extra_args=extra_args
+        )
         if first.returncode != 0 or second.returncode != 0:
             sys.stderr.write(first.stderr)
             sys.stderr.write(first.stdout)
@@ -489,12 +418,13 @@ def check_bounded_sampling(importer: Path, fixture: Path, manifest: Path) -> boo
     return True
 
 
-def check_streaming_target(importer: Path, fixture: Path, manifest: Path) -> bool:
+def check_streaming_target(importer: Path, replay_helper: Path, fixture: Path, manifest: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
         report_path = temp_path / "streaming-target-report.json"
         result = run_importer(
             importer,
+            replay_helper,
             fixture,
             manifest,
             report_path,
@@ -538,11 +468,12 @@ def check_streaming_target(importer: Path, fixture: Path, manifest: Path) -> boo
     return True
 
 
-def check_sampling_mode_validation(importer: Path, fixture: Path, manifest: Path) -> bool:
+def check_sampling_mode_validation(importer: Path, replay_helper: Path, fixture: Path, manifest: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
         result = run_importer(
             importer,
+            replay_helper,
             fixture,
             manifest,
             temp_path / "bounded-without-mode-report.json",
@@ -557,7 +488,9 @@ def check_sampling_mode_validation(importer: Path, fixture: Path, manifest: Path
     return True
 
 
-def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expected_rows: int) -> bool:
+def check_zip_and_directory(
+    importer: Path, replay_helper: Path, fixture: Path, manifest: Path, expected_rows: int
+) -> bool:
     fixture_text = fixture.read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
@@ -568,6 +501,7 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
         zip_report = temp_path / "zip-report.json"
         zip_result = run_importer(
             importer,
+            replay_helper,
             zip_path,
             manifest,
             zip_report,
@@ -596,6 +530,7 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
         dir_report = temp_path / "dir-report.json"
         dir_result = run_importer(
             importer,
+            replay_helper,
             temp_path / "extracted",
             manifest,
             dir_report,
@@ -626,6 +561,7 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
         zip_dir_report = temp_path / "zip-dir-report.json"
         zip_dir_result = run_importer(
             importer,
+            replay_helper,
             zip_dir,
             manifest,
             zip_dir_report,
@@ -649,7 +585,9 @@ def check_zip_and_directory(importer: Path, fixture: Path, manifest: Path, expec
     return True
 
 
-def check_storage_independent_identity(importer: Path, fixture: Path, manifest: Path) -> bool:
+def check_storage_independent_identity(
+    importer: Path, replay_helper: Path, fixture: Path, manifest: Path
+) -> bool:
     fixture_text = fixture.read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
@@ -660,8 +598,12 @@ def check_storage_independent_identity(importer: Path, fixture: Path, manifest: 
         with zipfile.ZipFile(second_zip, "w") as archive:
             archive.writestr("renamed/member.txt", "\n" + fixture_text)
 
-        first = run_importer(importer, first_zip, manifest, temp_path / "first-report.json")
-        second = run_importer(importer, second_zip, manifest, temp_path / "second-report.json")
+        first = run_importer(
+            importer, replay_helper, first_zip, manifest, temp_path / "first-report.json"
+        )
+        second = run_importer(
+            importer, replay_helper, second_zip, manifest, temp_path / "second-report.json"
+        )
         if first.returncode != 0 or second.returncode != 0:
             sys.stderr.write(first.stderr)
             sys.stderr.write(second.stderr)
@@ -700,11 +642,17 @@ def check_storage_independent_identity(importer: Path, fixture: Path, manifest: 
     return True
 
 
-def check_seed_does_not_change_identity(importer: Path, fixture: Path, manifest: Path) -> bool:
+def check_seed_does_not_change_identity(
+    importer: Path, replay_helper: Path, fixture: Path, manifest: Path
+) -> bool:
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
-        first = run_importer(importer, fixture, manifest, temp_path / "seed-7.json", seed=7)
-        second = run_importer(importer, fixture, manifest, temp_path / "seed-99.json", seed=99)
+        first = run_importer(
+            importer, replay_helper, fixture, manifest, temp_path / "seed-7.json", seed=7
+        )
+        second = run_importer(
+            importer, replay_helper, fixture, manifest, temp_path / "seed-99.json", seed=99
+        )
         if first.returncode != 0 or second.returncode != 0:
             sys.stderr.write(first.stderr)
             sys.stderr.write(second.stderr)
@@ -729,7 +677,7 @@ def check_seed_does_not_change_identity(importer: Path, fixture: Path, manifest:
     return True
 
 
-def check_manifest_validation(importer: Path, fixture: Path, manifest: Path) -> bool:
+def check_manifest_validation(importer: Path, replay_helper: Path, fixture: Path, manifest: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp:
         temp_path = Path(temp)
         mismatch = temp_path / "mismatch.manifest.json"
@@ -737,7 +685,9 @@ def check_manifest_validation(importer: Path, fixture: Path, manifest: Path) -> 
             manifest.read_text(encoding="utf-8").replace(DATASET_ID, "other-sequence", 1),
             encoding="utf-8",
         )
-        result = run_importer(importer, fixture, mismatch, temp_path / "bad-report.json")
+        result = run_importer(
+            importer, replay_helper, fixture, mismatch, temp_path / "bad-report.json"
+        )
         if result.returncode == 0 or "does not match --dataset-id" not in result.stderr:
             print("manifest mismatch was not rejected", file=sys.stderr)
             sys.stderr.write(result.stderr)
@@ -745,9 +695,63 @@ def check_manifest_validation(importer: Path, fixture: Path, manifest: Path) -> 
     return True
 
 
+def check_replay_validation_cases(
+    importer: Path, replay_helper: Path, fixture: Path, manifest: Path
+) -> bool:
+    fixture_lines = fixture.read_text(encoding="utf-8").splitlines()
+    with tempfile.TemporaryDirectory() as temp:
+        temp_path = Path(temp)
+        validation_fixture = temp_path / "replay-validation.txt"
+        validation_fixture.write_text(
+            "\n".join(
+                [
+                    fixture_lines[0],
+                    fixture_lines[1],
+                    "d3 d3",
+                    "d3 c3 c4",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        report_path = temp_path / "replay-validation-report.json"
+        result = run_importer(importer, replay_helper, validation_fixture, manifest, report_path)
+        if result.returncode != 0:
+            sys.stderr.write(result.stderr)
+            sys.stderr.write(result.stdout)
+            return False
+        rows = parse_rows(result.stdout)
+        data = load_report(report_path)
+        if rows is None or data is None:
+            return False
+        expected = {
+            "input_games": 4,
+            "accepted_games": 2,
+            "rejected_games": 2,
+            "invalid_move_count": 2,
+            "terminal_count": 2,
+        }
+        for key, value in expected.items():
+            if data.get(key) != value:
+                print(f"replay validation mismatch for {key}: {data.get(key)!r}", file=sys.stderr)
+                return False
+        if data.get("pass_count", 0) < 3:
+            print(f"explicit/implicit pass count was not reflected: {data!r}", file=sys.stderr)
+            return False
+        rejected = "\n".join(data.get("rejected_reasons", []))
+        if (
+            "illegal move" not in rejected
+            or "transcript ended before terminal position" not in rejected
+        ):
+            print(f"missing replay rejection reasons: {rejected!r}", file=sys.stderr)
+            return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--importer", required=True, type=Path)
+    parser.add_argument("--replay-helper", required=True, type=Path)
     parser.add_argument("--fixture", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
@@ -757,8 +761,12 @@ def main() -> int:
         temp_path = Path(temp)
         first_report_path = temp_path / "first-report.json"
         second_report_path = temp_path / "second-report.json"
-        first = run_importer(args.importer, args.fixture, args.manifest, first_report_path)
-        second = run_importer(args.importer, args.fixture, args.manifest, second_report_path)
+        first = run_importer(
+            args.importer, args.replay_helper, args.fixture, args.manifest, first_report_path
+        )
+        second = run_importer(
+            args.importer, args.replay_helper, args.fixture, args.manifest, second_report_path
+        )
         if first.returncode != 0:
             sys.stderr.write(first.stderr)
             sys.stderr.write(first.stdout)
@@ -804,21 +812,39 @@ def main() -> int:
             print("dataset builder emitted no pattern rows", file=sys.stderr)
             return 1
 
-        if not check_zip_and_directory(args.importer, args.fixture, args.manifest, len(rows)):
+        if not check_zip_and_directory(
+            args.importer, args.replay_helper, args.fixture, args.manifest, len(rows)
+        ):
             return 1
-        if not check_bounded_sampling(args.importer, args.fixture, args.manifest):
+        if not check_bounded_sampling(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
             return 1
-        if not check_streaming_target(args.importer, args.fixture, args.manifest):
+        if not check_streaming_target(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
             return 1
-        if not check_sampling_mode_validation(args.importer, args.fixture, args.manifest):
+        if not check_sampling_mode_validation(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
             return 1
-        if not check_connected_split_policy(args.importer, args.fixture, args.manifest):
+        if not check_connected_split_policy(args.importer, args.replay_helper, args.manifest):
             return 1
-        if not check_storage_independent_identity(args.importer, args.fixture, args.manifest):
+        if not check_replay_validation_cases(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
             return 1
-        if not check_seed_does_not_change_identity(args.importer, args.fixture, args.manifest):
+        if not check_storage_independent_identity(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
             return 1
-        if not check_manifest_validation(args.importer, args.fixture, args.manifest):
+        if not check_seed_does_not_change_identity(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
+            return 1
+        if not check_manifest_validation(
+            args.importer, args.replay_helper, args.fixture, args.manifest
+        ):
             return 1
     return 0
 
