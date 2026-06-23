@@ -338,12 +338,12 @@ bool score_in_search_range(vibe_othello::search::Score score) noexcept {
 
 std::string_view smoke_source_for(const vibe_othello::evaluation::PatternSet& pattern_set) {
   if (pattern_set.id == "fixed-pattern-fixture-v1") {
-    return "tiny-egaroucid-v0b-smoke";
+    return "tiny-synthetic-v0b-smoke";
   }
   if (pattern_set.id == "pattern-v2-endgame-lite") {
-    return "endgame-lite-egaroucid-v0b-smoke";
+    return "endgame-lite-synthetic-v0b-smoke";
   }
-  return "buro-lite-egaroucid-v0b-smoke";
+  return "buro-lite-synthetic-v0b-smoke";
 }
 
 std::string report_without_checksum(const Args& args, std::span<const ScoreRow> rows,
@@ -375,7 +375,7 @@ std::string report_without_checksum(const Args& args, std::span<const ScoreRow> 
   output << "  \"notes\": [\n";
   output << "    \"local smoke only\",\n";
   output << "    \"not production benchmark\",\n";
-  output << "    \"Egaroucid-derived artifacts are temp-only\",\n";
+  output << "    \"synthetic artifacts are temp-only\",\n";
   output << "    \"publication remains gated / unknown\"\n";
   output << "  ]\n";
   output << "}";
