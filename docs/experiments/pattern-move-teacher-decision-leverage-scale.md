@@ -34,8 +34,8 @@ python3 tools/pattern/labels/run_move_teacher_campaign_matrix.py \
   --previous-manifest "$VIBE_OTHELLO_MEASUREMENTS/move-teacher-decision-campaign-v1/root-label-comparator/exact-root-label-v2.manifest.json" \
   --previous-pattern-set pattern-v2-endgame-lite \
   --previous-name previous-exact-root-label-v2 \
-  --arena-baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/pattern-signal-bottleneck-diagnostics/artifacts/v1-exact-teacher.weights.bin" \
-  --arena-baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/pattern-signal-bottleneck-diagnostics/artifacts/v1-exact-teacher.manifest.json" \
+  --arena-baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<local-v1-exact-teacher-baseline>/v1-exact-teacher.weights.bin" \
+  --arena-baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<local-v1-exact-teacher-baseline>/v1-exact-teacher.manifest.json" \
   --arena-baseline-name pattern-v1-buro-lite \
   --arena-max-positions 1000 \
   --arena-depth 3 \

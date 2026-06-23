@@ -11,11 +11,7 @@ For current pattern learning design and workflow, start with
 
 | Doc | Scope | Current status | Superseded by / Notes |
 | --- | --- | --- | --- |
-| `pattern-sequence-v0002-local-measurement.md` | Local measurement notes for pattern sequence v0002. | Historical log. | Use current pattern learning and evaluation artifact docs for normal workflow. |
-| `pattern-sequence-v0002-v0c-v0d-sweep.md` | v0c/v0d sweep and promotion notes for pattern sequence v0002. | Historical log. | Later growth-cycle docs and current pattern learning docs carry the active reading path. |
-| `pattern-sequence-v0002-endgame-lite-exact-teacher.md` | Endgame-lite exact-teacher diagnostic for pattern sequence v0002. | Historical diagnostic. | Reference only when investigating this exact diagnostic lineage. |
-| `pattern-artifact-arena-v2-vs-v1-late-game-1000.md` | Late-game arena comparison between persistent v2 and v1 pattern artifacts. | Historical diagnostic. | Use evaluation artifact docs for current artifact policy. |
-| `pattern-signal-bottleneck-diagnostics.md` | Diagnostics for pattern signal bottlenecks, swaps, depth sweeps, and exact-label sanity checks. | Historical diagnostic. | Reference only for prior bottleneck investigation context. |
+| `pattern-learning-early-diagnostics.md` | Consolidated early pattern-learning diagnostics from sequence import through v0c/v0d, exact-root, bottleneck, and v2-vs-v1 arena checks. | Historical summary. | Explains why the old observed-label MAE and exact-root routes were insufficient before move-teacher validation. |
 | `pattern-move-teacher-decision-leverage.md` | Move-teacher decision-leverage campaign and bounded arena check. | Historical experiment log. | Superseded by later scale and growth-cycle validation notes. |
 | `pattern-move-teacher-decision-leverage-scale.md` | Scale matrix for move-teacher decision-leverage runs. | Historical experiment log. | Later growth-cycle notes summarize the follow-up path. |
 | `pattern-move-teacher-cache.md` | Move-teacher exact label cache behavior, CLI, and local validation notes. | Historical workflow note. | Use current data policy docs before adding or materializing labels. |

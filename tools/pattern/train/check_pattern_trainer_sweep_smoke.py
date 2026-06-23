@@ -374,7 +374,7 @@ def check_docs_privacy_guard(args: argparse.Namespace) -> bool:
     repo_root = args.sweep_runner.resolve().parents[3]
     docs = (
         repo_root / "docs/progress/pattern-learning.md",
-        repo_root / "docs/experiments/pattern-sequence-v0002-local-measurement.md",
+        repo_root / "docs/experiments/pattern-learning-early-diagnostics.md",
     )
     blocked = ("/Users/", "/home/", "~/Project/")
     for path in docs:
