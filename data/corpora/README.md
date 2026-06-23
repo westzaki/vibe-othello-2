@@ -1,137 +1,90 @@
-# Corpus Data Policy
+# Corpus Source Data
 
-This directory owns dataset manifests for pattern learning.
+## Purpose
 
-Raw third-party corpora are not committed here. Keep downloaded game records,
-source archives, derived intermediate datasets, and source-specific scratch
-files in local-only paths outside the repository/worktree by default.
+`data/corpora/` is the source-data policy directory for pattern learning
+corpora: source manifests, tiny checked-in fixtures, and policy docs.
 
-## Local-only Measurement Directories
+Raw third-party corpora are local-only by default. This repository does not
+redistribute raw Egaroucid archives, extracted files, transcript dumps, or
+board-score archives.
 
-Use generic local environment variables for day-to-day corpus and measurement
-work:
+## What May Be Committed
 
-```sh
-export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
-export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
-export VIBE_OTHELLO_SEQUENCE_CACHE="${VIBE_OTHELLO_SEQUENCE_CACHE:-$VIBE_OTHELLO_LOCAL/sequence-cache}"
-export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$VIBE_OTHELLO_LOCAL/measurements}"
+Committed files are limited to:
 
-mkdir -p "$VIBE_OTHELLO_CORPORA"
-mkdir -p "$VIBE_OTHELLO_SEQUENCE_CACHE"
-mkdir -p "$VIBE_OTHELLO_MEASUREMENTS"
-```
+* source manifests under `data/corpora/manifests/` and repo-owned sample
+  manifests under `data/corpora/samples/`
+* `dataset-manifest.schema.json`
+* this policy README and related tiny policy files
+* repo-owned tiny fixtures that are safe to redistribute and useful for smoke
+  coverage
 
-`VIBE_OTHELLO_LOCAL` is the optional root for all local-only data.
-`VIBE_OTHELLO_CORPORA` is for local corpus inputs. `VIBE_OTHELLO_SEQUENCE_CACHE`
-is the shared sequence replay cache and should be shared across worktrees.
-`VIBE_OTHELLO_MEASUREMENTS` is the measurement suite output root.
+Small synthetic fixtures may be committed only when repo-owned and safe.
+External corpus names may appear only as policy context, not payloads.
 
-Use generic paths only in committed docs and examples, such as
-`$HOME/vibe-othello-local`, `$VIBE_OTHELLO_LOCAL`, `<repo-root>`,
-`<sequence-input>`, and `<sequence-manifest>`. Do not commit personal paths,
-developer-specific directories, `.env` files with real values, generated
-measurement outputs, external corpus payloads, TSVs, learned weights,
-artifacts, reports, or logs.
+## What Must Stay Local
 
-Local measurement suites for external corpora should also write under ignored
-local paths, normally under `$VIBE_OTHELLO_MEASUREMENTS/<suite-name>`. Suite
-reports, analyzer summaries, normalized TSVs, sequence replay caches, pattern
-datasets, trainer reports, learned weights, exported artifacts, and logs from
-those runs remain local-only and must not be committed.
+Do not commit generated or external corpus data under `data/corpora/`,
+including:
 
-For sequence-derived normalized schema v2 measurements, use
-`--measurement-split-policy connected-board-game` when validation/test leakage
-hygiene matters. It keeps rows sharing a semantic game or identical
-side-to-move-relative board in the same local measurement split. This may change
-split counts and is only a measurement split policy, not a strength,
-publication, label-quality, or artifact-release claim.
+* raw external archives
+* extracted external source files
+* Egaroucid raw transcripts or board-score archives
+* normalized TSVs
+* selected TSVs
+* resplit normalized TSVs
+* generated pattern datasets
+* sequence replay caches
+* local import reports
+* local training reports
+* sweep reports
+* trainer reports
+* logs
+* temporary datasets
+* local machine paths
+* generated teacher labels or move-teacher outputs
 
-Teacher label TSVs and teacher-overlaid normalized TSVs are also local-only
-generated data. Keep them outside git and follow `../labels/README.md` for the
-schema, overlay workflow, and no-strength-claim policy.
+Unknown or unclear license terms mean local experiment only.
 
-For long local measurements, keep a short operator note or progress journal in
-the same ignored tree, for example
-`$VIBE_OTHELLO_MEASUREMENTS/perf-notes/<run-id>.md`. Include the active suite
-output directory, shared sequence cache, stderr log, suite report, and resume
-command so another workspace can pick up the run without rediscovering local
-state. Keep any note with real local paths out of git.
+## Manifest Contract
 
-## Dataset Manifests
+External or local-only corpus inputs must be identified by a manifest before
+they are used by pattern learning data workflows.
 
-Every dataset used for pattern learning must have a manifest before importer,
-feature extraction, training, or artifact export uses it.
+Manifests should record:
 
-The current manifest schema is:
+* source name
+* source URL, source description, or durable source reference
+* retrieved date when known
+* license or terms
+* redistribution and other permission flags
+* checksum when available
+* local-only path placeholder, without personal absolute paths
+* review notes for restrictions, attribution, and provenance caveats
 
-* `data/corpora/dataset-manifest.schema.json`
+The current schema is `dataset-manifest.schema.json`. If license or permission
+fields are `unknown`, the source remains local-only and must not be used for
+published raw data, derived datasets, learned weights, or release artifacts.
 
-Tiny checked-in examples may live under `data/corpora/samples/` when they do
-not include raw external corpus content. Repository-local synthetic records in
-that directory are allowed for importer and replay smoke tests.
+## Directory Rules
 
-Minimum manifest fields are:
+Keep this directory focused on source manifests, tiny safe fixtures, and policy
+docs. Do not place local machine paths, generated outputs, experiment reports,
+training outputs, or cache materialization outputs here.
 
-* `dataset_id`
-* `source_name`
-* `source_url`
-* `retrieved_at`
-* `license_or_terms`
-* `redistribution_allowed`
-* `commercial_use_allowed`
-* `derived_weights_allowed`
-* `required_attribution`
-* `local_path`
-* `sha256`
-* `notes`
+Generated normalized TSVs, selected TSVs, datasets, reports, logs, caches,
+teacher labels, and move-teacher outputs belong in ignored local storage.
 
-Use `unknown` for permission fields only when the answer has not been reviewed.
-Any dataset with unknown license terms or unknown permissions is local-only and
-must not be used for published raw data, derived datasets, learned weights, or
-release artifacts.
+Do not commit copied GPL engine code, GPL evaluation weights, GPL-derived
+tables, or line-by-line translations of GPL implementation details. Use public
+papers, high-level descriptions, black-box comparisons, or independently generated
+data only when terms permit.
 
-## Provenance Rules
+## Where Details Live
 
-Manifests must record enough provenance to answer:
-
-* where the data came from
-* when it was retrieved or generated
-* what license or terms apply
-* whether redistribution is allowed
-* whether commercial use is allowed
-* whether learned weights may be derived and published
-* what attribution is required
-* where the local uncommitted copy lives
-* which exact payload checksum was used
-
-Do not commit personal absolute paths in `local_path`. Prefer a relative
-repository path for checked-in synthetic samples, or `not-applicable` for
-manifest-only synthetic samples.
-
-## GPL Boundary
-
-Do not copy GPL engine code, GPL evaluation weights, GPL-derived tables, or
-line-by-line translations of GPL implementation details into this repository.
-
-Public papers, high-level descriptions, independently written code, black-box
-comparison, and locally generated self-play are acceptable inputs when their
-own terms permit the intended use.
-
-## Validation
-
-The manifest smoke validator checks the checked-in sample without external
-network access:
-
-```sh
-python3 tools/data-policy/validate_dataset_manifest.py \
-  --schema data/corpora/dataset-manifest.schema.json \
-  data/corpora/samples/tiny-local-synthetic.manifest.json
-```
-
-CTest also runs this check when testing is enabled.
-
-The checked-in tiny synthetic records are replayed by the data-import smoke
-tool through board-core move application. They are intended only to verify that
-known-good rows are accepted and malformed, illegal, or bad-pass rows are
-rejected before any external corpus is considered.
+* Pattern learning architecture and data flow: `../../docs/architecture/pattern-learning.md`
+* Pattern learning current status: `../../docs/progress/pattern-learning.md`
+* Historical experiment logs: `../../docs/experiments/README.md`
+* Teacher label and move-teacher local policy: `../labels/README.md`
+* Evaluation artifact directory policy: `../eval/README.md`
