@@ -12,6 +12,7 @@ from pathlib import Path
 EXPECTED_HEADER = (
     "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_id\tinstance\tternary_index"
 )
+EXPECTED_COMPACT_HEADER = "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features"
 EXPECTED_REJECTS = (
     "tiny-bad-coordinate",
     "tiny-bad-illegal-move",
@@ -22,9 +23,25 @@ EXPECTED_ACCEPTS = ("tiny-legal-prefix", "tiny-alt-prefix")
 EXPECTED_REPRESENTATIVE_ROW = (
     "tiny-legal-prefix\t3\ttest\t3\t0\tcorner-3x3\t0\t6561"
 )
+EXPECTED_FEATURE_ORDER = (
+    "edge-8:0",
+    "edge-8:1",
+    "edge-8:2",
+    "edge-8:3",
+    "corner-3x3:0",
+    "corner-3x3:1",
+    "corner-3x3:2",
+    "corner-3x3:3",
+)
 
 
-def run_cli(exe: Path, records: Path, manifest: Path, index_mode: str) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    exe: Path,
+    records: Path,
+    manifest: Path,
+    index_mode: str,
+    output_format: str = "expanded-tsv",
+) -> subprocess.CompletedProcess[str]:
     command = [
         str(exe),
         "--records",
@@ -36,6 +53,8 @@ def run_cli(exe: Path, records: Path, manifest: Path, index_mode: str) -> subpro
     ]
     if index_mode == "canonical":
         command.extend(["--index-mode", "canonical"])
+    if output_format != "expanded-tsv":
+        command.extend(["--output-format", output_format])
 
     return subprocess.run(
         command,
@@ -99,6 +118,35 @@ def checked_lines(result: subprocess.CompletedProcess[str]) -> list[str] | None:
     return lines
 
 
+def checked_compact_lines(result: subprocess.CompletedProcess[str]) -> list[str] | None:
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return None
+
+    lines = result.stdout.splitlines()
+    if not lines or lines[0] != EXPECTED_COMPACT_HEADER:
+        print("missing or invalid compact TSV header", file=sys.stderr)
+        return None
+
+    data_lines = lines[1:]
+    if len(data_lines) != 6:
+        print(f"unexpected compact dataset row count: {len(data_lines)}", file=sys.stderr)
+        return None
+
+    expected_summary_parts = (
+        "summary total_records=6 accepted_records=2 rejected_records=4 emitted_rows=6",
+        "output_format=compact-tsv",
+        "split_policy=tiny-cycle duplicate_policy=keep_all_input_order",
+    )
+    for part in expected_summary_parts:
+        if part not in result.stderr:
+            print(f"missing compact summary part: {part}", file=sys.stderr)
+            return None
+
+    return lines
+
+
 def parse_rows(lines: list[str]) -> dict[tuple[str, ...], int] | None:
     rows: dict[tuple[str, ...], int] = {}
     for line in lines[1:]:
@@ -116,6 +164,60 @@ def parse_rows(lines: list[str]) -> dict[tuple[str, ...], int] | None:
             print(f"invalid ternary index: {line}", file=sys.stderr)
             return None
     return rows
+
+
+def expanded_feature_groups(lines: list[str]) -> dict[tuple[str, ...], list[str]] | None:
+    groups: dict[tuple[str, ...], list[str]] = {}
+    for line in lines[1:]:
+        fields = line.split("\t")
+        if len(fields) != 8:
+            print(f"invalid expanded dataset row: {line}", file=sys.stderr)
+            return None
+        key = tuple(fields[:5])
+        token = f"{fields[5]}:{fields[6]}:{fields[7]}"
+        groups.setdefault(key, []).append(token)
+
+    for key, tokens in groups.items():
+        actual_order = tuple(":".join(token.split(":")[:2]) for token in tokens)
+        if actual_order != EXPECTED_FEATURE_ORDER:
+            print(f"unexpected feature occurrence order for {key}: {actual_order}", file=sys.stderr)
+            return None
+
+    return groups
+
+
+def compact_feature_groups(lines: list[str]) -> dict[tuple[str, ...], list[str]] | None:
+    groups: dict[tuple[str, ...], list[str]] = {}
+    for line in lines[1:]:
+        fields = line.split("\t")
+        if len(fields) != 6:
+            print(f"invalid compact dataset row: {line}", file=sys.stderr)
+            return None
+        key = tuple(fields[:5])
+        tokens = fields[5].split(",")
+        if len(tokens) != len(EXPECTED_FEATURE_ORDER) or not all(
+            len(token.split(":")) == 3 for token in tokens
+        ):
+            print(f"invalid compact feature list: {fields[5]}", file=sys.stderr)
+            return None
+        groups[key] = tokens
+    return groups
+
+
+def check_compact_parity(args: argparse.Namespace, expanded_lines: list[str]) -> int:
+    compact_result = run_cli(args.exe, args.records, args.manifest, args.index_mode, "compact-tsv")
+    compact_lines = checked_compact_lines(compact_result)
+    if compact_lines is None:
+        return 1
+
+    expanded_groups = expanded_feature_groups(expanded_lines)
+    compact_groups = compact_feature_groups(compact_lines)
+    if expanded_groups is None or compact_groups is None:
+        return 1
+    if expanded_groups != compact_groups:
+        print("compact feature payloads do not match expanded feature rows", file=sys.stderr)
+        return 1
+    return 0
 
 
 def check_canonical(args: argparse.Namespace, canonical_lines: list[str]) -> int:
@@ -179,7 +281,7 @@ def main() -> int:
         if EXPECTED_REPRESENTATIVE_ROW not in lines[1:]:
             print("missing deterministic representative dataset row", file=sys.stderr)
             return 1
-        return 0
+        return check_compact_parity(args, lines)
 
     return check_canonical(args, lines)
 
