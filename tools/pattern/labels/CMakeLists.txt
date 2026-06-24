@@ -80,6 +80,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/check_move_teacher_cache_smoke.py
       --materializer
       ${CMAKE_CURRENT_SOURCE_DIR}/materialize_move_teacher_from_cache.py
+      --generator
+      $<TARGET_FILE:vibe_othello_generate_exact_move_teacher_dataset>
       --campaign-helper
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py
       --matrix-helper

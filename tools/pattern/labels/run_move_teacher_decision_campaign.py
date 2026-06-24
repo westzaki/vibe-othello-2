@@ -280,7 +280,6 @@ def cache_materialize_command(
         str(args.max_roots),
         "--seed",
         str(args.seed),
-        "--require-full-hit",
     ]
 
 

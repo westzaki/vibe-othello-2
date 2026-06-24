@@ -13,6 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import normalized_v2_contract as normalized_contract
+
 
 NORMALIZED_HEADER_V2 = [
     "record_id",
@@ -55,11 +57,34 @@ MOVE_TEACHER_HEADER = [
     "teacher_nodes",
 ]
 TEACHER_SOURCE = "exact-move-teacher-v2"
+POSITIONS = [
+    (
+        "one-empty-move",
+        "train",
+        "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b",
+    ),
+    (
+        "one-empty-pass",
+        "validation",
+        "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b",
+    ),
+    (
+        "two-empty",
+        "test",
+        "WWWWWWW./BBBBBBB./BBWBWBWW/BBBBBWWB/BWBBWWWB/BBBWWWWW/BBBBWWWW/BBBWWWWW b",
+    ),
+    (
+        "fourteen-empty",
+        "train",
+        "WWWWWWW./.WWWBW../BBWBBB../BWWBB.B./BWBBBBBB/BWBBB.B./.WWWWB../BW.WWWWW b",
+    ),
+]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--materializer", required=True, type=Path)
+    parser.add_argument("--generator", required=True, type=Path)
     parser.add_argument("--campaign-helper", required=True, type=Path)
     parser.add_argument("--matrix-helper", required=True, type=Path)
     parser.add_argument("--growth-cycle-helper", required=True, type=Path)
@@ -74,6 +99,31 @@ def board(player: int, opponent: int, empty: int) -> str:
     if player + opponent + empty != 64:
         raise AssertionError("bad board counts")
     return ("X" * player) + ("O" * opponent) + ("-" * empty)
+
+
+def relative_board(serialized: str) -> str:
+    board_text, side = serialized.split()
+    player_disc = "B" if side == "b" else "W"
+    opponent_disc = "W" if side == "b" else "B"
+    values = ["-"] * 64
+    ranks = board_text.split("/")
+    if len(ranks) != 8:
+        raise AssertionError(serialized)
+    for rank_from_top, row in enumerate(ranks):
+        rank = 7 - rank_from_top
+        if len(row) != 8:
+            raise AssertionError(serialized)
+        for file, value in enumerate(row):
+            index = rank * 8 + file
+            if value == player_disc:
+                values[index] = "X"
+            elif value == opponent_disc:
+                values[index] = "O"
+            elif value == ".":
+                values[index] = "-"
+            else:
+                raise AssertionError(serialized)
+    return "".join(values)
 
 
 def normalized_row(record: str, board_id: str, split: str, board_text: str, game: str = "game") -> dict[str, str]:
@@ -190,6 +240,118 @@ def require_failure(result: subprocess.CompletedProcess[str], needle: str) -> bo
     return True
 
 
+def selection_options(max_empty: int, max_roots: int | None, seed: int) -> list[str]:
+    options = ["--max-empty", str(max_empty), "--seed", str(seed)]
+    if max_roots is not None:
+        options.extend(["--max-roots", str(max_roots)])
+    return options
+
+
+def run_generator(
+    generator: Path,
+    normalized: Path,
+    move_out: Path,
+    child_out: Path,
+    report: Path,
+    max_empty: int,
+    max_roots: int | None,
+    seed: int,
+) -> subprocess.CompletedProcess[str]:
+    return run(
+        [
+            str(generator),
+            "--normalized-tsv",
+            str(normalized),
+            "--move-teacher-out",
+            str(move_out),
+            "--child-normalized-out",
+            str(child_out),
+            "--report-out",
+            str(report),
+            *selection_options(max_empty, max_roots, seed),
+        ]
+    )
+
+
+def materialize_command_with_selection(
+    args: argparse.Namespace,
+    normalized: Path,
+    cache_dir: Path,
+    move_out: Path,
+    child_out: Path,
+    report: Path,
+    max_empty: int,
+    max_roots: int | None,
+    seed: int,
+    *extra: str,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(args.materializer),
+        "--normalized-tsv",
+        str(normalized),
+        "--cache-dir",
+        str(cache_dir),
+        "--move-teacher-out",
+        str(move_out),
+        "--child-normalized-out",
+        str(child_out),
+        "--report-out",
+        str(report),
+        *selection_options(max_empty, max_roots, seed),
+        *extra,
+    ]
+
+
+def populate_command_with_selection(
+    args: argparse.Namespace,
+    normalized: Path,
+    cache_dir: Path,
+    source: Path,
+    report: Path,
+    max_empty: int,
+    max_roots: int | None,
+    seed: int,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(args.materializer),
+        "--normalized-tsv",
+        str(normalized),
+        "--cache-dir",
+        str(cache_dir),
+        "--report-out",
+        str(report),
+        *selection_options(max_empty, max_roots, seed),
+        "--source-move-teacher-tsv",
+        str(source),
+        "--populate-only",
+    ]
+
+
+def probe_command_with_selection(
+    args: argparse.Namespace,
+    normalized: Path,
+    cache_dir: Path,
+    report: Path,
+    max_empty: int,
+    max_roots: int | None,
+    seed: int,
+) -> list[str]:
+    return [
+        sys.executable,
+        str(args.materializer),
+        "--normalized-tsv",
+        str(normalized),
+        "--cache-dir",
+        str(cache_dir),
+        "--report-out",
+        str(report),
+        *selection_options(max_empty, max_roots, seed),
+        "--probe-only",
+    ]
+
+
 def materialize_command(
     args: argparse.Namespace,
     normalized: Path,
@@ -286,6 +448,213 @@ def fixture(root: Path) -> tuple[Path, Path, list[dict[str, str]]]:
     return normalized, source_move_teacher, [root_b, root_a]
 
 
+def direct_fixture_rows(include_duplicate: bool) -> list[dict[str, str]]:
+    rows = [
+        normalized_row(index, f"direct-{name}", split, relative_board(serialized), f"direct-game-{index}")
+        for index, (name, split, serialized) in enumerate(POSITIONS[:3], start=1)
+    ]
+    rows = [rows[2], rows[0], rows[1]]
+    if include_duplicate:
+        duplicate = dict(rows[1])
+        duplicate["record_id"] = "direct-record-duplicate"
+        duplicate["position_id"] = "direct-position-duplicate"
+        duplicate["source_occurrence_id"] = "direct-source-duplicate"
+        rows.append(duplicate)
+    return rows
+
+
+def distinct_root_order(move_rows: list[dict[str, str]]) -> list[str]:
+    order: list[str] = []
+    seen: set[str] = set()
+    for row in move_rows:
+        board_id = row["root_board_id"]
+        if board_id not in seen:
+            seen.add(board_id)
+            order.append(board_id)
+    return order
+
+
+def assert_digest_parity(
+    direct_report: dict[str, Any],
+    cache_report: dict[str, Any],
+    expected_stats: dict[str, Any],
+) -> bool:
+    cache = cache_report.get("cache", {})
+    for key in ("ordered_root_digest", "unordered_root_digest", "board_contents_digest"):
+        expected = expected_stats[key]
+        if direct_report.get(key) != expected:
+            print(f"direct report {key} mismatch: {direct_report.get(key)!r} != {expected!r}", file=sys.stderr)
+            return False
+        if cache_report.get(key) != expected:
+            print(f"cache report {key} mismatch: {cache_report.get(key)!r} != {expected!r}", file=sys.stderr)
+            return False
+        if cache.get(key) != expected:
+            print(f"cache section {key} mismatch: {cache.get(key)!r} != {expected!r}", file=sys.stderr)
+            return False
+    return True
+
+
+def check_direct_cache_parity_case(
+    args: argparse.Namespace,
+    root: Path,
+    name: str,
+    rows: list[dict[str, str]],
+    max_roots: int | None,
+    seed: int,
+) -> bool:
+    normalized = root / f"{name}-normalized.tsv"
+    write_tsv(normalized, NORMALIZED_HEADER_V2, rows)
+    expected_roots, expected_stats = normalized_contract.select_roots(normalized, 2, max_roots, seed)
+
+    direct_move = root / f"{name}-direct-move.tsv"
+    direct_child = root / f"{name}-direct-child.tsv"
+    direct_report_path = root / f"{name}-direct-report.json"
+    if not require_success(
+        run_generator(args.generator, normalized, direct_move, direct_child, direct_report_path, 2, max_roots, seed)
+    ):
+        return False
+    direct_report = load_json(direct_report_path)
+    direct_move_rows = load_tsv(direct_move)
+    direct_order = distinct_root_order(direct_move_rows)
+    if direct_order != sorted(direct_order):
+        print(f"direct root order is not board_id order: {direct_order}", file=sys.stderr)
+        return False
+    if direct_report.get("selected_roots") != len(expected_roots):
+        print(f"direct selected root count mismatch: {direct_report}", file=sys.stderr)
+        return False
+    if direct_report.get("duplicate_board_rows") != expected_stats["duplicate_board_rows"]:
+        print(f"direct duplicate count mismatch: {direct_report}", file=sys.stderr)
+        return False
+
+    cache_dir = root / f"{name}-cache"
+    if not require_success(
+        run(populate_command_with_selection(args, normalized, cache_dir, direct_move, root / f"{name}-populate.json", 2, max_roots, seed))
+    ):
+        return False
+    cache_move = root / f"{name}-cache-move.tsv"
+    cache_child = root / f"{name}-cache-child.tsv"
+    cache_report_path = root / f"{name}-cache-report.json"
+    if not require_success(
+        run(
+            materialize_command_with_selection(
+                args,
+                normalized,
+                cache_dir,
+                cache_move,
+                cache_child,
+                cache_report_path,
+                2,
+                max_roots,
+                seed,
+            )
+        )
+    ):
+        return False
+    cache_report = load_json(cache_report_path)
+    if direct_move.read_bytes() != cache_move.read_bytes():
+        print(f"{name}: direct and cache move-teacher TSV differ", file=sys.stderr)
+        return False
+    if direct_child.read_bytes() != cache_child.read_bytes():
+        print(f"{name}: direct and cache child-normalized TSV differ", file=sys.stderr)
+        return False
+    cache_order = distinct_root_order(load_tsv(cache_move))
+    if cache_order != direct_order:
+        print(f"{name}: direct/cache root order mismatch: {direct_order} != {cache_order}", file=sys.stderr)
+        return False
+    if cache_report.get("cache", {}).get("root_hits") != len(expected_roots):
+        print(f"{name}: cache materialization was not full-hit: {cache_report}", file=sys.stderr)
+        return False
+    return assert_digest_parity(direct_report, cache_report, expected_stats)
+
+
+def check_direct_cache_contract_parity(args: argparse.Namespace, root: Path) -> bool:
+    if not require_success(run([str(args.generator), "--self-test-contract"])):
+        return False
+
+    unique_rows = direct_fixture_rows(include_duplicate=False)
+    duplicate_rows = direct_fixture_rows(include_duplicate=True)
+    cases = [
+        ("unique-uncapped", unique_rows, None, 0),
+        ("duplicate-uncapped", duplicate_rows, None, 0),
+        ("duplicate-capped-seed0", duplicate_rows, 2, 0),
+        ("duplicate-capped-seed1", duplicate_rows, 2, 1),
+    ]
+    selected_orders: list[list[str]] = []
+    for name, rows, max_roots, seed in cases:
+        if not check_direct_cache_parity_case(args, root, name, rows, max_roots, seed):
+            return False
+        normalized = root / f"{name}-normalized.tsv"
+        selected, _ = normalized_contract.select_roots(normalized, 2, max_roots, seed)
+        selected_orders.append([row["board_id"] for row in selected])
+    if selected_orders[2] == selected_orders[3]:
+        print(f"capped selections did not vary across seeds: {selected_orders[2]}", file=sys.stderr)
+        return False
+
+    conflict_rows = direct_fixture_rows(include_duplicate=False)
+    conflict = dict(conflict_rows[1])
+    conflict["record_id"] = "direct-conflict-record"
+    conflict["position_id"] = "direct-conflict-position"
+    conflict["source_occurrence_id"] = "direct-conflict-source"
+    conflict["board_a1_to_h8"] = conflict_rows[2]["board_a1_to_h8"]
+    conflict["occupied_count"] = conflict_rows[2]["occupied_count"]
+    conflict["phase"] = conflict_rows[2]["phase"]
+    conflict["player_disc_count"] = conflict_rows[2]["player_disc_count"]
+    conflict["opponent_disc_count"] = conflict_rows[2]["opponent_disc_count"]
+    conflict["empty_count"] = conflict_rows[2]["empty_count"]
+    conflict_rows.append(conflict)
+    conflict_normalized = root / "conflicting-duplicate.tsv"
+    write_tsv(conflict_normalized, NORMALIZED_HEADER_V2, conflict_rows)
+    if not require_failure(
+        run_generator(
+            args.generator,
+            conflict_normalized,
+            root / "conflict-direct-move.tsv",
+            root / "conflict-direct-child.tsv",
+            root / "conflict-direct-report.json",
+            2,
+            None,
+            0,
+        ),
+        "same board_id has different board contents",
+    ):
+        return False
+    if not require_failure(
+        run(probe_command_with_selection(args, conflict_normalized, root / "conflict-cache", root / "conflict-probe.json", 2, None, 0)),
+        "same board_id has different board contents",
+    ):
+        return False
+
+    for name, field, value in (
+        ("occupied-leading-space", "occupied_count", " 63"),
+        ("phase-plus-sign", "phase", "+12"),
+        ("empty-underscore", "empty_count", "1_0"),
+    ):
+        malformed_rows = [dict(direct_fixture_rows(include_duplicate=False)[0])]
+        malformed_rows[0][field] = value
+        malformed = root / f"{name}.tsv"
+        write_tsv(malformed, NORMALIZED_HEADER_V2, malformed_rows)
+        if not require_failure(
+            run_generator(
+                args.generator,
+                malformed,
+                root / f"{name}-direct-move.tsv",
+                root / f"{name}-direct-child.tsv",
+                root / f"{name}-direct-report.json",
+                2,
+                None,
+                0,
+            ),
+            "numeric fields must be integers",
+        ):
+            return False
+        if not require_failure(
+            run(probe_command_with_selection(args, malformed, root / f"{name}-cache", root / f"{name}-probe.json", 2, None, 0)),
+            "must be an integer",
+        ):
+            return False
+    return True
+
+
 def check_full_hit_and_remap(args: argparse.Namespace, root: Path) -> bool:
     normalized, source_move_teacher, _ = fixture(root)
     cache_dir = root / "cache"
@@ -301,20 +670,20 @@ def check_full_hit_and_remap(args: argparse.Namespace, root: Path) -> bool:
     move_out = root / "materialized-move.tsv"
     child_out = root / "materialized-child.tsv"
     report_out = root / "materialized-report.json"
-    if not require_success(
-        run(materialize_command(args, remapped, cache_dir, move_out, child_out, report_out, "--require-full-hit"))
-    ):
+    if not require_success(run(materialize_command(args, remapped, cache_dir, move_out, child_out, report_out))):
         return False
     move_rows = load_tsv(move_out)
     child_rows = load_tsv(child_out)
-    if [row["root_board_id"] for row in move_rows] != ["root-b", "root-a", "root-a"]:
-        print(f"materialized row order did not follow current normalized order: {move_rows}", file=sys.stderr)
+    if [row["root_board_id"] for row in move_rows] != ["root-a", "root-a", "root-b"]:
+        print(f"materialized row order did not follow selected board_id order: {move_rows}", file=sys.stderr)
         return False
-    if move_rows[0]["root_record_id"] != "remap-b" or move_rows[0]["root_split"] != "test":
-        print(f"current root metadata was not used: {move_rows[0]}", file=sys.stderr)
+    root_b_row = [row for row in move_rows if row["root_board_id"] == "root-b"][0]
+    if root_b_row["root_record_id"] != "remap-b" or root_b_row["root_split"] != "test":
+        print(f"current root metadata was not used: {root_b_row}", file=sys.stderr)
         return False
-    if child_rows[0]["split"] != "test" or child_rows[0]["game_group_id"] != "connected-b":
-        print(f"child normalized row did not use remapped split/game: {child_rows[0]}", file=sys.stderr)
+    child_b_row = [row for row in child_rows if row["board_id"] == "move-teacher-v1:root-b:pass"][0]
+    if child_b_row["split"] != "test" or child_b_row["game_group_id"] != "connected-b":
+        print(f"child normalized row did not use remapped split/game: {child_b_row}", file=sys.stderr)
         return False
     report = load_json(report_out)
     cache = report.get("cache", {})
@@ -450,15 +819,7 @@ def check_v1_v2_namespace_safety(args: argparse.Namespace, root: Path) -> bool:
     report_out = root / "namespace-materialized.json"
     if not require_success(
         run(
-            materialize_command(
-                args,
-                normalized,
-                cache_dir,
-                root / "namespace-move.tsv",
-                root / "namespace-child.tsv",
-                report_out,
-                "--require-full-hit",
-            )
+            materialize_command(args, normalized, cache_dir, root / "namespace-move.tsv", root / "namespace-child.tsv", report_out)
         )
     ):
         return False
@@ -745,8 +1106,8 @@ def check_partial_miss_campaign(args: argparse.Namespace, root: Path) -> bool:
         print(f"fake generator was not limited to missing roots: {invocation}", file=sys.stderr)
         return False
     move_rows = load_tsv(output_dir / "move-teacher.tsv")
-    if [row["root_board_id"] for row in move_rows] != ["root-b", "root-a", "root-a"]:
-        print(f"final materialization did not preserve full normalized order: {move_rows}", file=sys.stderr)
+    if [row["root_board_id"] for row in move_rows] != ["root-a", "root-a", "root-b"]:
+        print(f"final materialization did not preserve selected board_id order: {move_rows}", file=sys.stderr)
         return False
     report = load_json(output_dir / "move-teacher-report.json")
     cache = report.get("cache", {})
@@ -839,6 +1200,8 @@ def main() -> int:
     args = parse_args()
     with tempfile.TemporaryDirectory() as temp_text:
         root = Path(temp_text)
+        if not check_direct_cache_contract_parity(args, root):
+            return 1
         if not check_full_hit_and_remap(args, root):
             return 1
         if not check_failure_modes(args, root):

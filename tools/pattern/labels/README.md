@@ -18,7 +18,12 @@ label kind, label unit, and label perspective.
 
 Materialization is split-dependent. `materialize_move_teacher_from_cache.py`
 reads the current normalized TSV for record ids, split names, phases, group ids,
-and selected root order. On cache hit it validates `board_id` and board
+and selected root order. Selection uses the normalized schema v2 root contract:
+exact v2 header, required identity fields, split validation, board/count
+validation, phase mapping, duplicate `board_id` handling, FNV sampling, and
+post-sampling `board_id` order. Identical duplicate `board_id` + board contents
+rows are accepted and counted; conflicting duplicate board contents fail before
+cache lookup or materialization. On cache hit it validates `board_id` and board
 contents, cache schema, cache semantic version, generator semantic version,
 solver semantic version, label metadata, `max_empty`, non-terminal status, row
 presence, and legal-move/row consistency. It does not recompute child boards,
@@ -33,8 +38,9 @@ solved labels.
 `--reuse-move-teacher-cache` asks the campaign runner to materialize exact
 move-teacher outputs from cache instead of solving every selected root.
 
-`--require-full-hit` means every selected root must be present and valid; any
-missing root is an error.
+Materialization requires every selected root to be present and valid. Any
+missing or invalid selected root is an error. Use `--probe-only` to inspect hits
+and misses without writing complete materialized outputs.
 
 `--allow-cache-miss-solve` permits a partial miss and requires both
 `--reuse-move-teacher-cache` and `--write-move-teacher-cache`. The campaign
@@ -47,7 +53,7 @@ labels directly.
 
 ## Minimal Reproduction
 
-Require a complete cache hit and materialize current outputs:
+Materialize current outputs from a complete cache hit:
 
 ```sh
 python3 tools/pattern/labels/materialize_move_teacher_from_cache.py \
@@ -56,8 +62,7 @@ python3 tools/pattern/labels/materialize_move_teacher_from_cache.py \
   --move-teacher-out <move-teacher.tsv> \
   --child-normalized-out <child-normalized.tsv> \
   --report-out <report.json> \
-  --max-empty 12 \
-  --require-full-hit
+  --max-empty 12
 ```
 
 ## Reading Path
