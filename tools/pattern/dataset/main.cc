@@ -16,8 +16,8 @@
 #include <iterator>
 #include <map>
 #include <optional>
-#include <span>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -365,8 +365,8 @@ std::string square_name(vibe_othello::board_core::Square square) {
   return name;
 }
 
-std::string_view symmetry_policy_name(
-    vibe_othello::evaluation::PatternSymmetryPolicy symmetry_policy) noexcept {
+std::string_view
+symmetry_policy_name(vibe_othello::evaluation::PatternSymmetryPolicy symmetry_policy) noexcept {
   switch (symmetry_policy) {
   case vibe_othello::evaluation::PatternSymmetryPolicy::none:
     return "none";
@@ -378,8 +378,7 @@ std::string_view symmetry_policy_name(
   return "unknown";
 }
 
-std::vector<std::string> square_names(
-    std::span<const vibe_othello::board_core::Square> squares) {
+std::vector<std::string> square_names(std::span<const vibe_othello::board_core::Square> squares) {
   std::vector<std::string> names;
   names.reserve(squares.size());
   for (const vibe_othello::board_core::Square square : squares) {
@@ -903,10 +902,10 @@ bool record_pattern_family_summary(const vibe_othello::evaluation::PatternFeatur
   return true;
 }
 
-std::optional<std::string> pattern_contract_digest(
-    const vibe_othello::evaluation::PatternFeatureSet& feature_set,
-    const vibe_othello::evaluation::PatternSet& pattern_set,
-    vibe_othello::tools::pattern::IndexMode index_mode) {
+std::optional<std::string>
+pattern_contract_digest(const vibe_othello::evaluation::PatternFeatureSet& feature_set,
+                        const vibe_othello::evaluation::PatternSet& pattern_set,
+                        vibe_othello::tools::pattern::IndexMode index_mode) {
   namespace eval = vibe_othello::evaluation;
 
   if (feature_set.tables.size() != pattern_set.patterns.size()) {
@@ -933,8 +932,7 @@ std::optional<std::string> pattern_contract_digest(
     if (table.pattern_id != definition.id || table.pattern_length != definition.length) {
       return std::nullopt;
     }
-    const std::optional<std::uint32_t> table_size =
-        eval::checked_pattern_size(definition.length);
+    const std::optional<std::uint32_t> table_size = eval::checked_pattern_size(definition.length);
     if (!table_size.has_value()) {
       return std::nullopt;
     }
@@ -944,10 +942,10 @@ std::optional<std::string> pattern_contract_digest(
     append_digest_line(&input, prefix + "length=" + std::to_string(definition.length));
     append_digest_line(&input, prefix + "symmetry_policy=" +
                                    std::string(symmetry_policy_name(definition.symmetry_policy)));
-    append_digest_line(&input, prefix + "squares=" + join_strings(square_names(definition.squares)));
     append_digest_line(&input,
-                       prefix + "feature_instance_count=" +
-                           std::to_string(table.instances.size()));
+                       prefix + "squares=" + join_strings(square_names(definition.squares)));
+    append_digest_line(&input,
+                       prefix + "feature_instance_count=" + std::to_string(table.instances.size()));
     for (std::size_t instance = 0; instance < table.instances.size(); ++instance) {
       append_digest_line(&input,
                          prefix + "feature_instance[" + std::to_string(instance) +

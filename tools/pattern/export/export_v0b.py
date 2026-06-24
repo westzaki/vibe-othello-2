@@ -20,6 +20,7 @@ from pattern_sets import PatternSetSpec, resolve_pattern_set
 FORMAT_VERSION = 1
 SCORE_SCALE = 1
 PHASE_COUNT = 13
+EXPECTED_PHASE_MAPPING_ID = "disc-count-13-v1"
 SCORE_UNIT = "disc-diff"
 EXPECTED_INDEX_MODE = "raw"
 WEIGHTS_SCHEMA_VERSION_V1 = "pattern-eval-weights-v1"
@@ -284,7 +285,12 @@ def validate_v2_metadata(
             "weights score_unit does not match runtime payload contract: "
             f"{score_unit!r} != {SCORE_UNIT!r}"
         )
-    require_string(payload.get("phase_mapping_id"), "phase_mapping_id")
+    phase_mapping_id = require_string(payload.get("phase_mapping_id"), "phase_mapping_id")
+    if phase_mapping_id != EXPECTED_PHASE_MAPPING_ID:
+        fail(
+            "weights phase_mapping_id does not match runtime payload contract: "
+            f"{phase_mapping_id!r} != {EXPECTED_PHASE_MAPPING_ID!r}"
+        )
 
 
 def validate_weights(

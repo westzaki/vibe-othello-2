@@ -272,6 +272,16 @@ def check_v0b_failure_cases(exporter: Path, weights_json: Path, catalog_dump_exe
     wrong_index_mode["index_mode"] = "canonical"
     cases.append(("wrong-index-mode", wrong_index_mode, "index_mode does not match"))
 
+    wrong_phase_mapping_id = dict(base)
+    wrong_phase_mapping_id["phase_mapping_id"] = "disc-count-13-v2"
+    cases.append(
+        (
+            "wrong-phase-mapping-id",
+            wrong_phase_mapping_id,
+            "phase_mapping_id does not match",
+        )
+    )
+
     missing_field = dict(base)
     missing_field.pop("pattern_contract_digest", None)
     cases.append(("missing-required-field", missing_field, "missing required field"))
