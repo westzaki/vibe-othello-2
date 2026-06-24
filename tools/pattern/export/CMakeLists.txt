@@ -1,9 +1,14 @@
 add_executable(vibe_othello_pattern_export_smoke main.cc)
+add_executable(vibe_othello_pattern_catalog_dump catalog_dump.cc)
 add_executable(vibe_othello_pattern_evaluation_roundtrip_smoke roundtrip_smoke.cc)
 add_executable(vibe_othello_pattern_evaluation_bench_smoke evaluation_bench_smoke.cc)
 add_executable(vibe_othello_pattern_search_bench_smoke search_bench_smoke.cc)
 
 target_link_libraries(vibe_othello_pattern_export_smoke PRIVATE vibe_othello::engine)
+target_link_libraries(vibe_othello_pattern_catalog_dump
+                      PRIVATE vibe_othello_pattern_index_mode
+                              vibe_othello_pattern_set_options
+                              vibe_othello_pattern_schema_validation)
 target_link_libraries(vibe_othello_pattern_evaluation_roundtrip_smoke
                       PRIVATE vibe_othello::engine)
 target_link_libraries(vibe_othello_pattern_evaluation_bench_smoke
@@ -13,6 +18,8 @@ target_link_libraries(vibe_othello_pattern_search_bench_smoke
 
 set_target_properties(vibe_othello_pattern_export_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-export-smoke)
+set_target_properties(vibe_othello_pattern_catalog_dump
+                      PROPERTIES OUTPUT_NAME vibe-othello-pattern-catalog-dump)
 set_target_properties(vibe_othello_pattern_evaluation_roundtrip_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-evaluation-roundtrip-smoke)
 set_target_properties(vibe_othello_pattern_evaluation_bench_smoke
@@ -22,6 +29,14 @@ set_target_properties(vibe_othello_pattern_search_bench_smoke
 
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+  add_test(
+    NAME vibe_othello_pattern_catalog_export_parity
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_catalog_parity.py
+      --dump-exe
+      $<TARGET_FILE:vibe_othello_pattern_catalog_dump>)
 
   add_test(
     NAME vibe_othello_pattern_evaluation_roundtrip_smoke
