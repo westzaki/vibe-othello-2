@@ -54,6 +54,7 @@ add_executable(
   search/alphabeta_test.cc
   search/endgame_reference_test.cc
   search/endgame_corpus_test.cc
+  search/endgame_root_move_differential_test.cc
   search/endgame_small_empty_test.cc
   search/endgame_test.cc
   search/iterative_search_test.cc

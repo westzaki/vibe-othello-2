@@ -57,11 +57,11 @@ MOVE_TEACHER_HEADER = [
     "teacher_nodes",
 ]
 
-CACHE_SCHEMA_VERSION = 1
-CACHE_SEMANTIC_VERSION = "exact-move-teacher-cache-v1"
+CACHE_SCHEMA_VERSION = 2
+CACHE_SEMANTIC_VERSION = "exact-move-teacher-cache-v2"
 SOLVER_SEMANTIC_VERSION = "vibe-othello-exact-endgame-v1"
-GENERATOR_SEMANTIC_VERSION = "exact-move-teacher-v1"
-TEACHER_SOURCE = "exact-move-teacher-v1"
+GENERATOR_SEMANTIC_VERSION = "exact-move-teacher-v2"
+TEACHER_SOURCE = "exact-move-teacher-v2"
 CHILD_LABEL_KIND = "teacher_exact_move_child_final_disc_diff"
 LABEL_UNIT = "disc"
 LABEL_PERSPECTIVE = "side_to_move"
@@ -279,7 +279,7 @@ def select_roots(path: Path, max_empty: int, max_roots: int | None, seed: int) -
 
 
 def cache_base(cache_dir: Path, max_empty: int) -> Path:
-    return cache_dir / "schema-v1" / "exact-final-disc-diff" / f"max-empty-{max_empty}"
+    return cache_dir / "schema-v2" / "exact-final-disc-diff" / f"max-empty-{max_empty}"
 
 
 def root_cache_path(cache_dir: Path, max_empty: int, board_id: str) -> Path:

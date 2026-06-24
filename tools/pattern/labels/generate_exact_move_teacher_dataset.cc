@@ -37,8 +37,10 @@ constexpr std::string_view kMoveTeacherHeader =
     "board_id\tchild_board_a1_to_h8\tchild_empty_count\tchild_phase\troot_move_score_side_to_"
     "move\tchild_label_score_side_to_move\tis_best_move\tbest_move_tie_count\tmove_rank\tbest_"
     "score_margin\tteacher_source\tteacher_depth\tteacher_nodes";
-constexpr std::string_view kMoveTeacherSource = "exact-move-teacher-v1";
+constexpr std::string_view kMoveTeacherSource = "exact-move-teacher-v2";
+constexpr std::string_view kGeneratorSemanticVersion = "exact-move-teacher-v2";
 constexpr std::string_view kChildLabelKind = "teacher_exact_move_child_final_disc_diff";
+constexpr std::string_view kTeacherNodesSemantics = "root_move_info_nodes_per_legal_root_move";
 
 struct Args {
   std::string normalized_tsv_path;
@@ -113,6 +115,7 @@ struct Report {
   std::size_t terminal_roots_skipped = 0;
   std::size_t roots_with_normal_moves = 0;
   std::size_t roots_with_pass_move = 0;
+  std::size_t root_solve_calls = 0;
   std::size_t move_rows = 0;
   std::size_t child_normalized_rows = 0;
   std::size_t solve_failures = 0;
@@ -587,28 +590,82 @@ std::vector<board_core::Move> legal_root_moves(board_core::Position position, bo
   return moves;
 }
 
-std::optional<MoveRow> solve_child_for_move(const RootRow& root, board_core::Position root_position,
-                                            board_core::Move move, std::string* error) {
+search::SearchOptions exact_root_solve_options() noexcept {
+  search::SearchOptions options;
+  options.use_endgame_tt = true;
+  options.endgame.use_endgame_tt = true;
+  options.multi_pv = 0;
+  options.reporting.multi_pv = 0;
+  return options;
+}
+
+std::optional<std::map<std::string, search::RootMoveInfo>>
+solve_root_once(const RootRow& root, board_core::Position root_position,
+                const std::vector<board_core::Move>& legal_moves, std::string* error) {
+  const search::SearchResult result = search::solve_exact_endgame(
+      root_position, search::SearchLimits{}, exact_root_solve_options());
+  if (result.stopped || !result.exact || result.score_kind != search::ScoreKind::exact_disc_diff) {
+    *error = "exact root solve did not complete with exact disc-diff score";
+    return std::nullopt;
+  }
+  if (result.score < -64 || result.score > 64) {
+    *error = "exact root score outside [-64, 64]";
+    return std::nullopt;
+  }
+  if (result.root_moves.size() != legal_moves.size()) {
+    *error = "exact root solve did not report every legal root move";
+    return std::nullopt;
+  }
+
+  std::set<std::string> legal_move_text;
+  for (const board_core::Move move : legal_moves) {
+    legal_move_text.insert(move_to_string(move));
+  }
+
+  std::map<std::string, search::RootMoveInfo> root_moves_by_text;
+  for (const search::RootMoveInfo& root_move : result.root_moves) {
+    const std::string move_text = move_to_string(root_move.move);
+    if (!legal_move_text.contains(move_text)) {
+      *error = "exact root solve reported a non-legal root move: " + move_text;
+      return std::nullopt;
+    }
+    if (root_moves_by_text.contains(move_text)) {
+      *error = "exact root solve reported a duplicate root move: " + move_text;
+      return std::nullopt;
+    }
+    if (!root_move.exact || root_move.score_kind != search::ScoreKind::exact_disc_diff ||
+        root_move.bound != search::BoundType::exact) {
+      *error = "exact root solve reported a non-exact root move: " + move_text;
+      return std::nullopt;
+    }
+    if (root_move.score < -64 || root_move.score > 64) {
+      *error = "exact root move score outside [-64, 64]: " + move_text;
+      return std::nullopt;
+    }
+    root_moves_by_text.emplace(move_text, root_move);
+  }
+  for (const std::string& move_text : legal_move_text) {
+    if (!root_moves_by_text.contains(move_text)) {
+      *error = "exact root solve did not report legal root move: " + move_text;
+      return std::nullopt;
+    }
+  }
+
+  (void)root;
+  return root_moves_by_text;
+}
+
+std::optional<MoveRow> materialize_row_for_root_move(const RootRow& root,
+                                                     board_core::Position root_position,
+                                                     const search::RootMoveInfo& root_move,
+                                                     std::string* error) {
+  const board_core::Move move = root_move.move;
   board_core::MoveDelta delta{};
   const bool applied = move.kind == board_core::MoveKind::pass
                            ? board_core::apply_pass(&root_position, &delta)
                            : board_core::apply_move(&root_position, move, &delta);
   if (!applied) {
     *error = "move application failed";
-    return std::nullopt;
-  }
-
-  search::SearchOptions options;
-  options.use_endgame_tt = true;
-  options.endgame.use_endgame_tt = true;
-  const search::SearchResult result =
-      search::solve_exact_endgame(root_position, search::SearchLimits{}, options);
-  if (result.stopped || !result.exact || result.score_kind != search::ScoreKind::exact_disc_diff) {
-    *error = "exact child solve did not complete";
-    return std::nullopt;
-  }
-  if (result.score < -64 || result.score > 64) {
-    *error = "exact child score outside [-64, 64]";
     return std::nullopt;
   }
 
@@ -633,10 +690,10 @@ std::optional<MoveRow> solve_child_for_move(const RootRow& root, board_core::Pos
       .child_occupied_count = child_occupied_count,
       .child_player_disc_count = child_player_count,
       .child_opponent_disc_count = child_opponent_count,
-      .root_move_score_side_to_move = -result.score,
-      .child_label_score_side_to_move = result.score,
+      .root_move_score_side_to_move = root_move.score,
+      .child_label_score_side_to_move = -root_move.score,
       .teacher_depth = child_empty_count,
-      .teacher_nodes = result.stats.endgame_nodes != 0 ? result.stats.endgame_nodes : result.nodes,
+      .teacher_nodes = root_move.nodes,
       .root_position_id = root.position_id,
       .root_game_group_id = root.game_group_id,
   };
@@ -778,6 +835,7 @@ bool write_report(const std::string& path, const Report& report) {
   output << "  \"child_normalized_rows\": " << report.child_normalized_rows << ",\n";
   output << "  \"duplicate_board_rows\": " << report.duplicate_board_rows << ",\n";
   output << "  \"eligible_rows\": " << report.eligible_rows << ",\n";
+  output << "  \"generator_semantic_version\": \"" << kGeneratorSemanticVersion << "\",\n";
   output << "  \"input_rows\": " << report.input_rows << ",\n";
   output << "  \"max_empty\": " << report.max_empty << ",\n";
   output << "  \"max_roots\": ";
@@ -798,6 +856,7 @@ bool write_report(const std::string& path, const Report& report) {
   output << "    \"input and child boards use side-to-move-relative X/O convention\",\n";
   output << "    \"root_move_score_side_to_move is -child_label_score_side_to_move\",\n";
   output << "    \"teacher_depth is the child empty count solved exactly\",\n";
+  output << "    \"teacher_nodes is RootMoveInfo.nodes from the public root solve\",\n";
   output << "    \"terminal roots are skipped and counted\",\n";
   output << "    \"not a strength claim\",\n";
   output << "    \"not an Elo result\",\n";
@@ -810,12 +869,15 @@ bool write_report(const std::string& path, const Report& report) {
   output << "  \"root_move_score_sum\": " << report.root_move_score_sum << ",\n";
   write_optional_int(output, "root_move_score_max", report.root_move_score_max);
   write_optional_int(output, "root_move_score_min", report.root_move_score_min);
+  output << "  \"root_solve_calls\": " << report.root_solve_calls << ",\n";
   output << "  \"schema_version\": " << report.schema_version << ",\n";
   output << "  \"seed\": " << report.seed << ",\n";
   output << "  \"selected_roots\": " << report.selected_roots << ",\n";
   output << "  \"skipped_too_many_empty\": " << report.skipped_too_many_empty << ",\n";
   output << "  \"solve_failures\": " << report.solve_failures << ",\n";
+  output << "  \"teacher_nodes_semantics\": \"" << kTeacherNodesSemantics << "\",\n";
   output << "  \"teacher_nodes_sum\": " << report.teacher_nodes_sum << ",\n";
+  output << "  \"teacher_source\": \"" << kMoveTeacherSource << "\",\n";
   output << "  \"terminal_roots_skipped\": " << report.terminal_roots_skipped << ",\n";
   output << "  \"unique_roots_seen\": " << report.unique_roots_seen << ",\n";
   output << "  \"unique_roots_selected\": " << report.unique_roots_selected << ",\n";
@@ -882,13 +944,32 @@ int main(int argc, char** argv) {
       ++report.roots_with_normal_moves;
     }
 
+    std::string root_solve_error;
+    const std::optional<std::map<std::string, search::RootMoveInfo>> root_move_infos =
+        solve_root_once(root, *position, moves, &root_solve_error);
+    if (!root_move_infos.has_value()) {
+      ++report.solve_failures;
+      std::cerr << root.board_id << ": " << root_solve_error << '\n';
+      continue;
+    }
+    ++report.root_solve_calls;
+
     std::vector<MoveRow> root_rows;
     for (const board_core::Move move : moves) {
       std::string error;
-      std::optional<MoveRow> row = solve_child_for_move(root, *position, move, &error);
+      const std::string move_text = move_to_string(move);
+      const auto root_move_info = root_move_infos->find(move_text);
+      if (root_move_info == root_move_infos->end()) {
+        ++report.solve_failures;
+        std::cerr << root.board_id << " " << move_text
+                  << ": exact root solve result missing after validation\n";
+        continue;
+      }
+      std::optional<MoveRow> row =
+          materialize_row_for_root_move(root, *position, root_move_info->second, &error);
       if (!row.has_value()) {
         ++report.solve_failures;
-        std::cerr << root.board_id << " " << move_to_string(move) << ": " << error << '\n';
+        std::cerr << root.board_id << " " << move_text << ": " << error << '\n';
         continue;
       }
       update_report_for_move(*row, &report);

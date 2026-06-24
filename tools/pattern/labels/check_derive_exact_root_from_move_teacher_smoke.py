@@ -115,7 +115,13 @@ def normalized_row(record: str, split: str, board_text: str) -> dict[str, str]:
     }
 
 
-def move_row(root: dict[str, str], move: str, score: int, nodes: int) -> dict[str, str]:
+def move_row(
+    root: dict[str, str],
+    move: str,
+    score: int,
+    nodes: int,
+    teacher_source: str = "exact-move-teacher-v2",
+) -> dict[str, str]:
     child_board = root["board_a1_to_h8"].replace("-", "X", 1)
     child_occupied = child_board.count("X") + child_board.count("O")
     child_empty = child_board.count("-")
@@ -137,7 +143,7 @@ def move_row(root: dict[str, str], move: str, score: int, nodes: int) -> dict[st
         "best_move_tie_count": "1",
         "move_rank": "1" if score >= 5 else "2",
         "best_score_margin": "0" if score >= 5 else "4",
-        "teacher_source": "exact-move-teacher-v1",
+        "teacher_source": teacher_source,
         "teacher_depth": str(child_empty),
         "teacher_nodes": str(nodes),
     }
@@ -239,6 +245,9 @@ def check_derives_max_score(args: argparse.Namespace, root: Path) -> bool:
     if data.get("derived_root_count") != 2 or data.get("teacher_nodes_sum") != 41:
         print(f"derive report missing counts: {data}", file=sys.stderr)
         return False
+    if data.get("move_teacher_source") != "exact-move-teacher-v2":
+        print(f"derive report missing move_teacher_source: {data}", file=sys.stderr)
+        return False
     return True
 
 
@@ -259,6 +268,35 @@ def check_missing_and_duplicate_fail(args: argparse.Namespace, root: Path) -> bo
     )
 
 
+def check_v1_compatibility_and_mixed_source_fail(args: argparse.Namespace, root: Path) -> bool:
+    normalized, _, roots, _ = fixture(root)
+    v1_move_teacher = root / "v1-move-teacher.tsv"
+    v1_rows = [
+        move_row(roots[0], "a1", 1, 11, "exact-move-teacher-v1"),
+        move_row(roots[0], "b1", 5, 13, "exact-move-teacher-v1"),
+        move_row(roots[1], "pass", -2, 17, "exact-move-teacher-v1"),
+    ]
+    write_tsv(v1_move_teacher, MOVE_TEACHER_HEADER, v1_rows)
+    v1_report = root / "v1-report.json"
+    if not require_success(
+        run(derive_command(args, normalized, v1_move_teacher, root / "v1-labels.tsv", v1_report))
+    ):
+        return False
+    data = load_json(v1_report)
+    if data.get("move_teacher_source") != "exact-move-teacher-v1":
+        print(f"v1 source was not reported: {data}", file=sys.stderr)
+        return False
+
+    mixed_move_teacher = root / "mixed-move-teacher.tsv"
+    mixed_rows = [dict(row) for row in v1_rows]
+    mixed_rows[-1]["teacher_source"] = "exact-move-teacher-v2"
+    write_tsv(mixed_move_teacher, MOVE_TEACHER_HEADER, mixed_rows)
+    return require_failure(
+        run(derive_command(args, normalized, mixed_move_teacher, root / "mixed-labels.tsv", root / "mixed-report.json")),
+        "mixed move-teacher teacher_source values",
+    )
+
+
 def main() -> int:
     args = parse_args()
     with tempfile.TemporaryDirectory() as temp_text:
@@ -266,6 +304,8 @@ def main() -> int:
         if not check_derives_max_score(args, root):
             return 1
         if not check_missing_and_duplicate_fail(args, root):
+            return 1
+        if not check_v1_compatibility_and_mixed_source_fail(args, root):
             return 1
     return 0
 
