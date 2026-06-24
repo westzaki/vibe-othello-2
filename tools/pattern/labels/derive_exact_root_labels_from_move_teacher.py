@@ -68,7 +68,8 @@ LABEL_KIND = "teacher_exact_final_disc_diff"
 LABEL_UNIT = "disc"
 LABEL_PERSPECTIVE = "side_to_move"
 TEACHER_SOURCE = "exact-move-teacher-derived-root-v1"
-MOVE_TEACHER_SOURCE = "exact-move-teacher-v2"
+MOVE_TEACHER_SOURCES = ("exact-move-teacher-v1", "exact-move-teacher-v2")
+MOVE_TEACHER_SOURCE_SET = set(MOVE_TEACHER_SOURCES)
 
 
 class DeriveError(RuntimeError):
@@ -203,10 +204,13 @@ def load_roots(path: Path) -> tuple[list[dict[str, str]], dict[str, Any]]:
     }
 
 
-def load_move_rows(path: Path, roots: dict[str, dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+def load_move_rows(
+    path: Path, roots: dict[str, dict[str, str]]
+) -> tuple[dict[str, list[dict[str, str]]], str | None]:
     rows = load_tsv(path, MOVE_TEACHER_HEADER)
     grouped: dict[str, list[dict[str, str]]] = {}
     seen_moves: set[tuple[str, str]] = set()
+    move_teacher_source: str | None = None
     for row in rows:
         board_id = row["root_board_id"]
         if board_id not in roots:
@@ -220,8 +224,16 @@ def load_move_rows(path: Path, roots: dict[str, dict[str, str]]) -> dict[str, li
             raise DeriveError(f"{board_id}: root_phase does not match normalized TSV")
         if row["root_empty_count"] != root["empty_count"]:
             raise DeriveError(f"{board_id}: root_empty_count does not match normalized TSV")
-        if row["teacher_source"] != MOVE_TEACHER_SOURCE:
-            raise DeriveError(f"{board_id}: teacher_source must be {MOVE_TEACHER_SOURCE}")
+        teacher_source = row["teacher_source"]
+        if teacher_source not in MOVE_TEACHER_SOURCE_SET:
+            raise DeriveError(f"{board_id}: teacher_source must be one of {', '.join(MOVE_TEACHER_SOURCES)}")
+        if move_teacher_source is None:
+            move_teacher_source = teacher_source
+        elif teacher_source != move_teacher_source:
+            raise DeriveError(
+                f"{board_id}: mixed move-teacher teacher_source values are not supported: "
+                f"{move_teacher_source} and {teacher_source}"
+            )
         move_key = (board_id, row["move"])
         if move_key in seen_moves:
             raise DeriveError(f"{board_id} {row['move']}: duplicate root/move row")
@@ -237,7 +249,7 @@ def load_move_rows(path: Path, roots: dict[str, dict[str, str]]) -> dict[str, li
         if parse_int(row["teacher_depth"], "teacher_depth") < 0:
             raise DeriveError(f"{board_id} {row['move']}: teacher_depth must be non-negative")
         grouped.setdefault(board_id, []).append(row)
-    return grouped
+    return grouped, move_teacher_source
 
 
 def derive_label(root: dict[str, str], rows: list[dict[str, str]]) -> dict[str, str]:
@@ -272,6 +284,7 @@ def build_report(
     root_stats: dict[str, Any],
     label_rows: list[dict[str, str]],
     move_row_count: int,
+    move_teacher_source: str | None,
     missing_roots: list[str],
     started: float,
 ) -> dict[str, Any]:
@@ -289,6 +302,8 @@ def build_report(
         "missing_root_count": len(missing_roots),
         "missing_board_ids_sample": missing_roots[:10],
         "move_teacher_rows": move_row_count,
+        "move_teacher_source": move_teacher_source,
+        "accepted_move_teacher_sources": list(MOVE_TEACHER_SOURCES),
         "duplicate_board_rows": root_stats["duplicate_board_rows"],
         "label_score_min": min(scores) if scores else None,
         "label_score_max": max(scores) if scores else None,
@@ -323,7 +338,7 @@ def main() -> int:
         if not roots:
             raise DeriveError("normalized TSV contains no roots")
         root_by_id = {row["board_id"]: row for row in roots}
-        grouped = load_move_rows(args.move_teacher_tsv, root_by_id)
+        grouped, move_teacher_source = load_move_rows(args.move_teacher_tsv, root_by_id)
         missing_roots = [row["board_id"] for row in roots if row["board_id"] not in grouped]
         if missing_roots and args.missing_policy == "fail":
             raise DeriveError(
@@ -342,6 +357,7 @@ def main() -> int:
             root_stats,
             label_rows,
             sum(len(rows) for rows in grouped.values()),
+            move_teacher_source,
             missing_roots,
             started,
         )
