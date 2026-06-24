@@ -68,6 +68,8 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --exporter
       ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py
+      --catalog-dump-exe
+      $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
       --campaign-helper
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py
       --matrix-helper

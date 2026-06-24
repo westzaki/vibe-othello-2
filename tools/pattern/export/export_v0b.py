@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import struct
+import subprocess
 import sys
 import zlib
 from pathlib import Path
@@ -19,7 +20,21 @@ from pattern_sets import PatternSetSpec, resolve_pattern_set
 FORMAT_VERSION = 1
 SCORE_SCALE = 1
 PHASE_COUNT = 13
-WEIGHTS_SCHEMA_VERSION = "pattern-eval-weights-v1"
+SCORE_UNIT = "disc-diff"
+EXPECTED_INDEX_MODE = "raw"
+WEIGHTS_SCHEMA_VERSION_V1 = "pattern-eval-weights-v1"
+WEIGHTS_SCHEMA_VERSION_V2 = "pattern-eval-weights-v2"
+REQUIRED_V2_FIELDS = {
+    "weights_schema_version",
+    "pattern_set_id",
+    "pattern_contract_digest",
+    "index_mode",
+    "phase_count",
+    "phase_mapping_id",
+    "score_unit",
+    "phase_bias",
+    "pattern_weights",
+}
 
 
 def checked_pattern_size(length: int) -> int:
@@ -56,6 +71,94 @@ def load_weights(path: Path) -> tuple[dict[str, Any], bytes]:
     if not isinstance(payload, dict):
         fail("weights JSON root must be an object")
     return payload, source_bytes
+
+
+def load_json_object(path: Path, label: str) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read {label}: {path}: {error}")
+    if not isinstance(data, dict):
+        fail(f"{label} root must be an object")
+    return data
+
+
+def load_catalog_dump(args: argparse.Namespace, pattern_set: PatternSetSpec) -> dict[str, Any]:
+    if args.pattern_contract_json is not None and args.catalog_dump_exe is not None:
+        fail("--pattern-contract-json and --catalog-dump-exe are mutually exclusive")
+    if args.pattern_contract_json is not None:
+        return load_json_object(args.pattern_contract_json, "pattern contract JSON")
+    if args.catalog_dump_exe is None:
+        fail("pattern-eval-weights-v2 requires --catalog-dump-exe or --pattern-contract-json")
+
+    result = subprocess.run(
+        [
+            str(args.catalog_dump_exe),
+            "--pattern-set",
+            pattern_set.pattern_set_id,
+            "--index-mode",
+            EXPECTED_INDEX_MODE,
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        fail(f"pattern catalog dump failed with exit code {result.returncode}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        fail(f"pattern catalog dump did not emit JSON: {error}")
+    if not isinstance(payload, dict):
+        fail("pattern catalog dump JSON root must be an object")
+    return payload
+
+
+def require_string(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        fail(f"{field} must be a non-empty string")
+    return value
+
+
+def require_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        fail(f"{field} must be an integer")
+    return value
+
+
+def require_list(value: Any, field: str) -> list[Any]:
+    if not isinstance(value, list):
+        fail(f"{field} must be an array")
+    return value
+
+
+def selected_contract(
+    catalog_payload: dict[str, Any], pattern_set: PatternSetSpec
+) -> dict[str, Any]:
+    if catalog_payload.get("schema_version") != 1:
+        fail("pattern contract JSON schema_version must be 1")
+    contracts = require_list(catalog_payload.get("pattern_sets"), "pattern_sets")
+    matched: list[dict[str, Any]] = []
+    for index, item in enumerate(contracts):
+        if not isinstance(item, dict):
+            fail(f"pattern_sets[{index}] must be an object")
+        if (
+            item.get("pattern_set_id") == pattern_set.pattern_set_id
+            and item.get("index_mode") == EXPECTED_INDEX_MODE
+        ):
+            matched.append(item)
+    if not matched:
+        fail(
+            "pattern contract JSON does not contain selected pattern_set_id "
+            f"{pattern_set.pattern_set_id!r} with index_mode {EXPECTED_INDEX_MODE!r}"
+        )
+    if len(matched) > 1:
+        fail(f"pattern contract JSON has duplicate selected contracts for {pattern_set.pattern_set_id}")
+    contract = matched[0]
+    require_string(contract.get("pattern_contract_digest"), "pattern_contract_digest")
+    return contract
 
 
 def validate_phase_bias(payload: dict[str, Any]) -> list[int]:
@@ -117,12 +220,98 @@ def validate_pattern_weights(
     return weights
 
 
+def validate_v2_metadata(
+    payload: dict[str, Any],
+    pattern_set: PatternSetSpec,
+    contract: dict[str, Any],
+) -> None:
+    missing = sorted(REQUIRED_V2_FIELDS - set(payload))
+    if missing:
+        fail("pattern-eval-weights-v2 missing required field(s): " + ", ".join(missing))
+    if "trainer_algorithm" in payload:
+        fail("trainer_algorithm must not be present in weights JSON")
+
+    weights_pattern_set_id = require_string(payload.get("pattern_set_id"), "pattern_set_id")
+    if weights_pattern_set_id != pattern_set.pattern_set_id:
+        fail(
+            "weights pattern_set_id does not match selected pattern set: "
+            f"{weights_pattern_set_id!r} != {pattern_set.pattern_set_id!r}"
+        )
+
+    contract_pattern_set_id = require_string(
+        contract.get("pattern_set_id"), "contract.pattern_set_id"
+    )
+    if contract_pattern_set_id != pattern_set.pattern_set_id:
+        fail(
+            "pattern contract pattern_set_id does not match selected pattern set: "
+            f"{contract_pattern_set_id!r} != {pattern_set.pattern_set_id!r}"
+        )
+
+    weights_digest = require_string(
+        payload.get("pattern_contract_digest"), "pattern_contract_digest"
+    )
+    contract_digest = require_string(
+        contract.get("pattern_contract_digest"), "contract.pattern_contract_digest"
+    )
+    if weights_digest != contract_digest:
+        fail(
+            "weights pattern_contract_digest does not match runtime pattern contract: "
+            f"{weights_digest!r} != {contract_digest!r}"
+        )
+
+    weights_index_mode = require_string(payload.get("index_mode"), "index_mode")
+    contract_index_mode = require_string(contract.get("index_mode"), "contract.index_mode")
+    if weights_index_mode != EXPECTED_INDEX_MODE:
+        fail(
+            "weights index_mode does not match exporter runtime payload contract: "
+            f"{weights_index_mode!r} != {EXPECTED_INDEX_MODE!r}"
+        )
+    if contract_index_mode != EXPECTED_INDEX_MODE:
+        fail(
+            "pattern contract index_mode does not match exporter runtime payload contract: "
+            f"{contract_index_mode!r} != {EXPECTED_INDEX_MODE!r}"
+        )
+
+    phase_count = require_int(payload.get("phase_count"), "phase_count")
+    if phase_count != PHASE_COUNT:
+        fail(
+            "weights phase_count does not match runtime payload contract: "
+            f"{phase_count!r} != {PHASE_COUNT!r}"
+        )
+    score_unit = require_string(payload.get("score_unit"), "score_unit")
+    if score_unit != SCORE_UNIT:
+        fail(
+            "weights score_unit does not match runtime payload contract: "
+            f"{score_unit!r} != {SCORE_UNIT!r}"
+        )
+    require_string(payload.get("phase_mapping_id"), "phase_mapping_id")
+
+
 def validate_weights(
-    payload: dict[str, Any], pattern_set: PatternSetSpec
-) -> tuple[list[int], dict[tuple[int, str, int], int]]:
-    if payload.get("weights_schema_version") != WEIGHTS_SCHEMA_VERSION:
-        fail(f"weights_schema_version must be {WEIGHTS_SCHEMA_VERSION}")
-    return validate_phase_bias(payload), validate_pattern_weights(payload, pattern_set)
+    payload: dict[str, Any],
+    pattern_set: PatternSetSpec,
+    args: argparse.Namespace,
+) -> tuple[str, list[int], dict[tuple[int, str, int], int]]:
+    schema_version = payload.get("weights_schema_version")
+    if schema_version == WEIGHTS_SCHEMA_VERSION_V1:
+        if not args.allow_legacy_v1:
+            fail("pattern-eval-weights-v1 is accepted only with --allow-legacy-v1")
+        return (
+            WEIGHTS_SCHEMA_VERSION_V1,
+            validate_phase_bias(payload),
+            validate_pattern_weights(payload, pattern_set),
+        )
+    if schema_version != WEIGHTS_SCHEMA_VERSION_V2:
+        fail(f"weights_schema_version must be {WEIGHTS_SCHEMA_VERSION_V2}")
+
+    contract_payload = load_catalog_dump(args, pattern_set)
+    contract = selected_contract(contract_payload, pattern_set)
+    validate_v2_metadata(payload, pattern_set, contract)
+    return (
+        WEIGHTS_SCHEMA_VERSION_V2,
+        validate_phase_bias(payload),
+        validate_pattern_weights(payload, pattern_set),
+    )
 
 
 def append_header(output: bytearray, weight_count: int, pattern_set: PatternSetSpec) -> None:
@@ -174,6 +363,7 @@ def make_artifact(
 def write_manifest(
     path: Path,
     weights_path: Path,
+    source_schema_version: str,
     source_checksum: str,
     checksum: int,
     artifact_size: int,
@@ -193,7 +383,7 @@ def write_manifest(
         "weights_file": weights_path.name,
         "weights_size_bytes": artifact_size,
         "weights_checksum": f"0x{checksum:08x}",
-        "source_weights_schema_version": WEIGHTS_SCHEMA_VERSION,
+        "source_weights_schema_version": source_schema_version,
         "source_weights_checksum": source_checksum,
         "nonzero_pattern_weights": nonzero_pattern_weights,
         "notes": pattern_set.note,
@@ -213,12 +403,29 @@ def main() -> int:
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--manifest-out", required=True, type=Path)
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
+    parser.add_argument(
+        "--catalog-dump-exe",
+        type=Path,
+        help="Runtime pattern catalog dump executable used to validate v2 weights.",
+    )
+    parser.add_argument(
+        "--pattern-contract-json",
+        type=Path,
+        help="Precomputed runtime pattern catalog dump JSON used to validate v2 weights.",
+    )
+    parser.add_argument(
+        "--allow-legacy-v1",
+        action="store_true",
+        help="Accept pattern-eval-weights-v1 for legacy smoke compatibility.",
+    )
     args = parser.parse_args()
 
     try:
         pattern_set = resolve_pattern_set(args.pattern_set)
         payload, source_bytes = load_weights(args.weights_json)
-        phase_biases, pattern_weights = validate_weights(payload, pattern_set)
+        source_schema_version, phase_biases, pattern_weights = validate_weights(
+            payload, pattern_set, args
+        )
         artifact, checksum = make_artifact(phase_biases, pattern_weights, pattern_set)
         args.weights_out.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
@@ -227,6 +434,7 @@ def main() -> int:
         write_manifest(
             args.manifest_out,
             args.weights_out,
+            source_schema_version,
             source_checksum,
             checksum,
             len(artifact),
@@ -240,13 +448,13 @@ def main() -> int:
 
     print(f"format_version={FORMAT_VERSION}")
     print("bit_order=a1-lsb")
-    print("score_unit=disc-diff")
+    print(f"score_unit={SCORE_UNIT}")
     print(f"score_scale={SCORE_SCALE}")
     print(f"phase_count={PHASE_COUNT}")
     print(f"pattern_set_id={pattern_set.pattern_set_id}")
     print(f"weights_checksum=0x{checksum:08x}")
     print(f"weights_size_bytes={len(artifact)}")
-    print(f"source_weights_schema_version={WEIGHTS_SCHEMA_VERSION}")
+    print(f"source_weights_schema_version={source_schema_version}")
     print(f"source_weights_checksum={source_checksum}")
     print(f"nonzero_pattern_weights={len(pattern_weights)}")
     print(f"notes={pattern_set.note}")

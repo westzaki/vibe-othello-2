@@ -16,6 +16,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <span>
 #include <set>
 #include <sstream>
 #include <string>
@@ -80,6 +81,7 @@ struct ReportSummary {
   int cross_split_board_collision_count = 0;
   OutputFormat output_format = OutputFormat::expanded_tsv;
   std::string pattern_set_id;
+  std::string pattern_contract_digest;
   vibe_othello::tools::pattern::IndexMode index_mode = vibe_othello::tools::pattern::IndexMode::raw;
   std::vector<std::map<std::string, std::string>> feature_families;
   std::set<std::string> source_dataset_ids;
@@ -341,6 +343,76 @@ std::string checksum_string(std::uint64_t checksum) {
   std::ostringstream output;
   output << "0x" << std::hex << std::nouppercase << std::setfill('0') << std::setw(16) << checksum;
   return output.str();
+}
+
+std::string digest_string(std::uint64_t checksum) {
+  std::ostringstream output;
+  output << "fnv1a64:" << std::hex << std::nouppercase << std::setfill('0') << std::setw(16)
+         << checksum;
+  return output.str();
+}
+
+std::string square_name(vibe_othello::board_core::Square square) {
+  const int file = vibe_othello::board_core::file_of(square);
+  const int rank = vibe_othello::board_core::rank_of(square);
+  if (file < 0 || rank < 0) {
+    return "invalid";
+  }
+
+  std::string name;
+  name.push_back(static_cast<char>('a' + file));
+  name.push_back(static_cast<char>('1' + rank));
+  return name;
+}
+
+std::string_view symmetry_policy_name(
+    vibe_othello::evaluation::PatternSymmetryPolicy symmetry_policy) noexcept {
+  switch (symmetry_policy) {
+  case vibe_othello::evaluation::PatternSymmetryPolicy::none:
+    return "none";
+  case vibe_othello::evaluation::PatternSymmetryPolicy::reverse:
+    return "reverse";
+  case vibe_othello::evaluation::PatternSymmetryPolicy::square_d4:
+    return "square-d4";
+  }
+  return "unknown";
+}
+
+std::vector<std::string> square_names(
+    std::span<const vibe_othello::board_core::Square> squares) {
+  std::vector<std::string> names;
+  names.reserve(squares.size());
+  for (const vibe_othello::board_core::Square square : squares) {
+    names.push_back(square_name(square));
+  }
+  return names;
+}
+
+std::string join_strings(const std::vector<std::string>& values) {
+  std::string joined;
+  bool first = true;
+  for (const std::string& value : values) {
+    if (!first) {
+      joined.push_back(',');
+    }
+    first = false;
+    joined += value;
+  }
+  return joined;
+}
+
+void append_digest_line(std::string* input, std::string_view line) {
+  input->append(line);
+  input->push_back('\n');
+}
+
+std::uint64_t fnv1a64_digest(std::string_view text) noexcept {
+  std::uint64_t hash = 14695981039346656037ull;
+  for (const char character : text) {
+    hash ^= static_cast<unsigned char>(character);
+    hash *= 1099511628211ull;
+  }
+  return hash;
 }
 
 bool validate_split(std::string_view split) noexcept {
@@ -753,6 +825,8 @@ bool write_report(const std::string& path, const ReportSummary& report) {
          << average_features << ",\n";
   output << "  \"max_features_per_example\": " << report.max_features_per_example << ",\n";
   output << "  \"pattern_set_id\": \"" << json_escape(report.pattern_set_id) << "\",\n";
+  output << "  \"pattern_contract_digest\": \"" << json_escape(report.pattern_contract_digest)
+         << "\",\n";
   output << "  \"index_mode\": \"" << index_mode_name(report.index_mode) << "\",\n";
   output << "  \"feature_families\": ";
   write_feature_family_array(output, report.feature_families);
@@ -827,6 +901,62 @@ bool record_pattern_family_summary(const vibe_othello::evaluation::PatternFeatur
     });
   }
   return true;
+}
+
+std::optional<std::string> pattern_contract_digest(
+    const vibe_othello::evaluation::PatternFeatureSet& feature_set,
+    const vibe_othello::evaluation::PatternSet& pattern_set,
+    vibe_othello::tools::pattern::IndexMode index_mode) {
+  namespace eval = vibe_othello::evaluation;
+
+  if (feature_set.tables.size() != pattern_set.patterns.size()) {
+    return std::nullopt;
+  }
+
+  std::string input;
+  append_digest_line(&input, "pattern-contract-digest-v1");
+  append_digest_line(&input, "pattern_set_id=" + pattern_set.id);
+  append_digest_line(&input, "index_mode=" + std::string(index_mode_name(index_mode)));
+
+  std::vector<std::string> ordered_pattern_ids;
+  ordered_pattern_ids.reserve(pattern_set.patterns.size());
+  for (const eval::PatternDefinition& definition : pattern_set.patterns) {
+    ordered_pattern_ids.push_back(definition.id);
+  }
+  append_digest_line(&input, "ordered_pattern_ids=" + join_strings(ordered_pattern_ids));
+  append_digest_line(&input, "pattern_count=" + std::to_string(pattern_set.patterns.size()));
+
+  for (std::size_t pattern_index = 0; pattern_index < pattern_set.patterns.size();
+       ++pattern_index) {
+    const eval::PatternDefinition& definition = pattern_set.patterns[pattern_index];
+    const eval::PatternFeatureTable& table = feature_set.tables[pattern_index];
+    if (table.pattern_id != definition.id || table.pattern_length != definition.length) {
+      return std::nullopt;
+    }
+    const std::optional<std::uint32_t> table_size =
+        eval::checked_pattern_size(definition.length);
+    if (!table_size.has_value()) {
+      return std::nullopt;
+    }
+
+    const std::string prefix = "pattern[" + std::to_string(pattern_index) + "].";
+    append_digest_line(&input, prefix + "id=" + definition.id);
+    append_digest_line(&input, prefix + "length=" + std::to_string(definition.length));
+    append_digest_line(&input, prefix + "symmetry_policy=" +
+                                   std::string(symmetry_policy_name(definition.symmetry_policy)));
+    append_digest_line(&input, prefix + "squares=" + join_strings(square_names(definition.squares)));
+    append_digest_line(&input,
+                       prefix + "feature_instance_count=" +
+                           std::to_string(table.instances.size()));
+    for (std::size_t instance = 0; instance < table.instances.size(); ++instance) {
+      append_digest_line(&input,
+                         prefix + "feature_instance[" + std::to_string(instance) +
+                             "].squares=" + join_strings(square_names(table.instances[instance])));
+    }
+    append_digest_line(&input, prefix + "table_size=" + std::to_string(*table_size));
+  }
+
+  return digest_string(fnv1a64_digest(input));
 }
 
 struct FeatureOccurrence {
@@ -972,6 +1102,13 @@ int main(int argc, char** argv) {
       std::cerr << "failed to summarize pattern family table sizes\n";
       return 1;
     }
+    const std::optional<std::string> contract_digest =
+        pattern_contract_digest(feature_set, pattern_set, args->index_mode);
+    if (!contract_digest.has_value()) {
+      std::cerr << "failed to compute pattern contract digest\n";
+      return 1;
+    }
+    report.pattern_contract_digest = *contract_digest;
     std::vector<NormalizedRow> rows;
     const bool loaded = load_normalized_rows(args->normalized_tsv_path, &rows, &report);
 

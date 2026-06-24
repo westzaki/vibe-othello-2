@@ -986,9 +986,16 @@ parser.add_argument("--weights-json")
 parser.add_argument("--weights-out")
 parser.add_argument("--manifest-out")
 parser.add_argument("--pattern-set")
+parser.add_argument("--catalog-dump-exe")
 args = parser.parse_args()
 open(args.weights_out, "wb").write(b"fake-weights")
 open(args.manifest_out, "w", encoding="utf-8").write(json.dumps({"pattern_set": args.pattern_set}, sort_keys=True) + "\\n")
+""",
+    )
+    catalog = make_executable(
+        root / "fake-catalog-dump.py",
+        """#!/usr/bin/env python3
+print('{"schema_version": 1, "pattern_sets": []}')
 """,
     )
     ranking = make_executable(
@@ -1027,6 +1034,7 @@ open(args.summary_out, "w", encoding="utf-8").write("# fake ranking\\n")
         "dataset": dataset,
         "trainer": trainer,
         "exporter": exporter,
+        "catalog": catalog,
         "ranking": ranking,
     }
 
@@ -1072,6 +1080,8 @@ def campaign_command(
         str(tools["trainer"]),
         "--exporter",
         str(tools["exporter"]),
+        "--catalog-dump-exe",
+        str(tools["catalog"]),
         "--ranking-evaluator",
         str(tools["ranking"]),
         *extra,
@@ -1132,6 +1142,12 @@ def check_partial_miss_campaign(args: argparse.Namespace, root: Path) -> bool:
 
 def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
     normalized, _, _ = fixture(root)
+    catalog = make_executable(
+        root / "fake-pass-through-catalog.py",
+        """#!/usr/bin/env python3
+print('{"schema_version": 1, "pattern_sets": []}')
+""",
+    )
     matrix = run(
         [
             sys.executable,
@@ -1149,6 +1165,8 @@ def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
             "--reuse-move-teacher-cache",
             "--write-move-teacher-cache",
             "--allow-cache-miss-solve",
+            "--catalog-dump-exe",
+            str(catalog),
             "--dry-run",
         ]
     )
@@ -1179,6 +1197,8 @@ def check_pass_through(args: argparse.Namespace, root: Path) -> bool:
             "--reuse-move-teacher-cache",
             "--write-move-teacher-cache",
             "--allow-cache-miss-solve",
+            "--catalog-dump-exe",
+            str(catalog),
             "--dry-run",
         ]
     )

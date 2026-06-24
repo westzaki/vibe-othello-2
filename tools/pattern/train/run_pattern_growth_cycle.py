@@ -163,6 +163,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_pattern.py")
     parser.add_argument("--exporter", type=Path, default=root / "tools/pattern/export/export_v0b.py")
     parser.add_argument(
+        "--catalog-dump-exe",
+        type=Path,
+        default=root / "build/tools/pattern/export/vibe-othello-pattern-catalog-dump",
+    )
+    parser.add_argument(
         "--ranking-evaluator",
         type=Path,
         default=root / "build/tools/pattern/labels/vibe-othello-evaluate-move-teacher-ranking",
@@ -413,9 +418,10 @@ def preflight(args: argparse.Namespace, cache: dict[Path, str]) -> tuple[dict[st
         for label, path in (
             ("move-teacher generator", args.generator),
             ("pattern dataset executable", args.dataset_exe),
-            ("pattern trainer", args.trainer),
-            ("pattern exporter", args.exporter),
-            ("move-teacher ranking evaluator", args.ranking_evaluator),
+                ("pattern trainer", args.trainer),
+                ("pattern exporter", args.exporter),
+                ("pattern catalog dump executable", args.catalog_dump_exe),
+                ("move-teacher ranking evaluator", args.ranking_evaluator),
         ):
             if missing_file(path):
                 missing.append(
@@ -570,6 +576,8 @@ def matrix_command(args: argparse.Namespace, matrix_dir: Path, root_counts: list
         str(args.trainer),
         "--exporter",
         str(args.exporter),
+        "--catalog-dump-exe",
+        str(args.catalog_dump_exe),
         "--ranking-evaluator",
         str(args.ranking_evaluator),
     ]

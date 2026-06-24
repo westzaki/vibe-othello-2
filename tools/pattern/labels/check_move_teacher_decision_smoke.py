@@ -108,6 +108,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-exe", required=True, type=Path)
     parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--exporter", required=True, type=Path)
+    parser.add_argument("--catalog-dump-exe", required=True, type=Path)
     parser.add_argument("--campaign-helper", required=True, type=Path)
     parser.add_argument("--matrix-helper", required=True, type=Path)
     return parser.parse_args()
@@ -268,7 +269,9 @@ def run_dataset(dataset_exe: Path, normalized: Path, dataset: Path, report: Path
     return True
 
 
-def run_trainer(trainer: Path, dataset: Path, weights_json: Path, report: Path) -> bool:
+def run_trainer(
+    trainer: Path, dataset: Path, dataset_report: Path, weights_json: Path, report: Path
+) -> bool:
     return require_success(
         run(
             [
@@ -290,6 +293,8 @@ def run_trainer(trainer: Path, dataset: Path, weights_json: Path, report: Path) 
                 str(weights_json),
                 "--report-out",
                 str(report),
+                "--dataset-report",
+                str(dataset_report),
                 "--seed",
                 "0",
             ]
@@ -297,7 +302,14 @@ def run_trainer(trainer: Path, dataset: Path, weights_json: Path, report: Path) 
     )
 
 
-def run_exporter(exporter: Path, weights_json: Path, weights_bin: Path, manifest: Path, pattern_set: str) -> bool:
+def run_exporter(
+    exporter: Path,
+    weights_json: Path,
+    weights_bin: Path,
+    manifest: Path,
+    pattern_set: str,
+    catalog_dump_exe: Path,
+) -> bool:
     return require_success(
         run(
             [
@@ -311,6 +323,8 @@ def run_exporter(exporter: Path, weights_json: Path, weights_bin: Path, manifest
                 str(manifest),
                 "--pattern-set",
                 pattern_set,
+                "--catalog-dump-exe",
+                str(catalog_dump_exe),
             ]
         )
     )
@@ -635,8 +649,21 @@ def feature_counts_by_record(dataset: Path) -> dict[str, Counter[tuple[str, int]
         return result
 
 
-def write_weight_json(path: Path, phase: int, pattern_id: str, ternary_index: int, weight: int) -> None:
+def write_weight_json(
+    path: Path,
+    dataset_report: Path,
+    phase: int,
+    pattern_id: str,
+    ternary_index: int,
+    weight: int,
+) -> None:
+    report = load_json(dataset_report)
     payload = {
+        "index_mode": report["index_mode"],
+        "pattern_contract_digest": report["pattern_contract_digest"],
+        "pattern_set_id": report["pattern_set_id"],
+        "phase_count": 13,
+        "phase_mapping_id": "disc-count-13-v1",
         "phase_bias": {str(phase_id): 0 for phase_id in range(13)},
         "pattern_weights": [
             {
@@ -646,7 +673,8 @@ def write_weight_json(path: Path, phase: int, pattern_id: str, ternary_index: in
                 "weight": weight,
             }
         ],
-        "weights_schema_version": "pattern-eval-weights-v1",
+        "score_unit": "disc-diff",
+        "weights_schema_version": "pattern-eval-weights-v2",
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -789,8 +817,15 @@ def check_ranking_known_artifact(
     weights_json = root / "known-weights.json"
     weights_bin = root / "known.weights.bin"
     manifest = root / "known.manifest.json"
-    write_weight_json(weights_json, int(best["child_phase"]), chosen[0], chosen[1], chosen[2])
-    if not run_exporter(args.exporter, weights_json, weights_bin, manifest, "pattern-v2-endgame-lite"):
+    write_weight_json(weights_json, dataset_report, int(best["child_phase"]), chosen[0], chosen[1], chosen[2])
+    if not run_exporter(
+        args.exporter,
+        weights_json,
+        weights_bin,
+        manifest,
+        "pattern-v2-endgame-lite",
+        args.catalog_dump_exe,
+    ):
         return False
     report_path = root / "known-ranking-report.json"
     summary_path = root / "known-ranking-summary.md"
@@ -839,11 +874,18 @@ def check_training_integration(
 
     weights_json = root / "trained-weights.json"
     trainer_report = root / "trained-trainer-report.json"
-    if not run_trainer(args.trainer, dataset, weights_json, trainer_report):
+    if not run_trainer(args.trainer, dataset, dataset_report, weights_json, trainer_report):
         return False
     weights_bin = root / "trained.weights.bin"
     manifest = root / "trained.manifest.json"
-    if not run_exporter(args.exporter, weights_json, weights_bin, manifest, "pattern-v2-endgame-lite"):
+    if not run_exporter(
+        args.exporter,
+        weights_json,
+        weights_bin,
+        manifest,
+        "pattern-v2-endgame-lite",
+        args.catalog_dump_exe,
+    ):
         return False
     ranking_report = root / "trained-ranking-report.json"
     ranking_summary = root / "trained-ranking-summary.md"
@@ -901,6 +943,8 @@ def campaign_command(args: argparse.Namespace, normalized: Path, output_dir: Pat
         str(args.trainer),
         "--exporter",
         str(args.exporter),
+        "--catalog-dump-exe",
+        str(args.catalog_dump_exe),
         "--ranking-evaluator",
         str(args.ranking_evaluator),
     ]
@@ -942,6 +986,8 @@ def matrix_command(args: argparse.Namespace, normalized: Path, output_dir: Path,
         str(args.trainer),
         "--exporter",
         str(args.exporter),
+        "--catalog-dump-exe",
+        str(args.catalog_dump_exe),
         "--ranking-evaluator",
         str(args.ranking_evaluator),
         *extra,
