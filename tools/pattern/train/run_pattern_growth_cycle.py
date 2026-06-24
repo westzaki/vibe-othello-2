@@ -418,10 +418,10 @@ def preflight(args: argparse.Namespace, cache: dict[Path, str]) -> tuple[dict[st
         for label, path in (
             ("move-teacher generator", args.generator),
             ("pattern dataset executable", args.dataset_exe),
-                ("pattern trainer", args.trainer),
-                ("pattern exporter", args.exporter),
-                ("pattern catalog dump executable", args.catalog_dump_exe),
-                ("move-teacher ranking evaluator", args.ranking_evaluator),
+            ("pattern trainer", args.trainer),
+            ("pattern exporter", args.exporter),
+            ("pattern catalog dump executable", args.catalog_dump_exe),
+            ("move-teacher ranking evaluator", args.ranking_evaluator),
         ):
             if missing_file(path):
                 missing.append(
