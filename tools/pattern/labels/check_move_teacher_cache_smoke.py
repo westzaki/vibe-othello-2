@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -53,6 +54,7 @@ MOVE_TEACHER_HEADER = [
     "teacher_depth",
     "teacher_nodes",
 ]
+TEACHER_SOURCE = "exact-move-teacher-v2"
 
 
 def parse_args() -> argparse.Namespace:
@@ -128,7 +130,7 @@ def move_row(
         "best_move_tie_count": "1",
         "move_rank": str(rank),
         "best_score_margin": str(margin),
-        "teacher_source": "exact-move-teacher-v1",
+        "teacher_source": TEACHER_SOURCE,
         "teacher_depth": str(child_empty),
         "teacher_nodes": str(nodes),
     }
@@ -152,6 +154,11 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise AssertionError(path)
     return data
+
+
+def cache_entry_path(cache_dir: Path, schema_namespace: str, board_id: str) -> Path:
+    digest = hashlib.sha256(board_id.encode("utf-8")).hexdigest()
+    return cache_dir / schema_namespace / "exact-final-disc-diff" / "max-empty-12" / "roots" / digest[:2] / f"{digest}.json"
 
 
 def make_executable(path: Path, text: str) -> Path:
@@ -361,7 +368,7 @@ def check_failure_modes(args: argparse.Namespace, root: Path) -> bool:
     ):
         return False
 
-    cache_files = sorted((cache_dir / "schema-v1" / "exact-final-disc-diff" / "max-empty-12" / "roots").glob("*/*.json"))
+    cache_files = sorted((cache_dir / "schema-v2" / "exact-final-disc-diff" / "max-empty-12" / "roots").glob("*/*.json"))
     if not cache_files:
         print("cache files were not written", file=sys.stderr)
         return False
@@ -394,15 +401,76 @@ def check_failure_modes(args: argparse.Namespace, root: Path) -> bool:
     wrong_rows = load_tsv(source_move_teacher)
     wrong_rows[0]["root_board_id"] = "not-selected"
     write_tsv(wrong_source, MOVE_TEACHER_HEADER, wrong_rows)
-    before_files = sorted(conflict_cache.glob("schema-v1/exact-final-disc-diff/max-empty-12/roots/*/*.json"))
+    before_files = sorted(conflict_cache.glob("schema-v2/exact-final-disc-diff/max-empty-12/roots/*/*.json"))
     if not require_failure(
         run(populate_command(args, normalized, conflict_cache, wrong_source, root / "populate-wrong-fail.json")),
         "source move-teacher row is not in selected normalized roots",
     ):
         return False
-    after_files = sorted(conflict_cache.glob("schema-v1/exact-final-disc-diff/max-empty-12/roots/*/*.json"))
+    after_files = sorted(conflict_cache.glob("schema-v2/exact-final-disc-diff/max-empty-12/roots/*/*.json"))
     if before_files != after_files:
         print("failed cache populate changed valid cache entries", file=sys.stderr)
+        return False
+    return True
+
+
+def check_v1_v2_namespace_safety(args: argparse.Namespace, root: Path) -> bool:
+    normalized, source_move_teacher, _ = fixture(root)
+    cache_dir = root / "namespace-cache"
+    v1_path = cache_entry_path(cache_dir, "schema-v1", "root-a")
+    v1_path.parent.mkdir(parents=True, exist_ok=True)
+    v1_payload = {
+        "schema_version": 1,
+        "cache_semantic_version": "exact-move-teacher-cache-v1",
+        "generator_semantic_version": "exact-move-teacher-v1",
+        "sentinel": "must-remain-untouched",
+    }
+    v1_text = json.dumps(v1_payload, indent=2, sort_keys=True) + "\n"
+    v1_path.write_text(v1_text, encoding="utf-8")
+
+    if not require_failure(
+        run(materialize_command(args, normalized, cache_dir, root / "v1-only-move.tsv", root / "v1-only-child.tsv", root / "v1-only.json")),
+        "cache full hit required",
+    ):
+        return False
+    if v1_path.read_text(encoding="utf-8") != v1_text:
+        print("v1 cache entry changed during v2 materialize miss", file=sys.stderr)
+        return False
+
+    if not require_success(run(populate_command(args, normalized, cache_dir, source_move_teacher, root / "populate-v2.json"))):
+        return False
+    if v1_path.read_text(encoding="utf-8") != v1_text:
+        print("v1 cache entry changed during v2 populate", file=sys.stderr)
+        return False
+    v2_files = sorted((cache_dir / "schema-v2" / "exact-final-disc-diff" / "max-empty-12" / "roots").glob("*/*.json"))
+    if len(v2_files) != 2:
+        print(f"v2 cache entries were not written in schema-v2 namespace: {v2_files}", file=sys.stderr)
+        return False
+
+    report_out = root / "namespace-materialized.json"
+    if not require_success(
+        run(
+            materialize_command(
+                args,
+                normalized,
+                cache_dir,
+                root / "namespace-move.tsv",
+                root / "namespace-child.tsv",
+                report_out,
+                "--require-full-hit",
+            )
+        )
+    ):
+        return False
+    cache = load_json(report_out).get("cache", {})
+    if (
+        cache.get("cache_schema_version") != 2
+        or cache.get("cache_semantic_version") != "exact-move-teacher-cache-v2"
+    ):
+        print(f"materialized report did not identify v2 cache namespace: {cache}", file=sys.stderr)
+        return False
+    if not (cache_dir / "schema-v2" / "exact-final-disc-diff" / "max-empty-12").exists():
+        print("schema-v2 cache namespace was not created", file=sys.stderr)
         return False
     return True
 
@@ -416,6 +484,7 @@ from pathlib import Path
 
 NORMALIZED_HEADER = %(normalized_header)r
 MOVE_HEADER = %(move_header)r
+TEACHER_SOURCE = %(teacher_source)r
 
 def phase(occupied):
     return min(12, ((occupied - 4) * 13) // 60)
@@ -465,7 +534,7 @@ for index, root in enumerate(roots):
         "best_move_tie_count": "1",
         "move_rank": "1",
         "best_score_margin": "0",
-        "teacher_source": "exact-move-teacher-v1",
+        "teacher_source": TEACHER_SOURCE,
         "teacher_depth": str(child_counts["empty_count"]),
         "teacher_nodes": "31",
     })
@@ -475,7 +544,7 @@ for index, root in enumerate(roots):
         "game_group_id": root["game_group_id"],
         "board_id": child_id,
         "source_occurrence_id": child_id + ":source",
-        "source_dataset_id": "exact-move-teacher-v1",
+        "source_dataset_id": TEACHER_SOURCE,
         "split": root["split"],
         "board_a1_to_h8": child_board,
         "label_kind": "teacher_exact_move_child_final_disc_diff",
@@ -511,7 +580,7 @@ Path(args.report_out).with_suffix(".input.json").write_text(json.dumps({
     "normalized_tsv": args.normalized_tsv,
     "root_board_ids": [row["board_id"] for row in roots],
 }, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
-""" % {"normalized_header": NORMALIZED_HEADER_V2, "move_header": MOVE_TEACHER_HEADER},
+""" % {"normalized_header": NORMALIZED_HEADER_V2, "move_header": MOVE_TEACHER_HEADER, "teacher_source": TEACHER_SOURCE},
     )
     dataset = make_executable(
         root / "fake-dataset.py",
@@ -773,6 +842,8 @@ def main() -> int:
         if not check_full_hit_and_remap(args, root):
             return 1
         if not check_failure_modes(args, root):
+            return 1
+        if not check_v1_v2_namespace_safety(args, root):
             return 1
         if not check_partial_miss_campaign(args, root):
             return 1

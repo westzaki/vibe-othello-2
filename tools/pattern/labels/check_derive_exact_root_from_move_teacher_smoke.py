@@ -137,7 +137,7 @@ def move_row(root: dict[str, str], move: str, score: int, nodes: int) -> dict[st
         "best_move_tie_count": "1",
         "move_rank": "1" if score >= 5 else "2",
         "best_score_margin": "0" if score >= 5 else "4",
-        "teacher_source": "exact-move-teacher-v1",
+        "teacher_source": "exact-move-teacher-v2",
         "teacher_depth": str(child_empty),
         "teacher_nodes": str(nodes),
     }

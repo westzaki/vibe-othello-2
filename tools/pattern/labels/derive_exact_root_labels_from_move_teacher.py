@@ -68,7 +68,7 @@ LABEL_KIND = "teacher_exact_final_disc_diff"
 LABEL_UNIT = "disc"
 LABEL_PERSPECTIVE = "side_to_move"
 TEACHER_SOURCE = "exact-move-teacher-derived-root-v1"
-MOVE_TEACHER_SOURCE = "exact-move-teacher-v1"
+MOVE_TEACHER_SOURCE = "exact-move-teacher-v2"
 
 
 class DeriveError(RuntimeError):

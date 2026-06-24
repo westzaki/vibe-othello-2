@@ -70,6 +70,7 @@ MOVE_TEACHER_HEADER = [
     "teacher_depth",
     "teacher_nodes",
 ]
+TEACHER_SOURCE = "exact-move-teacher-v2"
 
 POSITIONS = [
     (
@@ -397,6 +398,12 @@ def check_basic_generation(generator: Path, root: Path) -> tuple[bool, Path, Pat
     if int(one_move["child_label_score_side_to_move"]) != -64:
         print(f"bad child score sign for one-empty move: {one_move}", file=sys.stderr)
         return False, move_teacher, child_normalized
+    if one_move["teacher_source"] != TEACHER_SOURCE:
+        print(f"bad teacher source: {one_move}", file=sys.stderr)
+        return False, move_teacher, child_normalized
+    if not one_move["child_board_id"].startswith("move-teacher-v1:"):
+        print(f"child board id contract changed: {one_move}", file=sys.stderr)
+        return False, move_teacher, child_normalized
 
     pass_rows = [row for row in move_rows if row["root_board_id"] == "board-one-empty-pass"]
     if len(pass_rows) != 1 or pass_rows[0]["move"] != "pass":
@@ -425,6 +432,9 @@ def check_basic_generation(generator: Path, root: Path) -> tuple[bool, Path, Pat
         if child_row["split"] != move_row["root_split"]:
             print("child split did not preserve root split", file=sys.stderr)
             return False, move_teacher, child_normalized
+        if child_row["source_dataset_id"] != TEACHER_SOURCE or move_row["teacher_source"] != TEACHER_SOURCE:
+            print(f"v2 teacher source did not flow through rows: {move_row} / {child_row}", file=sys.stderr)
+            return False, move_teacher, child_normalized
 
     report = load_json(report_path)
     expected = {
@@ -435,6 +445,7 @@ def check_basic_generation(generator: Path, root: Path) -> tuple[bool, Path, Pat
         "skipped_too_many_empty": 1,
         "duplicate_board_rows": 1,
         "terminal_roots_skipped": 1,
+        "root_solve_calls": 3,
         "solve_failures": 0,
         "move_rows": len(move_rows),
         "child_normalized_rows": len(child_rows),
@@ -443,14 +454,111 @@ def check_basic_generation(generator: Path, root: Path) -> tuple[bool, Path, Pat
         if report.get(key) != value:
             print(f"report mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
             return False, move_teacher, child_normalized
+    if report.get("generator_semantic_version") != TEACHER_SOURCE or report.get("teacher_source") != TEACHER_SOURCE:
+        print(f"report did not expose v2 generator/source: {report}", file=sys.stderr)
+        return False, move_teacher, child_normalized
+    if report.get("teacher_nodes_semantics") != "root_move_info_nodes_per_legal_root_move":
+        print(f"report did not expose teacher_nodes semantics: {report}", file=sys.stderr)
+        return False, move_teacher, child_normalized
     for phrase in (
         "root_move_score_side_to_move is -child_label_score_side_to_move",
         "teacher_depth is the child empty count solved exactly",
+        "teacher_nodes is RootMoveInfo.nodes from the public root solve",
     ):
         if phrase not in report.get("notes", []):
             print(f"missing report note {phrase!r}", file=sys.stderr)
             return False, move_teacher, child_normalized
     return True, move_teacher, child_normalized
+
+
+def check_tie_generation(generator: Path, root: Path) -> bool:
+    normalized = root / "tie-normalized.tsv"
+    move_teacher = root / "tie-move-teacher.tsv"
+    child_normalized = root / "tie-child-normalized.tsv"
+    report_path = root / "tie-report.json"
+    tie_root = normalized_row(
+        1,
+        "board-fourteen-empty",
+        "train",
+        "WWWWWWW./.WWWBW../BBWBBB../BWWBB.B./BWBBBBBB/BWBBB.B./.WWWWB../BW.WWWWW b",
+    )
+    write_tsv(normalized, NORMALIZED_HEADER_V2, [tie_root])
+    result = run_generator(
+        generator,
+        normalized,
+        move_teacher,
+        child_normalized,
+        report_path,
+        "--max-empty",
+        "14",
+        "--seed",
+        "0",
+    )
+    if not require_success(result):
+        return False
+
+    expected = {
+        "a2": {
+            "child_board_a1_to_h8": "OX-XXXXXOOOOOO--OOOOO-O-OXOOOOOOOXXOO-O-OOXOOO---XXXOX--XXXXXXX-",
+            "root_move_score_side_to_move": "-26",
+            "child_label_score_side_to_move": "26",
+            "move_rank": "1",
+            "is_best_move": "1",
+            "best_move_tie_count": "2",
+            "best_score_margin": "0",
+        },
+        "a7": {
+            "child_board_a1_to_h8": "OX-XXXXX-XXXXO--OXOOO-O-OXOOOOOOOXXOO-O-OOXOOO--OOOOOX--XXXXXXX-",
+            "root_move_score_side_to_move": "-38",
+            "child_label_score_side_to_move": "38",
+            "move_rank": "3",
+            "is_best_move": "0",
+            "best_move_tie_count": "2",
+            "best_score_margin": "12",
+        },
+        "c1": {
+            "child_board_a1_to_h8": "OOOXXXXX-OOOXO--OXOOO-O-OXOOOOOOOXXOO-O-OOXOOO---XXXOX--XXXXXXX-",
+            "root_move_score_side_to_move": "-26",
+            "child_label_score_side_to_move": "26",
+            "move_rank": "2",
+            "is_best_move": "1",
+            "best_move_tie_count": "2",
+            "best_score_margin": "0",
+        },
+        "g7": {
+            "child_board_a1_to_h8": "OX-XXXXX-XXXXO--OXOOO-O-OXOOOOOOOXXOO-O-OOXOOO---XXXOOO-XXXXXXX-",
+            "root_move_score_side_to_move": "-40",
+            "child_label_score_side_to_move": "40",
+            "move_rank": "4",
+            "is_best_move": "0",
+            "best_move_tie_count": "2",
+            "best_score_margin": "14",
+        },
+    }
+    rows = load_tsv(move_teacher)
+    if [row["move"] for row in rows] != sorted(expected):
+        print(f"tie root rows were not sorted by move: {rows}", file=sys.stderr)
+        return False
+    for row in rows:
+        want = expected[row["move"]]
+        for key, value in want.items():
+            if row[key] != value:
+                print(f"tie row mismatch for {row['move']} {key}: {row[key]!r} != {value!r}", file=sys.stderr)
+                return False
+        if row["teacher_source"] != TEACHER_SOURCE or row["teacher_depth"] != row["child_empty_count"]:
+            print(f"tie row metadata mismatch: {row}", file=sys.stderr)
+            return False
+        if int(row["root_move_score_side_to_move"]) != -int(row["child_label_score_side_to_move"]):
+            print(f"tie row score perspective mismatch: {row}", file=sys.stderr)
+            return False
+        if int(row["teacher_nodes"]) < 0:
+            print(f"tie row teacher_nodes should be non-negative: {row}", file=sys.stderr)
+            return False
+    report = load_json(report_path)
+    if report.get("root_solve_calls") != 1 or report.get("roots_with_normal_moves") != 1:
+        print(f"tie report root solve count mismatch: {report}", file=sys.stderr)
+        return False
+    return True
 
 
 def check_determinism_and_schema(generator: Path, root: Path) -> bool:
@@ -578,7 +686,7 @@ def check_ranking_known_artifact(
                 "best_move_tie_count": "1",
                 "move_rank": "1",
                 "best_score_margin": "0",
-                "teacher_source": "exact-move-teacher-v1",
+                "teacher_source": TEACHER_SOURCE,
                 "teacher_depth": "0",
                 "teacher_nodes": "1",
             },
@@ -599,7 +707,7 @@ def check_ranking_known_artifact(
                 "best_move_tie_count": "1",
                 "move_rank": "2",
                 "best_score_margin": "24",
-                "teacher_source": "exact-move-teacher-v1",
+                "teacher_source": TEACHER_SOURCE,
                 "teacher_depth": "0",
                 "teacher_nodes": "1",
             },
@@ -615,7 +723,7 @@ def check_ranking_known_artifact(
                 "game_group_id": "synthetic-known-game",
                 "board_id": "synthetic-known-child-best",
                 "source_occurrence_id": "synthetic-known-child-best:source",
-                "source_dataset_id": "exact-move-teacher-v1",
+                "source_dataset_id": TEACHER_SOURCE,
                 "split": "train",
                 "board_a1_to_h8": best_board,
                 "label_kind": "teacher_exact_move_child_final_disc_diff",
@@ -634,7 +742,7 @@ def check_ranking_known_artifact(
                 "game_group_id": "synthetic-known-game",
                 "board_id": "synthetic-known-child-other",
                 "source_occurrence_id": "synthetic-known-child-other:source",
-                "source_dataset_id": "exact-move-teacher-v1",
+                "source_dataset_id": TEACHER_SOURCE,
                 "split": "train",
                 "board_a1_to_h8": other_board,
                 "label_kind": "teacher_exact_move_child_final_disc_diff",
@@ -924,6 +1032,8 @@ def main() -> int:
         root = Path(temp_text)
         ok, move_teacher, child_normalized = check_basic_generation(args.generator, root)
         if not ok:
+            return 1
+        if not check_tie_generation(args.generator, root):
             return 1
         if not check_determinism_and_schema(args.generator, root):
             return 1
