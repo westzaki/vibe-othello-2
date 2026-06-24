@@ -60,7 +60,7 @@ def run_dataset(
     return result.stdout
 
 
-def run_trainer_v0a(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
+def run_phase_bias_v0a(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
     return run_trainer(script, "phase-bias-v0a", dataset, weights, report)
 
 
@@ -126,7 +126,7 @@ def run_trainer(
     return True
 
 
-def run_trainer_v0a_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
+def run_phase_bias_v0a_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
     return run_trainer_expect_failure(script, "phase-bias-v0a", dataset, expected_error)
 
 
@@ -182,10 +182,10 @@ def mutate_validation_and_test_labels(dataset_text: str) -> str:
     return "\n".join(mutated) + "\n"
 
 
-def check_trainer_v0a_report(report: dict[str, object]) -> bool:
+def check_phase_bias_v0a_report(report: dict[str, object]) -> bool:
     expected_scalars = {
         "schema_version": 1,
-        "trainer_version": "phase-bias-v0a",
+        "trainer_algorithm": "phase-bias-v0a",
         "input_feature_rows": 56,
         "accepted_examples": 7,
         "rejected_examples": 0,
@@ -350,7 +350,7 @@ def check_duplicate_feature_report(report: dict[str, object]) -> bool:
 def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, object]) -> bool:
     expected_scalars = {
         "schema_version": 1,
-        "trainer_version": "pattern-sgd-v0b",
+        "trainer_algorithm": "pattern-sgd-v0b",
         "input_feature_rows": 56,
         "accepted_examples": 7,
         "rejected_examples": 0,
@@ -373,8 +373,11 @@ def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, objec
             file=sys.stderr,
         )
         return False
-    if weights.get("trainer_version") != "pattern-sgd-v0b":
-        print(f"unexpected v0b weights trainer: {weights.get('trainer_version')!r}", file=sys.stderr)
+    if weights.get("weights_schema_version") != "pattern-eval-weights-v1":
+        print(
+            f"unexpected v0b weights schema: {weights.get('weights_schema_version')!r}",
+            file=sys.stderr,
+        )
         return False
     if not isinstance(weights.get("phase_bias"), dict):
         print("missing v0b phase_bias weights", file=sys.stderr)
@@ -447,7 +450,7 @@ def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, objec
 def check_trainer_v0c_report(report: dict[str, object], weights: dict[str, object]) -> bool:
     expected_scalars = {
         "schema_version": 1,
-        "trainer_version": "pattern-sgd-v0c",
+        "trainer_algorithm": "pattern-sgd-v0c",
         "input_format": "expanded-tsv",
         "input_feature_rows": 56,
         "example_count": 7,
@@ -466,8 +469,8 @@ def check_trainer_v0c_report(report: dict[str, object], weights: dict[str, objec
         if report.get(key) != expected:
             print(f"v0c report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
             return False
-    if weights.get("trainer_version") != "pattern-sgd-v0b":
-        print("v0c weights JSON must remain v0b exporter compatible", file=sys.stderr)
+    if weights.get("weights_schema_version") != "pattern-eval-weights-v1":
+        print("v0c weights JSON must use the shared pattern-eval weights schema", file=sys.stderr)
         return False
     if not isinstance(weights.get("pattern_weights"), list) or not weights.get("pattern_weights"):
         print(f"missing v0c learned pattern weights: {weights.get('pattern_weights')!r}", file=sys.stderr)
@@ -631,11 +634,11 @@ def check_trainer_v0d_phase_balance(trainer_script: Path, temp_dir: Path) -> boo
         return False
     report = json.loads(first_report_path.read_text(encoding="utf-8"))
     weights = json.loads(first_weights.read_text(encoding="utf-8"))
-    if report.get("trainer_version") != "pattern-sgd-v0d":
-        print(f"unexpected v0d trainer version: {report.get('trainer_version')!r}", file=sys.stderr)
+    if report.get("trainer_algorithm") != "pattern-sgd-v0d":
+        print(f"unexpected v0d trainer algorithm: {report.get('trainer_algorithm')!r}", file=sys.stderr)
         return False
-    if weights.get("trainer_version") != "pattern-sgd-v0b":
-        print("v0d weights JSON must remain v0b exporter compatible", file=sys.stderr)
+    if weights.get("weights_schema_version") != "pattern-eval-weights-v1":
+        print("v0d weights JSON must use the shared pattern-eval weights schema", file=sys.stderr)
         return False
     if report.get("phase_balance") != "sqrt-inverse-count":
         print(f"unexpected default phase balance: {report.get('phase_balance')!r}", file=sys.stderr)
@@ -717,7 +720,7 @@ def check_trainer_v0d_phase_balance(trainer_script: Path, temp_dir: Path) -> boo
         ]
     )
     if result.returncode == 0 or "require --mode pattern-sgd-v0d" not in result.stderr:
-        print("v0c accepted v0d-only phase-balance args", file=sys.stderr)
+        print("v0c accepted phase-balance args reserved for pattern-sgd-v0d", file=sys.stderr)
         sys.stderr.write(result.stderr)
         return False
     invalid_bounds = run_capture(
@@ -843,7 +846,7 @@ def check_compact_v0c_equivalence(
     return True
 
 
-def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: Path) -> bool:
+def check_phase_bias_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         dataset_report = temp_dir / "dataset-report.json"
@@ -858,9 +861,9 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         first_report = temp_dir / "first-report.json"
         second_weights = temp_dir / "second-weights.tsv"
         second_report = temp_dir / "second-report.json"
-        if not run_trainer_v0a(trainer_script, dataset_path, first_weights, first_report):
+        if not run_phase_bias_v0a(trainer_script, dataset_path, first_weights, first_report):
             return False
-        if not run_trainer_v0a(trainer_script, dataset_path, second_weights, second_report):
+        if not run_phase_bias_v0a(trainer_script, dataset_path, second_weights, second_report):
             return False
         if first_weights.read_text(encoding="utf-8") != second_weights.read_text(encoding="utf-8"):
             print("v0a weights are not deterministic across repeated runs", file=sys.stderr)
@@ -870,14 +873,14 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
             return False
 
         report = json.loads(first_report.read_text(encoding="utf-8"))
-        if not check_trainer_v0a_report(report):
+        if not check_phase_bias_v0a_report(report):
             return False
 
         mutated_dataset = temp_dir / "mutated-validation-test.tsv"
         mutated_dataset.write_text(mutate_validation_and_test_labels(dataset_text), encoding="utf-8")
         mutated_weights = temp_dir / "mutated-weights.tsv"
         mutated_report = temp_dir / "mutated-report.json"
-        if not run_trainer_v0a(trainer_script, mutated_dataset, mutated_weights, mutated_report):
+        if not run_phase_bias_v0a(trainer_script, mutated_dataset, mutated_weights, mutated_report):
             return False
         if first_weights.read_text(encoding="utf-8") != mutated_weights.read_text(encoding="utf-8"):
             print("v0a weights changed after mutating validation/test labels", file=sys.stderr)
@@ -901,7 +904,7 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
             + "bad-label\t0\ttrain\t65\t0\tedge-8\t0\t0\n",
             encoding="utf-8",
         )
-        if not run_trainer_v0a(
+        if not run_phase_bias_v0a(
             trainer_script, malformed_path, malformed_weights, malformed_report
         ):
             return False
@@ -914,7 +917,7 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         conflict_report = temp_dir / "metadata-conflict-report.json"
         conflict_line = mutate_field(first_data_line(dataset_text), 2, "validation")
         conflict_path.write_text(dataset_text + conflict_line + "\n", encoding="utf-8")
-        if not run_trainer_v0a(
+        if not run_phase_bias_v0a(
             trainer_script, conflict_path, conflict_weights, conflict_report
         ):
             return False
@@ -928,7 +931,7 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         duplicate_path.write_text(
             dataset_text + first_data_line(dataset_text) + "\n", encoding="utf-8"
         )
-        if not run_trainer_v0a(
+        if not run_phase_bias_v0a(
             trainer_script, duplicate_path, duplicate_weights, duplicate_report
         ):
             return False
@@ -942,7 +945,7 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
             "bad-label\t0\ttrain\t65\t0\tedge-8\t0\t0\n",
             encoding="utf-8",
         )
-        if not run_trainer_v0a_expect_failure(
+        if not run_phase_bias_v0a_expect_failure(
             trainer_script, no_accepted_path, "dataset has no accepted examples"
         ):
             return False
@@ -954,7 +957,7 @@ def check_trainer_v0a(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
             "test-row\t0\ttest\t-1\t0\tedge-8\t0\t0\n",
             encoding="utf-8",
         )
-        if not run_trainer_v0a_expect_failure(
+        if not run_phase_bias_v0a_expect_failure(
             trainer_script, no_train_path, "dataset has no accepted train examples"
         ):
             return False
@@ -1126,7 +1129,7 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trainer-exe", required=True, type=Path)
-    parser.add_argument("--trainer-v0a", required=True, type=Path)
+    parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
     parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--records", required=True, type=Path)
@@ -1189,20 +1192,20 @@ def main() -> int:
             sys.stderr.write(malformed_result.stderr)
             return 1
 
-    if not check_trainer_v0a(
-        args.trainer_v0a,
+    if not check_phase_bias_v0a(
+        args.trainer,
         args.dataset_exe,
         args.normalized_tsv,
     ):
         return 1
     if not check_trainer_v0b(
-        args.trainer_v0a,
+        args.trainer,
         args.dataset_exe,
         args.normalized_tsv,
     ):
         return 1
     with tempfile.TemporaryDirectory() as temp_dir_name:
-        if not check_trainer_v0d_phase_balance(args.trainer_v0a, Path(temp_dir_name)):
+        if not check_trainer_v0d_phase_balance(args.trainer, Path(temp_dir_name)):
             return 1
     return 0
 

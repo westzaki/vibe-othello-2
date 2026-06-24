@@ -104,7 +104,7 @@ def main() -> int:
     parser.add_argument("--bench-exe", required=True, type=Path)
     parser.add_argument("--v0a-exporter", required=True, type=Path)
     parser.add_argument("--v0b-exporter", required=True, type=Path)
-    parser.add_argument("--trainer-v0a", required=True, type=Path)
+    parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
     parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
@@ -113,7 +113,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         artifacts = build_v0a_v0b_artifacts(
-            trainer=args.trainer_v0a,
+            trainer=args.trainer,
             dataset_exe=args.dataset_exe,
             normalized_tsv=args.normalized_tsv,
             temp_dir=temp_dir,

@@ -36,11 +36,12 @@ COMPACT_HEADER = [
 ]
 SPLITS = ("train", "validation", "test")
 PHASES = tuple(range(13))
-SCHEMA_VERSION = 1
-TRAINER_VERSION_V0A = "phase-bias-v0a"
-TRAINER_VERSION_V0B = "pattern-sgd-v0b"
-TRAINER_VERSION_V0C = "pattern-sgd-v0c"
-TRAINER_VERSION_V0D = "pattern-sgd-v0d"
+REPORT_SCHEMA_VERSION = 1
+WEIGHTS_SCHEMA_VERSION = "pattern-eval-weights-v1"
+TRAINER_ALGORITHM_V0A = "phase-bias-v0a"
+TRAINER_ALGORITHM_V0B = "pattern-sgd-v0b"
+TRAINER_ALGORITHM_V0C = "pattern-sgd-v0c"
+TRAINER_ALGORITHM_V0D = "pattern-sgd-v0d"
 
 
 @dataclass(frozen=True)
@@ -129,12 +130,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=(
-            TRAINER_VERSION_V0A,
-            TRAINER_VERSION_V0B,
-            TRAINER_VERSION_V0C,
-            TRAINER_VERSION_V0D,
+            TRAINER_ALGORITHM_V0A,
+            TRAINER_ALGORITHM_V0B,
+            TRAINER_ALGORITHM_V0C,
+            TRAINER_ALGORITHM_V0D,
         ),
-        default=TRAINER_VERSION_V0A,
+        default=TRAINER_ALGORITHM_V0A,
     )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=0.05)
@@ -142,62 +143,62 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weight-decay",
         type=float,
-        help="v0c-only alias for --l2; applies to pattern weights, not phase bias.",
+        help="Alias for --l2; applies to pattern weights, not phase bias.",
     )
     parser.add_argument(
         "--lr-schedule",
         choices=("constant", "inverse-sqrt"),
         default="constant",
-        help="v0c-only learning-rate schedule.",
+        help="Pattern-SGD learning-rate schedule.",
     )
     parser.add_argument(
         "--gradient-clip",
         type=float,
-        help="v0c-only optional absolute clip applied to per-feature error gradients.",
+        help="Optional absolute clip applied to per-feature error gradients.",
     )
     parser.add_argument(
         "--early-stop-patience",
         type=int,
-        help="v0c-only validation MAE patience in epochs.",
+        help="Pattern-SGD validation MAE patience in epochs.",
     )
     parser.add_argument(
         "--eval-every-epoch",
         dest="eval_every_epoch",
         action="store_true",
         default=True,
-        help="v0c-only; evaluate train/validation diagnostics after every epoch.",
+        help="Evaluate train/validation diagnostics after every epoch.",
     )
     parser.add_argument(
         "--no-eval-every-epoch",
         dest="eval_every_epoch",
         action="store_false",
-        help="v0c-only; keep only final epoch diagnostics.",
+        help="Keep only final epoch diagnostics.",
     )
     parser.add_argument(
         "--shuffle-policy",
         choices=("deterministic",),
         default="deterministic",
-        help="v0c-only; deterministic shuffle is the only supported policy.",
+        help="Deterministic shuffle is the only supported policy.",
     )
     parser.add_argument(
         "--progress-every-examples",
         type=int,
-        help="v0c-only; write training progress to stderr after this many train examples.",
+        help="Write training progress to stderr after this many train examples.",
     )
     parser.add_argument(
         "--phase-balance",
         choices=("none", "inverse-count", "sqrt-inverse-count"),
-        help="v0d-only phase weighting scheme. Defaults to sqrt-inverse-count for v0d.",
+        help="Phase weighting scheme for pattern-sgd-v0d. Defaults to sqrt-inverse-count.",
     )
     parser.add_argument(
         "--max-phase-weight",
         type=float,
-        help="v0d-only phase weight cap. Defaults to 4.0 for v0d.",
+        help="Phase weight cap for pattern-sgd-v0d. Defaults to 4.0.",
     )
     parser.add_argument(
         "--min-phase-weight",
         type=float,
-        help="v0d-only phase weight floor. Defaults to 0.25 for v0d.",
+        help="Phase weight floor for pattern-sgd-v0d. Defaults to 0.25.",
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--weights-out", required=True, type=Path)
@@ -222,9 +223,9 @@ def parse_args() -> argparse.Namespace:
         or args.max_phase_weight is not None
         or args.min_phase_weight is not None
     )
-    if args.mode != TRAINER_VERSION_V0D and v0d_only_args:
+    if args.mode != TRAINER_ALGORITHM_V0D and v0d_only_args:
         parser.error("--phase-balance, --max-phase-weight, and --min-phase-weight require --mode pattern-sgd-v0d")
-    if args.mode == TRAINER_VERSION_V0D:
+    if args.mode == TRAINER_ALGORITHM_V0D:
         if args.phase_balance is None:
             args.phase_balance = "sqrt-inverse-count"
         if args.max_phase_weight is None:
@@ -895,8 +896,8 @@ def report_without_checksum(
     feature_counts = [len(example.features) for example in accepted]
 
     report = {
-        "schema_version": SCHEMA_VERSION,
-        "trainer_version": TRAINER_VERSION_V0A,
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "trainer_algorithm": TRAINER_ALGORITHM_V0A,
         "input_format": load_result.input_format,
         "input_rows": load_result.input_rows,
         "input_feature_rows": load_result.input_feature_rows,
@@ -1374,10 +1375,9 @@ def top_abs_weights(pattern_weights: PatternWeights, limit: int = 20) -> list[di
 
 def pattern_weights_json(phase_bias: dict[str, float], pattern_weights: PatternWeights) -> str:
     payload = {
-        "schema_version": SCHEMA_VERSION,
-        "trainer_version": TRAINER_VERSION_V0B,
         "phase_bias": {str(phase): phase_bias[str(phase)] for phase in PHASES},
         "pattern_weights": nonzero_pattern_weight_items(pattern_weights),
+        "weights_schema_version": WEIGHTS_SCHEMA_VERSION,
     }
     return json.dumps(stable_float(payload), indent=2, sort_keys=True) + "\n"
 
@@ -1435,8 +1435,8 @@ def pattern_sgd_report_without_checksum(
     weight_l2_norm = math.sqrt(sum(weight * weight for weight in pattern_weights.values()))
 
     report = {
-        "schema_version": SCHEMA_VERSION,
-        "trainer_version": TRAINER_VERSION_V0B,
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "trainer_algorithm": TRAINER_ALGORITHM_V0B,
         "input_format": load_result.input_format,
         "input_rows": load_result.input_rows,
         "input_feature_rows": load_result.input_feature_rows,
@@ -1501,7 +1501,7 @@ def pattern_sgd_v0c_report_without_checksum(
     training_state: dict[str, Any],
     args: argparse.Namespace,
     weights_checksum: str,
-    trainer_version: str = TRAINER_VERSION_V0C,
+    trainer_algorithm: str = TRAINER_ALGORITHM_V0C,
     phase_train_counts: dict[str, int] | None = None,
     phase_weights: dict[str, float] | None = None,
     phase_balance_notes: list[str] | None = None,
@@ -1513,11 +1513,11 @@ def pattern_sgd_v0c_report_without_checksum(
     nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
     final_metrics_by_split = v0c_metrics_by_split(accepted, phase_bias, pattern_weights)
     baseline_metrics_by_split = v0c_metrics_by_split(accepted, phase_bias, {})
-    is_v0d = trainer_version == TRAINER_VERSION_V0D
+    is_v0d = trainer_algorithm == TRAINER_ALGORITHM_V0D
 
     report = {
-        "schema_version": SCHEMA_VERSION,
-        "trainer_version": trainer_version,
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "trainer_algorithm": trainer_algorithm,
         "input_format": load_result.input_format,
         "input_rows": load_result.input_rows,
         "input_feature_rows": load_result.input_feature_rows,
@@ -1616,7 +1616,7 @@ def pattern_sgd_v0c_report_without_checksum(
                 if is_v0d
                 else "duplicate feature rows are reported and intentionally kept as repeated contributions in v0c"
             ),
-            "weights JSON remains compatible with the v0b exporter schema",
+            f"weights JSON uses {WEIGHTS_SCHEMA_VERSION}; pattern-sgd-v0b/v0c/v0d share this exporter schema",
             *((phase_balance_notes or []) if is_v0d else []),
             *load_result.notes,
         ],
@@ -1757,7 +1757,7 @@ def run_pattern_sgd_v0d(load_result: LoadResult, args: argparse.Namespace) -> No
         training_state,
         args,
         weights_checksum,
-        trainer_version=TRAINER_VERSION_V0D,
+        trainer_algorithm=TRAINER_ALGORITHM_V0D,
         phase_train_counts=phase_train_counts,
         phase_weights=phase_weights,
         phase_balance_notes=phase_balance_notes,
@@ -1773,13 +1773,13 @@ def main() -> int:
     try:
         load_result = load_examples(args.dataset)
         validate_training_examples(load_result)
-        if args.mode == TRAINER_VERSION_V0A:
+        if args.mode == TRAINER_ALGORITHM_V0A:
             run_phase_bias_v0a(load_result, args)
-        elif args.mode == TRAINER_VERSION_V0B:
+        elif args.mode == TRAINER_ALGORITHM_V0B:
             run_pattern_sgd_v0b(load_result, args)
-        elif args.mode == TRAINER_VERSION_V0C:
+        elif args.mode == TRAINER_ALGORITHM_V0C:
             run_pattern_sgd_v0c(load_result, args)
-        elif args.mode == TRAINER_VERSION_V0D:
+        elif args.mode == TRAINER_ALGORITHM_V0D:
             run_pattern_sgd_v0d(load_result, args)
         else:
             raise RuntimeError(f"unsupported mode: {args.mode}")
@@ -1794,7 +1794,7 @@ def main() -> int:
         f"accepted_examples={len(load_result.accepted_examples)} "
         f"rejected_examples={load_result.rejected_examples} "
         f"rejected_feature_rows={load_result.rejected_feature_rows} "
-        f"trainer_version={args.mode}",
+        f"trainer_algorithm={args.mode}",
         file=sys.stderr,
     )
     return 0

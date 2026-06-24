@@ -529,8 +529,6 @@ def feature_counts_by_record(dataset: Path) -> dict[str, Counter[tuple[str, int]
 
 def write_weight_json(path: Path, phase: int, pattern_id: str, ternary_index: int, weight: int) -> None:
     payload = {
-        "schema_version": 1,
-        "trainer_version": "pattern-sgd-v0b",
         "phase_bias": {str(phase_id): 0 for phase_id in range(13)},
         "pattern_weights": [
             {
@@ -540,6 +538,7 @@ def write_weight_json(path: Path, phase: int, pattern_id: str, ternary_index: in
                 "weight": weight,
             }
         ],
+        "weights_schema_version": "pattern-eval-weights-v1",
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 

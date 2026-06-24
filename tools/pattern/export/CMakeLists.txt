@@ -36,8 +36,8 @@ if(BUILD_TESTING)
       $<TARGET_FILE:vibe_othello_pattern_evaluation_roundtrip_smoke>
       --trainer-exe
       $<TARGET_FILE:vibe_othello_pattern_train_smoke>
-      --trainer-v0a
-      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py
+      --trainer
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
       --normalized-tsv
@@ -58,8 +58,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0a.py
       --v0b-exporter
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
-      --trainer-v0a
-      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py
+      --trainer
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
       --normalized-tsv
@@ -76,8 +76,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0a.py
       --v0b-exporter
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
-      --trainer-v0a
-      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py
+      --trainer
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
       --normalized-tsv

@@ -132,7 +132,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "build/tools/pattern/dataset/vibe-othello-pattern-dataset-smoke",
     )
-    parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_v0a.py")
+    parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_pattern.py")
     parser.add_argument("--exporter", type=Path, default=root / "tools/pattern/export/export_v0b.py")
     parser.add_argument(
         "--ranking-evaluator",

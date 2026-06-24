@@ -65,7 +65,7 @@ def check_v0b_manifest(
         "score_scale": 1,
         "phase_count": 13,
         "pattern_set_id": "fixed-pattern-fixture-v1",
-        "trainer_version": "pattern-sgd-v0b",
+        "source_weights_schema_version": "pattern-eval-weights-v1",
         "notes": "local smoke artifact; not production",
     }
     for key, expected_value in expected.items():
@@ -208,7 +208,7 @@ def main() -> int:
     parser.add_argument("--v0b-exporter", required=True, type=Path)
     parser.add_argument("--roundtrip-exe", required=True, type=Path)
     parser.add_argument("--trainer-exe", required=True, type=Path)
-    parser.add_argument("--trainer-v0a", required=True, type=Path)
+    parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
     parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--records", required=True, type=Path)
@@ -332,7 +332,7 @@ def main() -> int:
 
         v0b_weights = temp_dir / "v0b-weights.json"
         v0b_report = temp_dir / "v0b-report.json"
-        if not run_trainer_v0b(args.trainer_v0a, synthetic_dataset, v0b_weights, v0b_report):
+        if not run_trainer_v0b(args.trainer, synthetic_dataset, v0b_weights, v0b_report):
             return 1
         if not check_v0b_roundtrip(
             args.v0b_exporter,

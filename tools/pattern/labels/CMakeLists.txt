@@ -51,7 +51,7 @@ if(BUILD_TESTING)
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
       --trainer
-      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py)
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py)
 
   add_test(
     NAME vibe_othello_pattern_move_teacher_decision_smoke
@@ -65,7 +65,7 @@ if(BUILD_TESTING)
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
       --trainer
-      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_v0a.py
+      ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --exporter
       ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py
       --campaign-helper
