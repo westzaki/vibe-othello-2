@@ -492,6 +492,8 @@ def check_overlay_dataset_trainer(args: argparse.Namespace, root: Path) -> bool:
                 str(weights),
                 "--report-out",
                 str(trainer_report),
+                "--dataset-report",
+                str(dataset_report),
                 "--seed",
                 "3",
             ]

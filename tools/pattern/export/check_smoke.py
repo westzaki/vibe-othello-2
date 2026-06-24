@@ -41,14 +41,27 @@ EXPECTED_ROUNDTRIP_SUMMARY = {
 }
 
 
-def run_trainer_v0b(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
+def run_trainer_v0b(
+    script: Path, dataset: Path, dataset_report: Path, weights: Path, report: Path
+) -> bool:
     return run_trainer(
         script,
         dataset,
         "pattern-sgd-v0b",
         weights,
         report,
-        ["--epochs", "8", "--learning-rate", "0.1", "--l2", "0.0", "--seed", "7"],
+        [
+            "--epochs",
+            "8",
+            "--learning-rate",
+            "0.1",
+            "--l2",
+            "0.0",
+            "--seed",
+            "7",
+            "--dataset-report",
+            str(dataset_report),
+        ],
     )
 
 
@@ -65,7 +78,7 @@ def check_v0b_manifest(
         "score_scale": 1,
         "phase_count": 13,
         "pattern_set_id": "fixed-pattern-fixture-v1",
-        "source_weights_schema_version": "pattern-eval-weights-v1",
+        "source_weights_schema_version": "pattern-eval-weights-v2",
         "notes": "local smoke artifact; not production",
     }
     for key, expected_value in expected.items():
@@ -105,6 +118,7 @@ def check_v0b_roundtrip(
     exporter: Path,
     roundtrip: Path,
     weights_json: Path,
+    catalog_dump_exe: Path,
     temp_dir: Path,
     v0a_representative_score: str,
 ) -> bool:
@@ -123,6 +137,8 @@ def check_v0b_roundtrip(
             str(first_weights),
             "--manifest-out",
             str(first_manifest),
+            "--catalog-dump-exe",
+            str(catalog_dump_exe),
         ]
     )
     if first_export is None:
@@ -137,6 +153,8 @@ def check_v0b_roundtrip(
             str(second_weights),
             "--manifest-out",
             str(second_manifest),
+            "--catalog-dump-exe",
+            str(catalog_dump_exe),
         ]
     )
     if second_export is None:
@@ -202,11 +220,159 @@ def check_v0b_roundtrip(
     return True
 
 
+def write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def run_exporter_expect_failure(
+    exporter: Path,
+    weights_json: Path,
+    catalog_dump_exe: Path,
+    temp_dir: Path,
+    expected_error: str,
+) -> bool:
+    result = run_capture(
+        [
+            sys.executable,
+            str(exporter),
+            "--weights-json",
+            str(weights_json),
+            "--weights-out",
+            str(temp_dir / "bad.weights.bin"),
+            "--manifest-out",
+            str(temp_dir / "bad.manifest.json"),
+            "--catalog-dump-exe",
+            str(catalog_dump_exe),
+        ]
+    )
+    if result.returncode == 0:
+        print(f"exporter unexpectedly accepted {weights_json}", file=sys.stderr)
+        return False
+    if expected_error not in result.stderr:
+        print(f"exporter did not report expected error {expected_error!r}", file=sys.stderr)
+        sys.stderr.write(result.stderr)
+        sys.stderr.write(result.stdout)
+        return False
+    return True
+
+
+def check_v0b_failure_cases(exporter: Path, weights_json: Path, catalog_dump_exe: Path, temp_dir: Path) -> bool:
+    base = json.loads(weights_json.read_text(encoding="utf-8"))
+    cases: list[tuple[str, dict[str, object], str]] = []
+
+    wrong_pattern_set = dict(base)
+    wrong_pattern_set["pattern_set_id"] = "pattern-v1-buro-lite"
+    cases.append(("wrong-pattern-set", wrong_pattern_set, "pattern_set_id does not match"))
+
+    wrong_digest = dict(base)
+    wrong_digest["pattern_contract_digest"] = "fnv1a64:0000000000000000"
+    cases.append(("wrong-digest", wrong_digest, "pattern_contract_digest does not match"))
+
+    wrong_index_mode = dict(base)
+    wrong_index_mode["index_mode"] = "canonical"
+    cases.append(("wrong-index-mode", wrong_index_mode, "index_mode does not match"))
+
+    wrong_phase_mapping_id = dict(base)
+    wrong_phase_mapping_id["phase_mapping_id"] = "disc-count-13-v2"
+    cases.append(
+        (
+            "wrong-phase-mapping-id",
+            wrong_phase_mapping_id,
+            "phase_mapping_id does not match",
+        )
+    )
+
+    missing_field = dict(base)
+    missing_field.pop("pattern_contract_digest", None)
+    cases.append(("missing-required-field", missing_field, "missing required field"))
+
+    duplicate_sparse = dict(base)
+    sparse_rows = list(duplicate_sparse.get("pattern_weights", []))
+    if not sparse_rows:
+        print("v2 smoke weights unexpectedly had no sparse rows", file=sys.stderr)
+        return False
+    duplicate_sparse["pattern_weights"] = [*sparse_rows, dict(sparse_rows[0])]
+    cases.append(("duplicate-sparse-weight", duplicate_sparse, "duplicate pattern weight entry"))
+
+    out_of_range = dict(base)
+    out_rows = [dict(row) for row in sparse_rows]
+    out_rows[0]["pattern_id"] = "edge-8"
+    out_rows[0]["ternary_index"] = 3**8
+    out_of_range["pattern_weights"] = out_rows
+    cases.append(("out-of-range-ternary-index", out_of_range, "ternary_index is outside"))
+
+    for name, payload, expected_error in cases:
+        mutated = temp_dir / f"{name}.weights.json"
+        write_json(mutated, payload)
+        if not run_exporter_expect_failure(exporter, mutated, catalog_dump_exe, temp_dir, expected_error):
+            return False
+    return True
+
+
+def check_legacy_v1_policy(exporter: Path, weights_json: Path, temp_dir: Path) -> bool:
+    payload = json.loads(weights_json.read_text(encoding="utf-8"))
+    for key in (
+        "pattern_set_id",
+        "pattern_contract_digest",
+        "index_mode",
+        "phase_count",
+        "phase_mapping_id",
+        "score_unit",
+    ):
+        payload.pop(key, None)
+    payload["weights_schema_version"] = "pattern-eval-weights-v1"
+    legacy_weights = temp_dir / "legacy-v1.weights.json"
+    write_json(legacy_weights, payload)
+
+    rejected = run_capture(
+        [
+            sys.executable,
+            str(exporter),
+            "--weights-json",
+            str(legacy_weights),
+            "--weights-out",
+            str(temp_dir / "legacy-rejected.weights.bin"),
+            "--manifest-out",
+            str(temp_dir / "legacy-rejected.manifest.json"),
+        ]
+    )
+    if rejected.returncode == 0 or "accepted only with --allow-legacy-v1" not in rejected.stderr:
+        print("exporter did not require --allow-legacy-v1 for v1 weights", file=sys.stderr)
+        sys.stderr.write(rejected.stderr)
+        sys.stderr.write(rejected.stdout)
+        return False
+
+    accepted_manifest = temp_dir / "legacy-accepted.manifest.json"
+    accepted = run_capture(
+        [
+            sys.executable,
+            str(exporter),
+            "--weights-json",
+            str(legacy_weights),
+            "--weights-out",
+            str(temp_dir / "legacy-accepted.weights.bin"),
+            "--manifest-out",
+            str(accepted_manifest),
+            "--allow-legacy-v1",
+        ]
+    )
+    if accepted.returncode != 0:
+        sys.stderr.write(accepted.stderr)
+        sys.stderr.write(accepted.stdout)
+        return False
+    manifest = json.loads(accepted_manifest.read_text(encoding="utf-8"))
+    if manifest.get("source_weights_schema_version") != "pattern-eval-weights-v1":
+        print(f"legacy v1 manifest did not record source schema: {manifest!r}", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exporter-exe", required=True, type=Path)
     parser.add_argument("--v0b-exporter", required=True, type=Path)
     parser.add_argument("--roundtrip-exe", required=True, type=Path)
+    parser.add_argument("--catalog-dump-exe", required=True, type=Path)
     parser.add_argument("--trainer-exe", required=True, type=Path)
     parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
@@ -332,15 +498,24 @@ def main() -> int:
 
         v0b_weights = temp_dir / "v0b-weights.json"
         v0b_report = temp_dir / "v0b-report.json"
-        if not run_trainer_v0b(args.trainer, synthetic_dataset, v0b_weights, v0b_report):
+        if not run_trainer_v0b(
+            args.trainer, synthetic_dataset, synthetic_dataset_report, v0b_weights, v0b_report
+        ):
             return 1
         if not check_v0b_roundtrip(
             args.v0b_exporter,
             args.roundtrip_exe,
             v0b_weights,
+            args.catalog_dump_exe,
             temp_dir,
             roundtrip_summary["representative_score"],
         ):
+            return 1
+        if not check_v0b_failure_cases(
+            args.v0b_exporter, v0b_weights, args.catalog_dump_exe, temp_dir
+        ):
+            return 1
+        if not check_legacy_v1_policy(args.v0b_exporter, v0b_weights, temp_dir):
             return 1
 
     return 0

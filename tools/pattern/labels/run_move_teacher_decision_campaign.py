@@ -68,6 +68,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_pattern.py")
     parser.add_argument("--exporter", type=Path, default=root / "tools/pattern/export/export_v0b.py")
     parser.add_argument(
+        "--catalog-dump-exe",
+        type=Path,
+        default=root / "build/tools/pattern/export/vibe-othello-pattern-catalog-dump",
+    )
+    parser.add_argument(
         "--ranking-evaluator",
         type=Path,
         default=root / "build/tools/pattern/labels/vibe-othello-evaluate-move-teacher-ranking",
@@ -607,7 +612,14 @@ def build_dataset(args: argparse.Namespace, child_normalized: Path, dataset: Pat
     )
 
 
-def train(args: argparse.Namespace, dataset: Path, weights_json: Path, report: Path, stages: dict[str, dict[str, Any]]) -> None:
+def train(
+    args: argparse.Namespace,
+    dataset: Path,
+    dataset_report: Path,
+    weights_json: Path,
+    report: Path,
+    stages: dict[str, dict[str, Any]],
+) -> None:
     command = [
         sys.executable,
         str(args.trainer),
@@ -627,6 +639,8 @@ def train(args: argparse.Namespace, dataset: Path, weights_json: Path, report: P
         str(weights_json),
         "--report-out",
         str(report),
+        "--dataset-report",
+        str(dataset_report),
         "--seed",
         str(args.seed),
     ]
@@ -638,7 +652,7 @@ def train(args: argparse.Namespace, dataset: Path, weights_json: Path, report: P
         command,
         [weights_json, report],
         stages,
-        resume_inputs={"dataset": dataset},
+        resume_inputs={"dataset": dataset, "dataset_report": dataset_report},
     )
 
 
@@ -657,6 +671,8 @@ def export_artifact(args: argparse.Namespace, weights_json: Path, weights_bin: P
             str(manifest),
             "--pattern-set",
             args.pattern_set,
+            "--catalog-dump-exe",
+            str(args.catalog_dump_exe),
         ],
         [weights_bin, manifest],
         stages,
@@ -1030,7 +1046,7 @@ def main() -> int:
         if args.write_move_teacher_cache and not generated_from_cache:
             populate_move_teacher_cache(args, move_teacher, cache_report, stages)
         build_dataset(args, child_normalized, dataset, dataset_report, stages)
-        train(args, dataset, weights_json, trainer_report, stages)
+        train(args, dataset, dataset_report, weights_json, trainer_report, stages)
         export_artifact(args, weights_json, weights_bin, manifest, stages)
 
         if args.previous_weights is not None and args.previous_manifest is not None:

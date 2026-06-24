@@ -135,6 +135,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_pattern.py")
     parser.add_argument("--exporter", type=Path, default=root / "tools/pattern/export/export_v0b.py")
     parser.add_argument(
+        "--catalog-dump-exe",
+        type=Path,
+        default=root / "build/tools/pattern/export/vibe-othello-pattern-catalog-dump",
+    )
+    parser.add_argument(
         "--ranking-evaluator",
         type=Path,
         default=root / "build/tools/pattern/labels/vibe-othello-evaluate-move-teacher-ranking",
@@ -251,6 +256,7 @@ def preflight(args: argparse.Namespace) -> None:
     require_file(args.dataset_exe, "pattern dataset executable", args)
     require_file(args.trainer, "pattern trainer", args)
     require_file(args.exporter, "pattern exporter", args)
+    require_file(args.catalog_dump_exe, "pattern catalog dump executable", args)
     require_file(args.ranking_evaluator, "move-teacher ranking evaluator", args)
     if args.reuse_move_teacher_cache or args.write_move_teacher_cache:
         require_file(args.move_teacher_cache_helper, "move-teacher cache helper", args)
@@ -306,6 +312,8 @@ def campaign_command(args: argparse.Namespace, output_dir: Path, root_count: int
         str(args.trainer),
         "--exporter",
         str(args.exporter),
+        "--catalog-dump-exe",
+        str(args.catalog_dump_exe),
         "--ranking-evaluator",
         str(args.ranking_evaluator),
     ]

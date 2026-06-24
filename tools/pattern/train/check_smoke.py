@@ -21,6 +21,8 @@ EXPECTED_SUMMARY = {
     "phase_bias[0]": "3",
     "checksum": "0x3b76cde99d45fa8f",
 }
+WEIGHTS_SCHEMA_VERSION_V1 = "pattern-eval-weights-v1"
+WEIGHTS_SCHEMA_VERSION_V2 = "pattern-eval-weights-v2"
 
 
 def run_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -64,8 +66,14 @@ def run_phase_bias_v0a(script: Path, dataset: Path, weights: Path, report: Path)
     return run_trainer(script, "phase-bias-v0a", dataset, weights, report)
 
 
-def run_trainer_v0b(script: Path, dataset: Path, weights: Path, report: Path) -> bool:
-    return run_trainer(script, "pattern-sgd-v0b", dataset, weights, report)
+def run_trainer_v0b(
+    script: Path,
+    dataset: Path,
+    weights: Path,
+    report: Path,
+    extra_args: list[str] | None = None,
+) -> bool:
+    return run_trainer(script, "pattern-sgd-v0b", dataset, weights, report, extra_args)
 
 
 def run_trainer_v0c(
@@ -96,6 +104,14 @@ def run_trainer(
     report: Path,
     extra_args: list[str] | None = None,
 ) -> bool:
+    effective_extra_args = list(extra_args or [])
+    metadata_markers = {
+        "--dataset-report",
+        "--pattern-set-id",
+        "--weights-schema-version",
+    }
+    if mode != "phase-bias-v0a" and not any(arg in metadata_markers for arg in effective_extra_args):
+        effective_extra_args.extend(["--weights-schema-version", WEIGHTS_SCHEMA_VERSION_V1])
     result = run_capture(
         [
             sys.executable,
@@ -116,7 +132,7 @@ def run_trainer(
             str(weights),
             "--report-out",
             str(report),
-            *(extra_args or []),
+            *effective_extra_args,
         ]
     )
     if result.returncode != 0:
@@ -373,11 +389,25 @@ def check_trainer_v0b_report(report: dict[str, object], weights: dict[str, objec
             file=sys.stderr,
         )
         return False
-    if weights.get("weights_schema_version") != "pattern-eval-weights-v1":
+    if weights.get("weights_schema_version") != WEIGHTS_SCHEMA_VERSION_V2:
         print(
             f"unexpected v0b weights schema: {weights.get('weights_schema_version')!r}",
             file=sys.stderr,
         )
+        return False
+    for key in (
+        "pattern_set_id",
+        "pattern_contract_digest",
+        "index_mode",
+        "phase_count",
+        "phase_mapping_id",
+        "score_unit",
+    ):
+        if key not in weights:
+            print(f"v0b weights missing v2 field {key}", file=sys.stderr)
+            return False
+    if "trainer_algorithm" in weights:
+        print("v0b weights must not contain trainer_algorithm", file=sys.stderr)
         return False
     if not isinstance(weights.get("phase_bias"), dict):
         print("missing v0b phase_bias weights", file=sys.stderr)
@@ -469,8 +499,22 @@ def check_trainer_v0c_report(report: dict[str, object], weights: dict[str, objec
         if report.get(key) != expected:
             print(f"v0c report field mismatch for {key}: {report.get(key)!r}", file=sys.stderr)
             return False
-    if weights.get("weights_schema_version") != "pattern-eval-weights-v1":
+    if weights.get("weights_schema_version") != WEIGHTS_SCHEMA_VERSION_V2:
         print("v0c weights JSON must use the shared pattern-eval weights schema", file=sys.stderr)
+        return False
+    for key in (
+        "pattern_set_id",
+        "pattern_contract_digest",
+        "index_mode",
+        "phase_count",
+        "phase_mapping_id",
+        "score_unit",
+    ):
+        if key not in weights:
+            print(f"v0c weights missing v2 field {key}", file=sys.stderr)
+            return False
+    if "trainer_algorithm" in weights:
+        print("v0c weights must not contain trainer_algorithm", file=sys.stderr)
         return False
     if not isinstance(weights.get("pattern_weights"), list) or not weights.get("pattern_weights"):
         print(f"missing v0c learned pattern weights: {weights.get('pattern_weights')!r}", file=sys.stderr)
@@ -637,7 +681,7 @@ def check_trainer_v0d_phase_balance(trainer_script: Path, temp_dir: Path) -> boo
     if report.get("trainer_algorithm") != "pattern-sgd-v0d":
         print(f"unexpected v0d trainer algorithm: {report.get('trainer_algorithm')!r}", file=sys.stderr)
         return False
-    if weights.get("weights_schema_version") != "pattern-eval-weights-v1":
+    if weights.get("weights_schema_version") != WEIGHTS_SCHEMA_VERSION_V1:
         print("v0d weights JSON must use the shared pattern-eval weights schema", file=sys.stderr)
         return False
     if report.get("phase_balance") != "sqrt-inverse-count":
@@ -767,7 +811,13 @@ def check_compact_v0b_equivalence(
     compact_dataset.write_text(compact_dataset_text, encoding="utf-8")
     compact_weights = temp_dir / "compact-v0b-weights.json"
     compact_trainer_report = temp_dir / "compact-v0b-report.json"
-    if not run_trainer_v0b(trainer_script, compact_dataset, compact_weights, compact_trainer_report):
+    if not run_trainer_v0b(
+        trainer_script,
+        compact_dataset,
+        compact_weights,
+        compact_trainer_report,
+        ["--dataset-report", str(compact_report_path)],
+    ):
         return False
     if compact_weights.read_text(encoding="utf-8") != expanded_weights_text:
         print("compact v0b weights differ from expanded v0b weights", file=sys.stderr)
@@ -827,7 +877,13 @@ def check_compact_v0c_equivalence(
     compact_dataset.write_text(compact_dataset_text, encoding="utf-8")
     compact_weights = temp_dir / "compact-v0c-weights.json"
     compact_trainer_report = temp_dir / "compact-v0c-report.json"
-    if not run_trainer_v0c(trainer_script, compact_dataset, compact_weights, compact_trainer_report):
+    if not run_trainer_v0c(
+        trainer_script,
+        compact_dataset,
+        compact_weights,
+        compact_trainer_report,
+        ["--dataset-report", str(compact_report_path)],
+    ):
         return False
     if compact_weights.read_text(encoding="utf-8") != expanded_weights_text:
         print("compact v0c weights differ from expanded v0c weights", file=sys.stderr)
@@ -980,9 +1036,14 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         first_report = temp_dir / "first-v0b-report.json"
         second_weights = temp_dir / "second-v0b-weights.json"
         second_report = temp_dir / "second-v0b-report.json"
-        if not run_trainer_v0b(trainer_script, dataset_path, first_weights, first_report):
+        v2_metadata_args = ["--dataset-report", str(dataset_report)]
+        if not run_trainer_v0b(
+            trainer_script, dataset_path, first_weights, first_report, v2_metadata_args
+        ):
             return False
-        if not run_trainer_v0b(trainer_script, dataset_path, second_weights, second_report):
+        if not run_trainer_v0b(
+            trainer_script, dataset_path, second_weights, second_report, v2_metadata_args
+        ):
             return False
         if first_weights.read_text(encoding="utf-8") != second_weights.read_text(encoding="utf-8"):
             print("v0b weights are not deterministic across repeated runs", file=sys.stderr)
@@ -1010,9 +1071,13 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         first_v0c_report = temp_dir / "first-v0c-report.json"
         second_v0c_weights = temp_dir / "second-v0c-weights.json"
         second_v0c_report = temp_dir / "second-v0c-report.json"
-        if not run_trainer_v0c(trainer_script, dataset_path, first_v0c_weights, first_v0c_report):
+        if not run_trainer_v0c(
+            trainer_script, dataset_path, first_v0c_weights, first_v0c_report, v2_metadata_args
+        ):
             return False
-        if not run_trainer_v0c(trainer_script, dataset_path, second_v0c_weights, second_v0c_report):
+        if not run_trainer_v0c(
+            trainer_script, dataset_path, second_v0c_weights, second_v0c_report, v2_metadata_args
+        ):
             return False
         if first_v0c_weights.read_text(encoding="utf-8") != second_v0c_weights.read_text(encoding="utf-8"):
             print("v0c weights are not deterministic across repeated runs", file=sys.stderr)
@@ -1041,7 +1106,9 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         mutated_dataset.write_text(mutate_validation_and_test_labels(dataset_text), encoding="utf-8")
         mutated_weights = temp_dir / "mutated-v0b-weights.json"
         mutated_report = temp_dir / "mutated-v0b-report.json"
-        if not run_trainer_v0b(trainer_script, mutated_dataset, mutated_weights, mutated_report):
+        if not run_trainer_v0b(
+            trainer_script, mutated_dataset, mutated_weights, mutated_report, v2_metadata_args
+        ):
             return False
         if first_weights.read_text(encoding="utf-8") != mutated_weights.read_text(encoding="utf-8"):
             print("v0b weights changed after mutating validation/test labels", file=sys.stderr)
@@ -1066,7 +1133,7 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
             encoding="utf-8",
         )
         if not run_trainer_v0b(
-            trainer_script, malformed_path, malformed_weights, malformed_report
+            trainer_script, malformed_path, malformed_weights, malformed_report, v2_metadata_args
         ):
             return False
         malformed = json.loads(malformed_report.read_text(encoding="utf-8"))
@@ -1079,7 +1146,7 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
         conflict_line = mutate_field(first_data_line(dataset_text), 2, "validation")
         conflict_path.write_text(dataset_text + conflict_line + "\n", encoding="utf-8")
         if not run_trainer_v0b(
-            trainer_script, conflict_path, conflict_weights, conflict_report
+            trainer_script, conflict_path, conflict_weights, conflict_report, v2_metadata_args
         ):
             return False
         conflict = json.loads(conflict_report.read_text(encoding="utf-8"))
@@ -1093,7 +1160,7 @@ def check_trainer_v0b(trainer_script: Path, dataset_exe: Path, normalized_tsv: P
             dataset_text + first_data_line(dataset_text) + "\n", encoding="utf-8"
         )
         if not run_trainer_v0b(
-            trainer_script, duplicate_path, duplicate_weights, duplicate_report
+            trainer_script, duplicate_path, duplicate_weights, duplicate_report, v2_metadata_args
         ):
             return False
         duplicate = json.loads(duplicate_report.read_text(encoding="utf-8"))

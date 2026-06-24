@@ -49,6 +49,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
       --roundtrip-exe
       $<TARGET_FILE:vibe_othello_pattern_evaluation_roundtrip_smoke>
+      --catalog-dump-exe
+      $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
       --trainer-exe
       $<TARGET_FILE:vibe_othello_pattern_train_smoke>
       --trainer
@@ -73,6 +75,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0a.py
       --v0b-exporter
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
+      --catalog-dump-exe
+      $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
       --trainer
       ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --dataset-exe
@@ -91,6 +95,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0a.py
       --v0b-exporter
       ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
+      --catalog-dump-exe
+      $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
       --trainer
       ${CMAKE_SOURCE_DIR}/tools/pattern/train/train_pattern.py
       --dataset-exe

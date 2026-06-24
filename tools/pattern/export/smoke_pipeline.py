@@ -98,7 +98,12 @@ def train_v0a_v0b_from_normalized(
     if not run_trainer(trainer, pattern_dataset, "phase-bias-v0a", v0a_weights, v0a_report):
         return None
     if not run_trainer(
-        trainer, pattern_dataset, "pattern-sgd-v0b", v0b_weights, v0b_report, v0b_extra_args
+        trainer,
+        pattern_dataset,
+        "pattern-sgd-v0b",
+        v0b_weights,
+        v0b_report,
+        [*v0b_extra_args, "--dataset-report", str(dataset_report)],
     ):
         return None
     return v0a_weights, v0b_weights
@@ -127,7 +132,12 @@ def export_v0a(
 
 
 def export_v0b(
-    exporter: Path, weights_json: Path, weights_out: Path, manifest_out: Path, pattern_set: str
+    exporter: Path,
+    weights_json: Path,
+    weights_out: Path,
+    manifest_out: Path,
+    pattern_set: str,
+    catalog_dump_exe: Path,
 ) -> dict[str, str] | None:
     result = run_or_report(
         [
@@ -141,6 +151,8 @@ def export_v0b(
             str(manifest_out),
             "--pattern-set",
             pattern_set,
+            "--catalog-dump-exe",
+            str(catalog_dump_exe),
         ]
     )
     if result is None:
@@ -157,6 +169,7 @@ def build_v0a_v0b_artifacts(
     pattern_set: str,
     v0a_exporter: Path,
     v0b_exporter: Path,
+    catalog_dump_exe: Path,
     v0b_extra_args: list[str],
 ) -> tuple[Path, Path, dict[str, str], dict[str, str]] | None:
     trained = train_v0a_v0b_from_normalized(
@@ -171,7 +184,9 @@ def build_v0a_v0b_artifacts(
     v0b_weights = temp_dir / "v0b.weights.bin"
     v0b_manifest = temp_dir / "v0b.manifest.json"
     v0a_export = export_v0a(v0a_exporter, v0a_weights_tsv, v0a_weights, v0a_manifest, pattern_set)
-    v0b_export = export_v0b(v0b_exporter, v0b_weights_json, v0b_weights, v0b_manifest, pattern_set)
+    v0b_export = export_v0b(
+        v0b_exporter, v0b_weights_json, v0b_weights, v0b_manifest, pattern_set, catalog_dump_exe
+    )
     if v0a_export is None or v0b_export is None:
         return None
     return v0a_weights, v0b_weights, v0a_export, v0b_export

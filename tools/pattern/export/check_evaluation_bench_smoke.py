@@ -104,6 +104,7 @@ def main() -> int:
     parser.add_argument("--bench-exe", required=True, type=Path)
     parser.add_argument("--v0a-exporter", required=True, type=Path)
     parser.add_argument("--v0b-exporter", required=True, type=Path)
+    parser.add_argument("--catalog-dump-exe", required=True, type=Path)
     parser.add_argument("--trainer", required=True, type=Path)
     parser.add_argument("--dataset-exe", required=True, type=Path)
     parser.add_argument("--normalized-tsv", required=True, type=Path)
@@ -120,6 +121,7 @@ def main() -> int:
             pattern_set=args.pattern_set,
             v0a_exporter=args.v0a_exporter,
             v0b_exporter=args.v0b_exporter,
+            catalog_dump_exe=args.catalog_dump_exe,
             v0b_extra_args=["--epochs", "8", "--learning-rate", "0.5", "--l2", "0.0", "--seed", "7"],
         )
         if artifacts is None:

@@ -188,7 +188,14 @@ def build_dataset(args: argparse.Namespace, normalized: Path, dataset: Path, rep
     run_or_fail(command, stdout_path=dataset)
 
 
-def train(args: argparse.Namespace, dataset: Path, weights: Path, report: Path, seed: int) -> None:
+def train(
+    args: argparse.Namespace,
+    dataset: Path,
+    dataset_report: Path,
+    weights: Path,
+    report: Path,
+    seed: int,
+) -> None:
     command = [
         sys.executable,
         str(args.trainer),
@@ -206,6 +213,8 @@ def train(args: argparse.Namespace, dataset: Path, weights: Path, report: Path, 
         str(weights),
         "--report-out",
         str(report),
+        "--dataset-report",
+        str(dataset_report),
         "--seed",
         str(seed),
     ]
@@ -356,8 +365,8 @@ def main() -> int:
         )
         build_dataset(args, selected_normalized, observed_dataset, observed_dataset_report)
         build_dataset(args, teacher_normalized, exact_dataset, exact_dataset_report)
-        train(args, observed_dataset, observed_weights, observed_trainer_report, args.seed)
-        train(args, exact_dataset, exact_weights, exact_trainer_report, args.seed)
+        train(args, observed_dataset, observed_dataset_report, observed_weights, observed_trainer_report, args.seed)
+        train(args, exact_dataset, exact_dataset_report, exact_weights, exact_trainer_report, args.seed)
 
         observed_report = load_json(observed_trainer_report)
         exact_report = load_json(exact_trainer_report)
