@@ -68,7 +68,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=root / "build/tools/pattern/dataset/vibe-othello-pattern-dataset-smoke",
     )
-    parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_v0a.py")
+    parser.add_argument("--trainer", type=Path, default=root / "tools/pattern/train/train_pattern.py")
     args = parser.parse_args()
     if args.max_empty < 0 or args.max_empty > 64:
         parser.error("--max-empty must be in [0, 64]")

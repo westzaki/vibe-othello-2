@@ -499,7 +499,7 @@ def check_overlay_dataset_trainer(args: argparse.Namespace, root: Path) -> bool:
     ):
         return False
     report = load_json(trainer_report)
-    if report.get("trainer_version") != "pattern-sgd-v0c":
+    if report.get("trainer_algorithm") != "pattern-sgd-v0c":
         print(f"trainer smoke did not run v0c: {report!r}", file=sys.stderr)
         return False
     if report.get("accepted_examples") != len(overlaid_rows):

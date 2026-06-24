@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export trainer v0b local JSON weights to a tiny runtime artifact."""
+"""Export pattern intermediate JSON weights to a tiny runtime artifact."""
 
 from __future__ import annotations
 
@@ -19,8 +19,7 @@ from pattern_sets import PatternSetSpec, resolve_pattern_set
 FORMAT_VERSION = 1
 SCORE_SCALE = 1
 PHASE_COUNT = 13
-SCHEMA_VERSION = 1
-TRAINER_VERSION = "pattern-sgd-v0b"
+WEIGHTS_SCHEMA_VERSION = "pattern-eval-weights-v1"
 
 
 def checked_pattern_size(length: int) -> int:
@@ -49,13 +48,13 @@ def load_weights(path: Path) -> tuple[dict[str, Any], bytes]:
     try:
         source_bytes = path.read_bytes()
     except OSError as error:
-        fail(f"cannot read v0b weights JSON: {path}: {error}")
+        fail(f"cannot read weights JSON: {path}: {error}")
     try:
         payload = json.loads(source_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        fail(f"v0b weights JSON is invalid: {error}")
+        fail(f"weights JSON is invalid: {error}")
     if not isinstance(payload, dict):
-        fail("v0b weights JSON root must be an object")
+        fail("weights JSON root must be an object")
     return payload, source_bytes
 
 
@@ -121,10 +120,8 @@ def validate_pattern_weights(
 def validate_weights(
     payload: dict[str, Any], pattern_set: PatternSetSpec
 ) -> tuple[list[int], dict[tuple[int, str, int], int]]:
-    if payload.get("schema_version") != SCHEMA_VERSION:
-        fail("schema_version must be 1")
-    if payload.get("trainer_version") != TRAINER_VERSION:
-        fail("trainer_version must be pattern-sgd-v0b")
+    if payload.get("weights_schema_version") != WEIGHTS_SCHEMA_VERSION:
+        fail(f"weights_schema_version must be {WEIGHTS_SCHEMA_VERSION}")
     return validate_phase_bias(payload), validate_pattern_weights(payload, pattern_set)
 
 
@@ -196,7 +193,7 @@ def write_manifest(
         "weights_file": weights_path.name,
         "weights_size_bytes": artifact_size,
         "weights_checksum": f"0x{checksum:08x}",
-        "trainer_version": TRAINER_VERSION,
+        "source_weights_schema_version": WEIGHTS_SCHEMA_VERSION,
         "source_weights_checksum": source_checksum,
         "nonzero_pattern_weights": nonzero_pattern_weights,
         "notes": pattern_set.note,
@@ -249,7 +246,7 @@ def main() -> int:
     print(f"pattern_set_id={pattern_set.pattern_set_id}")
     print(f"weights_checksum=0x{checksum:08x}")
     print(f"weights_size_bytes={len(artifact)}")
-    print(f"trainer_version={TRAINER_VERSION}")
+    print(f"source_weights_schema_version={WEIGHTS_SCHEMA_VERSION}")
     print(f"source_weights_checksum={source_checksum}")
     print(f"nonzero_pattern_weights={len(pattern_weights)}")
     print(f"notes={pattern_set.note}")

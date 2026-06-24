@@ -13,8 +13,8 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/check_smoke.py
       --trainer-exe
       $<TARGET_FILE:vibe_othello_pattern_train_smoke>
-      --trainer-v0a
-      ${CMAKE_CURRENT_SOURCE_DIR}/train_v0a.py
+      --trainer
+      ${CMAKE_CURRENT_SOURCE_DIR}/train_pattern.py
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
       --normalized-tsv
