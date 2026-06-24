@@ -2,6 +2,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
 #include <chrono>
@@ -17,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -113,6 +115,9 @@ struct Report {
   std::size_t skipped_too_many_empty = 0;
   std::size_t duplicate_board_rows = 0;
   std::size_t terminal_roots_skipped = 0;
+  std::string ordered_root_digest;
+  std::string unordered_root_digest;
+  std::string board_contents_digest;
   std::size_t roots_with_normal_moves = 0;
   std::size_t roots_with_pass_move = 0;
   std::size_t root_solve_calls = 0;
@@ -201,6 +206,150 @@ std::string checksum_string(std::uint64_t checksum) {
   std::ostringstream output;
   output << "0x" << std::hex << std::nouppercase << std::setfill('0') << std::setw(16) << checksum;
   return output.str();
+}
+
+std::uint32_t sha256_rotr(std::uint32_t value, int shift) noexcept {
+  return (value >> shift) | (value << (32 - shift));
+}
+
+std::string sha256_text(std::string_view text) {
+  constexpr std::array<std::uint32_t, 64> kRoundConstants{
+      0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u,
+      0xab1c5ed5u, 0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu,
+      0x9bdc06a7u, 0xc19bf174u, 0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu,
+      0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau, 0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+      0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u, 0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu,
+      0x53380d13u, 0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u, 0xa2bfe8a1u, 0xa81a664bu,
+      0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u, 0x19a4c116u,
+      0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+      0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u,
+      0xc67178f2u,
+  };
+
+  std::vector<unsigned char> bytes;
+  bytes.reserve(text.size() + 72);
+  for (const char character : text) {
+    bytes.push_back(static_cast<unsigned char>(character));
+  }
+  const std::uint64_t bit_length = static_cast<std::uint64_t>(bytes.size()) * 8ull;
+  bytes.push_back(0x80u);
+  while (bytes.size() % 64 != 56) {
+    bytes.push_back(0u);
+  }
+  for (int shift = 56; shift >= 0; shift -= 8) {
+    bytes.push_back(static_cast<unsigned char>((bit_length >> shift) & 0xffu));
+  }
+
+  std::array<std::uint32_t, 8> hash{
+      0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+      0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
+  };
+  for (std::size_t chunk = 0; chunk < bytes.size(); chunk += 64) {
+    std::array<std::uint32_t, 64> words{};
+    for (std::size_t index = 0; index < 16; ++index) {
+      const std::size_t offset = chunk + index * 4;
+      words[index] = (static_cast<std::uint32_t>(bytes[offset]) << 24) |
+                     (static_cast<std::uint32_t>(bytes[offset + 1]) << 16) |
+                     (static_cast<std::uint32_t>(bytes[offset + 2]) << 8) |
+                     static_cast<std::uint32_t>(bytes[offset + 3]);
+    }
+    for (std::size_t index = 16; index < words.size(); ++index) {
+      const std::uint32_t s0 = sha256_rotr(words[index - 15], 7) ^
+                               sha256_rotr(words[index - 15], 18) ^ (words[index - 15] >> 3);
+      const std::uint32_t s1 = sha256_rotr(words[index - 2], 17) ^
+                               sha256_rotr(words[index - 2], 19) ^ (words[index - 2] >> 10);
+      words[index] = words[index - 16] + s0 + words[index - 7] + s1;
+    }
+
+    std::uint32_t a = hash[0];
+    std::uint32_t b = hash[1];
+    std::uint32_t c = hash[2];
+    std::uint32_t d = hash[3];
+    std::uint32_t e = hash[4];
+    std::uint32_t f = hash[5];
+    std::uint32_t g = hash[6];
+    std::uint32_t h = hash[7];
+    for (std::size_t index = 0; index < words.size(); ++index) {
+      const std::uint32_t s1 = sha256_rotr(e, 6) ^ sha256_rotr(e, 11) ^ sha256_rotr(e, 25);
+      const std::uint32_t choice = (e & f) ^ ((~e) & g);
+      const std::uint32_t temp1 = h + s1 + choice + kRoundConstants[index] + words[index];
+      const std::uint32_t s0 = sha256_rotr(a, 2) ^ sha256_rotr(a, 13) ^ sha256_rotr(a, 22);
+      const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+      const std::uint32_t temp2 = s0 + majority;
+      h = g;
+      g = f;
+      f = e;
+      e = d + temp1;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2;
+    }
+    hash[0] += a;
+    hash[1] += b;
+    hash[2] += c;
+    hash[3] += d;
+    hash[4] += e;
+    hash[5] += f;
+    hash[6] += g;
+    hash[7] += h;
+  }
+
+  std::ostringstream output;
+  output << "sha256:" << std::hex << std::nouppercase << std::setfill('0');
+  for (const std::uint32_t value : hash) {
+    output << std::setw(8) << value;
+  }
+  return output.str();
+}
+
+std::string lines_text(const std::vector<std::string>& lines) {
+  if (lines.empty()) {
+    return "\n";
+  }
+  std::string text;
+  for (const std::string& line : lines) {
+    text += line;
+    text.push_back('\n');
+  }
+  return text;
+}
+
+void update_root_digests(const std::vector<RootRow>& roots, Report* report) {
+  std::vector<std::string> identities;
+  std::vector<std::string> board_contents;
+  identities.reserve(roots.size());
+  board_contents.reserve(roots.size());
+  for (const RootRow& root : roots) {
+    identities.push_back(root.board_id + "\t" + root.board + "\t" +
+                         std::to_string(root.empty_count));
+    board_contents.push_back(root.board_id + "\t" + root.board);
+  }
+
+  std::vector<std::string> sorted_identities = identities;
+  std::sort(sorted_identities.begin(), sorted_identities.end());
+  std::sort(board_contents.begin(), board_contents.end());
+
+  report->ordered_root_digest = sha256_text(lines_text(identities));
+  report->unordered_root_digest = sha256_text(lines_text(sorted_identities));
+  report->board_contents_digest = sha256_text(lines_text(board_contents));
+}
+
+bool run_contract_self_test() {
+  const std::vector<std::pair<std::string_view, std::string_view>> sha256_vectors{
+      {"", "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+      {"abc", "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+  };
+  for (const auto& [input, expected] : sha256_vectors) {
+    const std::string actual = sha256_text(input);
+    if (actual != expected) {
+      std::cerr << "sha256 self-test failed for input " << std::quoted(std::string(input)) << ": "
+                << actual << " != " << expected << '\n';
+      return false;
+    }
+  }
+  std::cout << "contract_self_test=ok\n";
+  return true;
 }
 
 std::string json_escape(std::string_view text) {
@@ -495,6 +644,7 @@ bool load_roots(const Args& args, std::vector<RootRow>* roots, Report* report) {
   }
 
   std::set<std::string> seen_boards;
+  std::map<std::string, std::string> board_contents_by_id;
   std::map<std::string, RootRow> unique_eligible;
   int line_number = 1;
   while (std::getline(input, line)) {
@@ -512,6 +662,12 @@ bool load_roots(const Args& args, std::vector<RootRow>* roots, Report* report) {
     const bool duplicate_seen = !seen_boards.insert(row.board_id).second;
     if (duplicate_seen) {
       ++report->duplicate_board_rows;
+    }
+    const auto [contents, inserted] = board_contents_by_id.emplace(row.board_id, row.board);
+    if (!inserted && contents->second != row.board) {
+      std::cerr << "line " << line_number << ": " << row.board_id
+                << ": same board_id has different board contents\n";
+      return false;
     }
     if (row.empty_count > args.max_empty) {
       ++report->skipped_too_many_empty;
@@ -833,6 +989,7 @@ bool write_report(const std::string& path, const Report& report) {
   write_optional_int(output, "child_label_score_min", report.child_label_score_min);
   output << "  \"child_normalized_out\": \"" << json_escape(report.child_normalized_out) << "\",\n";
   output << "  \"child_normalized_rows\": " << report.child_normalized_rows << ",\n";
+  output << "  \"board_contents_digest\": \"" << report.board_contents_digest << "\",\n";
   output << "  \"duplicate_board_rows\": " << report.duplicate_board_rows << ",\n";
   output << "  \"eligible_rows\": " << report.eligible_rows << ",\n";
   output << "  \"generator_semantic_version\": \"" << kGeneratorSemanticVersion << "\",\n";
@@ -864,6 +1021,7 @@ bool write_report(const std::string& path, const Report& report) {
   output << "    \"not a production artifact\",\n";
   output << "    \"generated labels and artifacts must not be committed\"\n";
   output << "  ],\n";
+  output << "  \"ordered_root_digest\": \"" << report.ordered_root_digest << "\",\n";
   output << "  \"roots_with_normal_moves\": " << report.roots_with_normal_moves << ",\n";
   output << "  \"roots_with_pass_move\": " << report.roots_with_pass_move << ",\n";
   output << "  \"root_move_score_sum\": " << report.root_move_score_sum << ",\n";
@@ -881,6 +1039,7 @@ bool write_report(const std::string& path, const Report& report) {
   output << "  \"terminal_roots_skipped\": " << report.terminal_roots_skipped << ",\n";
   output << "  \"unique_roots_seen\": " << report.unique_roots_seen << ",\n";
   output << "  \"unique_roots_selected\": " << report.unique_roots_selected << ",\n";
+  output << "  \"unordered_root_digest\": \"" << report.unordered_root_digest << "\",\n";
   output << "  \"wall_time_sec\": " << std::fixed << std::setprecision(6) << report.wall_time_sec
          << "\n";
   output << "}\n";
@@ -891,6 +1050,9 @@ bool write_report(const std::string& path, const Report& report) {
 
 int main(int argc, char** argv) {
   const auto started = std::chrono::steady_clock::now();
+  if (argc == 2 && std::string_view(argv[1]) == "--self-test-contract") {
+    return run_contract_self_test() ? 0 : 1;
+  }
   const std::optional<Args> args = parse_args(argc, argv);
   if (!args.has_value()) {
     return 2;
@@ -918,6 +1080,7 @@ int main(int argc, char** argv) {
   std::vector<RootRow> selected = select_roots(std::move(roots), args->max_roots);
   report.selected_roots = selected.size();
   report.unique_roots_selected = selected.size();
+  update_root_digests(selected, &report);
 
   std::vector<MoveRow> all_rows;
   for (std::size_t root_index = 0; root_index < selected.size(); ++root_index) {

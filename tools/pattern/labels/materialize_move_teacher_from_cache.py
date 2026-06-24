@@ -15,26 +15,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import normalized_v2_contract as normalized_contract
 
-NORMALIZED_HEADER_V2 = [
-    "record_id",
-    "position_id",
-    "game_group_id",
-    "board_id",
-    "source_occurrence_id",
-    "source_dataset_id",
-    "split",
-    "board_a1_to_h8",
-    "label_kind",
-    "label_unit",
-    "label_perspective",
-    "label_score_side_to_move",
-    "occupied_count",
-    "phase",
-    "player_disc_count",
-    "opponent_disc_count",
-    "empty_count",
-]
+NORMALIZED_HEADER_V2 = normalized_contract.NORMALIZED_HEADER_V2
 MOVE_TEACHER_HEADER = [
     "root_board_id",
     "root_record_id",
@@ -64,9 +47,14 @@ GENERATOR_SEMANTIC_VERSION = "exact-move-teacher-v2"
 TEACHER_SOURCE = "exact-move-teacher-v2"
 CHILD_LABEL_KIND = "teacher_exact_move_child_final_disc_diff"
 LABEL_UNIT = "disc"
-LABEL_PERSPECTIVE = "side_to_move"
-FNV64_OFFSET = 14695981039346656037
-FNV64_PRIME = 1099511628211
+LABEL_PERSPECTIVE = normalized_contract.LABEL_PERSPECTIVE
+FNV64_OFFSET = normalized_contract.FNV64_OFFSET
+FNV64_PRIME = normalized_contract.FNV64_PRIME
+NormalizedV2ContractError = normalized_contract.NormalizedV2ContractError
+board_counts = normalized_contract.board_counts
+fnv1a64_update = normalized_contract.fnv1a64_update
+parse_int = normalized_contract.parse_int
+phase_for_occupied = normalized_contract.phase_for_occupied
 
 
 class CacheError(RuntimeError):
@@ -91,7 +79,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--populate-only", action="store_true")
     parser.add_argument("--probe-only", action="store_true")
     parser.add_argument("--missing-normalized-out", type=Path)
-    parser.add_argument("--require-full-hit", action="store_true", default=True)
     args = parser.parse_args()
 
     if args.max_empty < 0 or args.max_empty > 64:
@@ -115,10 +102,6 @@ def stable_json(data: Any) -> str:
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
-def sha256_text(text: str) -> str:
-    return f"sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
-
-
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -133,21 +116,6 @@ def report_path(path: Path | None) -> str | None:
     return path.name if path.is_absolute() else str(path)
 
 
-def fnv1a64_update(value: int, text: str) -> int:
-    for byte in text.encode("utf-8"):
-        value ^= byte
-        value = (value * FNV64_PRIME) & 0xFFFFFFFFFFFFFFFF
-    return value
-
-
-def fnv_sample_key(board_id: str, seed: int) -> int:
-    value = FNV64_OFFSET
-    value = fnv1a64_update(value, str(seed))
-    value = fnv1a64_update(value, "\t")
-    value = fnv1a64_update(value, board_id)
-    return value
-
-
 def mix_output_checksum(value: int, line: str) -> int:
     value = fnv1a64_update(value, line)
     value ^= ord("\n")
@@ -157,44 +125,6 @@ def mix_output_checksum(value: int, line: str) -> int:
 
 def checksum_string(value: int) -> str:
     return f"0x{value:016x}"
-
-
-def parse_int(text: str, field: str) -> int:
-    try:
-        return int(text)
-    except ValueError as error:
-        raise CacheError(f"{field} must be an integer: {text}") from error
-
-
-def phase_for_occupied(occupied_count: int) -> int:
-    return min(12, ((occupied_count - 4) * 13) // 60)
-
-
-def board_counts(board: str) -> dict[str, int]:
-    if len(board) != 64:
-        raise CacheError("board_a1_to_h8 must be exactly 64 characters")
-    player = board.count("X")
-    opponent = board.count("O")
-    empty = board.count("-")
-    if player + opponent + empty != 64:
-        raise CacheError("board_a1_to_h8 contains characters outside X/O/-")
-    return {
-        "occupied_count": player + opponent,
-        "player_disc_count": player,
-        "opponent_disc_count": opponent,
-        "empty_count": empty,
-    }
-
-
-def validate_counts(row: dict[str, str], *, prefix: str = "") -> None:
-    board_key = f"{prefix}board_a1_to_h8" if prefix else "board_a1_to_h8"
-    counts = board_counts(row[board_key])
-    for key in ("occupied_count", "player_disc_count", "opponent_disc_count", "empty_count"):
-        row_key = f"{prefix}{key}" if prefix else key
-        if row_key in row and row[row_key] != "":
-            value = parse_int(row[row_key], row_key)
-            if value != counts[key]:
-                raise CacheError(f"{row_key} does not match {board_key}")
 
 
 def load_tsv(path: Path, expected_header: list[str]) -> list[dict[str, str]]:
@@ -212,70 +142,6 @@ def write_tsv(path: Path, header: list[str], rows: list[dict[str, str]]) -> None
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row[key] for key in header})
-
-
-def select_roots(path: Path, max_empty: int, max_roots: int | None, seed: int) -> tuple[list[dict[str, str]], dict[str, Any]]:
-    rows = load_tsv(path, NORMALIZED_HEADER_V2)
-    seen_boards: set[str] = set()
-    board_contents_by_id: dict[str, str] = {}
-    unique_eligible: dict[str, dict[str, str]] = {}
-    duplicate_board_rows = 0
-    skipped_too_many_empty = 0
-    for row in rows:
-        board_id = row["board_id"]
-        if not board_id:
-            raise CacheError("board_id must be non-empty")
-        if board_id in seen_boards:
-            duplicate_board_rows += 1
-        seen_boards.add(board_id)
-        if row["split"] not in ("train", "validation", "test"):
-            raise CacheError(f"{board_id}: split must be train, validation, or test")
-        if row["label_perspective"] != LABEL_PERSPECTIVE:
-            raise CacheError(f"{board_id}: label_perspective must be {LABEL_PERSPECTIVE}")
-        validate_counts(row)
-        previous_board = board_contents_by_id.get(board_id)
-        if previous_board is not None and previous_board != row["board_a1_to_h8"]:
-            raise CacheError(f"{board_id}: same board_id has different board contents")
-        board_contents_by_id.setdefault(board_id, row["board_a1_to_h8"])
-        occupied = parse_int(row["occupied_count"], "occupied_count")
-        phase = parse_int(row["phase"], "phase")
-        empty = parse_int(row["empty_count"], "empty_count")
-        if phase != phase_for_occupied(occupied):
-            raise CacheError(f"{board_id}: phase does not match occupied_count")
-        if empty > max_empty:
-            skipped_too_many_empty += 1
-            continue
-        if board_id not in unique_eligible:
-            selected = dict(row)
-            selected["_sample_key"] = str(fnv_sample_key(board_id, seed))
-            unique_eligible[board_id] = selected
-
-    roots = list(unique_eligible.values())
-    if max_roots is not None and len(roots) > max_roots:
-        sampled = sorted(roots, key=lambda row: (int(row["_sample_key"]), row["board_id"]))[:max_roots]
-        sampled_ids = {row["board_id"] for row in sampled}
-        roots = [row for row in roots if row["board_id"] in sampled_ids]
-    for row in roots:
-        row.pop("_sample_key", None)
-
-    identities = [f"{row['board_id']}\t{row['board_a1_to_h8']}\t{row['empty_count']}" for row in roots]
-    sorted_identities = sorted(identities)
-    stats = {
-        "input_rows": len(rows),
-        "eligible_rows": sum(1 for row in rows if parse_int(row["empty_count"], "empty_count") <= max_empty),
-        "selected_roots": len(roots),
-        "unique_roots_seen": len(seen_boards),
-        "unique_roots_selected": len(roots),
-        "duplicate_board_rows": duplicate_board_rows,
-        "skipped_too_many_empty": skipped_too_many_empty,
-        "ordered_root_digest": sha256_text("\n".join(identities) + "\n"),
-        "unordered_root_digest": sha256_text("\n".join(sorted_identities) + "\n"),
-        "board_contents_digest": sha256_text(
-            "\n".join(f"{row['board_id']}\t{row['board_a1_to_h8']}" for row in sorted(roots, key=lambda item: item["board_id"]))
-            + "\n"
-        ),
-    }
-    return roots, stats
 
 
 def cache_base(cache_dir: Path, max_empty: int) -> Path:
@@ -617,7 +483,7 @@ def materialize(
     started: float,
 ) -> dict[str, Any]:
     hits, misses = load_cache_entries(roots, args.cache_dir, args.max_empty)
-    if misses and args.require_full_hit:
+    if misses:
         raise CacheMissError(
             f"move-teacher cache full hit required but {len(misses)} roots are missing; "
             f"first missing board_id: {misses[0]['board_id']}"
@@ -678,6 +544,9 @@ def materialize(
             "not a production artifact",
             "generated cache, labels, and artifacts must not be committed",
         ],
+        "ordered_root_digest": root_stats["ordered_root_digest"],
+        "unordered_root_digest": root_stats["unordered_root_digest"],
+        "board_contents_digest": root_stats["board_contents_digest"],
         "roots_with_normal_moves": roots_with_normal_moves,
         "roots_with_pass_move": roots_with_pass_move,
         "root_move_score_sum": sum(root_scores),
@@ -775,7 +644,9 @@ def main() -> int:
     args = parse_args()
     started = time.monotonic()
     try:
-        roots, root_stats = select_roots(args.normalized_tsv, args.max_empty, args.max_roots, args.seed)
+        roots, root_stats = normalized_contract.select_roots(
+            args.normalized_tsv, args.max_empty, args.max_roots, args.seed
+        )
         if not roots:
             raise CacheError("no eligible roots selected")
         args.report_out.parent.mkdir(parents=True, exist_ok=True)
@@ -805,7 +676,7 @@ def main() -> int:
     except CacheMissError as error:
         print(error, file=sys.stderr)
         return 3
-    except (CacheError, OSError, json.JSONDecodeError) as error:
+    except (CacheError, NormalizedV2ContractError, OSError, json.JSONDecodeError) as error:
         print(error, file=sys.stderr)
         return 1
 
