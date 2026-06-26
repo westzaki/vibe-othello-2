@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "trainer_algorithm": "phase-bias-v0a",
+  "input_format": "expanded-tsv",
+  "input_rows": 16,
+  "input_feature_rows": 16,
+  "example_count": 7,
+  "feature_occurrence_count": 16,
+  "average_features_per_example": 2.28571428571,
+  "accepted_examples": 7,
+  "rejected_examples": 0,
+  "rejected_feature_rows": 0,
+  "counts_by_split_examples": {
+    "train": 4,
+    "validation": 2,
+    "test": 1
+  },
+  "counts_by_phase_examples": {
+    "0": 3,
+    "1": 0,
+    "2": 2,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "10": 0,
+    "11": 0,
+    "12": 2
+  },
+  "feature_rows_by_example_min": 2,
+  "feature_rows_by_example_max": 3,
+  "duplicate_feature_rows": 1,
+  "duplicate_feature_rows_by_record_id": [
+    {
+      "record_id": "train-a",
+      "duplicate_feature_rows": 1,
+      "features": [
+        {
+          "pattern_id": "edge-8",
+          "instance": 0,
+          "ternary_index": 1,
+          "count": 2
+        }
+      ]
+    }
+  ],
+  "metrics_by_split": {
+    "train": {
+      "rows": 4,
+      "MAE": 3.0,
+      "RMSE": 4.24264068712,
+      "sign_accuracy": 0.75
+    },
+    "validation": {
+      "rows": 2,
+      "MAE": 11.0,
+      "RMSE": 13.0384048104,
+      "sign_accuracy": 0.5
+    },
+    "test": {
+      "rows": 1,
+      "MAE": 26.0,
+      "RMSE": 26.0,
+      "sign_accuracy": 0.0
+    }
+  },
+  "metrics_by_phase": {
+    "0": {
+      "rows": 3,
+      "MAE": 5.33333333333,
+      "RMSE": 5.41602560309,
+      "sign_accuracy": 0.666666666667
+    },
+    "1": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "2": {
+      "rows": 2,
+      "MAE": 9.0,
+      "RMSE": 12.7279220614,
+      "sign_accuracy": 0.5
+    },
+    "3": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "4": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "5": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "6": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "7": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "8": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "9": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "10": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "11": {
+      "rows": 0,
+      "MAE": null,
+      "RMSE": null,
+      "sign_accuracy": null
+    },
+    "12": {
+      "rows": 2,
+      "MAE": 13.0,
+      "RMSE": 18.3847763109,
+      "sign_accuracy": 0.5
+    }
+  },
+  "phase_bias": {
+    "0": 2.0,
+    "1": 0.0,
+    "2": 10.0,
+    "3": 0.0,
+    "4": 0.0,
+    "5": 0.0,
+    "6": 0.0,
+    "7": 0.0,
+    "8": 0.0,
+    "9": 0.0,
+    "10": 0.0,
+    "11": 0.0,
+    "12": -12.0
+  },
+  "notes": [
+    "example-level phase-bias baseline; pattern weights, SGD, ridge regression, artifact export, and self-play are out of scope",
+    "phase bias is learned from train split examples only",
+    "validation and test examples are used only for metrics",
+    "metrics are example-weighted over record_id groups"
+  ],
+  "checksum": "sha256:5144dbd4365340e23a60c5eb01b186f796d8e20a16ef9a0869b8b65f2d41d797"
+}

@@ -1,0 +1,17 @@
+record_id	ply	split	label_final_disc_diff	phase	pattern_id	instance	ternary_index
+train-a	8	train	8	0	edge-8	0	1
+train-a	8	train	8	0	edge-8	0	1
+train-a	8	train	8	0	corner-3x3	0	5
+train-b	10	train	-4	0	edge-8	0	2
+train-b	10	train	-4	0	corner-3x3	0	5
+train-b	10	train	-4	0	diag-8	0	3
+train-c	12	train	10	2	edge-8	0	3
+train-c	12	train	10	2	corner-3x3	0	6
+train-d	20	train	-12	12	late-edge	0	7
+train-d	20	train	-12	12	edge-8	0	1
+validation-a	14	validation	6	0	edge-8	0	1
+validation-a	14	validation	6	0	corner-3x3	0	5
+validation-b	16	validation	-8	2	edge-8	0	3
+validation-b	16	validation	-8	2	corner-3x3	0	6
+test-a	30	test	14	12	late-edge	0	7
+test-a	30	test	14	12	edge-8	0	2
