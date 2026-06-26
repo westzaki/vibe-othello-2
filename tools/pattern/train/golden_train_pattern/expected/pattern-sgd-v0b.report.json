@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "trainer_algorithm": "pattern-sgd-v0b",
+  "weights_schema_version": "pattern-eval-weights-v2",
+  "input_format": "expanded-tsv",
+  "input_rows": 16,
+  "input_feature_rows": 16,
+  "example_count": 7,
+  "feature_occurrence_count": 16,
+  "average_features_per_example": 2.28571428571,
+  "accepted_examples": 7,
+  "rejected_examples": 0,
+  "rejected_feature_rows": 0,
+  "counts_by_split_examples": {
+    "train": 4,
+    "validation": 2,
+    "test": 1
+  },
+  "counts_by_phase_examples": {
+    "0": 3,
+    "1": 0,
+    "2": 2,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "10": 0,
+    "11": 0,
+    "12": 2
+  },
+  "feature_rows_by_example_min": 2,
+  "feature_rows_by_example_max": 3,
+  "duplicate_feature_rows": 1,
+  "duplicate_feature_rows_by_record_id": [
+    {
+      "record_id": "train-a",
+      "duplicate_feature_rows": 1,
+      "features": [
+        {
+          "pattern_id": "edge-8",
+          "instance": 0,
+          "ternary_index": 1,
+          "count": 2
+        }
+      ]
+    }
+  ],
+  "epochs": 4,
+  "learning_rate": 0.07,
+  "l2": 0.01,
+  "seed": 11,
+  "shuffle_policy": "deterministic python random.Random(seed + epoch)",
+  "baseline_phase_bias_metrics": {
+    "phase_bias": {
+      "0": 2.0,
+      "1": 0.0,
+      "2": 10.0,
+      "3": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0,
+      "10": 0.0,
+      "11": 0.0,
+      "12": -12.0
+    },
+    "metrics_by_split": {
+      "train": {
+        "rows": 10,
+        "MAE": 3.0,
+        "RMSE": 4.24264068712,
+        "examples": 4,
+        "sign_accuracy": 0.75
+      },
+      "validation": {
+        "rows": 4,
+        "MAE": 11.0,
+        "RMSE": 13.0384048104,
+        "examples": 2,
+        "sign_accuracy": 0.5
+      },
+      "test": {
+        "rows": 2,
+        "MAE": 26.0,
+        "RMSE": 26.0,
+        "examples": 1,
+        "sign_accuracy": 0.0
+      }
+    },
+    "metrics_by_phase": {
+      "0": {
+        "rows": 8,
+        "MAE": 5.33333333333,
+        "RMSE": 5.41602560309,
+        "examples": 3
+      },
+      "1": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "2": {
+        "rows": 4,
+        "MAE": 9.0,
+        "RMSE": 12.7279220614,
+        "examples": 2
+      },
+      "3": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "4": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "5": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "6": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "7": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "8": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "9": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "10": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "11": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "12": {
+        "rows": 4,
+        "MAE": 13.0,
+        "RMSE": 18.3847763109,
+        "examples": 2
+      }
+    }
+  },
+  "final_pattern_sgd_metrics": {
+    "metrics_by_split": {
+      "train": {
+        "rows": 10,
+        "MAE": 2.24677675505,
+        "RMSE": 3.19063912181,
+        "examples": 4,
+        "sign_accuracy": 0.75
+      },
+      "validation": {
+        "rows": 4,
+        "MAE": 10.5305787454,
+        "RMSE": 12.9106677826,
+        "examples": 2,
+        "sign_accuracy": 0.5
+      },
+      "test": {
+        "rows": 2,
+        "MAE": 26.0,
+        "RMSE": 26.0,
+        "examples": 1,
+        "sign_accuracy": 0.0
+      }
+    },
+    "metrics_by_phase": {
+      "0": {
+        "rows": 8,
+        "MAE": 4.01608817034,
+        "RMSE": 4.08621247638,
+        "examples": 3
+      },
+      "1": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "2": {
+        "rows": 4,
+        "MAE": 9.0,
+        "RMSE": 12.7279220614,
+        "examples": 2
+      },
+      "3": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "4": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "5": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "6": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "7": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "8": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "9": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "10": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "11": {
+        "rows": 0,
+        "MAE": null,
+        "RMSE": null,
+        "examples": 0
+      },
+      "12": {
+        "rows": 4,
+        "MAE": 13.0,
+        "RMSE": 18.3847763109,
+        "examples": 2
+      }
+    }
+  },
+  "metrics_by_epoch": [
+    {
+      "epoch": 1,
+      "train": {
+        "MAE": 2.78841566667,
+        "RMSE": 3.94454108808
+      },
+      "validation": {
+        "MAE": 10.8617313333,
+        "RMSE": 12.9973877035
+      }
+    },
+    {
+      "epoch": 2,
+      "train": {
+        "MAE": 2.59358997069,
+        "RMSE": 3.67186171669
+      },
+      "validation": {
+        "MAE": 10.7395888722,
+        "RMSE": 12.963500256
+      }
+    },
+    {
+      "epoch": 3,
+      "train": {
+        "MAE": 2.41402068032,
+        "RMSE": 3.42182150992
+      },
+      "validation": {
+        "MAE": 10.6316143056,
+        "RMSE": 12.9353906197
+      }
+    },
+    {
+      "epoch": 4,
+      "train": {
+        "MAE": 2.24677675505,
+        "RMSE": 3.19063912181
+      },
+      "validation": {
+        "MAE": 10.5305787454,
+        "RMSE": 12.9106677826
+      }
+    }
+  ],
+  "nonzero_weight_count": 4,
+  "weight_l2_norm": 1.23147783435,
+  "weights_checksum": "sha256:23f54763b850fb79d694957b8ae054fdff8b456173284a6502a4d10dd44eba55",
+  "notes": [
+    "pattern-sgd-v0b is an example-level pattern weight learning smoke trainer, not a production trainer",
+    "phase bias is initialized from train split examples and held fixed during v0b SGD",
+    "pattern weights are learned from train split examples only",
+    "validation and test examples are used only for metrics",
+    "feature occurrences are added once per feature row, matching runtime evaluator occurrence semantics",
+    "duplicate feature rows are reported and intentionally kept as repeated contributions in v0b",
+    "weights JSON uses pattern-eval-weights-v2; artifact export and runtime load are out of scope"
+  ],
+  "pattern_set_id": "golden-pattern-set",
+  "pattern_contract_digest": "sha256:golden-pattern-contract",
+  "index_mode": "raw",
+  "phase_count": 13,
+  "phase_mapping_id": "disc-count-13-v1",
+  "score_unit": "disc-diff",
+  "checksum": "sha256:9457ca0378aad13ef753a789dcfc719dc6f26e7e14f24c9272ee93da6f141c8c"
+}

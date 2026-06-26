@@ -25,6 +25,14 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-local-synthetic.manifest.json)
 
   add_test(
+    NAME vibe_othello_pattern_train_golden_byte_equality
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_golden_byte_equality.py
+      --trainer
+      ${CMAKE_CURRENT_SOURCE_DIR}/train_pattern.py)
+
+  add_test(
     NAME vibe_othello_pattern_growth_cycle_smoke
     COMMAND
       ${Python3_EXECUTABLE}
