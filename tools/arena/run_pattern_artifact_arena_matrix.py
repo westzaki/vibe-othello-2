@@ -23,14 +23,23 @@ LOCAL_ONLY_WARNINGS = (
     "local-only pattern artifact arena diagnostic",
     "generated reports, logs, weights, artifacts, datasets, and corpora must not be committed",
     "not an Elo result",
-    "not self-play",
+    "not a self-play strength claim",
     "not a production strength claim",
-    "not a publication or artifact-publication readiness claim",
+    "not an artifact promotion or default-pointer claim",
 )
-RECOMMENDATIONS = (
-    "promote_to_experimental_default_candidate",
-    "hold_for_more_arena",
-    "do_not_promote_default_yet",
+OVERALL_LOCAL_ASSESSMENTS = (
+    "local_harness_passed",
+    "local_harness_needs_more_runs",
+    "local_harness_failed",
+)
+GROUP_LOCAL_ASSESSMENTS = (
+    "same_artifact_sanity_passed",
+    "same_artifact_sanity_failed",
+    "check_swap_sanity_result",
+    "local_harness_failed",
+    "local_harness_needs_more_runs",
+    "local_signal_supportive_or_non_negative",
+    "local_signal_non_negative_or_supportive",
 )
 
 
@@ -752,26 +761,26 @@ def same_artifact_passes(group: list[dict[str, Any]]) -> bool:
     return True
 
 
-def group_recommendation(comparison: str, kind: str, stats: dict[str, Any], same_passed: bool | None) -> str:
+def group_local_assessment(comparison: str, kind: str, stats: dict[str, Any], same_passed: bool | None) -> str:
     if kind == "same_artifact_sanity":
         return "same_artifact_sanity_passed" if same_passed else "same_artifact_sanity_failed"
     if kind == "swap_sanity":
         return "check_swap_sanity_result"
     if stats.get("total_failed_games", 0) != 0:
-        return "do_not_promote_default_yet"
+        return "local_harness_failed"
     mean_rate = stats.get("mean_score_rate")
     mean_diff = stats.get("mean_average_disc_diff")
     run_count = int(stats.get("run_count", 0))
     non_negative = int(stats.get("non_negative_run_count", 0))
     if mean_rate is None or mean_diff is None or run_count == 0:
-        return "hold_for_more_arena"
+        return "local_harness_needs_more_runs"
     if mean_rate >= 0.5 and mean_diff >= 0.0 and non_negative >= math.ceil(run_count / 2):
         if "v1" in comparison.lower():
-            return "supportive_or_non_negative"
-        return "non_negative_or_supportive"
+            return "local_signal_supportive_or_non_negative"
+        return "local_signal_non_negative_or_supportive"
     if mean_rate < 0.49 or mean_diff < -0.5:
-        return "do_not_promote_default_yet"
-    return "hold_for_more_arena"
+        return "local_harness_failed"
+    return "local_harness_needs_more_runs"
 
 
 def summarize_by_comparison(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -790,7 +799,7 @@ def summarize_by_comparison(results: list[dict[str, Any]]) -> dict[str, Any]:
             "seed_breakdown": breakdown(group, "seed"),
             "max_positions_breakdown": breakdown(group, "max_positions"),
             "same_artifact_sanity_result": same_passed,
-            "recommendation": group_recommendation(comparison, kind, stats, same_passed),
+            "local_assessment": group_local_assessment(comparison, kind, stats, same_passed),
         }
     return output
 
@@ -923,7 +932,7 @@ def deepest_depth_negative(data: dict[str, Any] | None) -> bool:
     )
 
 
-def overall_recommendation(by_comparison: dict[str, Any], same: dict[str, Any], swap: dict[str, Any]) -> dict[str, Any]:
+def overall_local_assessment(by_comparison: dict[str, Any], same: dict[str, Any], swap: dict[str, Any]) -> dict[str, Any]:
     failed_games = sum(int(data.get("total_failed_games", 0) or 0) for data in by_comparison.values())
     mt_exact = find_group(by_comparison, "move", "exact-root") or find_group(by_comparison, "move", "exact")
     mt_v1 = find_group(by_comparison, "move", "v1")
@@ -958,14 +967,14 @@ def overall_recommendation(by_comparison: dict[str, Any], same: dict[str, Any], 
         fatal = True
         reasons.append("deepest search depth is consistently negative for move-teacher vs exact-root")
     if fatal:
-        return {"category": "do_not_promote_default_yet", "reasons": reasons}
+        return {"category": "local_harness_failed", "reasons": reasons}
 
     depth7_present = False
     if mt_exact is not None:
         depths = mt_exact.get("depth_breakdown")
         depth7_present = isinstance(depths, dict) and "7" in depths
 
-    promote = (
+    harness_passed = (
         mt_exact is not None
         and mt_v1 is not None
         and exact_v1 is not None
@@ -977,9 +986,9 @@ def overall_recommendation(by_comparison: dict[str, Any], same: dict[str, Any], 
         and group_mean_non_negative(exact_v1)
         and depth7_present
     )
-    if promote:
-        reasons.append("arena matrix satisfies experimental-default-candidate validation gates")
-        return {"category": "promote_to_experimental_default_candidate", "reasons": reasons}
+    if harness_passed:
+        reasons.append("arena matrix completed with passing sanity checks and non-negative local directions")
+        return {"category": "local_harness_passed", "reasons": reasons}
 
     if not depth7_present:
         reasons.append("depth 7 comparison is missing for move-teacher vs exact-root")
@@ -987,7 +996,7 @@ def overall_recommendation(by_comparison: dict[str, Any], same: dict[str, Any], 
         reasons.append("move-teacher vs exact-root is close or noisy across runs")
     if mt_exact is not None and not group_mean_non_negative(mt_exact):
         reasons.append("move-teacher vs exact-root aggregate is not positive enough")
-    return {"category": "hold_for_more_arena", "reasons": reasons}
+    return {"category": "local_harness_needs_more_runs", "reasons": reasons}
 
 
 def report_command(argv: list[str]) -> list[str]:
@@ -1009,7 +1018,7 @@ def build_report(
     by_comparison = summarize_by_comparison(results)
     same = same_artifact_sanity_summary(results)
     swap = swap_sanity(results)
-    recommendation = overall_recommendation(by_comparison, same, swap)
+    local_assessment = overall_local_assessment(by_comparison, same, swap)
     completed = completed_results(results)
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -1018,7 +1027,8 @@ def build_report(
         or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "status": "planned" if args.dry_run else "ok",
         "local_only_warnings": list(LOCAL_ONLY_WARNINGS),
-        "allowed_recommendations": list(RECOMMENDATIONS),
+        "allowed_overall_local_assessments": list(OVERALL_LOCAL_ASSESSMENTS),
+        "allowed_group_local_assessments": list(GROUP_LOCAL_ASSESSMENTS),
         "positions_tsv": positions_metadata(args.positions_tsv, cache),
         "matrix": {
             "depths": args.depths,
@@ -1039,7 +1049,7 @@ def build_report(
         "by_comparison": by_comparison,
         "same_artifact_sanity": same,
         "swap_sanity": swap,
-        "recommendation": recommendation,
+        "local_assessment": local_assessment,
         "results": results,
         "skipped": skipped,
         "resume_command": report_command(argv),
@@ -1054,7 +1064,7 @@ def write_summary(path: Path, report: dict[str, Any]) -> None:
     lines = [
         "# Pattern Artifact Arena Matrix",
         "",
-        "Local-only bounded artifact arena validation. This is not Elo, not self-play, not production strength, and not artifact-publication readiness.",
+        "Local-only bounded artifact arena evaluation harness. This is not Elo, not a self-play strength claim, not production strength, and not an artifact promotion or default-pointer claim.",
         "",
         "## Matrix",
         "",
@@ -1067,14 +1077,14 @@ def write_summary(path: Path, report: dict[str, Any]) -> None:
         f"- total games: {report['total_games']}",
         f"- failed games: {report['total_failed_games']}",
         "",
-        "## Recommendation",
+        "## Local Assessment",
         "",
-        f"- category: `{report['recommendation']['category']}`",
-        f"- reasons: {'; '.join(report['recommendation'].get('reasons', [])) or 'none'}",
+        f"- category: `{report['local_assessment']['category']}`",
+        f"- reasons: {'; '.join(report['local_assessment'].get('reasons', [])) or 'none'}",
         "",
         "## Comparison Summary",
         "",
-        "| Comparison | Runs | Games | Failed | Non-negative | Mean score rate | Min score rate | Max score rate | Mean avg disc diff | Recommendation |",
+        "| Comparison | Runs | Games | Failed | Non-negative | Mean score rate | Min score rate | Max score rate | Mean avg disc diff | Local assessment |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for comparison, data in report["by_comparison"].items():
@@ -1083,7 +1093,7 @@ def write_summary(path: Path, report: dict[str, Any]) -> None:
             f"{data['total_failed_games']} | {data['non_negative_run_count']} | "
             f"{format_float(data['mean_score_rate'])} | {format_float(data['min_score_rate'])} | "
             f"{format_float(data['max_score_rate'])} | {format_float(data['mean_average_disc_diff'], 4)} | "
-            f"`{data['recommendation']}` |"
+            f"`{data['local_assessment']}` |"
         )
     lines.extend(
         [
@@ -1156,7 +1166,7 @@ def main(argv: list[str]) -> int:
         write_json(args.output_dir / "arena-matrix-report.json", report)
         write_summary(args.output_dir / "arena-matrix-summary.md", report)
         print(f"wrote {args.output_dir / 'arena-matrix-report.json'}", flush=True)
-        print(f"recommendation={report['recommendation']['category']}", flush=True)
+        print(f"local_assessment={report['local_assessment']['category']}", flush=True)
         return 0
     except MatrixError as error:
         print(f"error: {error}", file=sys.stderr)

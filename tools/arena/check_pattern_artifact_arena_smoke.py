@@ -335,12 +335,64 @@ def run_arena(
 
 def stable_report(report: dict[str, object]) -> dict[str, object]:
     stable = dict(report)
-    for key in ("wall_time_sec", "games_per_sec", "checksum", "command"):
+    for key in (
+        "primary_wall_time_sec",
+        "primary_games_per_sec",
+        "total_wall_time_sec",
+        "total_games_per_sec",
+        "checksum",
+        "command",
+    ):
         stable.pop(key, None)
     return stable
 
 
 def assert_success_report(report: dict[str, object]) -> None:
+    required = {
+        "candidate",
+        "baseline",
+        "candidate_artifact_id",
+        "candidate_manifest_path",
+        "candidate_artifact_checksum",
+        "baseline_artifact_id",
+        "baseline_manifest_path",
+        "baseline_artifact_checksum",
+        "search_config",
+        "depth",
+        "seed",
+        "side_swap",
+        "selected_positions",
+        "games_played",
+        "failed_games",
+        "illegal_games",
+        "candidate_wins",
+        "candidate_losses",
+        "draws",
+        "candidate_score_rate",
+        "candidate_score_rate_interval_95",
+        "average_disc_diff_candidate_perspective",
+        "results_by_depth",
+        "results_by_empty_count",
+        "results_by_phase",
+        "results_by_split",
+        "sanity_checks",
+        "notes",
+        "primary_wall_time_sec",
+        "primary_games_per_sec",
+        "total_wall_time_sec",
+        "total_games_per_sec",
+    }
+    missing = sorted(required - set(report))
+    if missing:
+        raise AssertionError(f"hardened report schema missing keys: {missing}")
+    if report["candidate"]["artifact_id"] != report["candidate_artifact_id"]:
+        raise AssertionError(f"candidate artifact identity mismatch: {report['candidate']!r}")
+    if report["baseline"]["artifact_id"] != report["baseline_artifact_id"]:
+        raise AssertionError(f"baseline artifact identity mismatch: {report['baseline']!r}")
+    if report["search_config"]["entrypoint"] != "search_fixed_depth":
+        raise AssertionError(f"unexpected search config: {report['search_config']!r}")
+    if report["depth"] != report["search_depth"]:
+        raise AssertionError(f"depth/search_depth mismatch: {report!r}")
     if report["input_rows"] != 4:
         raise AssertionError(f"unexpected input_rows: {report['input_rows']!r}")
     if report["eligible_rows"] != 3:
@@ -360,6 +412,10 @@ def assert_success_report(report: dict[str, object]) -> None:
         raise AssertionError(
             f"unexpected illegal_or_failed_games: {report['illegal_or_failed_games']!r}"
         )
+    if report["failed_games"] != 0 or report["illegal_games"] != 0:
+        raise AssertionError(f"unexpected failed/illegal split: {report!r}")
+    if report["candidate_losses"] != report["baseline_wins"]:
+        raise AssertionError(f"candidate losses should match baseline wins: {report!r}")
     if not math.isclose(
         report["candidate_score_rate"],
         report["candidate_score"] / report["games_played"],
@@ -372,6 +428,41 @@ def assert_success_report(report: dict[str, object]) -> None:
         )
     if "12" not in report["results_by_phase"]:
         raise AssertionError("phase bucket for late-game positions is missing")
+    if "1" not in report["results_by_depth"]:
+        raise AssertionError(f"primary depth bucket is missing: {report['results_by_depth']!r}")
+    if "wall_time_sec" in report or "games_per_sec" in report:
+        raise AssertionError(f"ambiguous legacy timing fields should not be present: {report!r}")
+    for depth, data in report["results_by_depth"].items():
+        for key in (
+            "best_move_disagreement_count",
+            "best_move_disagreement_rate",
+            "search_score_diff_mean",
+            "search_score_diff_abs_mean",
+        ):
+            if key in data:
+                raise AssertionError(
+                    f"diagnostic-only field {key!r} leaked into primary depth {depth}: {data!r}"
+                )
+    notes = "\n".join(str(note) for note in report["notes"])
+    for text in ("not an Elo result", "not a self-play strength claim", "not a production strength claim"):
+        if text not in notes:
+            raise AssertionError(f"local-only note missing {text!r}: {report['notes']!r}")
+
+
+def assert_depth_sweep_primary_report(report: dict[str, object]) -> None:
+    if report["depth_sweep"] != [1, 2]:
+        raise AssertionError(f"depth sweep list missing from primary report: {report!r}")
+    if set(report["results_by_depth"].keys()) != {"1", "2"}:
+        raise AssertionError(f"depth sweep results missing from primary report: {report!r}")
+    if report["total_wall_time_sec"] < report["primary_wall_time_sec"]:
+        raise AssertionError(f"total time should include primary and depth sweep time: {report!r}")
+    if report["total_games_per_sec"] <= 0 or report["primary_games_per_sec"] <= 0:
+        raise AssertionError(f"timing throughput fields should be positive: {report!r}")
+    for depth, data in report["results_by_depth"].items():
+        if data["games_played"] != 4:
+            raise AssertionError(f"unexpected depth {depth} game count: {data!r}")
+        if "candidate_score_rate_interval_95" not in data:
+            raise AssertionError(f"depth {depth} confidence interval missing: {data!r}")
 
 
 def assert_same_artifact_diagnostics(report: dict[str, object]) -> None:
@@ -512,6 +603,19 @@ def main(argv: list[str]) -> int:
             ],
         )
         assert_same_artifact_diagnostics(same_artifact_report)
+
+        depth_sweep_report = run_arena(
+            args.exe,
+            temp_dir,
+            "depth-sweep-report.json",
+            "depth-sweep-summary.md",
+            extra_args=[
+                "--depth-sweep",
+                "1,2",
+            ],
+        )
+        assert_success_report(depth_sweep_report)
+        assert_depth_sweep_primary_report(depth_sweep_report)
 
         signal_report = run_arena(
             args.exe,

@@ -39,7 +39,7 @@ namespace board_core = vibe_othello::board_core;
 namespace eval = vibe_othello::evaluation;
 namespace search = vibe_othello::search;
 
-constexpr std::string_view kArenaVersion = "pattern-artifact-arena-v1";
+constexpr std::string_view kArenaVersion = "pattern-artifact-arena-hardened-v1";
 constexpr std::uint32_t kCrc32Initial = 0xFFFF'FFFFU;
 constexpr std::uint32_t kCrc32Polynomial = 0xEDB8'8320U;
 
@@ -74,6 +74,7 @@ struct PatternRuntime {
 
 struct LoadedEvaluator {
   std::string name;
+  std::string artifact_id;
   std::string weights_path;
   std::string manifest_path;
   std::string manifest_pattern_set_id;
@@ -110,6 +111,7 @@ struct GameResult {
   int phase = 0;
   int candidate_disc_diff = 0;
   bool failed = false;
+  bool illegal = false;
   std::string failure_reason;
 };
 
@@ -121,6 +123,8 @@ struct BucketStats {
   double candidate_score = 0.0;
   int disc_diff_sum = 0;
   int illegal_or_failed_games = 0;
+  int failed_games = 0;
+  int illegal_games = 0;
 };
 
 struct ArenaStats {
@@ -136,6 +140,8 @@ struct ArenaStats {
   double score_interval_low = 0.0;
   double score_interval_high = 0.0;
   int illegal_or_failed_games = 0;
+  int failed_games = 0;
+  int illegal_games = 0;
   std::map<int, int> disc_diff_histogram;
   std::map<std::string, BucketStats> by_empty_count;
   std::map<std::string, BucketStats> by_phase;
@@ -448,9 +454,8 @@ std::optional<Args> parse_args(int argc, char** argv) {
     print_usage();
     return std::nullopt;
   }
-  if (args.diagnostics_out_path.empty() &&
-      (args.compare_static_scores || args.compare_best_moves || !args.depth_sweep.empty() ||
-       args.exact_adjudicate_disagreements)) {
+  if (args.diagnostics_out_path.empty() && (args.compare_static_scores || args.compare_best_moves ||
+                                            args.exact_adjudicate_disagreements)) {
     std::cerr << "--diagnostics-out is required when diagnostics flags are used\n";
     return std::nullopt;
   }
@@ -649,6 +654,7 @@ std::optional<LoadedEvaluator> load_evaluator(std::string name, std::string weig
     eval::PatternFeatureSet evaluator_feature_set = feature_set;
     return LoadedEvaluator{
         .name = std::move(name),
+        .artifact_id = artifact.artifact_id,
         .weights_path = std::move(weights_path),
         .manifest_path = std::move(manifest_path),
         .manifest_pattern_set_id = artifact.pattern_set_id,
@@ -858,7 +864,7 @@ int disc_count(board_core::Bitboard bits) noexcept {
 }
 
 GameResult adjudicated_failure(const PositionRow& row, std::string side_assignment,
-                               bool candidate_offender, std::string reason) {
+                               bool candidate_offender, std::string reason, bool illegal) {
   return GameResult{
       .board_id = row.board_id,
       .split = row.split,
@@ -867,6 +873,7 @@ GameResult adjudicated_failure(const PositionRow& row, std::string side_assignme
       .phase = row.phase,
       .candidate_disc_diff = candidate_offender ? -64 : 64,
       .failed = true,
+      .illegal = illegal,
       .failure_reason = std::move(reason),
   };
 }
@@ -878,7 +885,7 @@ GameResult play_game(const PositionRow& row, const LoadedEvaluator& candidate,
   if (!maybe_position.has_value()) {
     return adjudicated_failure(row,
                                candidate_is_black ? "candidate_side_to_move" : "candidate_opponent",
-                               true, "invalid_position");
+                               true, "invalid_position", false);
   }
   board_core::Position position = *maybe_position;
   while (!board_core::is_terminal(position)) {
@@ -888,7 +895,7 @@ GameResult play_game(const PositionRow& row, const LoadedEvaluator& candidate,
       if (!board_core::apply_pass(&position, &delta)) {
         return adjudicated_failure(
             row, candidate_is_black ? "candidate_side_to_move" : "candidate_opponent", true,
-            "illegal_pass");
+            "illegal_pass", true);
       }
       continue;
     }
@@ -906,14 +913,14 @@ GameResult play_game(const PositionRow& row, const LoadedEvaluator& candidate,
         (legal_moves & board_core::bit(search_result.best_move->square)) == 0) {
       return adjudicated_failure(
           row, candidate_is_black ? "candidate_side_to_move" : "candidate_opponent",
-          candidate_to_move, "illegal_or_missing_best_move");
+          candidate_to_move, "illegal_or_missing_best_move", true);
     }
 
     board_core::MoveDelta delta{};
     if (!board_core::apply_move(&position, *search_result.best_move, &delta)) {
       return adjudicated_failure(
           row, candidate_is_black ? "candidate_side_to_move" : "candidate_opponent",
-          candidate_to_move, "apply_move_failed");
+          candidate_to_move, "apply_move_failed", true);
     }
   }
 
@@ -963,6 +970,10 @@ void add_to_bucket(BucketStats* bucket, const GameResult& result) {
   bucket->disc_diff_sum += result.candidate_disc_diff;
   if (result.failed) {
     ++bucket->illegal_or_failed_games;
+    ++bucket->failed_games;
+  }
+  if (result.illegal) {
+    ++bucket->illegal_games;
   }
   if (result.candidate_disc_diff > 0) {
     ++bucket->candidate_wins;
@@ -985,6 +996,10 @@ ArenaStats summarize_results(std::span<const GameResult> results) {
     ++stats.disc_diff_histogram[result.candidate_disc_diff];
     if (result.failed) {
       ++stats.illegal_or_failed_games;
+      ++stats.failed_games;
+    }
+    if (result.illegal) {
+      ++stats.illegal_games;
     }
     if (result.candidate_disc_diff > 0) {
       ++stats.candidate_wins;
@@ -1389,8 +1404,8 @@ DiagnosticsReport build_diagnostics(const Args& args, const LoadedEvaluator& can
       "static and search scores are side-to-move relative",
       "arena disc diffs are reported from candidate perspective",
       "feature activation counts use runtime feature geometry and do not inspect learned weights",
-      "local diagnostic only; not Elo, not self-play, not production strength, not a publication "
-      "gate",
+      "local diagnostic only; not Elo, not a self-play strength claim, not production strength, "
+      "not artifact promotion",
   };
 
   const bool same_artifact = candidate.artifact_checksum == baseline.artifact_checksum &&
@@ -1483,11 +1498,11 @@ void write_json_string(std::ostream& output, std::string_view text) {
 void write_notes(std::ostream& output) {
   output << "[\n";
   const std::array<std::string_view, 6> notes{
-      "local artifact-vs-artifact late-game diagnostic",
+      "local-only artifact-vs-artifact evaluation harness",
       "not an Elo result",
       "not a production strength claim",
-      "not self-play",
-      "not a publication gate",
+      "not a self-play strength claim",
+      "not a production or default-artifact promotion claim",
       "generated arena reports/logs must not be committed",
   };
   for (std::size_t index = 0; index < notes.size(); ++index) {
@@ -1512,6 +1527,86 @@ void write_bucket(std::ostream& output, const BucketStats& bucket) {
   output << ", \"candidate_score_rate\": " << score_rate;
   output << ", \"average_disc_diff_candidate_perspective\": " << average_disc_diff;
   output << ", \"illegal_or_failed_games\": " << bucket.illegal_or_failed_games;
+  output << ", \"failed_games\": " << bucket.failed_games;
+  output << ", \"illegal_games\": " << bucket.illegal_games;
+  output << "}";
+}
+
+void write_depth_list(std::ostream& output, std::span<const search::Depth> depths) {
+  output << "[";
+  for (std::size_t index = 0; index < depths.size(); ++index) {
+    if (index != 0) {
+      output << ", ";
+    }
+    output << depths[index];
+  }
+  output << "]";
+}
+
+void write_search_config(std::ostream& output, search::Depth depth) {
+  output << "{";
+  output << "\"entrypoint\": \"search_fixed_depth\"";
+  output << ", \"depth\": " << depth;
+  output << ", \"evaluator\": \"PatternEvaluator\"";
+  output << ", \"score_perspective\": \"side-to-move\"";
+  output << ", \"root_result_score_kind\": \"heuristic\"";
+  output << ", \"options\": {";
+  output << "\"use_pvs\": false";
+  output << ", \"use_aspiration\": false";
+  output << ", \"use_iid\": false";
+  output << ", \"use_history\": false";
+  output << ", \"use_killers\": false";
+  output << ", \"use_midgame_tt\": false";
+  output << ", \"use_endgame_tt\": false";
+  output << ", \"exact_endgame\": false";
+  output << ", \"probcut\": false";
+  output << ", \"use_pv_table\": false";
+  output << ", \"use_parallel\": false";
+  output << ", \"use_tt_best_move_ordering\": false";
+  output << ", \"use_endgame_parity_ordering\": true";
+  output << ", \"multi_pv\": 0";
+  output << ", \"endgame_exact_empties\": 0";
+  output << ", \"endgame_wld_empties\": 0";
+  output << ", \"selectivity_level\": 0";
+  output << "}}";
+}
+
+void write_artifact_identity(std::ostream& output, const LoadedEvaluator& evaluator) {
+  output << "{";
+  output << "\"name\": ";
+  write_json_string(output, evaluator.name);
+  output << ", \"artifact_id\": ";
+  write_json_string(output, evaluator.artifact_id);
+  output << ", \"manifest_path\": ";
+  write_json_string(output, evaluator.manifest_path);
+  output << ", \"weights_path\": ";
+  write_json_string(output, evaluator.weights_path);
+  output << ", \"checksum\": ";
+  write_json_string(output, evaluator.artifact_checksum);
+  output << ", \"manifest_pattern_set_id\": ";
+  write_json_string(output, evaluator.manifest_pattern_set_id);
+  output << ", \"runtime_pattern_set_id\": ";
+  write_json_string(output, evaluator.runtime_pattern_set_id);
+  output << "}";
+}
+
+void write_sanity_checks(std::ostream& output, const Args& args, const LoadedEvaluator& candidate,
+                         const LoadedEvaluator& baseline, const ArenaStats& stats) {
+  const bool same_artifact = candidate.artifact_checksum == baseline.artifact_checksum &&
+                             candidate.runtime_pattern_set_id == baseline.runtime_pattern_set_id;
+  const bool side_buckets_present = stats.by_side_assignment.contains("candidate_side_to_move") &&
+                                    stats.by_side_assignment.contains("candidate_opponent");
+  const bool same_artifact_side_swapped_tie =
+      same_artifact && args.side_swap && std::abs(stats.candidate_score_rate - 0.5) <= 0.000001 &&
+      std::abs(stats.average_disc_diff) <= 0.000001 && stats.illegal_or_failed_games == 0;
+  output << "{";
+  output << "\"same_artifact\": " << (same_artifact ? "true" : "false");
+  output << ", \"same_artifact_side_swapped_tie\": "
+         << (same_artifact_side_swapped_tie ? "true" : "false");
+  output << ", \"side_swap_enabled\": " << (args.side_swap ? "true" : "false");
+  output << ", \"side_swap_bucket_pair_present\": "
+         << (args.side_swap && side_buckets_present ? "true" : "false");
+  output << ", \"side_swap_sanity_supported\": true";
   output << "}";
 }
 
@@ -1621,12 +1716,50 @@ void write_depth_diagnostics(std::ostream& output,
     output << ", \"baseline_wins\": " << diagnostic.arena_stats.baseline_wins;
     output << ", \"draws\": " << diagnostic.arena_stats.draws;
     output << ", \"candidate_score_rate\": " << diagnostic.arena_stats.candidate_score_rate;
+    output << ", \"candidate_score_rate_interval_95\": {\"low\": "
+           << diagnostic.arena_stats.score_interval_low
+           << ", \"high\": " << diagnostic.arena_stats.score_interval_high
+           << ", \"method\": \"normal approximation over game scores\"}";
     output << ", \"average_disc_diff_candidate_perspective\": "
            << diagnostic.arena_stats.average_disc_diff;
+    output << ", \"failed_games\": " << diagnostic.arena_stats.failed_games;
+    output << ", \"illegal_games\": " << diagnostic.arena_stats.illegal_games;
+    output << ", \"illegal_or_failed_games\": " << diagnostic.arena_stats.illegal_or_failed_games;
     output << ", \"best_move_disagreement_count\": " << diagnostic.best_move_disagreement_count;
     output << ", \"best_move_disagreement_rate\": " << diagnostic.best_move_disagreement_rate;
     output << ", \"search_score_diff_mean\": " << diagnostic.search_score_diff_mean;
     output << ", \"search_score_diff_abs_mean\": " << diagnostic.search_score_diff_abs_mean;
+    output << "}";
+  }
+  output << "}";
+}
+
+void write_depth_arena_stats(std::ostream& output,
+                             const std::map<int, ArenaStats>& stats_by_depth) {
+  output << "{";
+  bool first = true;
+  for (const auto& [depth, stats] : stats_by_depth) {
+    if (!first) {
+      output << ", ";
+    }
+    first = false;
+    write_json_string(output, std::to_string(depth));
+    output << ": {";
+    output << "\"games_played\": " << stats.games_played;
+    output << ", \"candidate_wins\": " << stats.candidate_wins;
+    output << ", \"candidate_losses\": " << stats.baseline_wins;
+    output << ", \"baseline_wins\": " << stats.baseline_wins;
+    output << ", \"draws\": " << stats.draws;
+    output << ", \"candidate_score\": " << stats.candidate_score;
+    output << ", \"candidate_score_rate\": " << stats.candidate_score_rate;
+    output << ", \"candidate_score_rate_interval_95\": {\"low\": " << stats.score_interval_low
+           << ", \"high\": " << stats.score_interval_high
+           << ", \"method\": \"normal approximation over game scores\"}";
+    output << ", \"average_disc_diff_candidate_perspective\": " << stats.average_disc_diff;
+    output << ", \"median_disc_diff_candidate_perspective\": " << stats.median_disc_diff;
+    output << ", \"failed_games\": " << stats.failed_games;
+    output << ", \"illegal_games\": " << stats.illegal_games;
+    output << ", \"illegal_or_failed_games\": " << stats.illegal_or_failed_games;
     output << "}";
   }
   output << "}";
@@ -1712,8 +1845,17 @@ bool write_diagnostics_report(const Args& args, const LoadedEvaluator& candidate
   output << "  \"positions_tsv_checksum\": ";
   write_json_string(output, positions_checksum);
   output << ",\n";
+  output << "  \"candidate\": ";
+  write_artifact_identity(output, candidate);
+  output << ",\n";
+  output << "  \"baseline\": ";
+  write_artifact_identity(output, baseline);
+  output << ",\n";
   output << "  \"candidate_name\": ";
   write_json_string(output, candidate.name);
+  output << ",\n";
+  output << "  \"candidate_artifact_id\": ";
+  write_json_string(output, candidate.artifact_id);
   output << ",\n";
   output << "  \"candidate_manifest_pattern_set_id\": ";
   write_json_string(output, candidate.manifest_pattern_set_id);
@@ -1726,6 +1868,9 @@ bool write_diagnostics_report(const Args& args, const LoadedEvaluator& candidate
   output << ",\n";
   output << "  \"baseline_name\": ";
   write_json_string(output, baseline.name);
+  output << ",\n";
+  output << "  \"baseline_artifact_id\": ";
+  write_json_string(output, baseline.artifact_id);
   output << ",\n";
   output << "  \"baseline_manifest_pattern_set_id\": ";
   write_json_string(output, baseline.manifest_pattern_set_id);
@@ -1849,11 +1994,12 @@ bool write_diagnostics_report(const Args& args, const LoadedEvaluator& candidate
   return true;
 }
 
-std::string
-make_report_without_checksum(const Args& args, const LoadedEvaluator& candidate,
-                             const LoadedEvaluator& baseline, const PositionLoadResult& positions,
-                             const ArenaStats& stats, std::string_view positions_checksum,
-                             std::string_view command, double wall_time_sec, double games_per_sec) {
+std::string make_report_without_checksum(
+    const Args& args, const LoadedEvaluator& candidate, const LoadedEvaluator& baseline,
+    const PositionLoadResult& positions, const ArenaStats& stats,
+    std::string_view positions_checksum, const std::map<int, ArenaStats>& depth_arena_stats,
+    std::string_view command, double primary_wall_time_sec, double primary_games_per_sec,
+    double total_wall_time_sec, double total_games_per_sec) {
   std::ostringstream output;
   output << std::fixed << std::setprecision(6);
   output << "{\n";
@@ -1867,8 +2013,17 @@ make_report_without_checksum(const Args& args, const LoadedEvaluator& candidate,
   output << "  \"positions_tsv_checksum\": ";
   write_json_string(output, positions_checksum);
   output << ",\n";
+  output << "  \"candidate\": ";
+  write_artifact_identity(output, candidate);
+  output << ",\n";
+  output << "  \"baseline\": ";
+  write_artifact_identity(output, baseline);
+  output << ",\n";
   output << "  \"candidate_name\": ";
   write_json_string(output, candidate.name);
+  output << ",\n";
+  output << "  \"candidate_artifact_id\": ";
+  write_json_string(output, candidate.artifact_id);
   output << ",\n";
   output << "  \"candidate_weights_path\": ";
   write_json_string(output, candidate.weights_path);
@@ -1881,6 +2036,9 @@ make_report_without_checksum(const Args& args, const LoadedEvaluator& candidate,
   output << ",\n";
   output << "  \"baseline_name\": ";
   write_json_string(output, baseline.name);
+  output << ",\n";
+  output << "  \"baseline_artifact_id\": ";
+  write_json_string(output, baseline.artifact_id);
   output << ",\n";
   output << "  \"baseline_weights_path\": ";
   write_json_string(output, baseline.weights_path);
@@ -1899,13 +2057,21 @@ make_report_without_checksum(const Args& args, const LoadedEvaluator& candidate,
   }
   output << "  \"seed\": " << args.seed << ",\n";
   output << "  \"side_swap\": " << (args.side_swap ? "true" : "false") << ",\n";
+  output << "  \"search_config\": ";
+  write_search_config(output, args.depth);
+  output << ",\n";
+  output << "  \"depth\": " << args.depth << ",\n";
   output << "  \"search_depth\": " << args.depth << ",\n";
+  output << "  \"depth_sweep\": ";
+  write_depth_list(output, args.depth_sweep);
+  output << ",\n";
   output << "  \"input_rows\": " << positions.input_rows << ",\n";
   output << "  \"eligible_rows\": " << positions.eligible_rows << ",\n";
   output << "  \"duplicate_board_id_rows\": " << positions.duplicate_board_id_rows << ",\n";
   output << "  \"selected_positions\": " << positions.selected.size() << ",\n";
   output << "  \"games_played\": " << stats.games_played << ",\n";
   output << "  \"candidate_wins\": " << stats.candidate_wins << ",\n";
+  output << "  \"candidate_losses\": " << stats.baseline_wins << ",\n";
   output << "  \"baseline_wins\": " << stats.baseline_wins << ",\n";
   output << "  \"draws\": " << stats.draws << ",\n";
   output << "  \"candidate_score\": " << stats.candidate_score << ",\n";
@@ -1931,9 +2097,19 @@ make_report_without_checksum(const Args& args, const LoadedEvaluator& candidate,
   output << "  \"results_by_side_assignment\": ";
   write_bucket_map(output, stats.by_side_assignment);
   output << ",\n";
+  output << "  \"results_by_depth\": ";
+  write_depth_arena_stats(output, depth_arena_stats);
+  output << ",\n";
   output << "  \"illegal_or_failed_games\": " << stats.illegal_or_failed_games << ",\n";
-  output << "  \"wall_time_sec\": " << wall_time_sec << ",\n";
-  output << "  \"games_per_sec\": " << games_per_sec << ",\n";
+  output << "  \"failed_games\": " << stats.failed_games << ",\n";
+  output << "  \"illegal_games\": " << stats.illegal_games << ",\n";
+  output << "  \"sanity_checks\": ";
+  write_sanity_checks(output, args, candidate, baseline, stats);
+  output << ",\n";
+  output << "  \"primary_wall_time_sec\": " << primary_wall_time_sec << ",\n";
+  output << "  \"primary_games_per_sec\": " << primary_games_per_sec << ",\n";
+  output << "  \"total_wall_time_sec\": " << total_wall_time_sec << ",\n";
+  output << "  \"total_games_per_sec\": " << total_games_per_sec << ",\n";
   output << "  \"command\": ";
   write_json_string(output, command);
   output << ",\n";
@@ -1946,10 +2122,12 @@ make_report_without_checksum(const Args& args, const LoadedEvaluator& candidate,
 bool write_report(const Args& args, const LoadedEvaluator& candidate,
                   const LoadedEvaluator& baseline, const PositionLoadResult& positions,
                   const ArenaStats& stats, std::string_view positions_checksum,
-                  std::string_view command, double wall_time_sec, double games_per_sec) {
-  const std::string report_without_checksum =
-      make_report_without_checksum(args, candidate, baseline, positions, stats, positions_checksum,
-                                   command, wall_time_sec, games_per_sec);
+                  const std::map<int, ArenaStats>& depth_arena_stats, std::string_view command,
+                  double primary_wall_time_sec, double primary_games_per_sec,
+                  double total_wall_time_sec, double total_games_per_sec) {
+  const std::string report_without_checksum = make_report_without_checksum(
+      args, candidate, baseline, positions, stats, positions_checksum, depth_arena_stats, command,
+      primary_wall_time_sec, primary_games_per_sec, total_wall_time_sec, total_games_per_sec);
   const std::string report_checksum = checksum_for(report_without_checksum);
   std::ofstream output(args.report_out_path);
   if (!output) {
@@ -2034,20 +2212,21 @@ bool write_summary(const Args& args, const LoadedEvaluator& candidate,
   output << "\n## Results By Phase\n\n";
   write_summary_bucket_table(output, stats.by_phase);
   output << "\n## Caveats\n\n";
-  output << "- This is a local artifact-vs-artifact late-game diagnostic.\n";
+  output << "- This is a local-only artifact-vs-artifact evaluation harness report.\n";
   output << "- This is not an Elo result.\n";
   output << "- This is not a production strength claim.\n";
-  output << "- This is not self-play.\n";
-  output << "- This is not a publication gate.\n";
+  output << "- This is not a self-play strength claim.\n";
+  output << "- This is not an artifact promotion or default-pointer decision.\n";
   output << "- Generated arena reports, logs, weights, artifacts, and corpus payloads must not be "
             "committed.\n";
   output << "- Treat small N as weak even when the score rate is positive.\n\n";
   output << "## Command\n\n";
   output << "```sh\n" << command << "\n```\n\n";
-  output << "## Next Recommendation\n\n";
-  output << "Use the result as a local diagnostic gate only. A positive signal should be repeated "
+  output << "## Follow-up\n\n";
+  output << "Use the result as a local harness diagnostic only. A positive local direction should "
+            "be repeated "
             "with a larger selected position set and reviewed by split, phase, and empty-count "
-            "buckets before making any production-facing claim.\n";
+            "buckets before drawing follow-up engineering conclusions.\n";
   return true;
 }
 
@@ -2083,17 +2262,21 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const auto start = std::chrono::steady_clock::now();
+  const auto total_start = std::chrono::steady_clock::now();
+  const auto primary_start = std::chrono::steady_clock::now();
   const std::vector<GameResult> results =
       play_selected_games(positions->selected, *candidate, *baseline, args->side_swap, args->depth,
                           args->progress_every, "pattern-artifact-arena");
-  const auto end = std::chrono::steady_clock::now();
-  const double wall_time_sec = std::chrono::duration<double>(end - start).count();
-  const double games_per_sec =
-      wall_time_sec > 0.0 ? static_cast<double>(results.size()) / wall_time_sec : 0.0;
+  const auto primary_end = std::chrono::steady_clock::now();
+  const double primary_wall_time_sec =
+      std::chrono::duration<double>(primary_end - primary_start).count();
+  const double primary_games_per_sec =
+      primary_wall_time_sec > 0.0 ? static_cast<double>(results.size()) / primary_wall_time_sec
+                                  : 0.0;
 
   const ArenaStats stats = summarize_results(results);
   std::map<int, ArenaStats> depth_arena_stats;
+  depth_arena_stats[args->depth] = stats;
   for (const search::Depth depth : args->depth_sweep) {
     if (depth == args->depth) {
       depth_arena_stats[depth] = stats;
@@ -2104,6 +2287,14 @@ int main(int argc, char** argv) {
                             "pattern-artifact-arena-depth-sweep");
     depth_arena_stats[depth] = summarize_results(depth_results);
   }
+  const auto total_end = std::chrono::steady_clock::now();
+  const double total_wall_time_sec = std::chrono::duration<double>(total_end - total_start).count();
+  int total_games = 0;
+  for (const auto& [depth, depth_stats] : depth_arena_stats) {
+    total_games += depth_stats.games_played;
+  }
+  const double total_games_per_sec =
+      total_wall_time_sec > 0.0 ? static_cast<double>(total_games) / total_wall_time_sec : 0.0;
   const std::filesystem::path report_parent =
       std::filesystem::path(args->report_out_path).parent_path();
   if (!report_parent.empty()) {
@@ -2114,8 +2305,9 @@ int main(int argc, char** argv) {
   if (!summary_parent.empty()) {
     std::filesystem::create_directories(summary_parent);
   }
-  if (!write_report(*args, *candidate, *baseline, *positions, stats, positions_checksum, command,
-                    wall_time_sec, games_per_sec)) {
+  if (!write_report(*args, *candidate, *baseline, *positions, stats, positions_checksum,
+                    depth_arena_stats, command, primary_wall_time_sec, primary_games_per_sec,
+                    total_wall_time_sec, total_games_per_sec)) {
     return 1;
   }
   if (!write_summary(*args, *candidate, *baseline, *positions, stats, command)) {

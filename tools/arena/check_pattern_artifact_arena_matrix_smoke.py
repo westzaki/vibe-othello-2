@@ -250,8 +250,19 @@ def check_matrix_report(report: dict[str, Any]) -> None:
         raise AssertionError(f"unexpected total games: {report.get('total_games')}")
     if report.get("total_failed_games") != 0:
         raise AssertionError(f"unexpected failed games: {report.get('total_failed_games')}")
-    if report.get("recommendation", {}).get("category") != "promote_to_experimental_default_candidate":
-        raise AssertionError(f"unexpected recommendation: {report.get('recommendation')}")
+    if report.get("local_assessment", {}).get("category") != "local_harness_passed":
+        raise AssertionError(f"unexpected local assessment: {report.get('local_assessment')}")
+    if "recommendation" in report or "allowed_recommendations" in report or "allowed_local_assessments" in report:
+        raise AssertionError(f"matrix report should not use ambiguous recommendation keys: {report}")
+    if report.get("allowed_overall_local_assessments") != [
+        "local_harness_passed",
+        "local_harness_needs_more_runs",
+        "local_harness_failed",
+    ]:
+        raise AssertionError(
+            f"overall assessment enum mismatch: {report.get('allowed_overall_local_assessments')}"
+        )
+    allowed_group = set(report.get("allowed_group_local_assessments", []))
     if report.get("same_artifact_sanity", {}).get("passed") is not True:
         raise AssertionError(f"same-artifact sanity failed: {report.get('same_artifact_sanity')}")
     if report.get("swap_sanity", {}).get("passed") is not True:
@@ -264,6 +275,11 @@ def check_matrix_report(report: dict[str, Any]) -> None:
         raise AssertionError(f"move vs exact games mismatch: {move_exact}")
     if abs(float(move_exact.get("mean_score_rate")) - 0.51) > 1.0e-12:
         raise AssertionError(f"move vs exact mean score mismatch: {move_exact}")
+    if move_exact.get("local_assessment") != "local_signal_non_negative_or_supportive":
+        raise AssertionError(f"move vs exact local assessment mismatch: {move_exact}")
+    for data in by_comparison.values():
+        if data.get("local_assessment") not in allowed_group:
+            raise AssertionError(f"group assessment is not declared in enum: {data}")
 
 
 def check_success_and_resume(args: argparse.Namespace, root: Path) -> None:
