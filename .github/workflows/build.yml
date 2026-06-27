@@ -72,7 +72,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          mapfile -t files < <(find engine tools -type f \( -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
+          mapfile -t files < <(find engine tools wasm -type f \( -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
           clang-format --dry-run --Werror "${files[@]}"
 
       - name: Configure compile commands
@@ -84,5 +84,5 @@ jobs:
       - name: Run clang-tidy
         continue-on-error: true
         run: |
-          mapfile -t files < <(find engine/src engine/tests tools -type f -name '*.cc' -print)
+          mapfile -t files < <(find engine/src engine/tests tools wasm -type f -name '*.cc' -print)
           clang-tidy -p build-tidy "${files[@]}"
