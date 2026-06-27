@@ -137,8 +137,7 @@ tools/
 
 Applications live under apps/.
 
-The current repository has only the applications README. Add application
-subdirectories here as user-facing apps are introduced.
+Application subdirectories own user-facing entry points.
 
 ```text
 apps/

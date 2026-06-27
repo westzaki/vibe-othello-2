@@ -12,6 +12,8 @@ Read only the document needed for the current task.
 | Board core implementation status | `progress/board-core.md` |
 | Search design | `architecture/search.md` |
 | Search implementation status | `progress/search.md` |
+| Web app and WASM architecture | `architecture/web-app.md` |
+| Web app and WASM implementation status | `progress/web-app.md` |
 | Endgame architecture | `architecture/endgame.md` |
 | Endgame implementation status | `progress/endgame.md` |
 | 20-empty endgame experiment notes | `experiments/endgame-high-empty-20.md` |
