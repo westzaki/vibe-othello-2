@@ -1,0 +1,14 @@
+if(NOT TARGET Catch2::Catch2WithMain)
+  message(FATAL_ERROR "wasm adapter tests require Catch2::Catch2WithMain")
+endif()
+
+add_executable(vibe_othello_wasm_adapter_tests wasm_api_tests.cc)
+
+target_link_libraries(
+  vibe_othello_wasm_adapter_tests PRIVATE vibe_othello::wasm_adapter
+                                          vibe_othello::engine
+                                          Catch2::Catch2WithMain)
+
+target_compile_features(vibe_othello_wasm_adapter_tests PRIVATE cxx_std_20)
+
+add_test(NAME vibe_othello_wasm_adapter_tests COMMAND vibe_othello_wasm_adapter_tests)

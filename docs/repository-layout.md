@@ -12,6 +12,7 @@ repo/
 ├─ docs/
 ├─ data/
 ├─ engine/
+├─ wasm/
 ├─ tools/
 ├─ apps/
 ├─ .clang-format
@@ -28,6 +29,7 @@ repo/
 | `docs/` | Architecture, progress, layout, style, and review documents |
 | `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |
 | `engine/` | Native C++ Othello engine static library |
+| `wasm/` | Native-buildable C ABI adapters for browser/WASM-facing engine boundaries |
 | `tools/` | Developer and validation command-line tools |
 | `apps/` | User-facing applications |
 | `.clang-format` | C++ formatting rules |
@@ -131,6 +133,25 @@ tools/
 │  └─ main.cc
 └─ engine-smoke/
    └─ main.cc
+```
+
+## WASM Adapter Layout
+
+`wasm/` owns native-buildable C ABI adapters for browser/WASM-facing engine
+boundaries. It links against engine public APIs and must not duplicate engine
+rules.
+
+The current adapter exposes board-core operations only. It does not own
+generated `.wasm` or `.mjs` output, TypeScript wrappers, Web Worker protocols,
+React, Vite, GitHub Pages workflows, search bindings, or evaluation bindings.
+
+```text
+wasm/
+├─ README.md
+├─ CMakeLists.txt
+├─ include/
+├─ src/
+└─ tests/
 ```
 
 ## Apps Layout
