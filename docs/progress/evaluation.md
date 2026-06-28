@@ -57,6 +57,12 @@ validation, embedded binary checksum validation, pattern set, phase count, score
 unit, score scale, and pattern table layout validation before constructing
 runtime weights for `PatternEvaluator`.
 
+The WASM C ABI and plain JavaScript `WasmCore` wrapper can load manifest text
+plus weights bytes through the in-memory loader, keep the resulting
+`PatternEvaluator` behind an opaque WASM-side handle, evaluate positions, and
+run bounded best-move search with that evaluator. Browser Worker fetching from
+`/eval/default-artifact.json` and React CPU opponent UI are not wired yet.
+
 The engine CLI uses the committed default artifact unless an explicit override
 is supplied. `--eval-artifact` selects a specific artifact manifest.
 `--eval-mode static` forces the legacy static evaluator. Loader failure is loud:
@@ -74,7 +80,7 @@ Runtime evaluation still lacks:
 * an evaluation explanation API for tools and UI
 * a calibration API for display-only score views
 * native/WASM parity coverage for fixed evaluator fixtures
-* browser/WASM artifact fetching and adapter binding for the in-memory loader
+* browser Worker artifact fetching for the WASM evaluator path
 * an incremental evaluator state path, if benchmarks later justify one
 * a separately promoted production baseline evaluator beyond the legacy static
   override
@@ -92,7 +98,7 @@ Keep upcoming work limited to unfinished items:
 
 * add explanation support outside the recursive search hot path
 * add calibration support without changing recursive search scores
-* add native/WASM parity checks once the WASM evaluator path is in scope
+* broaden native/WASM parity checks for fixed evaluator fixtures
 * decide whether an incremental evaluator state is needed from benchmarks
 * define the evidence required before any learned artifact can claim production
   strength

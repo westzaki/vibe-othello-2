@@ -42,10 +42,25 @@ if(VIBE_OTHELLO_BUILD_WASM_MODULE)
     _vibe_othello_wasm_offsetof_apply_result_legal_moves
     _vibe_othello_wasm_offsetof_apply_result_has_legal_move
     _vibe_othello_wasm_offsetof_apply_result_is_terminal
+    _vibe_othello_wasm_sizeof_search_result
+    _vibe_othello_wasm_offsetof_search_result_status
+    _vibe_othello_wasm_offsetof_search_result_has_best_move
+    _vibe_othello_wasm_offsetof_search_result_best_move_square
+    _vibe_othello_wasm_offsetof_search_result_is_pass
+    _vibe_othello_wasm_offsetof_search_result_score
+    _vibe_othello_wasm_offsetof_search_result_completed_depth
+    _vibe_othello_wasm_offsetof_search_result_nodes
+    _vibe_othello_wasm_offsetof_search_result_elapsed_ms
+    _vibe_othello_wasm_offsetof_search_result_stopped
+    _vibe_othello_wasm_offsetof_search_result_exact
     _vibe_othello_wasm_initial_position
     _vibe_othello_wasm_query_position
     _vibe_othello_wasm_apply_move
     _vibe_othello_wasm_apply_pass
+    _vibe_othello_wasm_load_eval_artifact
+    _vibe_othello_wasm_free_eval_artifact
+    _vibe_othello_wasm_evaluate_position
+    _vibe_othello_wasm_search_best_move
     _malloc
     _free)
   list(TRANSFORM VIBE_OTHELLO_WASM_MODULE_EXPORTED_FUNCTIONS_LIST PREPEND "'")
@@ -63,6 +78,8 @@ if(VIBE_OTHELLO_BUILD_WASM_MODULE)
       "SHELL:-sENVIRONMENT=web,worker,node"
       "SHELL:-sEXPORTED_FUNCTIONS=${VIBE_OTHELLO_WASM_MODULE_EXPORTED_FUNCTIONS}"
       "SHELL:-sEXPORTED_RUNTIME_METHODS=HEAPU8"
+      "SHELL:-sALLOW_MEMORY_GROWTH=1"
+      "SHELL:-sSTACK_SIZE=1MB"
       "SHELL:-Wl,-u,vibe_othello_wasm_abi_version")
 
   if(BUILD_TESTING)

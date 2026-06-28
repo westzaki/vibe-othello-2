@@ -11,6 +11,10 @@
 #define VIBE_OTHELLO_WASM_STATUS_INVALID_MOVE 3u
 #define VIBE_OTHELLO_WASM_STATUS_ILLEGAL_MOVE 4u
 #define VIBE_OTHELLO_WASM_STATUS_ILLEGAL_PASS 5u
+#define VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT 6u
+#define VIBE_OTHELLO_WASM_STATUS_ARTIFACT_LOAD_FAILED 7u
+#define VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED 8u
+#define VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED 9u
 
 #define VIBE_OTHELLO_WASM_SIDE_BLACK 0u
 #define VIBE_OTHELLO_WASM_SIDE_WHITE 1u
@@ -43,6 +47,20 @@ typedef struct vibe_othello_wasm_apply_result {
   uint8_t has_legal_move;
   uint8_t is_terminal;
 } vibe_othello_wasm_apply_result;
+
+typedef struct vibe_othello_wasm_search_result {
+  uint32_t status;
+  uint8_t has_best_move;
+  uint8_t best_move_square;
+  uint8_t is_pass;
+  uint8_t reserved0;
+  int32_t score;
+  uint32_t completed_depth;
+  uint64_t nodes;
+  uint32_t elapsed_ms;
+  uint8_t stopped;
+  uint8_t exact;
+} vibe_othello_wasm_search_result;
 
 uint32_t vibe_othello_wasm_abi_version(void) VIBE_OTHELLO_WASM_NOEXCEPT;
 
@@ -78,6 +96,28 @@ uint32_t vibe_othello_wasm_offsetof_apply_result_has_legal_move(void) VIBE_OTHEL
 
 uint32_t vibe_othello_wasm_offsetof_apply_result_is_terminal(void) VIBE_OTHELLO_WASM_NOEXCEPT;
 
+uint32_t vibe_othello_wasm_sizeof_search_result(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_status(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_has_best_move(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_best_move_square(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_is_pass(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_score(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_completed_depth(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_nodes(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_elapsed_ms(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_stopped(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_exact(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
 uint32_t vibe_othello_wasm_initial_position(vibe_othello_wasm_position* out_position)
     VIBE_OTHELLO_WASM_NOEXCEPT;
 
@@ -92,6 +132,22 @@ vibe_othello_wasm_apply_move(const vibe_othello_wasm_position* position, uint8_t
 uint32_t
 vibe_othello_wasm_apply_pass(const vibe_othello_wasm_position* position,
                              vibe_othello_wasm_apply_result* out_result) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t
+vibe_othello_wasm_load_eval_artifact(const uint8_t* manifest_text, uint32_t manifest_text_size,
+                                     const uint8_t* weights_bytes, uint32_t weights_bytes_size,
+                                     uintptr_t* out_eval_handle) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+void vibe_othello_wasm_free_eval_artifact(uintptr_t eval_handle) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_evaluate_position(uintptr_t eval_handle,
+                                             const vibe_othello_wasm_position* position,
+                                             int32_t* out_score) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_search_best_move(
+    uintptr_t eval_handle, const vibe_othello_wasm_position* position, uint32_t max_depth,
+    uint32_t max_nodes, uint32_t max_time_ms,
+    vibe_othello_wasm_search_result* out_result) VIBE_OTHELLO_WASM_NOEXCEPT;
 
 #ifdef __cplusplus
 } // extern "C"

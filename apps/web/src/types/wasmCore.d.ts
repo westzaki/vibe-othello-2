@@ -18,6 +18,31 @@ declare module "@vibe-othello/wasm-core" {
     flipped: bigint;
   }
 
+  export interface WasmSearchLimits {
+    maxDepth?: number;
+    maxNodes?: number;
+    maxTimeMs?: number;
+  }
+
+  export interface WasmSearchResult {
+    hasBestMove: boolean;
+    bestMoveSquare: number | null;
+    isPass: boolean;
+    score: number;
+    completedDepth: number;
+    nodes: bigint;
+    elapsedMs: number;
+    stopped: boolean;
+    exact: boolean;
+  }
+
+  export class WasmEvaluationArtifact {
+    private constructor();
+    evaluatePosition(position: WasmPosition): number;
+    searchBestMove(position: WasmPosition, limits: WasmSearchLimits): WasmSearchResult;
+    free(): void;
+  }
+
   export interface EmscriptenModule {
     HEAPU8: Uint8Array;
     [name: string]: unknown;
@@ -43,5 +68,9 @@ declare module "@vibe-othello/wasm-core" {
     queryPosition(position: WasmPosition): WasmPositionQuery;
     applyMove(position: WasmPosition, squareIndex: number): WasmApplyMoveResult;
     applyPass(position: WasmPosition): WasmApplyMoveResult;
+    loadEvaluationArtifact(
+      manifestText: string,
+      weightsBytes: Uint8Array | ArrayBuffer,
+    ): WasmEvaluationArtifact;
   }
 }
