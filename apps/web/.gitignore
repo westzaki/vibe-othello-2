@@ -1,0 +1,4 @@
+node_modules/
+dist/
+public/wasm/*.mjs
+public/wasm/*.wasm
