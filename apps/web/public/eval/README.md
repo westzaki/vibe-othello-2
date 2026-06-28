@@ -7,7 +7,7 @@ runs, Web CI, and GitHub Pages builds.
 the default artifact pointer. Files copied here are app runtime assets only and
 are intentionally ignored by git.
 
-Future browser/WASM artifact loading will fetch the default pointer from:
+The browser Worker fetches the default pointer from:
 
 ```text
 eval/default-artifact.json
