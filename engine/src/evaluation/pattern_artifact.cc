@@ -31,6 +31,23 @@ struct ArtifactManifestFields {
   std::string weights_checksum;
 };
 
+struct LoadedPatternArtifactCore {
+  std::string artifact_id;
+  std::string pattern_set_id;
+  std::string weights_checksum;
+  PatternWeights weights;
+  PatternFeatureSet feature_set;
+};
+
+struct PatternArtifactCoreLoadResult {
+  std::optional<LoadedPatternArtifactCore> artifact;
+  std::string error;
+
+  [[nodiscard]] bool ok() const noexcept {
+    return artifact.has_value();
+  }
+};
+
 struct PatternRuntime {
   const PatternSet* pattern_set = nullptr;
   PatternFeatureSet feature_set;
@@ -38,6 +55,14 @@ struct PatternRuntime {
 
 [[nodiscard]] PatternArtifactLoadResult fail(std::string error) {
   return PatternArtifactLoadResult{.artifact = std::nullopt, .error = std::move(error)};
+}
+
+[[nodiscard]] PatternArtifactBytesLoadResult fail_bytes(std::string error) {
+  return PatternArtifactBytesLoadResult{.artifact = std::nullopt, .error = std::move(error)};
+}
+
+[[nodiscard]] PatternArtifactCoreLoadResult fail_core(std::string error) {
+  return PatternArtifactCoreLoadResult{.artifact = std::nullopt, .error = std::move(error)};
 }
 
 [[nodiscard]] std::optional<std::string> read_text_file(const std::filesystem::path& path,
@@ -232,11 +257,11 @@ read_binary_file(const std::filesystem::path& path) {
 }
 
 [[nodiscard]] std::optional<ArtifactManifestFields>
-parse_manifest_fields(std::string_view manifest_text, const std::filesystem::path& manifest_path,
-                      std::string* error) {
-  const std::string manifest_label = manifest_path.generic_string();
+parse_manifest_fields(std::string_view manifest_text, std::string_view manifest_label,
+                      std::string artifact_id_fallback, std::string* error) {
+  const std::string manifest_label_string{manifest_label};
   if (const std::optional<std::string> contract_error =
-          validate_manifest_contract(manifest_text, manifest_label);
+          validate_manifest_contract(manifest_text, manifest_label_string);
       contract_error.has_value()) {
     *error = *contract_error;
     return std::nullopt;
@@ -245,27 +270,28 @@ parse_manifest_fields(std::string_view manifest_text, const std::filesystem::pat
   const std::optional<std::string> artifact_id = json_string_field(manifest_text, "artifact_id");
   const std::string resolved_artifact_id = artifact_id.has_value() && !artifact_id->empty()
                                                ? *artifact_id
-                                               : manifest_path.stem().generic_string();
+                                               : std::move(artifact_id_fallback);
   const std::optional<std::string> pattern_set_id =
       json_string_field(manifest_text, "pattern_set_id");
   if (!pattern_set_id.has_value() || pattern_set_id->empty()) {
-    *error = manifest_label + ": missing string field pattern_set_id";
+    *error = manifest_label_string + ": missing string field pattern_set_id";
     return std::nullopt;
   }
   const std::optional<std::string> weights_file = json_string_field(manifest_text, "weights_file");
   if (!weights_file.has_value() || weights_file->empty()) {
-    *error = manifest_label + ": missing string field weights_file";
+    *error = manifest_label_string + ": missing string field weights_file";
     return std::nullopt;
   }
   std::filesystem::path weights_path{*weights_file};
   if (weights_path.is_absolute() || path_has_parent_reference(weights_path)) {
-    *error = manifest_label + ": weights_file must be relative and stay inside the artifact dir";
+    *error =
+        manifest_label_string + ": weights_file must be relative and stay inside the artifact dir";
     return std::nullopt;
   }
   const std::optional<std::string> weights_checksum =
       json_string_field(manifest_text, "weights_checksum");
   if (!weights_checksum.has_value() || weights_checksum->empty()) {
-    *error = manifest_label + ": missing string field weights_checksum";
+    *error = manifest_label_string + ": missing string field weights_checksum";
     return std::nullopt;
   }
   return ArtifactManifestFields{
@@ -273,6 +299,56 @@ parse_manifest_fields(std::string_view manifest_text, const std::filesystem::pat
       .pattern_set_id = *pattern_set_id,
       .weights_file = std::move(weights_path),
       .weights_checksum = *weights_checksum,
+  };
+}
+
+[[nodiscard]] PatternArtifactCoreLoadResult
+load_pattern_artifact_core(const ArtifactManifestFields& fields, std::string_view manifest_label,
+                           std::string_view weights_label, std::span<const std::uint8_t> artifact) {
+  std::optional<PatternRuntime> runtime = pattern_runtime_for_id(fields.pattern_set_id);
+  if (!runtime.has_value()) {
+    return fail_core("unsupported pattern_set_id in artifact manifest: " + fields.pattern_set_id);
+  }
+  if (artifact.size() < sizeof(std::uint32_t)) {
+    return fail_core("artifact weights are too small: " + std::string(weights_label));
+  }
+
+  const std::string checksum = runtime_checksum_string(artifact);
+  if (checksum != fields.weights_checksum) {
+    return fail_core("artifact checksum mismatch for " + std::string(manifest_label) +
+                     ": manifest " + fields.weights_checksum + ", actual " + checksum);
+  }
+
+  const PatternManifest manifest{
+      .format_version = kPatternWeightFormatVersion,
+      .bit_order = PatternBitOrder::a1_lsb,
+      .score_unit = PatternScoreUnit::disc_diff,
+      .score_scale = 1,
+      .phase_count = kRuntimePhaseCount,
+      .pattern_set_id = runtime->pattern_set->id,
+      .patterns = runtime->pattern_set->patterns,
+  };
+  const PatternWeightsLoadResult loaded = load_pattern_weights(manifest, artifact);
+  if (!loaded.ok()) {
+    return fail_core("runtime loader rejected artifact: " + std::string(manifest_label));
+  }
+  std::optional<PatternWeights> weights =
+      make_pattern_weights(*loaded.weights, phase_by_disc_count_13());
+  if (!weights.has_value()) {
+    return fail_core("loaded artifact could not be converted to runtime weights: " +
+                     std::string(manifest_label));
+  }
+
+  return PatternArtifactCoreLoadResult{
+      .artifact =
+          LoadedPatternArtifactCore{
+              .artifact_id = fields.artifact_id,
+              .pattern_set_id = fields.pattern_set_id,
+              .weights_checksum = fields.weights_checksum,
+              .weights = std::move(*weights),
+              .feature_set = std::move(runtime->feature_set),
+          },
+      .error = {},
   };
 }
 
@@ -285,15 +361,11 @@ load_pattern_artifact_impl(const std::filesystem::path& manifest_path,
   }
 
   std::string error;
-  std::optional<ArtifactManifestFields> fields =
-      parse_manifest_fields(*manifest_text, manifest_path, &error);
+  const std::string manifest_label = manifest_path.generic_string();
+  std::optional<ArtifactManifestFields> fields = parse_manifest_fields(
+      *manifest_text, manifest_label, manifest_path.stem().generic_string(), &error);
   if (!fields.has_value()) {
     return fail(std::move(error));
-  }
-
-  std::optional<PatternRuntime> runtime = pattern_runtime_for_id(fields->pattern_set_id);
-  if (!runtime.has_value()) {
-    return fail("unsupported pattern_set_id in artifact manifest: " + fields->pattern_set_id);
   }
 
   const std::filesystem::path weights_path =
@@ -303,46 +375,24 @@ load_pattern_artifact_impl(const std::filesystem::path& manifest_path,
   if (!artifact.has_value()) {
     return fail("cannot read artifact weights: " + weights_path.generic_string());
   }
-  if (artifact->size() < sizeof(std::uint32_t)) {
-    return fail("artifact weights are too small: " + weights_path.generic_string());
-  }
 
-  const std::string checksum = runtime_checksum_string(*artifact);
-  if (checksum != fields->weights_checksum) {
-    return fail("artifact checksum mismatch for " + manifest_path.generic_string() + ": manifest " +
-                fields->weights_checksum + ", actual " + checksum);
-  }
-
-  const PatternManifest manifest{
-      .format_version = kPatternWeightFormatVersion,
-      .bit_order = PatternBitOrder::a1_lsb,
-      .score_unit = PatternScoreUnit::disc_diff,
-      .score_scale = 1,
-      .phase_count = kRuntimePhaseCount,
-      .pattern_set_id = runtime->pattern_set->id,
-      .patterns = runtime->pattern_set->patterns,
-  };
-  const PatternWeightsLoadResult loaded = load_pattern_weights(manifest, *artifact);
+  PatternArtifactCoreLoadResult loaded =
+      load_pattern_artifact_core(*fields, manifest_label, weights_path.generic_string(), *artifact);
   if (!loaded.ok()) {
-    return fail("runtime loader rejected artifact: " + manifest_path.generic_string());
-  }
-  std::optional<PatternWeights> weights =
-      make_pattern_weights(*loaded.weights, phase_by_disc_count_13());
-  if (!weights.has_value()) {
-    return fail("loaded artifact could not be converted to runtime weights: " +
-                manifest_path.generic_string());
+    return fail(std::move(loaded.error));
   }
 
+  LoadedPatternArtifactCore artifact_core = std::move(*loaded.artifact);
   return PatternArtifactLoadResult{
       .artifact =
           LoadedPatternArtifact{
-              .artifact_id = std::move(fields->artifact_id),
-              .pattern_set_id = std::move(fields->pattern_set_id),
-              .weights_checksum = std::move(fields->weights_checksum),
+              .artifact_id = std::move(artifact_core.artifact_id),
+              .pattern_set_id = std::move(artifact_core.pattern_set_id),
+              .weights_checksum = std::move(artifact_core.weights_checksum),
               .manifest_path = manifest_path,
               .weights_path = weights_path,
-              .weights = std::move(*weights),
-              .feature_set = std::move(runtime->feature_set),
+              .weights = std::move(artifact_core.weights),
+              .feature_set = std::move(artifact_core.feature_set),
           },
       .error = {},
   };
@@ -385,6 +435,40 @@ load_pattern_artifact(const std::filesystem::path& manifest_path,
 
 PatternArtifactLoadResult load_default_pattern_artifact(const std::filesystem::path& eval_root) {
   return resolve_default_manifest(eval_root);
+}
+
+PatternArtifactBytesLoadResult
+load_pattern_artifact_from_bytes(std::string_view manifest_text,
+                                 std::span<const std::uint8_t> weights_bytes,
+                                 std::string_view manifest_label) {
+  const std::string manifest_label_string{manifest_label};
+  std::string error;
+  std::optional<ArtifactManifestFields> fields = parse_manifest_fields(
+      manifest_text, manifest_label_string,
+      std::filesystem::path{manifest_label_string}.stem().generic_string(), &error);
+  if (!fields.has_value()) {
+    return fail_bytes(std::move(error));
+  }
+
+  const std::string weights_label = manifest_label_string + " weights";
+  PatternArtifactCoreLoadResult loaded =
+      load_pattern_artifact_core(*fields, manifest_label_string, weights_label, weights_bytes);
+  if (!loaded.ok()) {
+    return fail_bytes(std::move(loaded.error));
+  }
+
+  LoadedPatternArtifactCore artifact_core = std::move(*loaded.artifact);
+  return PatternArtifactBytesLoadResult{
+      .artifact =
+          LoadedPatternArtifactBytes{
+              .artifact_id = std::move(artifact_core.artifact_id),
+              .pattern_set_id = std::move(artifact_core.pattern_set_id),
+              .weights_checksum = std::move(artifact_core.weights_checksum),
+              .weights = std::move(artifact_core.weights),
+              .feature_set = std::move(artifact_core.feature_set),
+          },
+      .error = {},
+  };
 }
 
 } // namespace vibe_othello::evaluation

@@ -1,8 +1,10 @@
+#include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/serialization.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
 #include "vibe_othello/search/search.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstdint>
@@ -13,6 +15,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -138,6 +141,49 @@ std::filesystem::path committed_manifest_path() {
   return source_root() / "data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json";
 }
 
+std::filesystem::path committed_weights_path() {
+  return source_root() / "data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/weights.bin";
+}
+
+std::string read_text_or_fail(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  REQUIRE(input);
+  std::ostringstream buffer;
+  buffer << input.rdbuf();
+  const bool read_ok = input.good() || input.eof();
+  REQUIRE(read_ok);
+  return buffer.str();
+}
+
+std::vector<std::uint8_t> read_bytes_or_fail(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  REQUIRE(input);
+  input.seekg(0, std::ios::end);
+  const std::streamoff size = input.tellg();
+  REQUIRE(size >= 0);
+  input.seekg(0, std::ios::beg);
+
+  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+  input.read(reinterpret_cast<char*>(bytes.data()), size);
+  REQUIRE(input);
+  return bytes;
+}
+
+std::string replace_once(std::string text, std::string_view needle, std::string_view replacement) {
+  const std::size_t pos = text.find(needle);
+  REQUIRE(pos != std::string::npos);
+  text.replace(pos, needle.size(), std::string(replacement));
+  return text;
+}
+
+board_core::Position opening_move_position() {
+  board_core::Position position = board_core::initial_position();
+  board_core::MoveDelta delta{};
+  REQUIRE(board_core::apply_move(
+      &position, board_core::make_move(board_core::square_from_file_rank(2, 3)), &delta));
+  return position;
+}
+
 board_core::Position late_midgame_position() {
   const std::optional<board_core::Position> position = board_core::parse_position(
       "WWWWWB../.WWWBW../BBWBBW../BWWBB.W./BWBBBWW./BWBBB.W./.WWWWB../BW.WWWWW b");
@@ -170,6 +216,129 @@ TEST_CASE("explicit evaluation artifact manifest loads the same committed artifa
   REQUIRE(explicit_result.ok());
   REQUIRE(explicit_result.artifact->artifact_id == default_result.artifact->artifact_id);
   REQUIRE(explicit_result.artifact->weights_checksum == default_result.artifact->weights_checksum);
+}
+
+TEST_CASE("in-memory evaluation artifact loader matches filesystem loading",
+          "[evaluation][artifact]") {
+  const PatternArtifactLoadResult filesystem_result =
+      load_pattern_artifact(committed_manifest_path());
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  const PatternArtifactBytesLoadResult memory_result = load_pattern_artifact_from_bytes(
+      manifest_text, weights_bytes, committed_manifest_path().generic_string());
+
+  REQUIRE(filesystem_result.ok());
+  REQUIRE(memory_result.ok());
+  REQUIRE(memory_result.artifact->artifact_id == filesystem_result.artifact->artifact_id);
+  REQUIRE(memory_result.artifact->pattern_set_id == filesystem_result.artifact->pattern_set_id);
+  REQUIRE(memory_result.artifact->weights_checksum == filesystem_result.artifact->weights_checksum);
+
+  LoadedPatternArtifact filesystem_artifact = std::move(*filesystem_result.artifact);
+  LoadedPatternArtifactBytes memory_artifact = std::move(*memory_result.artifact);
+  PatternEvaluator filesystem_evaluator{std::move(filesystem_artifact.weights),
+                                        std::move(filesystem_artifact.feature_set)};
+  PatternEvaluator memory_evaluator{std::move(memory_artifact.weights),
+                                    std::move(memory_artifact.feature_set)};
+
+  const std::array<board_core::Position, 3> positions{
+      board_core::initial_position(),
+      opening_move_position(),
+      late_midgame_position(),
+  };
+  for (const board_core::Position position : positions) {
+    REQUIRE(memory_evaluator.evaluate(position) == filesystem_evaluator.evaluate(position));
+  }
+}
+
+TEST_CASE("in-memory evaluation artifact loader rejects invalid inputs", "[evaluation][artifact]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+
+  SECTION("bad format_version") {
+    const std::string manifest =
+        replace_once(manifest_text, "\"format_version\": 1", "\"format_version\": 2");
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest, weights_bytes, "bad-format-version.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("format_version must be 1") != std::string::npos);
+  }
+
+  SECTION("unknown pattern_set_id") {
+    const std::string manifest =
+        replace_once(manifest_text, "\"pattern_set_id\": \"pattern-v2-endgame-lite\"",
+                     "\"pattern_set_id\": \"unknown-pattern-set\"");
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest, weights_bytes, "unknown-pattern-set.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("unsupported pattern_set_id") != std::string::npos);
+  }
+
+  SECTION("checksum mismatch") {
+    std::vector<std::uint8_t> corrupt_weights = weights_bytes;
+    REQUIRE_FALSE(corrupt_weights.empty());
+    corrupt_weights.front() ^= 0xFFU;
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest_text, corrupt_weights, "checksum-mismatch.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("artifact checksum mismatch") != std::string::npos);
+  }
+
+  SECTION("truncated weights") {
+    std::vector<std::uint8_t> truncated_weights = weights_bytes;
+    truncated_weights.resize(24);
+    const std::string truncated_checksum = hex_u32(crc32(std::span<const std::uint8_t>{
+        truncated_weights.data(), truncated_weights.size() - sizeof(std::uint32_t)}));
+    const std::string manifest =
+        replace_once(manifest_text, "\"weights_checksum\": \"0x3d50ed72\"",
+                     "\"weights_checksum\": \"" + truncated_checksum + "\"");
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest, truncated_weights, "truncated-weights.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("runtime loader rejected artifact") != std::string::npos);
+  }
+
+  SECTION("missing weights_file") {
+    const std::string manifest =
+        replace_once(manifest_text, "  \"weights_file\": \"weights.bin\",\n", "");
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest, weights_bytes, "missing-weights-file.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("missing string field weights_file") != std::string::npos);
+  }
+
+  SECTION("parent traversal weights_file") {
+    const std::string manifest = replace_once(manifest_text, "\"weights_file\": \"weights.bin\"",
+                                              "\"weights_file\": \"../weights.bin\"");
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest, weights_bytes, "parent-weights-file.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("weights_file must be relative") != std::string::npos);
+  }
+
+#ifndef _WIN32
+  SECTION("absolute weights_file") {
+    const std::string manifest = replace_once(manifest_text, "\"weights_file\": \"weights.bin\"",
+                                              "\"weights_file\": \"/tmp/weights.bin\"");
+
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(manifest, weights_bytes, "absolute-weights-file.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("weights_file must be relative") != std::string::npos);
+  }
+#endif
 }
 
 TEST_CASE("default evaluation artifact fails loudly when the pointer target is missing",

@@ -49,10 +49,13 @@ The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
-`vibe_othello::evaluation::load_pattern_artifact`. The loader validates the
-default pointer, manifest paths, weights path, runtime checksum, embedded binary
-checksum, pattern set, phase count, score unit, score scale, and pattern table
-layout before constructing `PatternEvaluator`.
+`vibe_othello::evaluation::load_pattern_artifact` for filesystem artifacts, and
+`vibe_othello::evaluation::load_pattern_artifact_from_bytes` for an in-memory
+manifest text plus weights byte buffer. Both artifact paths share manifest
+contract validation, runtime pattern-set resolution, runtime checksum
+validation, embedded binary checksum validation, pattern set, phase count, score
+unit, score scale, and pattern table layout validation before constructing
+runtime weights for `PatternEvaluator`.
 
 The engine CLI uses the committed default artifact unless an explicit override
 is supplied. `--eval-artifact` selects a specific artifact manifest.
@@ -71,6 +74,7 @@ Runtime evaluation still lacks:
 * an evaluation explanation API for tools and UI
 * a calibration API for display-only score views
 * native/WASM parity coverage for fixed evaluator fixtures
+* browser/WASM artifact fetching and adapter binding for the in-memory loader
 * an incremental evaluator state path, if benchmarks later justify one
 * a separately promoted production baseline evaluator beyond the legacy static
   override
