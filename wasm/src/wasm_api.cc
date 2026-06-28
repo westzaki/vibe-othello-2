@@ -2,6 +2,8 @@
 
 #include "vibe_othello/board_core/board.h"
 
+#include <cstddef>
+
 namespace {
 
 using vibe_othello::board_core::Bitboard;
@@ -98,6 +100,70 @@ extern "C" {
 
 uint32_t vibe_othello_wasm_abi_version(void) noexcept {
   return VIBE_OTHELLO_WASM_ABI_VERSION;
+}
+
+uint32_t vibe_othello_wasm_sizeof_position(void) noexcept {
+  return sizeof(vibe_othello_wasm_position);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_player(void) noexcept {
+  return offsetof(vibe_othello_wasm_position, player);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_opponent(void) noexcept {
+  return offsetof(vibe_othello_wasm_position, opponent);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_side_to_move(void) noexcept {
+  return offsetof(vibe_othello_wasm_position, side_to_move);
+}
+
+uint32_t vibe_othello_wasm_sizeof_position_query(void) noexcept {
+  return sizeof(vibe_othello_wasm_position_query);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_query_status(void) noexcept {
+  return offsetof(vibe_othello_wasm_position_query, status);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_query_legal_moves(void) noexcept {
+  return offsetof(vibe_othello_wasm_position_query, legal_moves);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_query_has_legal_move(void) noexcept {
+  return offsetof(vibe_othello_wasm_position_query, has_legal_move);
+}
+
+uint32_t vibe_othello_wasm_offsetof_position_query_is_terminal(void) noexcept {
+  return offsetof(vibe_othello_wasm_position_query, is_terminal);
+}
+
+uint32_t vibe_othello_wasm_sizeof_apply_result(void) noexcept {
+  return sizeof(vibe_othello_wasm_apply_result);
+}
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_status(void) noexcept {
+  return offsetof(vibe_othello_wasm_apply_result, status);
+}
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_position(void) noexcept {
+  return offsetof(vibe_othello_wasm_apply_result, position);
+}
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_flipped(void) noexcept {
+  return offsetof(vibe_othello_wasm_apply_result, flipped);
+}
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_legal_moves(void) noexcept {
+  return offsetof(vibe_othello_wasm_apply_result, legal_moves);
+}
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_has_legal_move(void) noexcept {
+  return offsetof(vibe_othello_wasm_apply_result, has_legal_move);
+}
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_is_terminal(void) noexcept {
+  return offsetof(vibe_othello_wasm_apply_result, is_terminal);
 }
 
 uint32_t vibe_othello_wasm_initial_position(vibe_othello_wasm_position* out_position) noexcept {
