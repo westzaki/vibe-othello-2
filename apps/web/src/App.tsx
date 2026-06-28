@@ -109,7 +109,7 @@ function App() {
 
   async function applyPass() {
     const client = clientRef.current;
-    if (client === null || snapshot === null || busy) {
+    if (client === null || snapshot === null || busy || !canPass) {
       return;
     }
 
