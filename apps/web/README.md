@@ -36,6 +36,31 @@ tree into `apps/web/public/wasm/`.
 If the files are missing, the Vite build still works, but browser runtime engine
 initialization reports a readable error.
 
+## Runtime evaluation artifact assets
+
+The committed default evaluation artifact can be copied from `data/eval/` into:
+
+```text
+apps/web/public/eval/default-artifact.json
+apps/web/public/eval/artifacts/<artifact-id>/manifest.json
+apps/web/public/eval/artifacts/<artifact-id>/weights.bin
+```
+
+`data/eval/` remains the source of truth. `apps/web/public/eval/` is only an
+ignored runtime asset directory for local browser runs, Web CI, and GitHub
+Pages builds.
+
+Copy the current default artifact with:
+
+```sh
+cmake --build build-wasm --target vibe_othello_copy_web_eval_artifact_assets
+```
+
+Future browser/WASM artifact loading will fetch the default pointer from
+`${BASE_URL}eval/default-artifact.json`, then resolve the manifest and
+`weights.bin` from that static path. This app does not load evaluation artifacts
+from WASM, JavaScript, Workers, or React yet.
+
 ## GitHub Pages deployment
 
 The repository has a dedicated GitHub Pages workflow at
@@ -43,13 +68,14 @@ The repository has a dedicated GitHub Pages workflow at
 `workflow_dispatch`; it does not deploy pull requests.
 
 The workflow builds the Emscripten runtime module, copies the generated runtime
-assets into `apps/web/public/wasm/`, builds the Vite app, uploads
+assets into `apps/web/public/wasm/`, copies the committed default evaluation
+artifact into `apps/web/public/eval/`, builds the Vite app, uploads
 `apps/web/dist` as a Pages artifact, and deploys it to GitHub Pages.
 
-The generated `.mjs` and `.wasm` runtime files and `apps/web/dist/` remain build
-artifacts and are not committed to git. Repository Pages settings must use
-GitHub Actions as the Pages source. After merge and a successful Pages workflow,
-the expected public URL is:
+The generated `.mjs` and `.wasm` runtime files, copied eval payloads under
+`apps/web/public/eval/`, and `apps/web/dist/` remain build artifacts and are not
+committed to git. Repository Pages settings must use GitHub Actions as the Pages
+source. After merge and a successful Pages workflow, the expected public URL is:
 
 ```text
 https://westzaki.github.io/vibe-othello-2/

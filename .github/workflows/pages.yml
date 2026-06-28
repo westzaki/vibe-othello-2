@@ -46,6 +46,9 @@ jobs:
       - name: Copy WASM runtime assets
         run: cmake --build build-wasm --target vibe_othello_copy_web_wasm_assets
 
+      - name: Copy eval artifact assets
+        run: cmake --build build-wasm --target vibe_othello_copy_web_eval_artifact_assets
+
       - name: Test WASM build
         run: ctest --test-dir build-wasm --output-on-failure
 
@@ -66,6 +69,10 @@ jobs:
           test -f apps/web/dist/index.html
           test -f apps/web/dist/wasm/vibe_othello_wasm_module.mjs
           test -f apps/web/dist/wasm/vibe_othello_wasm_module.wasm
+          python3 cmake/web/copy_default_eval_artifact.py \
+            --source-dir data/eval \
+            --destination-dir apps/web/dist/eval \
+            --check-only
 
       - name: Configure Pages
         uses: actions/configure-pages@v6

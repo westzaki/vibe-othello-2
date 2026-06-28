@@ -69,8 +69,9 @@ cmake/
 └─ web/
 ```
 
-`cmake/web/` owns Web build integration helpers, including the target that
-copies generated WASM runtime assets into the Web app static asset directory.
+`cmake/web/` owns Web build integration helpers, including targets that copy
+generated WASM runtime assets and the committed default evaluation artifact into
+Web app static asset directories.
 
 ## Engine Layout
 
@@ -119,6 +120,8 @@ data/
 │  ├─ dataset-manifest.schema.json
 │  └─ samples/
 └─ eval/
+   ├─ default-artifact.json
+   ├─ artifacts/
    └─ README.md
 ```
 
@@ -187,6 +190,7 @@ apps/
    ├─ README.md
    ├─ package.json
    ├─ public/
+   │  ├─ eval/
    │  └─ wasm/
    └─ src/
       ├─ engine/
@@ -197,3 +201,7 @@ apps/
 client, and app-specific runtime asset convention. Generated Emscripten `.mjs`
 and `.wasm` files may be copied into `apps/web/public/wasm/` for local browser
 runs by repo-level CMake integration, but they remain ignored build artifacts.
+The committed default evaluation artifact may also be copied from `data/eval/`
+into `apps/web/public/eval/` for local browser runs, Web CI, and GitHub Pages
+builds. `data/eval/` remains the source of truth; copied eval payloads are
+ignored runtime assets and must not be committed under `apps/web`.

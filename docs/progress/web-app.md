@@ -35,16 +35,18 @@ C ABI adapter. The generated `.mjs` and `.wasm` files are build artifacts and
 are not committed. When Node is available in an Emscripten build, Node smokes
 load the module, call the C ABI functions, and exercise a minimal plain ESM
 `WasmCore` wrapper for board-core operations. Repo-level CMake integration
-defines a dedicated copy target that places the generated runtime assets into
-`apps/web/public/wasm/` for local browser runs and Web CI integration.
+defines dedicated copy targets that place the generated runtime assets into
+`apps/web/public/wasm/` and the committed default evaluation artifact into
+`apps/web/public/eval/` for local browser runs and Web CI integration.
 
 The current repository has a dedicated GitHub Pages deployment workflow. It runs
 on pushes to `main` and `workflow_dispatch`, builds the Emscripten runtime
-module, copies the generated runtime assets into the Web app, builds
-`apps/web`, uploads `apps/web/dist` as a Pages artifact, and deploys it through
-GitHub Pages. Repository Pages settings must use GitHub Actions as the Pages
-source. The generated `.mjs` and `.wasm` runtime files and `apps/web/dist/`
-remain ignored build artifacts and are not committed.
+module, copies the generated runtime assets and the committed default evaluation
+artifact into the Web app, builds `apps/web`, uploads `apps/web/dist` as a
+Pages artifact, and deploys it through GitHub Pages. Repository Pages settings
+must use GitHub Actions as the Pages source. The generated `.mjs` and `.wasm`
+runtime files, copied eval payloads, and `apps/web/dist/` remain ignored build
+artifacts and are not committed.
 
 The current repository has a minimal browser runtime skeleton under `apps/web`:
 
@@ -55,6 +57,8 @@ The current repository has a minimal browser runtime skeleton under `apps/web`:
 * a Worker client used by React so components do not import or call WASM
 * runtime loading of generated Emscripten `.mjs/.wasm` assets from
   `apps/web/public/wasm/`
+* an ignored static asset path for copied default evaluation artifacts under
+  `apps/web/public/eval/`
 
 The current repository still does not have the full browser runtime roadmap:
 
@@ -72,6 +76,10 @@ The current implementation does not yet have:
 * detailed WASM parity smoke tests
 * TypeScript WASM wrapper
 * bounded browser search flow
+* search best-move bindings
+* CPU opponent flow
+* WASM artifact loading
+* JavaScript artifact loading
 * review/report adapters
 * evaluator artifact loading for web
 * advanced cancellation
@@ -95,22 +103,27 @@ Status values:
 | Native adapter tests | done | Cover board-core C ABI status and parity with board_core calls |
 | Opt-in Emscripten module target | done | `VIBE_OTHELLO_BUILD_WASM_MODULE=ON`; emits build-tree `.mjs` and `.wasm` artifacts |
 | Web WASM runtime asset copy target | done | Repo-level CMake target `vibe_othello_copy_web_wasm_assets` copies generated `.mjs/.wasm` into `apps/web/public/wasm/` |
+| Web eval artifact asset copy target | done | Repo-level CMake target `vibe_othello_copy_web_eval_artifact_assets` copies the current `data/eval/default-artifact.json` artifact into ignored `apps/web/public/eval/` runtime assets |
 | Node module smoke | done | Minimal module loading and C ABI execution smoke when Node is available |
 | Plain JavaScript `WasmCore` wrapper | done | Minimal ESM wrapper for board-core calls under `wasm/js` |
 | JS wrapper Node smoke | done | Exercises `WasmCore` against the generated Emscripten module when Node is available |
 | WASM parity smoke tests | not started | Detailed native-vs-WASM output comparison is still future work |
 | TypeScript `WasmCore` wrapper | not started | Plain JavaScript exists; typed app-facing wrapper remains future work |
+| WASM artifact loading | not started | No C ABI or WASM-side default artifact loading is implemented |
+| JavaScript artifact loading | not started | No `WasmCore`, Worker, or React loading from `/eval/default-artifact.json` is implemented |
 | `apps/web` Vite project | done | Minimal React + Vite + TypeScript project under `apps/web` |
 | React board UI | done | Minimal 8x8 board consuming Worker snapshots |
 | Engine Web Worker | done | Minimal Worker imports `WasmCore`, loads generated runtime assets, and owns current position |
 | Worker protocol | done | Minimal serializable `init`, `reset`, `applyMove`, and `applyPass` request/response types |
 | Worker client and React hooks | done | Minimal Worker client used by React state hooks; React does not import WASM |
 | Legal move, applyMove, and pass browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/`; pass is user-triggered through Worker -> `WasmCore` -> board_core |
-| Web CI with generated WASM assets | done | Web job builds the Emscripten module, copies runtime assets, installs app dependencies, typechecks, and runs Vite build |
+| Web CI with generated WASM and eval assets | done | Web job builds the Emscripten module, copies WASM runtime assets and eval runtime assets, verifies eval asset readiness, installs app dependencies, typechecks, and runs Vite build |
+| Search best-move bindings | not started | Deferred beyond the first board-core browser skeleton |
+| CPU opponent | not started | Depends on future search/best-move flow |
 | Bounded search/evaluation display | not started | Deferred beyond the first board-core browser skeleton |
-| GitHub Pages workflow | done | Dedicated Pages workflow builds generated WASM runtime assets, builds `apps/web`, uploads `apps/web/dist`, and deploys on pushes to `main` or manual dispatch |
+| GitHub Pages workflow | done | Dedicated Pages workflow builds generated WASM runtime assets, copies eval runtime assets, builds `apps/web`, uploads `apps/web/dist`, and deploys on pushes to `main` or manual dispatch |
 | Review/report adapters | deferred | Policy layer on top of search results and board history |
-| Evaluator artifact loading for web | deferred | Publication policy is separate from v0 app |
+| Evaluator artifact loading for web | deferred | Static asset path exists; WASM, JavaScript, Worker, and React loading are not implemented |
 | Advanced cancellation | deferred | Requires separate design beyond queued `postMessage` |
 | Threaded WASM | deferred | Requires hosting support for browser threading headers |
 
