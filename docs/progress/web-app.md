@@ -69,6 +69,13 @@ The current repository still does not have the full browser runtime roadmap:
 Native engine functionality is implemented separately under `engine/` and is the
 future source of truth for board rules, search, and evaluation.
 
+The engine now has an in-memory pattern evaluation artifact loader that accepts
+manifest text and weights bytes. This is an engine-level prerequisite for future
+browser/WASM artifact loading. Browser fetching of `/eval/default-artifact.json`,
+artifact manifests, or `weights.bin`, plus WASM C ABI, JavaScript, Worker,
+React, CPU opponent, and search best-move bindings for evaluation artifacts are
+still not implemented.
+
 ## Current gaps
 
 The current implementation does not yet have:
@@ -118,6 +125,7 @@ Status values:
 | Worker client and React hooks | done | Minimal Worker client used by React state hooks; React does not import WASM |
 | Legal move, applyMove, and pass browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/`; pass is user-triggered through Worker -> `WasmCore` -> board_core |
 | Web CI with generated WASM and eval assets | done | Web job builds the Emscripten module, copies WASM runtime assets and eval runtime assets, verifies eval asset readiness, installs app dependencies, typechecks, and runs Vite build |
+| Engine in-memory evaluation artifact loader | done | Native engine API can load pattern artifacts from manifest text and weights bytes; browser/WASM consumption remains future work |
 | Search best-move bindings | not started | Deferred beyond the first board-core browser skeleton |
 | CPU opponent | not started | Depends on future search/best-move flow |
 | Bounded search/evaluation display | not started | Deferred beyond the first board-core browser skeleton |
