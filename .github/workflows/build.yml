@@ -89,6 +89,22 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Configure WASM module
+        run: >
+          emcmake cmake -S . -B build-wasm
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DVIBE_OTHELLO_BUILD_WASM_MODULE=ON
+
+      - name: Build WASM module
+        run: cmake --build build-wasm --target vibe_othello_wasm_module
+
+      - name: Copy WASM runtime assets
+        run: cmake --build build-wasm --target vibe_othello_copy_web_wasm_assets
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -106,7 +122,7 @@ jobs:
 
       - name: Build
         working-directory: apps/web
-        run: npm run build
+        run: npm exec vite -- build
 
   lint:
     name: Lint

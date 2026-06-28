@@ -58,6 +58,29 @@ The module target emits an ES module `.mjs` file and companion `.wasm` file in
 the build tree. These generated files are build artifacts and must not be
 committed to git.
 
+`wasm/` owns producing the generated module only. App-specific runtime asset
+copying is repo-level CMake integration.
+
+To run the browser app locally with the generated runtime assets, use the
+repo-level copy target:
+
+```sh
+cmake --build build-wasm --target vibe_othello_copy_web_wasm_assets
+```
+
+This target copies:
+
+```text
+build-wasm/wasm/vibe_othello_wasm_module.mjs
+build-wasm/wasm/vibe_othello_wasm_module.wasm
+```
+
+into:
+
+```text
+apps/web/public/wasm/
+```
+
 When Node is available, CTest runs `wasm/smoke/check_wasm_module.mjs` and
 `wasm/smoke/check_wasm_core.mjs` against the generated module. The first smoke
 checks raw module loading and C ABI calls. The second smoke checks the plain ESM
@@ -75,6 +98,7 @@ This directory does not currently contain:
 * TypeScript wrappers
 * Web Worker protocol code
 * React, Vite, or `apps/web`
+* app-specific runtime asset copying
 * GitHub Pages deployment workflow
 * search or evaluation bindings
 
