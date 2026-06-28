@@ -5,6 +5,11 @@ Applications live under `apps/`.
 Application subdirectories own user-facing entry points, app-specific runtime
 commands, app state, rendering, and user-facing formatting.
 
+## Applications
+
+* `web/` owns the browser app skeleton. It uses React + Vite + TypeScript and
+  talks to the board-core WASM adapter through a Web Worker.
+
 Apps may consume public engine APIs through appropriate adapters, but they must
 not own reusable engine implementation or C++ WASM adapter source.
 

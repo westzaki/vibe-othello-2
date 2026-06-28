@@ -34,6 +34,7 @@ repo/
 | `wasm/` | Native-buildable C ABI adapters and opt-in Emscripten module smoke for browser/WASM-facing engine boundaries |
 | `tools/` | Developer and validation command-line tools |
 | `apps/` | User-facing applications |
+| `apps/web/` | Browser app skeleton using React, Vite, TypeScript, and a Web Worker boundary to the WASM adapter |
 | `.clang-format` | C++ formatting rules |
 | `.clang-tidy` | C++ static analysis rules |
 
@@ -167,5 +168,18 @@ Application subdirectories own user-facing entry points.
 
 ```text
 apps/
-└─ README.md
+├─ README.md
+└─ web/
+   ├─ README.md
+   ├─ package.json
+   ├─ public/
+   │  └─ wasm/
+   └─ src/
+      ├─ engine/
+      └─ workers/
 ```
+
+`apps/web` owns the browser UI, Vite configuration, Worker protocol, Worker
+client, and app-specific runtime asset convention. Generated Emscripten `.mjs`
+and `.wasm` files may be copied into `apps/web/public/wasm/` for local browser
+runs, but they remain ignored build artifacts.

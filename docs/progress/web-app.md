@@ -36,16 +36,20 @@ are not committed. When Node is available in an Emscripten build, Node smokes
 load the module, call the C ABI functions, and exercise a minimal plain ESM
 `WasmCore` wrapper for board-core operations.
 
-The current repository does not yet have production browser runtime
-implementation:
+The current repository has a minimal browser runtime skeleton under `apps/web`:
 
-* `apps/` currently has only `README.md`
-* no `apps/web` React app exists
-* no Vite setup exists
+* React + Vite + TypeScript app metadata and build configuration
+* a simple Othello board UI consuming serializable board snapshots
+* a Worker protocol with `init`, `reset`, and `applyMove` commands
+* an Engine Web Worker that imports the plain ESM `WasmCore` wrapper
+* a Worker client used by React so components do not import or call WASM
+* runtime loading of generated Emscripten `.mjs/.wasm` assets from
+  `apps/web/public/wasm/`
+
+The current repository still does not have the full browser runtime roadmap:
+
 * no TypeScript `WasmCore` wrapper exists, though a plain JavaScript wrapper
   exists as an implementation stepping stone
-* no Engine Web Worker exists
-* no Worker protocol exists
 * no GitHub Pages deployment workflow exists
 * no web-specific review adapter exists
 
@@ -58,10 +62,6 @@ The current implementation does not yet have:
 
 * detailed WASM parity smoke tests
 * TypeScript WASM wrapper
-* `apps/web` Vite project
-* React board UI
-* Engine Web Worker
-* worker client or React hooks
 * bounded browser search flow
 * GitHub Pages deployment
 * review/report adapters
@@ -91,13 +91,13 @@ Status values:
 | JS wrapper Node smoke | done | Exercises `WasmCore` against the generated Emscripten module when Node is available |
 | WASM parity smoke tests | not started | Detailed native-vs-WASM output comparison is still future work |
 | TypeScript `WasmCore` wrapper | not started | Plain JavaScript exists; typed app-facing wrapper remains future work |
-| `apps/web` Vite project | not started | Planned user-facing application |
-| React board UI | not started | Should consume domain objects |
-| Engine Web Worker | not started | Should isolate engine calls from UI thread |
-| Worker protocol | not started | Should expose request/response messages only |
-| Worker client and React hooks | not started | Should hide C ABI and Emscripten details |
-| Legal move and applyMove browser flow | not started | First engine-backed app milestone |
-| Bounded search/evaluation display | not started | Uses existing public search APIs only |
+| `apps/web` Vite project | done | Minimal React + Vite + TypeScript project under `apps/web` |
+| React board UI | done | Minimal 8x8 board consuming Worker snapshots |
+| Engine Web Worker | done | Minimal Worker imports `WasmCore`, loads generated runtime assets, and owns current position |
+| Worker protocol | done | Minimal serializable `init`, `reset`, and `applyMove` request/response types |
+| Worker client and React hooks | done | Minimal Worker client used by React state hooks; React does not import WASM |
+| Legal move and applyMove browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/` |
+| Bounded search/evaluation display | not started | Deferred beyond the first board-core browser skeleton |
 | GitHub Pages workflow | not started | Should publish `apps/web/dist` |
 | Review/report adapters | deferred | Policy layer on top of search results and board history |
 | Evaluator artifact loading for web | deferred | Publication policy is separate from v0 app |
