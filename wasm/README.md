@@ -4,8 +4,9 @@
 boundaries.
 
 This directory currently contains a native-buildable C ABI adapter for the board
-core plus an opt-in Emscripten module target for that same adapter. It links
-against the engine public C++ API and does not duplicate Othello rules.
+core, an opt-in Emscripten module target for that same adapter, and a minimal
+plain ESM JavaScript wrapper around the generated module. It links against the
+engine public C++ API and does not duplicate Othello rules.
 
 The current adapter exposes:
 
@@ -14,6 +15,21 @@ The current adapter exposes:
 * position query for legal moves, legal-move availability, and terminal state
 * checked move application
 * checked pass application
+* ABI layout introspection for the C structs read by JavaScript
+
+The plain JavaScript wrapper lives in `wasm/js/wasmCore.mjs`. It converts the raw
+C ABI memory layout into small domain objects such as:
+
+```js
+{
+  player: 0n,
+  opponent: 0n,
+  sideToMove: "black",
+}
+```
+
+The wrapper is intentionally Node/browser-neutral and uses the exported layout
+introspection functions instead of hardcoded struct offsets.
 
 ## Native adapter build
 
@@ -42,9 +58,16 @@ The module target emits an ES module `.mjs` file and companion `.wasm` file in
 the build tree. These generated files are build artifacts and must not be
 committed to git.
 
-When Node is available, CTest runs `wasm/smoke/check_wasm_module.mjs` against
-the generated module. This smoke only verifies module loading and execution of
-the existing C ABI surface.
+When Node is available, CTest runs `wasm/smoke/check_wasm_module.mjs` and
+`wasm/smoke/check_wasm_core.mjs` against the generated module. The first smoke
+checks raw module loading and C ABI calls. The second smoke checks the plain ESM
+`WasmCore` wrapper.
+
+To run the Emscripten smokes through CTest:
+
+```sh
+ctest --test-dir build-wasm --output-on-failure
+```
 
 This directory does not currently contain:
 

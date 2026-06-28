@@ -46,6 +46,38 @@ typedef struct vibe_othello_wasm_apply_result {
 
 uint32_t vibe_othello_wasm_abi_version(void) VIBE_OTHELLO_WASM_NOEXCEPT;
 
+uint32_t vibe_othello_wasm_sizeof_position(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_player(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_opponent(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_side_to_move(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_sizeof_position_query(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_query_status(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_query_legal_moves(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_query_has_legal_move(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_position_query_is_terminal(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_sizeof_apply_result(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_status(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_position(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_flipped(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_legal_moves(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_has_legal_move(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_apply_result_is_terminal(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
 uint32_t vibe_othello_wasm_initial_position(vibe_othello_wasm_position* out_position)
     VIBE_OTHELLO_WASM_NOEXCEPT;
 

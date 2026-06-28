@@ -32,8 +32,9 @@ tests cover this surface.
 
 The current repository also has an opt-in Emscripten module target for the same
 C ABI adapter. The generated `.mjs` and `.wasm` files are build artifacts and
-are not committed. When Node is available in an Emscripten build, a minimal Node
-smoke loads the module and calls the existing C ABI functions.
+are not committed. When Node is available in an Emscripten build, Node smokes
+load the module, call the C ABI functions, and exercise a minimal plain ESM
+`WasmCore` wrapper for board-core operations.
 
 The current repository does not yet have production browser runtime
 implementation:
@@ -41,7 +42,8 @@ implementation:
 * `apps/` currently has only `README.md`
 * no `apps/web` React app exists
 * no Vite setup exists
-* no TypeScript `WasmCore` wrapper exists
+* no TypeScript `WasmCore` wrapper exists, though a plain JavaScript wrapper
+  exists as an implementation stepping stone
 * no Engine Web Worker exists
 * no Worker protocol exists
 * no GitHub Pages deployment workflow exists
@@ -85,8 +87,10 @@ Status values:
 | Native adapter tests | done | Cover board-core C ABI status and parity with board_core calls |
 | Opt-in Emscripten module target | done | `VIBE_OTHELLO_BUILD_WASM_MODULE=ON`; emits build-tree `.mjs` and `.wasm` artifacts |
 | Node module smoke | done | Minimal module loading and C ABI execution smoke when Node is available |
+| Plain JavaScript `WasmCore` wrapper | done | Minimal ESM wrapper for board-core calls under `wasm/js` |
+| JS wrapper Node smoke | done | Exercises `WasmCore` against the generated Emscripten module when Node is available |
 | WASM parity smoke tests | not started | Detailed native-vs-WASM output comparison is still future work |
-| TypeScript `WasmCore` wrapper | not started | Should be the only TypeScript layer that knows raw WASM ABI |
+| TypeScript `WasmCore` wrapper | not started | Plain JavaScript exists; typed app-facing wrapper remains future work |
 | `apps/web` Vite project | not started | Planned user-facing application |
 | React board UI | not started | Should consume domain objects |
 | Engine Web Worker | not started | Should isolate engine calls from UI thread |

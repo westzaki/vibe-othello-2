@@ -40,6 +40,50 @@ TEST_CASE("WASM adapter exposes ABI version", "[wasm]") {
   REQUIRE(vibe_othello_wasm_abi_version() == 1u);
 }
 
+TEST_CASE("WASM adapter exposes robust struct layout introspection", "[wasm]") {
+  const uint32_t position_size = vibe_othello_wasm_sizeof_position();
+  const uint32_t position_player = vibe_othello_wasm_offsetof_position_player();
+  const uint32_t position_opponent = vibe_othello_wasm_offsetof_position_opponent();
+  const uint32_t position_side_to_move = vibe_othello_wasm_offsetof_position_side_to_move();
+
+  REQUIRE(position_size >= 17u);
+  REQUIRE(position_player < position_size);
+  REQUIRE(position_opponent < position_size);
+  REQUIRE(position_side_to_move < position_size);
+  REQUIRE(position_player != position_opponent);
+  REQUIRE(position_player < position_opponent);
+  REQUIRE(position_opponent < position_side_to_move);
+
+  const uint32_t query_size = vibe_othello_wasm_sizeof_position_query();
+  const uint32_t query_status = vibe_othello_wasm_offsetof_position_query_status();
+  const uint32_t query_legal_moves = vibe_othello_wasm_offsetof_position_query_legal_moves();
+  const uint32_t query_has_legal_move = vibe_othello_wasm_offsetof_position_query_has_legal_move();
+  const uint32_t query_is_terminal = vibe_othello_wasm_offsetof_position_query_is_terminal();
+
+  REQUIRE(query_size >= 14u);
+  REQUIRE(query_status < query_legal_moves);
+  REQUIRE(query_legal_moves < query_has_legal_move);
+  REQUIRE(query_has_legal_move < query_is_terminal);
+  REQUIRE(query_is_terminal < query_size);
+
+  const uint32_t apply_size = vibe_othello_wasm_sizeof_apply_result();
+  const uint32_t apply_status = vibe_othello_wasm_offsetof_apply_result_status();
+  const uint32_t apply_position = vibe_othello_wasm_offsetof_apply_result_position();
+  const uint32_t apply_flipped = vibe_othello_wasm_offsetof_apply_result_flipped();
+  const uint32_t apply_legal_moves = vibe_othello_wasm_offsetof_apply_result_legal_moves();
+  const uint32_t apply_has_legal_move = vibe_othello_wasm_offsetof_apply_result_has_legal_move();
+  const uint32_t apply_is_terminal = vibe_othello_wasm_offsetof_apply_result_is_terminal();
+
+  REQUIRE(apply_size >= 39u);
+  REQUIRE(apply_status < apply_position);
+  REQUIRE(apply_position < apply_flipped);
+  REQUIRE(apply_flipped < apply_legal_moves);
+  REQUIRE(apply_legal_moves < apply_has_legal_move);
+  REQUIRE(apply_has_legal_move < apply_is_terminal);
+  REQUIRE(apply_is_terminal < apply_size);
+  REQUIRE(apply_position + position_size <= apply_size);
+}
+
 TEST_CASE("WASM adapter initial position matches board core", "[wasm]") {
   vibe_othello_wasm_position position{};
 

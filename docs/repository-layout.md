@@ -153,6 +153,7 @@ wasm/
 ├─ README.md
 ├─ CMakeLists.txt
 ├─ include/
+├─ js/
 ├─ smoke/
 ├─ src/
 └─ tests/
