@@ -1,6 +1,4 @@
-if(NOT TARGET Catch2::Catch2WithMain)
-  message(FATAL_ERROR "wasm adapter tests require Catch2::Catch2WithMain")
-endif()
+include("${PROJECT_SOURCE_DIR}/cmake/testing/Catch2.cmake")
 
 add_executable(vibe_othello_wasm_adapter_tests wasm_api_tests.cc)
 

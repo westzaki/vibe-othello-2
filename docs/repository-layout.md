@@ -10,6 +10,7 @@ repo/
 ├─ README.md
 ├─ .github/
 ├─ docs/
+├─ cmake/
 ├─ data/
 ├─ engine/
 ├─ wasm/
@@ -27,6 +28,7 @@ repo/
 | `README.md` | Project entry point |
 | `.github/` | Pull request templates and CI workflows |
 | `docs/` | Architecture, progress, layout, style, and review documents |
+| `cmake/` | Shared CMake helper modules, including shared test dependency setup |
 | `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |
 | `engine/` | Native C++ Othello engine static library |
 | `wasm/` | Native-buildable C ABI adapters and opt-in Emscripten module smoke for browser/WASM-facing engine boundaries |
