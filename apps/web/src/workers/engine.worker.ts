@@ -60,6 +60,8 @@ async function dispatchRequest(request: EngineRequest): Promise<BoardSnapshot> {
       return reset();
     case "applyMove":
       return applyMove(request.squareIndex);
+    case "applyPass":
+      return applyPass();
   }
 }
 
@@ -84,6 +86,17 @@ async function applyMove(squareIndex: number): Promise<BoardSnapshot> {
   }
 
   const result = engine.applyMove(currentPosition, squareIndex);
+  currentPosition = result.position;
+  return snapshotFromPosition(engine, currentPosition);
+}
+
+async function applyPass(): Promise<BoardSnapshot> {
+  const engine = await getCore();
+  if (currentPosition === null) {
+    currentPosition = engine.initialPosition();
+  }
+
+  const result = engine.applyPass(currentPosition);
   currentPosition = result.position;
   return snapshotFromPosition(engine, currentPosition);
 }

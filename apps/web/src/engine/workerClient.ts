@@ -42,6 +42,10 @@ export class EngineWorkerClient {
     return this.request({ command: "applyMove", squareIndex });
   }
 
+  applyPass(): Promise<BoardSnapshot> {
+    return this.request({ command: "applyPass" });
+  }
+
   dispose(): void {
     this.rejectAll(new Error("Engine worker client was disposed."));
     this.worker.terminate();

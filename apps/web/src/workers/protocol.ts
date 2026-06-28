@@ -19,6 +19,9 @@ export type EngineRequestPayload =
   | {
       command: "applyMove";
       squareIndex: number;
+    }
+  | {
+      command: "applyPass";
     };
 
 export type EngineCommand = EngineRequestPayload["command"];
