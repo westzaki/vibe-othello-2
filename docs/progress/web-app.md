@@ -50,7 +50,7 @@ The current repository has a minimal browser runtime skeleton under `apps/web`:
 
 * React + Vite + TypeScript app metadata and build configuration
 * a simple Othello board UI consuming serializable board snapshots
-* a Worker protocol with `init`, `reset`, and `applyMove` commands
+* a Worker protocol with `init`, `reset`, `applyMove`, and `applyPass` commands
 * an Engine Web Worker that imports the plain ESM `WasmCore` wrapper
 * a Worker client used by React so components do not import or call WASM
 * runtime loading of generated Emscripten `.mjs/.wasm` assets from
@@ -103,9 +103,9 @@ Status values:
 | `apps/web` Vite project | done | Minimal React + Vite + TypeScript project under `apps/web` |
 | React board UI | done | Minimal 8x8 board consuming Worker snapshots |
 | Engine Web Worker | done | Minimal Worker imports `WasmCore`, loads generated runtime assets, and owns current position |
-| Worker protocol | done | Minimal serializable `init`, `reset`, and `applyMove` request/response types |
+| Worker protocol | done | Minimal serializable `init`, `reset`, `applyMove`, and `applyPass` request/response types |
 | Worker client and React hooks | done | Minimal Worker client used by React state hooks; React does not import WASM |
-| Legal move and applyMove browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/` |
+| Legal move, applyMove, and pass browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/`; pass is user-triggered through Worker -> `WasmCore` -> board_core |
 | Web CI with generated WASM assets | done | Web job builds the Emscripten module, copies runtime assets, installs app dependencies, typechecks, and runs Vite build |
 | Bounded search/evaluation display | not started | Deferred beyond the first board-core browser skeleton |
 | GitHub Pages workflow | done | Dedicated Pages workflow builds generated WASM runtime assets, builds `apps/web`, uploads `apps/web/dist`, and deploys on pushes to `main` or manual dispatch |
@@ -130,7 +130,8 @@ The web app path is ready for first playable browser use when:
   source of truth
 * the app runs engine calls inside a Web Worker
 * React consumes domain objects and worker APIs only
-* legal move and apply move flows are backed by board_core through the adapter
+* legal move, apply move, and pass flows are backed by board_core through the
+  adapter
 * bounded search uses public search APIs and `SearchLimits`
 * browser smoke coverage verifies boot, worker init, legal moves, and bounded
   search

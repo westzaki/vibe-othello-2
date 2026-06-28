@@ -47,7 +47,14 @@ button {
   color: #5c6258;
 }
 
-.app__reset {
+.app__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.app__button {
   min-width: 88px;
   border: 1px solid #20231f;
   border-radius: 6px;
@@ -57,8 +64,8 @@ button {
   cursor: pointer;
 }
 
-.app__reset:disabled {
-  cursor: wait;
+.app__button:disabled {
+  cursor: not-allowed;
   opacity: 0.7;
 }
 

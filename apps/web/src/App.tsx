@@ -53,6 +53,14 @@ function App() {
   }, []);
 
   const legalMoveSet = useMemo(() => new Set(snapshot?.legalMoves ?? []), [snapshot]);
+  const canPass =
+    status === "ready" &&
+    !busy &&
+    snapshot !== null &&
+    snapshot.hasLegalMove === false &&
+    snapshot.isTerminal === false;
+  const shouldShowPassNotice =
+    snapshot !== null && snapshot.hasLegalMove === false && snapshot.isTerminal === false;
 
   async function reset() {
     const client = clientRef.current;
@@ -99,6 +107,26 @@ function App() {
     }
   }
 
+  async function applyPass() {
+    const client = clientRef.current;
+    if (client === null || snapshot === null || busy || !canPass) {
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      setSnapshot(await client.applyPass());
+      setStatus("ready");
+    } catch (passError) {
+      setError(errorMessage(passError));
+      setStatus("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="app">
       <header className="app__header">
@@ -106,18 +134,28 @@ function App() {
           <h1>Vibe Othello</h1>
           <p className="app__status">Engine: {statusLabel(status, busy)}</p>
         </div>
-        <button
-          className="app__reset"
-          type="button"
-          onClick={reset}
-          disabled={busy || status === "loading"}
-        >
-          Reset
-        </button>
+        <div className="app__actions">
+          <button
+            className="app__button"
+            type="button"
+            onClick={reset}
+            disabled={busy || status === "loading"}
+          >
+            Reset
+          </button>
+          {snapshot !== null ? (
+            <button className="app__button" type="button" onClick={applyPass} disabled={!canPass}>
+              Pass
+            </button>
+          ) : null}
+        </div>
       </header>
 
       {error !== null ? <p className="app__error">{error}</p> : null}
       {notice !== null ? <p className="app__notice">{notice}</p> : null}
+      {shouldShowPassNotice ? (
+        <p className="app__notice">No legal move for the side to move. Pass is available.</p>
+      ) : null}
 
       <section className="game" aria-label="Othello board">
         <div className="board" role="grid" aria-label="Board">

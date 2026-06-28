@@ -7,6 +7,10 @@ Web Worker. React code consumes serializable worker snapshots only. It does not
 import the Emscripten module, call `WasmCore` directly, or manipulate WASM
 memory.
 
+The minimal app supports resetting to the initial position, playing legal moves
+by clicking board markers, and manually passing when the engine reports that the
+side to move has no legal move and the position is not terminal.
+
 ## Runtime WASM assets
 
 The Worker loads generated Emscripten runtime assets from:
