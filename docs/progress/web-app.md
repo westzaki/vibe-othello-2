@@ -34,7 +34,9 @@ The current repository also has an opt-in Emscripten module target for the same
 C ABI adapter. The generated `.mjs` and `.wasm` files are build artifacts and
 are not committed. When Node is available in an Emscripten build, Node smokes
 load the module, call the C ABI functions, and exercise a minimal plain ESM
-`WasmCore` wrapper for board-core operations.
+`WasmCore` wrapper for board-core operations. Repo-level CMake integration
+defines a dedicated copy target that places the generated runtime assets into
+`apps/web/public/wasm/` for local browser runs and Web CI integration.
 
 The current repository has a minimal browser runtime skeleton under `apps/web`:
 
@@ -86,6 +88,7 @@ Status values:
 | ABI versioning | done | `VIBE_OTHELLO_WASM_ABI_VERSION` and version query |
 | Native adapter tests | done | Cover board-core C ABI status and parity with board_core calls |
 | Opt-in Emscripten module target | done | `VIBE_OTHELLO_BUILD_WASM_MODULE=ON`; emits build-tree `.mjs` and `.wasm` artifacts |
+| Web WASM runtime asset copy target | done | Repo-level CMake target `vibe_othello_copy_web_wasm_assets` copies generated `.mjs/.wasm` into `apps/web/public/wasm/` |
 | Node module smoke | done | Minimal module loading and C ABI execution smoke when Node is available |
 | Plain JavaScript `WasmCore` wrapper | done | Minimal ESM wrapper for board-core calls under `wasm/js` |
 | JS wrapper Node smoke | done | Exercises `WasmCore` against the generated Emscripten module when Node is available |
@@ -97,6 +100,7 @@ Status values:
 | Worker protocol | done | Minimal serializable `init`, `reset`, and `applyMove` request/response types |
 | Worker client and React hooks | done | Minimal Worker client used by React state hooks; React does not import WASM |
 | Legal move and applyMove browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/` |
+| Web CI with generated WASM assets | done | Web job builds the Emscripten module, copies runtime assets, installs app dependencies, typechecks, and runs Vite build |
 | Bounded search/evaluation display | not started | Deferred beyond the first board-core browser skeleton |
 | GitHub Pages workflow | not started | Should publish `apps/web/dist` |
 | Review/report adapters | deferred | Policy layer on top of search results and board history |

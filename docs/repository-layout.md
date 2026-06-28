@@ -28,7 +28,7 @@ repo/
 | `README.md` | Project entry point |
 | `.github/` | Pull request templates and CI workflows |
 | `docs/` | Architecture, progress, layout, style, and review documents |
-| `cmake/` | Shared CMake helper modules, including shared test dependency setup |
+| `cmake/` | Shared CMake helper modules, including shared test dependency setup and repo-level build integration |
 | `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |
 | `engine/` | Native C++ Othello engine static library |
 | `wasm/` | Native-buildable C ABI adapters and opt-in Emscripten module smoke for browser/WASM-facing engine boundaries |
@@ -57,6 +57,20 @@ docs/
 ├─ repository-layout.md
 └─ cpp-coding-style.md
 ```
+
+## CMake Helper Layout
+
+`cmake/` owns shared CMake modules and repo-level build integration that should
+not belong to a single source adapter or application.
+
+```text
+cmake/
+├─ testing/
+└─ web/
+```
+
+`cmake/web/` owns Web build integration helpers, including the target that
+copies generated WASM runtime assets into the Web app static asset directory.
 
 ## Engine Layout
 
@@ -182,4 +196,4 @@ apps/
 `apps/web` owns the browser UI, Vite configuration, Worker protocol, Worker
 client, and app-specific runtime asset convention. Generated Emscripten `.mjs`
 and `.wasm` files may be copied into `apps/web/public/wasm/` for local browser
-runs, but they remain ignored build artifacts.
+runs by repo-level CMake integration, but they remain ignored build artifacts.
