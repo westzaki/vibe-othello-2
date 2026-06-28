@@ -25,12 +25,17 @@ Relevant design documents:
 The current repository has architecture documentation for the intended web app
 and WASM adapter boundaries.
 
-The current repository does not yet have production web or WASM implementation:
+The current repository has a native-buildable top-level `wasm/` adapter for
+board-core C ABI calls. It exposes ABI versioning, initial position, position
+query, checked move application, and checked pass application. Native adapter
+tests cover this surface.
+
+The current repository does not yet have production browser runtime
+implementation:
 
 * `apps/` currently has only `README.md`
 * no `apps/web` React app exists
 * no Vite setup exists
-* no top-level `wasm/` adapter exists
 * no Emscripten build exists
 * no TypeScript `WasmCore` wrapper exists
 * no Engine Web Worker exists
@@ -45,9 +50,6 @@ future source of truth for board rules, search, and evaluation.
 
 The current implementation does not yet have:
 
-* top-level `wasm/` directory
-* flat C ABI adapter
-* ABI version function
 * WASM parity smoke tests
 * TypeScript WASM wrapper
 * `apps/web` Vite project
@@ -73,10 +75,11 @@ Status values:
 | --- | --- | --- |
 | Architecture docs | done | `docs/architecture/web-app.md` |
 | Progress docs | done | This document |
-| Top-level `wasm/` adapter directory | not started | Planned adapter layer parallel to `engine/` and `apps/` |
-| WASM C ABI adapter | not started | Should consume engine public C++ API |
-| ABI versioning | not started | Required before binary ABI exposure |
-| WASM parity smoke tests | not started | Should compare native and WASM outputs |
+| Top-level `wasm/` adapter directory | done | Adapter layer parallel to `engine/` and `apps/` |
+| Board-core C ABI adapter | done | Native-buildable adapter consuming engine public C++ API |
+| ABI versioning | done | `VIBE_OTHELLO_WASM_ABI_VERSION` and version query |
+| Native adapter tests | done | Cover board-core C ABI status and parity with board_core calls |
+| WASM parity smoke tests | not started | Should compare native and WASM outputs once Emscripten output exists |
 | TypeScript `WasmCore` wrapper | not started | Should be the only TypeScript layer that knows raw WASM ABI |
 | `apps/web` Vite project | not started | Planned user-facing application |
 | React board UI | not started | Should consume domain objects |
