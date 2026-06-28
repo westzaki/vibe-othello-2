@@ -26,7 +26,7 @@ repo/
 | --- | --- |
 | `AGENTS.md` | Agent working rules |
 | `README.md` | Project entry point |
-| `.github/` | Pull request templates and CI workflows |
+| `.github/` | Pull request templates, CI workflows, and GitHub Pages deployment workflow |
 | `docs/` | Architecture, progress, layout, style, and review documents |
 | `cmake/` | Shared CMake helper modules, including shared test dependency setup and repo-level build integration |
 | `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |

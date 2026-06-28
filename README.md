@@ -21,6 +21,13 @@ The release job runs the same configure, build, test, and smoke-tool checks.
 Benchmark executables are built in CI but run locally. The lint job enforces
 clang-format and runs clang-tidy as an advisory check.
 
+The browser app under `apps/web` is built for GitHub Pages by a dedicated Pages
+workflow. It runs on pushes to `main` and manual dispatch, builds the generated
+WASM runtime assets, builds the Vite app, uploads `apps/web/dist`, and deploys
+through GitHub Pages. Repository Pages settings must use GitHub Actions as the
+Pages source; after merge and a successful workflow, the expected URL is
+`https://westzaki.github.io/vibe-othello-2/`.
+
 ## Local-only Measurement Directories
 
 Generated corpora, measurements, TSVs, weights, artifacts, logs, and suite

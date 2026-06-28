@@ -38,6 +38,14 @@ load the module, call the C ABI functions, and exercise a minimal plain ESM
 defines a dedicated copy target that places the generated runtime assets into
 `apps/web/public/wasm/` for local browser runs and Web CI integration.
 
+The current repository has a dedicated GitHub Pages deployment workflow. It runs
+on pushes to `main` and `workflow_dispatch`, builds the Emscripten runtime
+module, copies the generated runtime assets into the Web app, builds
+`apps/web`, uploads `apps/web/dist` as a Pages artifact, and deploys it through
+GitHub Pages. Repository Pages settings must use GitHub Actions as the Pages
+source. The generated `.mjs` and `.wasm` runtime files and `apps/web/dist/`
+remain ignored build artifacts and are not committed.
+
 The current repository has a minimal browser runtime skeleton under `apps/web`:
 
 * React + Vite + TypeScript app metadata and build configuration
@@ -52,7 +60,6 @@ The current repository still does not have the full browser runtime roadmap:
 
 * no TypeScript `WasmCore` wrapper exists, though a plain JavaScript wrapper
   exists as an implementation stepping stone
-* no GitHub Pages deployment workflow exists
 * no web-specific review adapter exists
 
 Native engine functionality is implemented separately under `engine/` and is the
@@ -65,7 +72,6 @@ The current implementation does not yet have:
 * detailed WASM parity smoke tests
 * TypeScript WASM wrapper
 * bounded browser search flow
-* GitHub Pages deployment
 * review/report adapters
 * evaluator artifact loading for web
 * advanced cancellation
@@ -102,7 +108,7 @@ Status values:
 | Legal move and applyMove browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/` |
 | Web CI with generated WASM assets | done | Web job builds the Emscripten module, copies runtime assets, installs app dependencies, typechecks, and runs Vite build |
 | Bounded search/evaluation display | not started | Deferred beyond the first board-core browser skeleton |
-| GitHub Pages workflow | not started | Should publish `apps/web/dist` |
+| GitHub Pages workflow | done | Dedicated Pages workflow builds generated WASM runtime assets, builds `apps/web`, uploads `apps/web/dist`, and deploys on pushes to `main` or manual dispatch |
 | Review/report adapters | deferred | Policy layer on top of search results and board history |
 | Evaluator artifact loading for web | deferred | Publication policy is separate from v0 app |
 | Advanced cancellation | deferred | Requires separate design beyond queued `postMessage` |
