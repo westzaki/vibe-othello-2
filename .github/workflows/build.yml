@@ -105,6 +105,16 @@ jobs:
       - name: Copy WASM runtime assets
         run: cmake --build build-wasm --target vibe_othello_copy_web_wasm_assets
 
+      - name: Copy eval artifact assets
+        run: cmake --build build-wasm --target vibe_othello_copy_web_eval_artifact_assets
+
+      - name: Check eval artifact assets
+        run: >
+          python3 cmake/web/copy_default_eval_artifact.py
+          --source-dir data/eval
+          --destination-dir apps/web/public/eval
+          --check-only
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -123,6 +133,13 @@ jobs:
       - name: Build
         working-directory: apps/web
         run: npm exec vite -- build
+
+      - name: Check built eval artifact assets
+        run: >
+          python3 cmake/web/copy_default_eval_artifact.py
+          --source-dir data/eval
+          --destination-dir apps/web/dist/eval
+          --check-only
 
   lint:
     name: Lint

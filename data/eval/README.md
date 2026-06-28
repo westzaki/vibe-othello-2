@@ -56,6 +56,13 @@ directory or in local-only storage.
 
 Do not place machine-specific absolute paths in committed files.
 
+## Web Runtime Copies
+
+The Web build can copy the current default artifact into
+`apps/web/public/eval/` for local browser runs, Web CI, and GitHub Pages builds.
+Those copied files are ignored runtime assets. This directory remains the source
+of truth for committed evaluation artifacts and the default artifact pointer.
+
 ## Where Details Live
 
 Artifact layout, default pointer, manifest, provenance, promotion, rollback,

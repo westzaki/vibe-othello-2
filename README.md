@@ -23,10 +23,11 @@ clang-format and runs clang-tidy as an advisory check.
 
 The browser app under `apps/web` is built for GitHub Pages by a dedicated Pages
 workflow. It runs on pushes to `main` and manual dispatch, builds the generated
-WASM runtime assets, builds the Vite app, uploads `apps/web/dist`, and deploys
-through GitHub Pages. Repository Pages settings must use GitHub Actions as the
-Pages source; after merge and a successful workflow, the expected URL is
-`https://westzaki.github.io/vibe-othello-2/`.
+WASM runtime assets, copies the committed default evaluation artifact from
+`data/eval/` into ignored Web runtime assets, builds the Vite app, uploads
+`apps/web/dist`, and deploys through GitHub Pages. Repository Pages settings
+must use GitHub Actions as the Pages source; after merge and a successful
+workflow, the expected URL is `https://westzaki.github.io/vibe-othello-2/`.
 
 ## Local-only Measurement Directories
 

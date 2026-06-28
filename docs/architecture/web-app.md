@@ -333,6 +333,13 @@ Intended build approach:
 * `wasm/` is built before the Vite build.
 * generated WASM runtime assets are copied or emitted into an app-owned
   static/runtime asset location.
+* the committed default evaluation artifact may be copied from `data/eval/`
+  into `apps/web/public/eval/` as ignored static runtime assets.
+* `data/eval/` remains the source of truth for evaluation artifacts; `apps/web`
+  must not own copied artifact payloads.
+* future browser/WASM artifact loading should fetch the default pointer from
+  `/eval/default-artifact.json` under the Vite base URL, then resolve the
+  manifest and `weights.bin` from that static path.
 * the native C++ build must not require Node.
 * the native default CMake build must not require Emscripten.
 * Emscripten-specific build steps should be opt-in.
