@@ -1,20 +1,4 @@
-include(FetchContent)
-
-set(CATCH_INSTALL_DOCS
-    OFF
-    CACHE BOOL "" FORCE)
-set(CATCH_INSTALL_EXTRAS
-    OFF
-    CACHE BOOL "" FORCE)
-set(CATCH_BUILD_TESTING
-    OFF
-    CACHE BOOL "" FORCE)
-
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG v3.15.0)
-FetchContent_MakeAvailable(Catch2)
+include("${PROJECT_SOURCE_DIR}/cmake/testing/Catch2.cmake")
 
 add_library(
   vibe_othello_engine_test_support STATIC
@@ -76,6 +60,5 @@ target_compile_definitions(vibe_othello_engine_tests
 
 target_compile_features(vibe_othello_engine_tests PRIVATE cxx_std_20)
 
-list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(vibe_othello_engine_tests)
