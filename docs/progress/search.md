@@ -106,6 +106,9 @@ The current search implementation includes:
 * endgame benchmark coverage through `vibe_othello_endgame_bench`, including
   parity-ordering and exact endgame TT comparison modes
 * checked-in exact endgame benchmark baseline data for local comparison
+* WASM C ABI and plain JavaScript wrapper support for bounded best-move search
+  through a loaded pattern evaluation artifact, with Worker and React CPU
+  opponent wiring deferred
 
 Existing search tests include:
 

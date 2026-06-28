@@ -15,6 +15,9 @@ The current adapter exposes:
 * position query for legal moves, legal-move availability, and terminal state
 * checked move application
 * checked pass application
+* loading an evaluation artifact from manifest text plus weights bytes
+* side-to-move-relative position evaluation through the loaded artifact
+* bounded best-move search through the loaded artifact evaluator
 * ABI layout introspection for the C structs read by JavaScript
 
 The plain JavaScript wrapper lives in `wasm/js/wasmCore.mjs`. It converts the raw
@@ -30,6 +33,22 @@ C ABI memory layout into small domain objects such as:
 
 The wrapper is intentionally Node/browser-neutral and uses the exported layout
 introspection functions instead of hardcoded struct offsets.
+
+Evaluation artifact ownership is explicit:
+
+```js
+const artifact = core.loadEvaluationArtifact(manifestText, weightsBytes);
+try {
+  const score = artifact.evaluatePosition(position);
+  const result = artifact.searchBestMove(position, { maxDepth: 1 });
+} finally {
+  artifact.free();
+}
+```
+
+Search requests must be bounded with `maxDepth`, `maxNodes`, or `maxTimeMs`.
+The WASM path does not support infinite search, advanced cancellation, threaded
+WASM, or browser pthreads.
 
 ## Native adapter build
 
@@ -84,7 +103,8 @@ apps/web/public/wasm/
 When Node is available, CTest runs `wasm/smoke/check_wasm_module.mjs` and
 `wasm/smoke/check_wasm_core.mjs` against the generated module. The first smoke
 checks raw module loading and C ABI calls. The second smoke checks the plain ESM
-`WasmCore` wrapper.
+`WasmCore` wrapper, including committed evaluation artifact loading,
+position evaluation, and a tiny bounded best-move search.
 
 To run the Emscripten smokes through CTest:
 
@@ -100,10 +120,11 @@ This directory does not currently contain:
 * React, Vite, or `apps/web`
 * app-specific runtime asset copying
 * GitHub Pages deployment workflow
-* search or evaluation bindings
+* Worker fetching from `/eval/default-artifact.json`
+* React CPU opponent UI or automatic CPU moves
 
 The native default CMake build must keep working without Node or Emscripten.
 TypeScript wrappers, Worker integration, React, Vite, `apps/web`, GitHub Pages,
-search bindings, and evaluation bindings are deferred.
+Worker artifact fetching, and CPU opponent UI are deferred.
 
 `engine/` must not depend on this directory.

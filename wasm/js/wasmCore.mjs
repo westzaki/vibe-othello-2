@@ -7,6 +7,10 @@ const STATUS_NAMES = new Map([
   [3, "invalid move"],
   [4, "illegal move"],
   [5, "illegal pass"],
+  [6, "invalid argument"],
+  [7, "artifact load failed"],
+  [8, "evaluator not loaded"],
+  [9, "search failed"],
 ]);
 
 const SIDE_BLACK = 0;
@@ -54,6 +58,26 @@ function toBoolean(value) {
   return value !== 0;
 }
 
+function toUint32Limit(value, name) {
+  if (value === undefined) {
+    return 0;
+  }
+  if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+    throw new Error(`${name} must be an integer between 0 and 4294967295`);
+  }
+  return value;
+}
+
+function normalizeWeightsBytes(weightsBytes) {
+  if (weightsBytes instanceof Uint8Array) {
+    return weightsBytes;
+  }
+  if (weightsBytes instanceof ArrayBuffer) {
+    return new Uint8Array(weightsBytes);
+  }
+  throw new Error("weightsBytes must be a Uint8Array or ArrayBuffer");
+}
+
 function makeLayout(module) {
   return {
     position: {
@@ -84,7 +108,61 @@ function makeLayout(module) {
       )(),
       isTerminal: requireFunction(module, "_vibe_othello_wasm_offsetof_apply_result_is_terminal")(),
     },
+    searchResult: {
+      size: requireFunction(module, "_vibe_othello_wasm_sizeof_search_result")(),
+      status: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_status")(),
+      hasBestMove: requireFunction(
+        module,
+        "_vibe_othello_wasm_offsetof_search_result_has_best_move",
+      )(),
+      bestMoveSquare: requireFunction(
+        module,
+        "_vibe_othello_wasm_offsetof_search_result_best_move_square",
+      )(),
+      isPass: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_is_pass")(),
+      score: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_score")(),
+      completedDepth: requireFunction(
+        module,
+        "_vibe_othello_wasm_offsetof_search_result_completed_depth",
+      )(),
+      nodes: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_nodes")(),
+      elapsedMs: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_elapsed_ms")(),
+      stopped: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_stopped")(),
+      exact: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_exact")(),
+    },
   };
+}
+
+export class WasmEvaluationArtifact {
+  #core;
+  #handle;
+
+  constructor(core, handle) {
+    this.#core = core;
+    this.#handle = handle;
+  }
+
+  evaluatePosition(position) {
+    return this.#core.evaluatePositionWithHandle(this.#requireHandle(), position);
+  }
+
+  searchBestMove(position, limits = {}) {
+    return this.#core.searchBestMoveWithHandle(this.#requireHandle(), position, limits);
+  }
+
+  free() {
+    if (this.#handle !== 0) {
+      this.#core.freeEvaluationArtifactHandle(this.#handle);
+      this.#handle = 0;
+    }
+  }
+
+  #requireHandle() {
+    if (this.#handle === 0) {
+      throw new Error("evaluation artifact has been freed");
+    }
+    return this.#handle;
+  }
 }
 
 /**
@@ -116,6 +194,10 @@ export class WasmCore {
     this.queryPositionFn = requireFunction(module, "_vibe_othello_wasm_query_position");
     this.applyMoveFn = requireFunction(module, "_vibe_othello_wasm_apply_move");
     this.applyPassFn = requireFunction(module, "_vibe_othello_wasm_apply_pass");
+    this.loadEvalArtifactFn = requireFunction(module, "_vibe_othello_wasm_load_eval_artifact");
+    this.freeEvalArtifactFn = requireFunction(module, "_vibe_othello_wasm_free_eval_artifact");
+    this.evaluatePositionFn = requireFunction(module, "_vibe_othello_wasm_evaluate_position");
+    this.searchBestMoveFn = requireFunction(module, "_vibe_othello_wasm_search_best_move");
     this.mallocFn = requireFunction(module, "_malloc");
     this.freeFn = requireFunction(module, "_free");
   }
@@ -165,6 +247,105 @@ export class WasmCore {
     return this.apply(position, "applyPass", (positionPtr, resultPtr) =>
       this.applyPassFn(positionPtr, resultPtr),
     );
+  }
+
+  loadEvaluationArtifact(manifestText, weightsBytes) {
+    if (typeof manifestText !== "string") {
+      throw new Error("manifestText must be a string");
+    }
+
+    const manifestBytes = new TextEncoder().encode(manifestText);
+    const weightsView = normalizeWeightsBytes(weightsBytes);
+    let manifestPtr = 0;
+    let weightsPtr = 0;
+    let handlePtr = 0;
+    try {
+      manifestPtr = this.copyBytes(manifestBytes);
+      weightsPtr = this.copyBytes(weightsView);
+      handlePtr = this.malloc(4);
+      const status = this.loadEvalArtifactFn(
+        manifestPtr,
+        manifestBytes.byteLength,
+        weightsPtr,
+        weightsView.byteLength,
+        handlePtr,
+      );
+      checkStatus(status, "loadEvaluationArtifact");
+
+      const handle = this.view().getUint32(handlePtr, true);
+      if (handle === 0) {
+        throw new Error("loadEvaluationArtifact failed: evaluator handle was not returned");
+      }
+      return new WasmEvaluationArtifact(this, handle);
+    } finally {
+      if (handlePtr !== 0) {
+        this.freeFn(handlePtr);
+      }
+      if (weightsPtr !== 0) {
+        this.freeFn(weightsPtr);
+      }
+      if (manifestPtr !== 0) {
+        this.freeFn(manifestPtr);
+      }
+    }
+  }
+
+  evaluatePositionWithHandle(handle, position) {
+    let positionPtr = 0;
+    let scorePtr = 0;
+    try {
+      positionPtr = this.malloc(this.layout.position.size);
+      scorePtr = this.malloc(4);
+      this.writePosition(positionPtr, position);
+      const status = this.evaluatePositionFn(handle, positionPtr, scorePtr);
+      checkStatus(status, "evaluatePosition");
+      return this.view().getInt32(scorePtr, true);
+    } finally {
+      if (scorePtr !== 0) {
+        this.freeFn(scorePtr);
+      }
+      if (positionPtr !== 0) {
+        this.freeFn(positionPtr);
+      }
+    }
+  }
+
+  searchBestMoveWithHandle(handle, position, limits = {}) {
+    const maxDepth = toUint32Limit(limits.maxDepth, "maxDepth");
+    const maxNodes = toUint32Limit(limits.maxNodes, "maxNodes");
+    const maxTimeMs = toUint32Limit(limits.maxTimeMs, "maxTimeMs");
+    if (maxDepth === 0 && maxNodes === 0 && maxTimeMs === 0) {
+      throw new Error("searchBestMove requires maxDepth, maxNodes, or maxTimeMs");
+    }
+
+    let positionPtr = 0;
+    let resultPtr = 0;
+    try {
+      positionPtr = this.malloc(this.layout.position.size);
+      resultPtr = this.malloc(this.layout.searchResult.size);
+      this.writePosition(positionPtr, position);
+      const status = this.searchBestMoveFn(
+        handle,
+        positionPtr,
+        maxDepth,
+        maxNodes,
+        maxTimeMs,
+        resultPtr,
+      );
+      this.checkResultStatus(status, resultPtr, this.layout.searchResult.status, "searchBestMove");
+      return this.readSearchResult(resultPtr);
+    } finally {
+      if (resultPtr !== 0) {
+        this.freeFn(resultPtr);
+      }
+      if (positionPtr !== 0) {
+        this.freeFn(positionPtr);
+      }
+    }
+  }
+
+  freeEvaluationArtifactHandle(handle) {
+    this.freeEvalArtifactFn(handle);
   }
 
   apply(position, operation, call) {
@@ -221,6 +402,33 @@ export class WasmCore {
     view.setBigUint64(ptr + this.layout.position.player, position.player, true);
     view.setBigUint64(ptr + this.layout.position.opponent, position.opponent, true);
     view.setUint8(ptr + this.layout.position.sideToMove, sideToWire(position.sideToMove));
+  }
+
+  copyBytes(bytes) {
+    if (bytes.byteLength === 0) {
+      return 0;
+    }
+    const ptr = this.malloc(bytes.byteLength);
+    this.module.HEAPU8.set(bytes, ptr);
+    return ptr;
+  }
+
+  readSearchResult(ptr) {
+    const view = this.view();
+    const hasBestMove = toBoolean(view.getUint8(ptr + this.layout.searchResult.hasBestMove));
+    return {
+      hasBestMove,
+      bestMoveSquare: hasBestMove
+        ? view.getUint8(ptr + this.layout.searchResult.bestMoveSquare)
+        : null,
+      isPass: toBoolean(view.getUint8(ptr + this.layout.searchResult.isPass)),
+      score: view.getInt32(ptr + this.layout.searchResult.score, true),
+      completedDepth: view.getUint32(ptr + this.layout.searchResult.completedDepth, true),
+      nodes: view.getBigUint64(ptr + this.layout.searchResult.nodes, true),
+      elapsedMs: view.getUint32(ptr + this.layout.searchResult.elapsedMs, true),
+      stopped: toBoolean(view.getUint8(ptr + this.layout.searchResult.stopped)),
+      exact: toBoolean(view.getUint8(ptr + this.layout.searchResult.exact)),
+    };
   }
 
   checkResultStatus(returnStatus, resultPtr, statusOffset, operation) {
