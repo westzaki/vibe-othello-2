@@ -57,6 +57,30 @@ jobs:
       - name: Test
         run: ctest --test-dir build-sanitize --output-on-failure
 
+  wasm:
+    name: WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Configure
+        run: >
+          emcmake cmake -S . -B build-wasm
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DVIBE_OTHELLO_BUILD_WASM_MODULE=ON
+
+      - name: Build
+        run: cmake --build build-wasm --target vibe_othello_wasm_module
+
+      - name: Test
+        run: ctest --test-dir build-wasm --output-on-failure
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

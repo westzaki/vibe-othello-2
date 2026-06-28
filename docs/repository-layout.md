@@ -29,7 +29,7 @@ repo/
 | `docs/` | Architecture, progress, layout, style, and review documents |
 | `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |
 | `engine/` | Native C++ Othello engine static library |
-| `wasm/` | Native-buildable C ABI adapters for browser/WASM-facing engine boundaries |
+| `wasm/` | Native-buildable C ABI adapters and opt-in Emscripten module smoke for browser/WASM-facing engine boundaries |
 | `tools/` | Developer and validation command-line tools |
 | `apps/` | User-facing applications |
 | `.clang-format` | C++ formatting rules |
@@ -137,19 +137,21 @@ tools/
 
 ## WASM Adapter Layout
 
-`wasm/` owns native-buildable C ABI adapters for browser/WASM-facing engine
-boundaries. It links against engine public APIs and must not duplicate engine
-rules.
+`wasm/` owns native-buildable C ABI adapters and opt-in Emscripten module smoke
+for browser/WASM-facing engine boundaries. It links against engine public APIs
+and must not duplicate engine rules.
 
-The current adapter exposes board-core operations only. It does not own
-generated `.wasm` or `.mjs` output, TypeScript wrappers, Web Worker protocols,
-React, Vite, GitHub Pages workflows, search bindings, or evaluation bindings.
+The current adapter exposes board-core operations only. It can build generated
+`.wasm` and `.mjs` outputs as local build artifacts, but does not own committed
+runtime output, TypeScript wrappers, Web Worker protocols, React, Vite, GitHub
+Pages workflows, search bindings, or evaluation bindings.
 
 ```text
 wasm/
 ├─ README.md
 ├─ CMakeLists.txt
 ├─ include/
+├─ smoke/
 ├─ src/
 └─ tests/
 ```

@@ -30,13 +30,17 @@ board-core C ABI calls. It exposes ABI versioning, initial position, position
 query, checked move application, and checked pass application. Native adapter
 tests cover this surface.
 
+The current repository also has an opt-in Emscripten module target for the same
+C ABI adapter. The generated `.mjs` and `.wasm` files are build artifacts and
+are not committed. When Node is available in an Emscripten build, a minimal Node
+smoke loads the module and calls the existing C ABI functions.
+
 The current repository does not yet have production browser runtime
 implementation:
 
 * `apps/` currently has only `README.md`
 * no `apps/web` React app exists
 * no Vite setup exists
-* no Emscripten build exists
 * no TypeScript `WasmCore` wrapper exists
 * no Engine Web Worker exists
 * no Worker protocol exists
@@ -50,7 +54,7 @@ future source of truth for board rules, search, and evaluation.
 
 The current implementation does not yet have:
 
-* WASM parity smoke tests
+* detailed WASM parity smoke tests
 * TypeScript WASM wrapper
 * `apps/web` Vite project
 * React board UI
@@ -79,7 +83,9 @@ Status values:
 | Board-core C ABI adapter | done | Native-buildable adapter consuming engine public C++ API |
 | ABI versioning | done | `VIBE_OTHELLO_WASM_ABI_VERSION` and version query |
 | Native adapter tests | done | Cover board-core C ABI status and parity with board_core calls |
-| WASM parity smoke tests | not started | Should compare native and WASM outputs once Emscripten output exists |
+| Opt-in Emscripten module target | done | `VIBE_OTHELLO_BUILD_WASM_MODULE=ON`; emits build-tree `.mjs` and `.wasm` artifacts |
+| Node module smoke | done | Minimal module loading and C ABI execution smoke when Node is available |
+| WASM parity smoke tests | not started | Detailed native-vs-WASM output comparison is still future work |
 | TypeScript `WasmCore` wrapper | not started | Should be the only TypeScript layer that knows raw WASM ABI |
 | `apps/web` Vite project | not started | Planned user-facing application |
 | React board UI | not started | Should consume domain objects |
@@ -103,7 +109,8 @@ The web app path is ready for first playable browser use when:
 * the native default build does not require Node or Emscripten
 * Emscripten build steps are opt-in
 * WASM ABI versioning exists
-* WASM parity smoke tests cover fixed board positions
+* WASM parity smoke tests cover fixed board positions beyond the minimal module
+  loading smoke
 * `apps/web` builds with Vite
 * generated WASM runtime assets are app-owned build artifacts, not adapter
   source of truth
