@@ -32,6 +32,25 @@ tree into `apps/web/public/wasm/`.
 If the files are missing, the Vite build still works, but browser runtime engine
 initialization reports a readable error.
 
+## GitHub Pages deployment
+
+The repository has a dedicated GitHub Pages workflow at
+`.github/workflows/pages.yml`. It runs on pushes to `main` and
+`workflow_dispatch`; it does not deploy pull requests.
+
+The workflow builds the Emscripten runtime module, copies the generated runtime
+assets into `apps/web/public/wasm/`, builds the Vite app, uploads
+`apps/web/dist` as a Pages artifact, and deploys it to GitHub Pages.
+
+The generated `.mjs` and `.wasm` runtime files and `apps/web/dist/` remain build
+artifacts and are not committed to git. Repository Pages settings must use
+GitHub Actions as the Pages source. After merge and a successful Pages workflow,
+the expected public URL is:
+
+```text
+https://westzaki.github.io/vibe-othello-2/
+```
+
 ## Development
 
 ```sh
