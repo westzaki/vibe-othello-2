@@ -10,8 +10,10 @@ memory.
 The minimal app supports resetting to the initial position, playing legal moves
 by clicking board markers, and manually passing when the engine reports that the
 side to move has no legal move and the position is not terminal. It also has a
-manual CPU move button that plays one bounded search move for the current side
-to move.
+simple CPU opponent mode where the human is fixed to Black and the CPU is fixed
+to White. When that mode is on, the CPU automatically responds after human moves.
+When CPU opponent mode is off, a manual CPU move button can still play one
+bounded search move for the current side to move.
 
 ## Runtime WASM assets
 
@@ -61,12 +63,14 @@ cmake --build build-wasm --target vibe_othello_copy_web_eval_artifact_assets
 The Worker fetches the default pointer from
 `${BASE_URL}eval/default-artifact.json`, resolves the manifest and `weights.bin`
 from that static path, loads the bytes through `WasmCore.loadEvaluationArtifact()`,
-and uses the loaded artifact for the manual CPU move button.
+and uses the loaded artifact for CPU moves.
 
 The browser CPU search is intentionally conservative: depth 2, no node cap, and
-a 500 ms time cap. It is manual only. There is no automatic CPU opponent mode,
-side selection, difficulty selector, cancellation UI, threaded WASM, game review
-UI, or production-strength claim yet.
+a 500 ms time cap. CPU opponent mode is intentionally minimal: the human is
+fixed to Black, the CPU is fixed to White, and the same bounded CPU move command
+is reused for automatic responses. There is no side selection, difficulty
+selector, cancellation UI, threaded WASM, game review UI, or production-strength
+claim yet.
 
 ## GitHub Pages deployment
 

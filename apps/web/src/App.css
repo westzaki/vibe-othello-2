@@ -47,6 +47,12 @@ button {
   color: #5c6258;
 }
 
+.app__mode-note {
+  margin: 4px 0 0;
+  color: #365741;
+  font-size: 0.95rem;
+}
+
 .app__actions {
   display: flex;
   flex-wrap: wrap;
@@ -119,6 +125,10 @@ button {
 
 .board__square--legal {
   cursor: pointer;
+}
+
+.board__square:disabled {
+  cursor: not-allowed;
 }
 
 .board__square:focus-visible {

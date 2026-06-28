@@ -66,13 +66,15 @@ The current repository has a minimal browser runtime skeleton under `apps/web`:
   static asset tree, and `WasmCore.loadEvaluationArtifact()` loading
 * a manual React `CPU move` button that asks the Worker to run one conservative
   bounded best-move search for the current side to move and apply the result
-* a small UI summary for the most recent manual CPU move search result
+* a simple CPU opponent mode where the human is fixed to Black, the CPU is fixed
+  to White, and the app automatically asks the Worker to run one CPU move after
+  human moves
+* a small UI summary for the most recent CPU move search result
 
 The current repository still does not have the full browser runtime roadmap:
 
 * no TypeScript `WasmCore` wrapper exists, though a plain JavaScript wrapper
   exists as an implementation stepping stone
-* no automatic CPU opponent mode exists
 * no web-specific review adapter exists
 
 Native engine functionality is implemented separately under `engine/` and is the
@@ -84,9 +86,11 @@ wrapper can now load those bytes into an opaque WASM-side evaluator handle,
 evaluate positions, and run bounded best-move search through that loaded
 evaluator. The browser Worker fetches the copied default artifact assets, loads
 the artifact through `WasmCore.loadEvaluationArtifact()`, and uses it for a
-manual CPU move with conservative default limits of depth 2, no node cap, and
-500 ms. Automatic CPU moves, CPU opponent mode, side selection, advanced
-cancellation, threaded WASM, and evaluation display UI are still not
+CPU move with conservative default limits of depth 2, no node cap, and 500 ms.
+React can either expose that as a manual CPU move when CPU opponent mode is off,
+or reuse it as an automatic White response in the minimal CPU opponent mode.
+Side selection, difficulty selection, advanced cancellation, threaded WASM,
+review UI, evaluation explanation UI, and strength or Elo claims are still not
 implemented.
 
 ## Current gaps
@@ -95,7 +99,6 @@ The current implementation does not yet have:
 
 * detailed WASM parity smoke tests
 * TypeScript WASM wrapper
-* automatic CPU opponent flow
 * review/report adapters
 * React evaluation display UI
 * advanced cancellation
@@ -126,7 +129,7 @@ Status values:
 | WASM parity smoke tests | not started | Detailed native-vs-WASM output comparison is still future work |
 | TypeScript `WasmCore` wrapper | not started | Plain JavaScript exists; typed app-facing wrapper remains future work |
 | WASM artifact loading | done | C ABI can load manifest text plus weights bytes through the engine in-memory loader into an opaque evaluator handle |
-| JavaScript artifact loading | done | Plain `WasmCore` can load caller-provided manifest text and weights bytes; Worker fetching from `/eval/default-artifact.json` is wired for manual CPU moves |
+| JavaScript artifact loading | done | Plain `WasmCore` can load caller-provided manifest text and weights bytes; Worker fetching from `/eval/default-artifact.json` is wired for CPU moves |
 | `apps/web` Vite project | done | Minimal React + Vite + TypeScript project under `apps/web` |
 | React board UI | done | Minimal 8x8 board consuming Worker snapshots |
 | Engine Web Worker | done | Worker imports `WasmCore`, loads generated runtime assets, owns current position, fetches copied default eval assets, and runs manual bounded CPU move search |
@@ -134,11 +137,11 @@ Status values:
 | Worker client and React hooks | done | Worker client used by React state hooks; React does not import WASM |
 | Legal move, applyMove, and pass browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/`; pass is user-triggered through Worker -> `WasmCore` -> board_core |
 | Web CI with generated WASM and eval assets | done | Web job builds the Emscripten module, copies WASM runtime assets and eval runtime assets, verifies eval asset readiness, installs app dependencies, typechecks, and runs Vite build |
-| Engine in-memory evaluation artifact loader | done | Native engine API can load pattern artifacts from manifest text and weights bytes; browser/WASM consumption is wired for manual CPU moves |
+| Engine in-memory evaluation artifact loader | done | Native engine API can load pattern artifacts from manifest text and weights bytes; browser/WASM consumption is wired for CPU moves |
 | Search best-move bindings | done | WASM C ABI and plain `WasmCore` expose bounded best-move search with a loaded evaluation artifact; Worker protocol now uses it through `cpuMove` |
-| Manual CPU move | done | React exposes a manual `CPU move` button; Worker runs conservative depth 2 / 500 ms search through the copied default eval artifact and applies one move or pass |
-| CPU opponent | not started | Automatic CPU response after human moves is intentionally deferred |
-| Bounded search/evaluation display | done | Manual CPU move shows a small search summary; continuous position evaluation display is not implemented |
+| Manual CPU move | done | React exposes a manual `CPU move` button when CPU opponent mode is off; Worker runs conservative depth 2 / 500 ms search through the copied default eval artifact and applies one move or pass |
+| CPU opponent | done | Minimal human-vs-CPU mode fixes the human to Black and CPU to White, automatically reusing the existing Worker `cpuMove` command after human moves |
+| Bounded search/evaluation display | done | CPU moves show a small search summary; continuous position evaluation display is not implemented |
 | GitHub Pages workflow | done | Dedicated Pages workflow builds generated WASM runtime assets, copies eval runtime assets, builds `apps/web`, uploads `apps/web/dist`, and deploys on pushes to `main` or manual dispatch |
 | Review/report adapters | deferred | Policy layer on top of search results and board history |
 | Evaluator artifact loading for web | done | Worker fetches copied `/eval/default-artifact.json`, resolves manifest and `weights.bin`, and loads the artifact through `WasmCore.loadEvaluationArtifact()` |

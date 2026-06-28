@@ -15,12 +15,14 @@ const DISPLAY_SQUARES = Array.from({ length: 64 }, (_, displayIndex) => {
 
 function App() {
   const clientRef = useRef<EngineWorkerClient | null>(null);
+  const autoCpuMoveInFlightRef = useRef(false);
   const [status, setStatus] = useState<EngineStatus>("loading");
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cpuMove, setCpuMove] = useState<CpuMoveSummary | null>(null);
+  const [cpuOpponentEnabled, setCpuOpponentEnabled] = useState(false);
 
   useEffect(() => {
     const client = createEngineWorkerClient();
@@ -54,20 +56,39 @@ function App() {
   }, []);
 
   const legalMoveSet = useMemo(() => new Set(snapshot?.legalMoves ?? []), [snapshot]);
-  const canPass =
+  const isCpuTurn =
+    cpuOpponentEnabled &&
+    snapshot !== null &&
+    snapshot.sideToMove === "white" &&
+    snapshot.isTerminal === false;
+  const canHumanAct =
     status === "ready" &&
     !busy &&
+    snapshot !== null &&
+    (!cpuOpponentEnabled || snapshot.sideToMove === "black");
+  const canPass =
+    canHumanAct &&
     snapshot !== null &&
     snapshot.hasLegalMove === false &&
     snapshot.isTerminal === false;
   const canCpuMove =
+    !cpuOpponentEnabled &&
     status === "ready" &&
     !busy &&
     clientRef.current !== null &&
     snapshot !== null &&
     snapshot.isTerminal === false;
-  const shouldShowPassNotice =
-    snapshot !== null && snapshot.hasLegalMove === false && snapshot.isTerminal === false;
+  const shouldAutoCpuMove = isCpuTurn && status === "ready" && !busy && clientRef.current !== null;
+  const shouldShowPassNotice = canPass;
+  const shouldShowCpuThinkingNotice = isCpuTurn && status === "ready";
+
+  useEffect(() => {
+    if (!shouldAutoCpuMove || autoCpuMoveInFlightRef.current) {
+      return;
+    }
+
+    void applyAutoCpuMove();
+  }, [shouldAutoCpuMove]);
 
   async function reset() {
     const client = clientRef.current;
@@ -92,7 +113,7 @@ function App() {
 
   async function applyMove(squareIndex: number) {
     const client = clientRef.current;
-    if (client === null || snapshot === null || busy) {
+    if (client === null || snapshot === null || busy || !canHumanAct) {
       return;
     }
 
@@ -159,14 +180,64 @@ function App() {
     }
   }
 
+  async function applyAutoCpuMove() {
+    const client = clientRef.current;
+    if (
+      client === null ||
+      snapshot === null ||
+      busy ||
+      status !== "ready" ||
+      snapshot.sideToMove !== "white" ||
+      snapshot.isTerminal ||
+      autoCpuMoveInFlightRef.current
+    ) {
+      return;
+    }
+
+    autoCpuMoveInFlightRef.current = true;
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    setCpuMove(null);
+    try {
+      const result = await client.cpuMove();
+      setSnapshot(result.snapshot);
+      setCpuMove(result.cpuMove);
+      setStatus("ready");
+    } catch (cpuMoveError) {
+      setError(errorMessage(cpuMoveError));
+      setStatus("error");
+    } finally {
+      autoCpuMoveInFlightRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  function toggleCpuOpponentMode() {
+    setNotice(null);
+    setCpuOpponentEnabled((enabled) => !enabled);
+  }
+
   return (
     <main className="app">
       <header className="app__header">
         <div>
           <h1>Vibe Othello</h1>
           <p className="app__status">Engine: {statusLabel(status, busy)}</p>
+          {cpuOpponentEnabled ? (
+            <p className="app__mode-note">You are Black. CPU plays White automatically.</p>
+          ) : null}
         </div>
         <div className="app__actions">
+          <button
+            className="app__button"
+            type="button"
+            onClick={toggleCpuOpponentMode}
+            disabled={busy || status === "loading"}
+            aria-pressed={cpuOpponentEnabled}
+          >
+            CPU opponent: {cpuOpponentEnabled ? "on" : "off"}
+          </button>
           <button
             className="app__button"
             type="button"
@@ -175,7 +246,7 @@ function App() {
           >
             Reset
           </button>
-          {snapshot !== null ? (
+          {snapshot !== null && !cpuOpponentEnabled ? (
             <button
               className="app__button"
               type="button"
@@ -195,8 +266,9 @@ function App() {
 
       {error !== null ? <p className="app__error">{error}</p> : null}
       {notice !== null ? <p className="app__notice">{notice}</p> : null}
+      {shouldShowCpuThinkingNotice ? <p className="app__notice">CPU is thinking...</p> : null}
       {shouldShowPassNotice ? (
-        <p className="app__notice">No legal move for the side to move. Pass is available.</p>
+        <p className="app__notice">No legal move for Black. Pass is available.</p>
       ) : null}
 
       <section className="game" aria-label="Othello board">
@@ -206,7 +278,7 @@ function App() {
               key={squareIndex}
               cell={snapshot?.cells[squareIndex] ?? null}
               isLegal={legalMoveSet.has(squareIndex)}
-              isDisabled={busy || status !== "ready"}
+              isDisabled={!canHumanAct}
               squareIndex={squareIndex}
               onPlay={applyMove}
             />
