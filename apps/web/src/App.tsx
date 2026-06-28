@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createEngineWorkerClient, type EngineWorkerClient } from "./engine/workerClient";
-import type { BoardCell, BoardSnapshot } from "./workers/protocol";
+import type { BoardCell, BoardSnapshot, CpuMoveSummary, SearchSummary } from "./workers/protocol";
 
 type EngineStatus = "loading" | "ready" | "error";
 
@@ -20,6 +20,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cpuMove, setCpuMove] = useState<CpuMoveSummary | null>(null);
 
   useEffect(() => {
     const client = createEngineWorkerClient();
@@ -59,6 +60,12 @@ function App() {
     snapshot !== null &&
     snapshot.hasLegalMove === false &&
     snapshot.isTerminal === false;
+  const canCpuMove =
+    status === "ready" &&
+    !busy &&
+    clientRef.current !== null &&
+    snapshot !== null &&
+    snapshot.isTerminal === false;
   const shouldShowPassNotice =
     snapshot !== null && snapshot.hasLegalMove === false && snapshot.isTerminal === false;
 
@@ -71,6 +78,7 @@ function App() {
     setBusy(true);
     setNotice(null);
     setError(null);
+    setCpuMove(null);
     try {
       setSnapshot(await client.reset());
       setStatus("ready");
@@ -96,6 +104,7 @@ function App() {
     setBusy(true);
     setNotice(null);
     setError(null);
+    setCpuMove(null);
     try {
       setSnapshot(await client.applyMove(squareIndex));
       setStatus("ready");
@@ -116,11 +125,34 @@ function App() {
     setBusy(true);
     setNotice(null);
     setError(null);
+    setCpuMove(null);
     try {
       setSnapshot(await client.applyPass());
       setStatus("ready");
     } catch (passError) {
       setError(errorMessage(passError));
+      setStatus("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyCpuMove() {
+    const client = clientRef.current;
+    if (client === null || snapshot === null || busy || !canCpuMove) {
+      return;
+    }
+
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await client.cpuMove();
+      setSnapshot(result.snapshot);
+      setCpuMove(result.cpuMove);
+      setStatus("ready");
+    } catch (cpuMoveError) {
+      setError(errorMessage(cpuMoveError));
       setStatus("error");
     } finally {
       setBusy(false);
@@ -143,6 +175,16 @@ function App() {
           >
             Reset
           </button>
+          {snapshot !== null ? (
+            <button
+              className="app__button"
+              type="button"
+              onClick={applyCpuMove}
+              disabled={!canCpuMove}
+            >
+              CPU move
+            </button>
+          ) : null}
           {snapshot !== null ? (
             <button className="app__button" type="button" onClick={applyPass} disabled={!canPass}>
               Pass
@@ -172,21 +214,75 @@ function App() {
         </div>
 
         <aside className="summary" aria-label="Position summary">
-          <div>
+          <div className="summary__row">
             <span className="summary__label">Side</span>
             <strong>{snapshot?.sideToMove ?? "black"}</strong>
           </div>
-          <div>
+          <div className="summary__row">
             <span className="summary__label">Legal moves</span>
             <strong>{snapshot?.legalMoves.length ?? 0}</strong>
           </div>
-          <div>
+          <div className="summary__row">
             <span className="summary__label">State</span>
             <strong>{stateLabel(snapshot)}</strong>
           </div>
+          {cpuMove !== null ? <CpuMoveSummaryView summary={cpuMove} /> : null}
         </aside>
       </section>
     </main>
+  );
+}
+
+interface CpuMoveSummaryViewProps {
+  summary: CpuMoveSummary;
+}
+
+function CpuMoveSummaryView({ summary }: CpuMoveSummaryViewProps) {
+  return (
+    <div className="summary__cpu" aria-label="CPU move summary">
+      <div className="summary__row">
+        <span className="summary__label">CPU move</span>
+        <strong>{formatCpuMove(summary)}</strong>
+      </div>
+      {summary.search !== null ? <SearchSummaryView search={summary.search} /> : null}
+      {summary.search === null ? (
+        <div className="summary__row">
+          <span className="summary__label">Search</span>
+          <strong>not needed</strong>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface SearchSummaryViewProps {
+  search: SearchSummary;
+}
+
+function SearchSummaryView({ search }: SearchSummaryViewProps) {
+  return (
+    <>
+      <div className="summary__row">
+        <span className="summary__label">Score</span>
+        <strong>{search.score}</strong>
+      </div>
+      <div className="summary__row">
+        <span className="summary__label">Depth</span>
+        <strong>{search.completedDepth}</strong>
+      </div>
+      <div className="summary__row">
+        <span className="summary__label">Nodes</span>
+        <strong>{formatNodes(search.nodes)}</strong>
+      </div>
+      <div className="summary__row">
+        <span className="summary__label">Time</span>
+        <strong>{search.elapsedMs} ms</strong>
+      </div>
+      <div className="summary__row">
+        <span className="summary__label">Result</span>
+        <strong>{searchResultLabel(search)}</strong>
+      </div>
+    </>
   );
 }
 
@@ -223,6 +319,35 @@ function coordinateFromSquareIndex(squareIndex: number): string {
   const file = String.fromCharCode("a".charCodeAt(0) + (squareIndex % BOARD_SIZE));
   const rank = Math.floor(squareIndex / BOARD_SIZE) + 1;
   return `${file}${rank}`;
+}
+
+function formatCpuMove(summary: CpuMoveSummary): string {
+  const side = colorLabel(summary.sideToMoveBefore);
+  if (summary.kind === "pass" || summary.squareIndex === null) {
+    return `${side} pass`;
+  }
+  return `${side} ${coordinateFromSquareIndex(summary.squareIndex)}`;
+}
+
+function colorLabel(color: BoardSnapshot["sideToMove"]): string {
+  return color === "black" ? "Black" : "White";
+}
+
+function formatNodes(nodes: bigint): string {
+  return nodes.toLocaleString("en-US");
+}
+
+function searchResultLabel(search: SearchSummary): string {
+  if (search.exact && search.stopped) {
+    return "exact, stopped";
+  }
+  if (search.exact) {
+    return "exact";
+  }
+  if (search.stopped) {
+    return "stopped";
+  }
+  return "bounded";
 }
 
 function statusLabel(status: EngineStatus, busy: boolean): string {

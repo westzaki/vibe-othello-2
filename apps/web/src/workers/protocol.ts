@@ -9,6 +9,27 @@ export interface BoardSnapshot {
   isTerminal: boolean;
 }
 
+export interface SearchSummary {
+  score: number;
+  completedDepth: number;
+  nodes: bigint;
+  elapsedMs: number;
+  stopped: boolean;
+  exact: boolean;
+}
+
+export interface CpuMoveSummary {
+  sideToMoveBefore: DiscColor;
+  kind: "move" | "pass";
+  squareIndex: number | null;
+  search: SearchSummary | null;
+}
+
+export interface CpuMoveResult {
+  snapshot: BoardSnapshot;
+  cpuMove: CpuMoveSummary;
+}
+
 export type EngineRequestPayload =
   | {
       command: "init";
@@ -22,18 +43,24 @@ export type EngineRequestPayload =
     }
   | {
       command: "applyPass";
+    }
+  | {
+      command: "cpuMove";
     };
 
 export type EngineCommand = EngineRequestPayload["command"];
 export type EngineRequest = EngineRequestPayload & { id: number };
 
+export interface EngineSuccessResponse {
+  id: number;
+  command: EngineCommand;
+  ok: true;
+  snapshot: BoardSnapshot;
+  cpuMove?: CpuMoveSummary;
+}
+
 export type EngineResponse =
-  | {
-      id: number;
-      command: EngineCommand;
-      ok: true;
-      snapshot: BoardSnapshot;
-    }
+  | EngineSuccessResponse
   | {
       id: number;
       command: EngineCommand;

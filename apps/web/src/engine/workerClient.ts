@@ -1,12 +1,14 @@
 import type {
   BoardSnapshot,
+  CpuMoveResult,
   EngineRequest,
   EngineRequestPayload,
   EngineResponse,
+  EngineSuccessResponse,
 } from "../workers/protocol";
 
 type PendingRequest = {
-  resolve: (snapshot: BoardSnapshot) => void;
+  resolve: (response: EngineSuccessResponse) => void;
   reject: (error: Error) => void;
 };
 
@@ -31,19 +33,30 @@ export class EngineWorkerClient {
   }
 
   init(): Promise<BoardSnapshot> {
-    return this.request({ command: "init" });
+    return this.requestSnapshot({ command: "init" });
   }
 
   reset(): Promise<BoardSnapshot> {
-    return this.request({ command: "reset" });
+    return this.requestSnapshot({ command: "reset" });
   }
 
   applyMove(squareIndex: number): Promise<BoardSnapshot> {
-    return this.request({ command: "applyMove", squareIndex });
+    return this.requestSnapshot({ command: "applyMove", squareIndex });
   }
 
   applyPass(): Promise<BoardSnapshot> {
-    return this.request({ command: "applyPass" });
+    return this.requestSnapshot({ command: "applyPass" });
+  }
+
+  async cpuMove(): Promise<CpuMoveResult> {
+    const response = await this.request({ command: "cpuMove" });
+    if (response.cpuMove === undefined) {
+      throw new Error("Engine worker returned a CPU move response without a summary.");
+    }
+    return {
+      snapshot: response.snapshot,
+      cpuMove: response.cpuMove,
+    };
   }
 
   dispose(): void {
@@ -51,13 +64,18 @@ export class EngineWorkerClient {
     this.worker.terminate();
   }
 
-  private request(payload: EngineRequestPayload): Promise<BoardSnapshot> {
+  private async requestSnapshot(payload: EngineRequestPayload): Promise<BoardSnapshot> {
+    const response = await this.request(payload);
+    return response.snapshot;
+  }
+
+  private request(payload: EngineRequestPayload): Promise<EngineSuccessResponse> {
     const id = this.nextRequestId;
     this.nextRequestId += 1;
 
     const request: EngineRequest = { ...payload, id };
 
-    return new Promise<BoardSnapshot>((resolve, reject) => {
+    return new Promise<EngineSuccessResponse>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.worker.postMessage(request);
     });
@@ -71,7 +89,7 @@ export class EngineWorkerClient {
 
     this.pending.delete(response.id);
     if (response.ok) {
-      pending.resolve(response.snapshot);
+      pending.resolve(response);
       return;
     }
 

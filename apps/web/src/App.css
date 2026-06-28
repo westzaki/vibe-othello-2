@@ -157,7 +157,7 @@ button {
   padding-left: 18px;
 }
 
-.summary > div {
+.summary__row {
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -165,6 +165,13 @@ button {
 
 .summary__label {
   color: #5c6258;
+}
+
+.summary__cpu {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #d6d2c8;
+  padding-top: 12px;
 }
 
 @media (max-width: 760px) {

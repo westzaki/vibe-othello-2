@@ -9,7 +9,9 @@ memory.
 
 The minimal app supports resetting to the initial position, playing legal moves
 by clicking board markers, and manually passing when the engine reports that the
-side to move has no legal move and the position is not terminal.
+side to move has no legal move and the position is not terminal. It also has a
+manual CPU move button that plays one bounded search move for the current side
+to move.
 
 ## Runtime WASM assets
 
@@ -56,10 +58,15 @@ Copy the current default artifact with:
 cmake --build build-wasm --target vibe_othello_copy_web_eval_artifact_assets
 ```
 
-Future browser/WASM artifact loading will fetch the default pointer from
-`${BASE_URL}eval/default-artifact.json`, then resolve the manifest and
-`weights.bin` from that static path. This app does not load evaluation artifacts
-from WASM, JavaScript, Workers, or React yet.
+The Worker fetches the default pointer from
+`${BASE_URL}eval/default-artifact.json`, resolves the manifest and `weights.bin`
+from that static path, loads the bytes through `WasmCore.loadEvaluationArtifact()`,
+and uses the loaded artifact for the manual CPU move button.
+
+The browser CPU search is intentionally conservative: depth 2, no node cap, and
+a 500 ms time cap. It is manual only. There is no automatic CPU opponent mode,
+side selection, difficulty selector, cancellation UI, threaded WASM, game review
+UI, or production-strength claim yet.
 
 ## GitHub Pages deployment
 
