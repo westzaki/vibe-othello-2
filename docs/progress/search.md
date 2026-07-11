@@ -107,8 +107,8 @@ The current search implementation includes:
   parity-ordering and exact endgame TT comparison modes
 * checked-in exact endgame benchmark baseline data for local comparison
 * WASM C ABI and plain JavaScript wrapper support for bounded best-move search
-  through a loaded pattern evaluation artifact, with Worker and React CPU
-  opponent wiring deferred
+  through a loaded phase-aware evaluation artifact, with Worker and React CPU
+  opponent wiring implemented separately under `apps/web`
 
 Existing search tests include:
 

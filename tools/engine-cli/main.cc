@@ -4,6 +4,7 @@
 #include "vibe_othello/evaluation/pattern_evaluator.h"
 #include "vibe_othello/evaluation/pattern_feature_set.h"
 #include "vibe_othello/evaluation/pattern_weights.h"
+#include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
@@ -382,6 +383,7 @@ int main(int argc, char** argv) {
 
   DiscDifferenceEvaluator disc_difference_evaluator;
   std::optional<vibe_othello::evaluation::PatternEvaluator> pattern_evaluator;
+  std::optional<vibe_othello::evaluation::PhaseAwareEvaluator> phase_aware_evaluator;
   const Evaluator* evaluator = &disc_difference_evaluator;
   if (args->evaluator == EvaluatorChoice::default_artifact ||
       args->evaluator == EvaluatorChoice::explicit_artifact) {
@@ -397,12 +399,13 @@ int main(int argc, char** argv) {
     }
     eval::LoadedPatternArtifact artifact = std::move(*result.artifact);
     try {
-      pattern_evaluator.emplace(std::move(artifact.weights), std::move(artifact.feature_set));
+      phase_aware_evaluator.emplace(std::move(artifact.weights), std::move(artifact.feature_set),
+                                    std::move(artifact.trained_phases));
     } catch (const std::exception& error) {
-      std::cerr << "pattern evaluator rejected artifact: " << error.what() << '\n';
+      std::cerr << "phase-aware evaluator rejected artifact: " << error.what() << '\n';
       return 2;
     }
-    evaluator = &*pattern_evaluator;
+    evaluator = &*phase_aware_evaluator;
   } else if (args->evaluator == EvaluatorChoice::legacy_pattern_weights) {
     const std::optional<PatternRuntime> runtime = select_pattern_runtime(args->pattern_set);
     if (!runtime.has_value()) {

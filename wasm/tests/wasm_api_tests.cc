@@ -1,6 +1,9 @@
 #include "vibe_othello/board_core/board.h"
+#include "vibe_othello/board_core/serialization.h"
+#include "vibe_othello/evaluation/early_midgame_heuristic_evaluator.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
+#include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/search.h"
 #include "vibe_othello_wasm/wasm_api.h"
 
@@ -10,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -137,6 +141,20 @@ WasmEvalHandle load_wasm_eval_artifact(const std::string& manifest_text,
               &handle) == VIBE_OTHELLO_WASM_STATUS_OK);
   REQUIRE(handle != 0);
   return WasmEvalHandle{handle};
+}
+
+vibe_othello::evaluation::PhaseAwareEvaluator
+direct_phase_aware_evaluator(const std::string& manifest_text,
+                             const std::vector<std::uint8_t>& weights_bytes) {
+  vibe_othello::evaluation::PatternArtifactBytesLoadResult result =
+      vibe_othello::evaluation::load_pattern_artifact_from_bytes(
+          manifest_text, weights_bytes, committed_manifest_path().generic_string());
+  REQUIRE(result.ok());
+
+  vibe_othello::evaluation::LoadedPatternArtifactBytes artifact = std::move(*result.artifact);
+  return vibe_othello::evaluation::PhaseAwareEvaluator{std::move(artifact.weights),
+                                                       std::move(artifact.feature_set),
+                                                       std::move(artifact.trained_phases)};
 }
 
 vibe_othello::evaluation::PatternEvaluator
@@ -354,8 +372,8 @@ TEST_CASE("WASM adapter loads evaluation artifact and evaluates initial position
   const std::string manifest_text = read_text_or_fail(committed_manifest_path());
   const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
   WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
-  vibe_othello::evaluation::PatternEvaluator direct_evaluator =
-      direct_pattern_evaluator(manifest_text, weights_bytes);
+  vibe_othello::evaluation::PhaseAwareEvaluator direct_evaluator =
+      direct_phase_aware_evaluator(manifest_text, weights_bytes);
 
   const Position engine_position = vibe_othello::board_core::initial_position();
   const vibe_othello_wasm_position position = to_wasm_position(engine_position);
@@ -364,6 +382,39 @@ TEST_CASE("WASM adapter loads evaluation artifact and evaluates initial position
   REQUIRE(vibe_othello_wasm_evaluate_position(artifact.get(), &position, &wasm_score) ==
           VIBE_OTHELLO_WASM_STATUS_OK);
   REQUIRE(wasm_score == direct_evaluator.evaluate(engine_position));
+}
+
+TEST_CASE("WASM adapter shares phase-aware artifact routing with the native evaluator", "[wasm]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+  const vibe_othello::evaluation::PhaseAwareEvaluator phase_aware =
+      direct_phase_aware_evaluator(manifest_text, weights_bytes);
+  const vibe_othello::evaluation::PatternEvaluator learned =
+      direct_pattern_evaluator(manifest_text, weights_bytes);
+  const vibe_othello::evaluation::EarlyMidgameHeuristicEvaluator fallback;
+
+  Position early = vibe_othello::board_core::initial_position();
+  vibe_othello::board_core::MoveDelta delta{};
+  REQUIRE(vibe_othello::board_core::apply_move(
+      &early, vibe_othello::board_core::make_move(square(3, 2)), &delta));
+  const vibe_othello_wasm_position early_wasm_position = to_wasm_position(early);
+  std::int32_t early_score = 0;
+  REQUIRE(vibe_othello_wasm_evaluate_position(artifact.get(), &early_wasm_position, &early_score) ==
+          VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(early_score == phase_aware.evaluate(early));
+  REQUIRE(early_score == fallback.evaluate(early));
+  REQUIRE(early_score != learned.evaluate(early));
+
+  const std::optional<Position> late = vibe_othello::board_core::parse_position(
+      "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBBB/BBBWB.B./BBWBBB../BW.WWWWW b");
+  REQUIRE(late.has_value());
+  const vibe_othello_wasm_position late_wasm_position = to_wasm_position(*late);
+  std::int32_t late_score = 0;
+  REQUIRE(vibe_othello_wasm_evaluate_position(artifact.get(), &late_wasm_position, &late_score) ==
+          VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(late_score == phase_aware.evaluate(*late));
+  REQUIRE(late_score == learned.evaluate(*late));
 }
 
 TEST_CASE("WASM adapter runs bounded artifact-backed best-move search", "[wasm]") {

@@ -122,7 +122,8 @@ When no explicit evaluation option is supplied, the engine CLI:
 4. resolves `weights_file` relative to the manifest directory
 5. validates manifest fields, runtime checksum, binary checksum, pattern set,
    phase count, score unit, score scale, and pattern table layout
-6. constructs `PatternEvaluator`
+6. constructs `PhaseAwareEvaluator`, which uses `PatternEvaluator` for covered
+   phases and the built-in deterministic fallback for uncovered phases
 
 Failure is loud. A missing or corrupt default artifact never silently falls
 back to static evaluation.
@@ -131,6 +132,11 @@ Override paths:
 
 * `--eval-artifact <manifest-path>` loads a custom artifact.
 * `--eval-mode static` forces the legacy static evaluator.
+
+An artifact with `trained_phases` uses phase-aware routing for both default and
+explicit manifest paths. A legacy artifact without that field remains
+all-phase learned at runtime for backward compatibility; this is not an
+inference that its training coverage was all-phase.
 
 Legacy smoke tooling may still pass `--eval pattern --pattern-weights PATH`
 with `--pattern-set`, but committed defaults should use manifest-based loading.

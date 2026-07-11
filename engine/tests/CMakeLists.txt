@@ -30,10 +30,12 @@ add_executable(
   board_core/property_test.cc
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
+  evaluation/early_midgame_heuristic_evaluator_test.cc
   evaluation/pattern_evaluator_test.cc
   evaluation/pattern_artifact_test.cc
   evaluation/pattern_schema_test.cc
   evaluation/pattern_weights_test.cc
+  evaluation/phase_aware_evaluator_test.cc
   evaluation/tiny_pattern_evaluator_test.cc
   search/alphabeta_test.cc
   search/endgame_reference_test.cc

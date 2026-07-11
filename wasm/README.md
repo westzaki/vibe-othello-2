@@ -16,8 +16,8 @@ The current adapter exposes:
 * checked move application
 * checked pass application
 * loading an evaluation artifact from manifest text plus weights bytes
-* side-to-move-relative position evaluation through the loaded artifact
-* bounded best-move search through the loaded artifact evaluator
+* side-to-move-relative phase-aware position evaluation through the loaded artifact
+* bounded best-move search through the same phase-aware artifact evaluator
 * ABI layout introspection for the C structs read by JavaScript
 
 The plain JavaScript wrapper lives in `wasm/js/wasmCore.mjs`. It converts the raw
@@ -124,7 +124,8 @@ This directory does not currently contain:
 * React CPU opponent UI or automatic CPU moves
 
 The native default CMake build must keep working without Node or Emscripten.
-TypeScript wrappers, Worker integration, React, Vite, `apps/web`, GitHub Pages,
-Worker artifact fetching, and CPU opponent UI are deferred.
+Browser Worker, React, Vite, GitHub Pages, artifact fetching, and CPU-opponent
+integration live under `apps/web`; this adapter remains their engine-facing ABI
+boundary. A TypeScript wrapper is still deferred.
 
 `engine/` must not depend on this directory.
