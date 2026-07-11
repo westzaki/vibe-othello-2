@@ -115,6 +115,9 @@ def parse_args() -> argparse.Namespace:
         action="append",
         help="Move-teacher TSV sidecar joined to child pattern dataset by child_board_id; repeat for disjoint teacher sources; required for pattern-rank-v0e.",
     )
+    parser.add_argument("--initial-weights", type=Path)
+    parser.add_argument("--initial-trained-phases", nargs="+", type=int)
+    parser.add_argument("--freeze-phase", action="append", default=[], type=int)
     parser.add_argument(
         "--rank-temperature",
         type=float,
@@ -190,6 +193,9 @@ def parse_args() -> argparse.Namespace:
             parser.error("--min-phase-weight must be <= --max-phase-weight")
     v0e_only_args = (
         args.move_teacher is not None
+        or args.initial_weights is not None
+        or args.initial_trained_phases is not None
+        or bool(args.freeze_phase)
         or args.rank_temperature is not None
         or args.value_loss_weight is not None
         or args.pair_sampling_cap is not None
@@ -197,7 +203,7 @@ def parse_args() -> argparse.Namespace:
     )
     if args.mode != TRAINER_ALGORITHM_V0E and v0e_only_args:
         parser.error(
-            "--move-teacher, --rank-temperature, --value-loss-weight, --pair-sampling-cap, and --tie-margin "
+            "--move-teacher, warm-start, and rank-objective arguments "
             "require --mode pattern-rank-v0e"
         )
     if args.mode == TRAINER_ALGORITHM_V0E:
@@ -219,6 +225,25 @@ def parse_args() -> argparse.Namespace:
             parser.error("--pair-sampling-cap must be non-negative")
         if args.tie_margin < 0.0:
             parser.error("--tie-margin must be non-negative")
+        if args.initial_weights is None and (
+            args.initial_trained_phases is not None or args.freeze_phase
+        ):
+            parser.error("--initial-trained-phases and --freeze-phase require --initial-weights")
+        if args.initial_weights is not None and args.initial_trained_phases is None:
+            parser.error("--initial-weights requires --initial-trained-phases")
+        initial_phases = [] if args.initial_trained_phases is None else args.initial_trained_phases
+        if any(phase < 0 or phase >= PHASE_COUNT for phase in initial_phases):
+            parser.error("--initial-trained-phases entries must be in [0, 12]")
+        if len(set(initial_phases)) != len(initial_phases):
+            parser.error("--initial-trained-phases entries must be unique")
+        if any(phase < 0 or phase >= PHASE_COUNT for phase in args.freeze_phase):
+            parser.error("--freeze-phase entries must be in [0, 12]")
+        if len(set(args.freeze_phase)) != len(args.freeze_phase):
+            parser.error("--freeze-phase must not repeat a phase")
+        if not set(args.freeze_phase).issubset(initial_phases):
+            parser.error("--freeze-phase entries must be included in --initial-trained-phases")
+        args.initial_trained_phases = sorted(initial_phases)
+        args.frozen_phases = frozenset(args.freeze_phase)
     if args.phase_count is not None and args.phase_count != PHASE_COUNT:
         parser.error(f"--phase-count must be {PHASE_COUNT}")
     return args

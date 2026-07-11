@@ -2,6 +2,7 @@
 
 #include "vibe_othello/evaluation/pattern.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdint>
@@ -204,8 +205,13 @@ void validate_instance_squares(const PatternFeatureTable& feature_table) {
 }
 
 void validate_score_range(const PatternWeights& weights, const PatternFeatureSet& feature_set) {
+  if (weights.score_scale() == 0) {
+    throw std::invalid_argument("pattern evaluator score scale must be positive");
+  }
+  const std::int64_t scaled_score_limit =
+      static_cast<std::int64_t>(search::kScoreWin - 1) * weights.score_scale();
   std::int64_t max_score = max_abs_weight(weights.phase_biases());
-  if (max_score >= search::kScoreWin) {
+  if (max_score > scaled_score_limit) {
     throw std::invalid_argument("pattern evaluator weights can produce search sentinel scores");
   }
   for (std::size_t table_index = 0; table_index < feature_set.tables.size(); ++table_index) {
@@ -215,7 +221,7 @@ void validate_score_range(const PatternWeights& weights, const PatternFeatureSet
     }
 
     const std::size_t max_safe_instances =
-        static_cast<std::size_t>((search::kScoreWin - 1) / table_max_weight);
+        static_cast<std::size_t>(scaled_score_limit / table_max_weight);
     if (feature_set.tables[table_index].instances.size() > max_safe_instances) {
       throw std::invalid_argument("pattern evaluator weights can produce search sentinel scores");
     }
@@ -223,7 +229,7 @@ void validate_score_range(const PatternWeights& weights, const PatternFeatureSet
     const std::int64_t contribution =
         table_max_weight *
         static_cast<std::int64_t>(feature_set.tables[table_index].instances.size());
-    if (max_score >= search::kScoreWin - contribution) {
+    if (max_score > scaled_score_limit - contribution) {
       throw std::invalid_argument("pattern evaluator weights can produce search sentinel scores");
     }
     max_score += contribution;
@@ -464,14 +470,19 @@ search::Score PatternEvaluator::evaluate(const board_core::Position& position) c
   const int discs = std::popcount(board_core::occupied(position));
   const std::uint8_t phase = weights_.phase_for_disc_count(discs);
 
-  search::Score score = weights_.phase_bias(phase);
+  std::int64_t scaled_score = weights_.phase_bias(phase);
   for (std::size_t table_index = 0; table_index < feature_set_.tables.size(); ++table_index) {
     for (const std::vector<board_core::Square>& squares :
          feature_set_.tables[table_index].instances) {
-      score += weights_.weight(table_index, phase, ternary_pattern_index(position, squares));
+      scaled_score += weights_.weight(table_index, phase, ternary_pattern_index(position, squares));
     }
   }
-  return score;
+  const std::int64_t scale = weights_.score_scale();
+  const std::int64_t rounded =
+      scaled_score >= 0 ? (scaled_score + scale / 2) / scale : (scaled_score - scale / 2) / scale;
+  return static_cast<search::Score>(
+      std::clamp(rounded, -static_cast<std::int64_t>(board_core::kSquareCount),
+                 static_cast<std::int64_t>(board_core::kSquareCount)));
 }
 
 } // namespace vibe_othello::evaluation

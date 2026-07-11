@@ -143,6 +143,7 @@ def main() -> int:
     default_manifest = repo / "data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json"
     default_weights = repo / "data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/weights.bin"
     initial = "......../......../......../...WB.../...BW.../......../......../........ b"
+    asymmetric_early = "......../......../..W...../...WBB../.WBWWB../.BW...B./......../........ b"
     one_empty_move = "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"
     one_empty_pass = "BBBBBWB./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b"
     try:
@@ -188,6 +189,34 @@ def main() -> int:
             if json.loads(ranking.read_text(encoding="utf-8"))["root_count"] != 1:
                 raise RuntimeError("ranking evaluator did not accept move-teacher schema v2")
 
+            asymmetric = root / "asymmetric.tsv"
+            write_tsv(asymmetric, [normalized_row("asymmetric-early", asymmetric_early)])
+            asymmetric_teacher = root / "asymmetric-teacher"
+            asymmetric_teacher.mkdir()
+            run(core_command(args.generator, asymmetric, manifest, weights, asymmetric_teacher))
+            phase_aware_ranking = root / "phase-aware-ranking.json"
+            run([
+                str(args.ranking_evaluator),
+                "--move-teacher",
+                str(asymmetric_teacher / "moves.tsv"),
+                "--weights",
+                str(default_weights),
+                "--manifest",
+                str(default_manifest),
+                "--pattern-set",
+                "pattern-v2-endgame-lite",
+                "--report-out",
+                str(phase_aware_ranking),
+                "--summary-out",
+                str(root / "phase-aware-ranking.md"),
+            ])
+            phase_aware = json.loads(phase_aware_ranking.read_text(encoding="utf-8"))
+            if phase_aware.get("roots_with_all_moves_same_predicted_score") != 0:
+                raise RuntimeError(
+                    "ranking evaluator ignored trained-phase fallback routing: "
+                    f"{phase_aware!r}"
+                )
+
             late = root / "late.tsv"
             write_tsv(late, [normalized_row("one-empty-move", one_empty_move),
                               normalized_row("one-empty-pass", one_empty_pass, "validation")])
@@ -219,12 +248,20 @@ def main() -> int:
             out_of_range_weights, out_of_range_manifest = make_full_coverage_artifact(
                 default_manifest, default_weights, root, "out-of-range", phase_zero_bias=100
             )
-            score_reject = root / "score-reject"
-            score_reject.mkdir()
-            run(core_command(args.generator, early, out_of_range_manifest, out_of_range_weights, score_reject), 1)
-            score_report = json.loads((score_reject / "report.json").read_text(encoding="utf-8"))
-            if "outside normalized disc-diff range" not in score_report["rejection_reason"]:
-                raise RuntimeError(f"out-of-range teacher score was not rejected: {score_report}")
+            score_clamp = root / "score-clamp"
+            score_clamp.mkdir()
+            run(core_command(args.generator, early, out_of_range_manifest, out_of_range_weights, score_clamp))
+            clamped_rows = read_tsv(score_clamp / "moves.tsv")
+            child_scores = [int(row["child_label_score_side_to_move"]) for row in clamped_rows]
+            root_scores = [int(row["root_move_score_side_to_move"]) for row in clamped_rows]
+            if (
+                not child_scores
+                or any(abs(score) > 64 for score in [*child_scores, *root_scores])
+                or not any(abs(score) == 64 for score in child_scores)
+            ):
+                raise RuntimeError(
+                    f"pattern evaluator did not clamp teacher scores to disc-diff range: {clamped_rows}"
+                )
 
             runner_out = root / "resume"
             runner_base = [

@@ -41,6 +41,7 @@ from weights_io import (
     WeightsMetadata,
     checksum_for,
     metadata_json,
+    load_initial_weights,
     nonzero_pattern_weight_items,
     pattern_weights_json,
     stable_float,
@@ -504,11 +505,28 @@ def run_pattern_rank_v0e(
     move_teacher_result: MoveTeacherLoadResult,
     args: argparse.Namespace,
 ) -> None:
-    initial_phase_bias = train_phase_bias(load_result.accepted_examples)
-    phase_bias, pattern_weights, metrics_by_epoch, training_state, sampling_totals, trained_phases = (
-        train_pattern_rank_v0e(move_teacher_result.roots, initial_phase_bias, args)
-    )
     weights_metadata = weights_metadata_for(args)
+    initial = (
+        None
+        if args.initial_weights is None
+        else load_initial_weights(args.initial_weights, weights_metadata)
+    )
+    initial_phase_bias = (
+        train_phase_bias(load_result.accepted_examples)
+        if initial is None
+        else initial.phase_bias
+    )
+    initial_pattern_weights: PatternWeights = {} if initial is None else initial.pattern_weights
+    phase_bias, pattern_weights, metrics_by_epoch, training_state, sampling_totals, updated_phases = (
+        train_pattern_rank_v0e(
+            move_teacher_result.roots,
+            initial_phase_bias,
+            initial_pattern_weights,
+            args.frozen_phases,
+            args,
+        )
+    )
+    trained_phases = sorted(set(updated_phases) | set(args.initial_trained_phases or []))
     weights_text = pattern_weights_json(phase_bias, pattern_weights, args, weights_metadata)
     weights_checksum = weights_checksum_for(weights_text)
     nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
@@ -570,6 +588,18 @@ def run_pattern_rank_v0e(
             for item in move_teacher_result.inputs
         ],
         "trained_phases": trained_phases,
+        "warm_start": (
+            None
+            if initial is None
+            else {
+                "path": args.initial_weights.name,
+                "checksum": initial.checksum,
+                "schema_version": initial.schema_version,
+                "initial_trained_phases": args.initial_trained_phases,
+                "frozen_phases": sorted(args.frozen_phases),
+                "initial_nonzero_pattern_weight_count": len(initial.pattern_weights),
+            }
+        ),
         "counts_by_split_roots": {
             split: sum(root.split == split for root in move_teacher_result.roots) for split in SPLITS
         },

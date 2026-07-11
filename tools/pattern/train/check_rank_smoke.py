@@ -200,6 +200,47 @@ def main() -> int:
             if report.get("trained_phases") != [0, 1]:
                 raise RuntimeError(f"rank trainer did not report updated child phases: {report!r}")
 
+            warm_weights = temp / "warm.weights.json"
+            warm_report = temp / "warm.report.json"
+            train(
+                args.trainer,
+                dataset,
+                move_teacher,
+                report_input,
+                warm_weights,
+                warm_report,
+                [
+                    "--initial-weights",
+                    str(first_weights),
+                    "--initial-trained-phases",
+                    "0",
+                    "1",
+                    "--freeze-phase",
+                    "1",
+                ],
+            )
+            warm_payload = json.loads(warm_weights.read_text(encoding="utf-8"))
+            warm_data = json.loads(warm_report.read_text(encoding="utf-8"))
+            warm_values = weight_map(warm_payload)
+            initial_phase_one = {key: value for key, value in values.items() if key[0] == 1}
+            warm_phase_one = {key: value for key, value in warm_values.items() if key[0] == 1}
+            if warm_phase_one != initial_phase_one:
+                raise RuntimeError("warm-start training changed frozen phase-1 pattern weights")
+            if warm_payload.get("phase_bias", {}).get("1") != weights.get("phase_bias", {}).get("1"):
+                raise RuntimeError("warm-start training changed frozen phase-1 bias")
+            if {key: value for key, value in warm_values.items() if key[0] == 0} == {
+                key: value for key, value in values.items() if key[0] == 0
+            }:
+                raise RuntimeError("warm-start training did not update unfrozen phase 0")
+            warm_start = warm_data.get("warm_start", {})
+            if (
+                warm_data.get("trained_phases") != [0, 1]
+                or warm_start.get("initial_trained_phases") != [0, 1]
+                or warm_start.get("frozen_phases") != [1]
+                or not str(warm_start.get("checksum", "")).startswith("sha256:")
+            ):
+                raise RuntimeError(f"warm-start provenance was not retained: {warm_data!r}")
+
             first_sidecar = temp / "first-move-teacher.tsv"
             second_sidecar = temp / "second-move-teacher.tsv"
             split_sidecar(move_teacher, first_sidecar, second_sidecar)

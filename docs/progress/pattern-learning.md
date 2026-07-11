@@ -150,16 +150,16 @@ lines, or PR-specific context are needed.
 | Area | Current summary |
 | --- | --- |
 | Import and normalization | Sequence transcripts can be replayed into normalized TSV schema v2 with deterministic identity, connected-board-game split support, and leakage diagnostics. |
-| Root selection | Local phase-stratified root selection can take an explicit uniform quota for phases `0..12`, preserve connected splits, and report coverage shortages without generating labels. |
+| Root selection | Local phase-stratified root selection can take a uniform base quota plus explicit per-phase quota overrides, preserve connected splits by default, or explicitly re-hash a board/game-unique cap-1 selected set when early-board components make the source split unusably imbalanced. It reports effective coverage and post-selection leakage without generating labels. |
 | Search move-teacher labels | A local-only artifact-search generator can rank every legal move for phases `0..9` using an explicit full-coverage teacher artifact and fixed search configuration; exact move teaching remains the late-game route. |
 | Dataset shape | Compact TSV example rows are the scalable path for local pattern training diagnostics. |
 | Pattern sets | `pattern-v1-buro-lite` is the earlier production-ish schema; `pattern-v2-endgame-lite` is the bounded endgame-oriented pattern set used by the current experimental default. |
-| Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics; v0e adds deterministic move-teacher pairwise ranking with optional value calibration. They are not standalone strength claims. |
+| Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics; v0e adds deterministic move-teacher pairwise ranking with optional value calibration, schema-checked warm starts, and exact frozen-phase preservation. They are not standalone strength claims. |
 | Exact teacher labels | Exact root-label experiments were useful diagnostics but did not become the adopted default route. |
 | Move-teacher labels | Exact child labels made root move-ranking and decision leverage visible with the existing value trainer. |
 | Cache/materialization | Move-teacher cache and materialization flows support large local reruns while keeping labels and child-normalized TSVs local-only. |
 | Growth cycle | 50k and 100k local growth-cycle validations selected the move-teacher route for broader validation. |
-| Full-phase local cycle | `tools/pattern/train/run_full_phase_growth_cycle.py` connects phase-stratified selection, explicit-artifact search teaching, late exact teaching, v0e training, export, ranking, and bounded late/full-game local arenas without changing the default artifact. |
+| Full-phase local cycle | `tools/pattern/train/run_full_phase_growth_cycle.py` connects phase-stratified selection, explicit-artifact search teaching, late exact teaching, warm-start/frozen-phase v0e training, fixed-point residual export, ranking, and bounded late/full-game local arenas without changing the default artifact; phase quota and split exceptions remain visible in reports. |
 | Arena validation | Broader bounded validation supported promoting the 100k move-teacher artifact to experimental default. |
 | Artifact v0 | `pattern-v2-endgame-lite-100k-mt-v0` is committed as the first learned experimental default with manifest, provenance, default pointer, and policy checks. |
 | Archive policy | Long logs, tables, command examples, and obsolete next actions belong in `docs/experiments/README.md` and linked experiment docs. |

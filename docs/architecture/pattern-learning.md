@@ -290,6 +290,14 @@ updates as `trained_phases`. Campaign export forwards that reviewed coverage to
 the exporter; it must not infer coverage from root phases, nonzero weights, or
 missing metadata.
 
+The pairwise rank trainer may warm-start from a schema-compatible weights JSON.
+Warm-start provenance includes its content checksum and declared prior coverage.
+Campaign resume metadata must also fingerprint the warm-start file contents;
+the command path alone is not sufficient to validate reuse of prior outputs.
+Explicit frozen phases retain both prior phase bias and pattern weights exactly;
+the final coverage is the union of prior reviewed coverage and phases actually
+updated by the current run.
+
 Trainer diagnostics may include fitting error, split and phase summaries,
 optimizer statistics, residual summaries, weight norms, sparsity, and local
 decision diagnostics. These diagnostics are local review evidence only. They do
@@ -303,6 +311,11 @@ Exporters convert reviewed local trainer outputs into candidate runtime payloads
 with binary weights and manifest metadata. Export must preserve the runtime
 loader contract: score unit, scale, phase count, pattern set id, weight checksum,
 binary format, and pattern table layout.
+
+Export may use a positive uint16 fixed-point scale to preserve sub-disc
+updates, and may declare an inclusive fallback-additive phase boundary when
+early learned weights were trained as residuals rather than replacements.
+Both settings are runtime policy and must be retained in local arena evidence.
 
 Reviewed training coverage is exported as explicit `trained_phases` metadata.
 It must come from the reviewed training route, not be inferred from nonzero

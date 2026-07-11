@@ -1,9 +1,8 @@
-#include "pattern_set_options.h"
-#include "vibe_othello/evaluation/pattern_evaluator.h"
-#include "vibe_othello/evaluation/pattern_weights.h"
+#include "vibe_othello/evaluation/pattern_artifact.h"
+#include "vibe_othello/evaluation/phase_aware_evaluator.h"
+#include "vibe_othello/search/evaluator.h"
 
 #include <algorithm>
-#include <array>
 #include <cerrno>
 #include <charconv>
 #include <cmath>
@@ -18,7 +17,6 @@
 #include <numeric>
 #include <optional>
 #include <set>
-#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -28,7 +26,6 @@ namespace {
 
 namespace board_core = vibe_othello::board_core;
 namespace eval = vibe_othello::evaluation;
-namespace pattern = vibe_othello::tools::pattern;
 
 constexpr std::string_view kMoveTeacherHeaderV1 =
     "root_board_id\troot_record_id\troot_split\troot_phase\troot_empty_count\tmove\tchild_"
@@ -41,8 +38,6 @@ constexpr std::string_view kMoveTeacherHeaderV2 =
     "move\tchild_label_score_side_to_move\tis_best_move\tbest_move_tie_count\tmove_rank\tbest_"
     "score_margin\tteacher_kind\tteacher_source\tteacher_artifact_id\tteacher_artifact_checksum\t"
     "teacher_depth\tteacher_nodes\tteacher_search_config_id";
-constexpr std::uint32_t kCrc32Initial = 0xFFFF'FFFFU;
-constexpr std::uint32_t kCrc32Polynomial = 0xEDB8'8320U;
 
 struct Args {
   std::string move_teacher_path;
@@ -83,7 +78,7 @@ struct MoveTeacherRow {
 struct LoadedArtifact {
   std::string pattern_set_id;
   std::string artifact_checksum;
-  eval::PatternEvaluator evaluator;
+  eval::PhaseAwareEvaluator evaluator;
 };
 
 struct ScoreRange {
@@ -292,190 +287,30 @@ std::optional<Args> parse_args(int argc, char** argv) {
   return args;
 }
 
-std::optional<std::string> read_text_file(const std::string& path, std::string_view label) {
-  std::ifstream input(path);
-  if (!input) {
-    std::cerr << "cannot read " << label << ": " << path << '\n';
-    return std::nullopt;
-  }
-  std::ostringstream buffer;
-  buffer << input.rdbuf();
-  if (!input.good() && !input.eof()) {
-    std::cerr << "failed while reading " << label << ": " << path << '\n';
-    return std::nullopt;
-  }
-  return buffer.str();
-}
-
-std::optional<std::vector<std::uint8_t>> read_binary_file(const std::string& path,
-                                                          std::string_view label) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    std::cerr << "cannot read " << label << ": " << path << '\n';
-    return std::nullopt;
-  }
-  input.seekg(0, std::ios::end);
-  const std::streamoff size = input.tellg();
-  if (size < 0) {
-    std::cerr << "cannot determine " << label << " size: " << path << '\n';
-    return std::nullopt;
-  }
-  input.seekg(0, std::ios::beg);
-  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
-  input.read(reinterpret_cast<char*>(bytes.data()), size);
-  if (!input) {
-    std::cerr << "failed while reading " << label << ": " << path << '\n';
-    return std::nullopt;
-  }
-  return bytes;
-}
-
-std::optional<std::string> json_string_field(std::string_view json, std::string_view field) {
-  const std::string quoted_field = "\"" + std::string(field) + "\"";
-  std::size_t pos = json.find(quoted_field);
-  while (pos != std::string_view::npos) {
-    pos += quoted_field.size();
-    while (pos < json.size() &&
-           (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t')) {
-      ++pos;
-    }
-    if (pos < json.size() && json[pos] == ':') {
-      ++pos;
-      while (pos < json.size() &&
-             (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t')) {
-        ++pos;
-      }
-      if (pos >= json.size() || json[pos] != '"') {
-        return std::nullopt;
-      }
-      ++pos;
-      std::string value;
-      while (pos < json.size()) {
-        const char ch = json[pos++];
-        if (ch == '"') {
-          return value;
-        }
-        if (ch == '\\') {
-          if (pos >= json.size()) {
-            return std::nullopt;
-          }
-          value.push_back(json[pos++]);
-        } else {
-          value.push_back(ch);
-        }
-      }
-      return std::nullopt;
-    }
-    pos = json.find(quoted_field, pos);
-  }
-  return std::nullopt;
-}
-
-std::uint32_t crc32(std::span<const std::uint8_t> bytes) noexcept {
-  std::uint32_t crc = kCrc32Initial;
-  for (const std::uint8_t byte : bytes) {
-    crc ^= byte;
-    for (int bit = 0; bit < 8; ++bit) {
-      const std::uint32_t mask = 0U - (crc & 1U);
-      crc = (crc >> 1U) ^ (kCrc32Polynomial & mask);
-    }
-  }
-  return ~crc;
-}
-
-std::string crc32_checksum_string(std::span<const std::uint8_t> bytes_without_checksum) {
-  std::ostringstream output;
-  output << "0x" << std::hex << std::nouppercase << std::setfill('0') << std::setw(8)
-         << crc32(bytes_without_checksum);
-  return output.str();
-}
-
-std::array<std::uint8_t, eval::PatternWeights::kDiscCountEntries> phase_by_disc_count_13() {
-  std::array<std::uint8_t, eval::PatternWeights::kDiscCountEntries> phases{};
-  for (std::uint8_t disc_count = 0; disc_count < phases.size(); ++disc_count) {
-    const int normalized_count = disc_count < 4 ? 0 : static_cast<int>(disc_count) - 4;
-    const int phase_id = std::min(12, (normalized_count * 13) / 60);
-    phases[disc_count] = static_cast<std::uint8_t>(phase_id);
-  }
-  return phases;
-}
-
 std::optional<LoadedArtifact> load_artifact(const Args& args) {
-  const std::optional<pattern::PatternSetOption> selected =
-      pattern::select_pattern_set(args.pattern_set, pattern::IndexMode::raw);
-  if (!selected.has_value() || selected->pattern_set == nullptr) {
-    std::cerr << "--pattern-set must be " << pattern::pattern_set_option_names() << '\n';
+  eval::PatternArtifactLoadResult result =
+      eval::load_pattern_artifact(args.manifest_path, args.weights_path);
+  if (!result.ok()) {
+    std::cerr << result.error << '\n';
     return std::nullopt;
   }
-
-  const std::optional<std::string> manifest_text = read_text_file(args.manifest_path, "manifest");
-  if (!manifest_text.has_value()) {
-    return std::nullopt;
-  }
-  const std::optional<std::string> manifest_pattern_set =
-      json_string_field(*manifest_text, "pattern_set_id");
-  if (!manifest_pattern_set.has_value()) {
-    std::cerr << "manifest is missing string field pattern_set_id: " << args.manifest_path << '\n';
-    return std::nullopt;
-  }
-  if (*manifest_pattern_set != selected->pattern_set->id) {
-    std::cerr << "manifest pattern_set_id mismatch: expected " << selected->pattern_set->id
-              << ", got " << *manifest_pattern_set << '\n';
-    return std::nullopt;
-  }
-  const std::optional<std::string> manifest_checksum =
-      json_string_field(*manifest_text, "weights_checksum");
-  if (!manifest_checksum.has_value()) {
-    std::cerr << "manifest is missing string field weights_checksum: " << args.manifest_path
-              << '\n';
-    return std::nullopt;
-  }
-
-  const std::optional<std::vector<std::uint8_t>> artifact =
-      read_binary_file(args.weights_path, "artifact weights");
-  if (!artifact.has_value()) {
-    return std::nullopt;
-  }
-  if (artifact->size() < sizeof(std::uint32_t)) {
-    std::cerr << "artifact is too small: " << args.weights_path << '\n';
-    return std::nullopt;
-  }
-  const std::string artifact_checksum = crc32_checksum_string(
-      std::span<const std::uint8_t>(*artifact).first(artifact->size() - sizeof(std::uint32_t)));
-  if (artifact_checksum != *manifest_checksum) {
-    std::cerr << "artifact checksum mismatch: manifest " << *manifest_checksum << ", actual "
-              << artifact_checksum << '\n';
-    return std::nullopt;
-  }
-
-  const eval::PatternManifest manifest{
-      .format_version = eval::kPatternWeightFormatVersion,
-      .bit_order = eval::PatternBitOrder::a1_lsb,
-      .score_unit = eval::PatternScoreUnit::disc_diff,
-      .score_scale = 1,
-      .phase_count = 13,
-      .pattern_set_id = selected->pattern_set->id,
-      .patterns = selected->pattern_set->patterns,
-  };
-  const eval::PatternWeightsLoadResult loaded = eval::load_pattern_weights(manifest, *artifact);
-  if (!loaded.ok()) {
-    std::cerr << "runtime loader rejected artifact\n";
-    return std::nullopt;
-  }
-  std::optional<eval::PatternWeights> weights =
-      eval::make_pattern_weights(*loaded.weights, phase_by_disc_count_13());
-  if (!weights.has_value()) {
-    std::cerr << "loaded artifact could not be converted to runtime weights\n";
+  eval::LoadedPatternArtifact artifact = std::move(*result.artifact);
+  if (artifact.pattern_set_id != args.pattern_set) {
+    std::cerr << "manifest pattern_set_id mismatch: expected " << args.pattern_set << ", got "
+              << artifact.pattern_set_id << '\n';
     return std::nullopt;
   }
   try {
     return LoadedArtifact{
-        .pattern_set_id = selected->pattern_set->id,
-        .artifact_checksum = artifact_checksum,
-        .evaluator = eval::PatternEvaluator{std::move(*weights), std::move(selected->feature_set)},
+        .pattern_set_id = artifact.pattern_set_id,
+        .artifact_checksum = artifact.weights_checksum,
+        .evaluator =
+            eval::PhaseAwareEvaluator{std::move(artifact.weights), std::move(artifact.feature_set),
+                                      std::move(artifact.trained_phases),
+                                      artifact.fallback_additive_through_phase},
     };
   } catch (const std::exception& error) {
-    std::cerr << "pattern evaluator rejected artifact: " << error.what() << '\n';
+    std::cerr << "phase-aware evaluator rejected artifact: " << error.what() << '\n';
     return std::nullopt;
   }
 }
@@ -703,7 +538,8 @@ void add_metrics(const MetricsAccumulator& root, MetricsAccumulator* total) {
 }
 
 MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
-                                 const eval::PatternEvaluator& evaluator, double tie_margin) {
+                                 const vibe_othello::search::Evaluator& evaluator,
+                                 double tie_margin) {
   struct Prediction {
     int index = 0;
     int predicted_root_score = 0;

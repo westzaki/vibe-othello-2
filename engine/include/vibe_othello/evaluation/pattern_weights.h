@@ -61,7 +61,8 @@ public:
 
   PatternWeights(std::uint8_t phase_count,
                  std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count,
-                 std::vector<search::Score> phase_biases, std::vector<PatternWeightTable> tables);
+                 std::vector<search::Score> phase_biases, std::vector<PatternWeightTable> tables,
+                 std::uint16_t score_scale = 1);
 
   [[nodiscard]] std::uint8_t phase_count() const noexcept {
     return phase_count_;
@@ -71,6 +72,9 @@ public:
   }
   [[nodiscard]] std::span<const PatternWeightTable> tables() const noexcept {
     return tables_;
+  }
+  [[nodiscard]] std::uint16_t score_scale() const noexcept {
+    return score_scale_;
   }
   [[nodiscard]] std::uint8_t phase_for_disc_count(int disc_count) const noexcept;
   [[nodiscard]] search::Score phase_bias(std::uint8_t phase) const noexcept;
@@ -82,6 +86,7 @@ private:
   std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count_{};
   std::vector<search::Score> phase_biases_;
   std::vector<PatternWeightTable> tables_;
+  std::uint16_t score_scale_ = 1;
 };
 
 enum class PatternWeightsLoadError : std::uint8_t {

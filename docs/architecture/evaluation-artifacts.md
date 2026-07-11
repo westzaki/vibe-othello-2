@@ -68,6 +68,8 @@ that directory and must not be an absolute path.
 * `score_scale`
 * `phase_count`
 * `trained_phases`, when the artifact reports reviewed learning coverage
+* `fallback_additive_through_phase`, when learned weights are residuals over
+  the built-in fallback through an inclusive phase boundary
 * `pattern_set_id`
 * `weights_file`
 * `weights_checksum`
@@ -79,6 +81,18 @@ sets. A missing field is legacy/unreported coverage, not a claim of all-phase
 training; the runtime loader remains backward compatible with such artifacts.
 Committed reviewed artifacts must report the field in both manifest and
 provenance, with matching values.
+
+`score_scale` is a positive unsigned 16-bit fixed-point denominator. Runtime
+sums the integer bias and pattern weights, divides once by this scale with
+nearest rounding, and then applies the evaluator score bound. Scale `1`
+preserves legacy integer artifacts; larger values retain sub-disc learned
+updates without changing the binary format version.
+
+When `fallback_additive_through_phase` is present, a covered phase at or below
+that boundary evaluates as the deterministic fallback plus the learned pattern
+score. Covered phases above it remain learned replacements, and uncovered
+phases remain fallback-only. This field is evaluator policy and therefore must
+be included in arena identity and promotion review.
 
 The manifest also records phase diagnostics derived from final quantized binary
 weights: nonzero pattern-weight count, nonzero phase-bias presence, and maximum
@@ -123,7 +137,8 @@ When no explicit evaluation option is supplied, the engine CLI:
 5. validates manifest fields, runtime checksum, binary checksum, pattern set,
    phase count, score unit, score scale, and pattern table layout
 6. constructs `PhaseAwareEvaluator`, which uses `PatternEvaluator` for covered
-   phases and the built-in deterministic fallback for uncovered phases
+   phases, optionally adds it as a residual over the fallback through the
+   declared boundary, and uses the fallback alone for uncovered phases
 
 Failure is loud. A missing or corrupt default artifact never silently falls
 back to static evaluation.
@@ -170,7 +185,7 @@ To promote a future v1:
 1. create a new artifact id and directory under `data/eval/artifacts/`
 2. copy only the final runtime `weights.bin`
 3. write a loader-compatible `manifest.json` with relative `weights_file` and
-   reviewed `trained_phases`
+   reviewed `trained_phases`, fixed-point scale, and any residual-routing policy
 4. write `provenance.json` with source attribution, redistribution flags,
    validation summary, checksum, and non-claims
 5. update `data/eval/default-artifact.json`

@@ -179,6 +179,69 @@ TEST_CASE("pattern evaluator is deterministic", "[evaluation][pattern]") {
   REQUIRE(first == second);
 }
 
+TEST_CASE("pattern evaluator converts fixed point weights to disc diff scores",
+          "[evaluation][pattern]") {
+  PatternWeights weights{
+      kFixturePhaseCount,
+      fixture_phase_by_disc_count(),
+      fixture_phase_biases(150, -150),
+      {
+          PatternWeightTable{
+              .pattern_id = "single-square",
+              .pattern_length = 1,
+              .weights = std::vector<search::Score>(
+                  static_cast<std::size_t>(kFixturePhaseCount) * pattern_size(1), 0),
+          },
+      },
+      100,
+  };
+  const PatternEvaluator evaluator{std::move(weights), single_square_feature_set()};
+  constexpr Position early{
+      .player = bit(square(0, 0)),
+      .opponent = bit(square(7, 7)),
+      .side_to_move = Color::black,
+  };
+  constexpr Position late{
+      .player = 0x0000'0000'0000'FFFFULL,
+      .opponent = 0xFFFF'0000'0000'0000ULL,
+      .side_to_move = Color::black,
+  };
+
+  REQUIRE(evaluator.evaluate(early) == 2);
+  REQUIRE(evaluator.evaluate(late) == -2);
+}
+
+TEST_CASE("pattern evaluator clamps heuristic output to disc diff range", "[evaluation][pattern]") {
+  PatternWeights weights{
+      kFixturePhaseCount,
+      fixture_phase_by_disc_count(),
+      fixture_phase_biases(6500, -6500),
+      {
+          PatternWeightTable{
+              .pattern_id = "single-square",
+              .pattern_length = 1,
+              .weights = std::vector<search::Score>(
+                  static_cast<std::size_t>(kFixturePhaseCount) * pattern_size(1), 0),
+          },
+      },
+      100,
+  };
+  const PatternEvaluator evaluator{std::move(weights), single_square_feature_set()};
+  constexpr Position early{
+      .player = bit(square(0, 0)),
+      .opponent = bit(square(7, 7)),
+      .side_to_move = Color::black,
+  };
+  constexpr Position late{
+      .player = 0x0000'0000'0000'FFFFULL,
+      .opponent = 0xFFFF'0000'0000'0000ULL,
+      .side_to_move = Color::black,
+  };
+
+  REQUIRE(evaluator.evaluate(early) == board_core::kSquareCount);
+  REQUIRE(evaluator.evaluate(late) == -board_core::kSquareCount);
+}
+
 TEST_CASE("pattern evaluator scores are side to move relative", "[evaluation][pattern]") {
   const PatternEvaluator evaluator{make_tiny_pattern_fixture_weights(),
                                    tiny_pattern_feature_set_fixture()};

@@ -83,7 +83,8 @@ The runtime evaluator stack is intentionally small:
   pattern set definition and loaded phase-dependent weights.
 * `PhaseAwareEvaluator`: the artifact-facing composition that selects the
   learned pattern evaluator only for reviewed phases and otherwise selects the
-  early/midgame heuristic fallback.
+  early/midgame heuristic fallback. An explicit artifact policy may treat
+  covered early phases as learned residuals over that fallback.
 * `CheapEvaluator`: an optional low-cost evaluator for move ordering,
   constrained WASM analysis, or other latency-sensitive paths.
 * `ExplainingEvaluator`: a non-recursive adapter that exposes score
@@ -98,7 +99,7 @@ evaluation.
 The pattern evaluator is a phase-dependent linear model:
 
 ```text
-score(position) = bias[phase] + sum(weight[phase][pattern_id][pattern_index])
+score(position) = round((bias[phase] + sum(weight[phase][pattern_id][pattern_index])) / score_scale)
 ```
 
 The evaluator consumes a runtime-owned pattern set definition and loaded weight
@@ -114,7 +115,8 @@ The evaluator should:
 * map each position to a deterministic phase
 * encode each pattern as a compact ternary index
 * apply symmetry canonicalization only when the pattern definition declares it
-* sum integer weights from immutable tables
+* sum integer fixed-point weights from immutable tables and divide once using
+  the manifest scale
 * clamp only at the final search score boundary
 
 Changing a pattern definition without changing the runtime artifact contract is
@@ -191,6 +193,13 @@ learned evaluator and unreviewed phases use the deterministic fallback. It
 precomputes the routing table when the evaluator is constructed, so recursive
 evaluation does not inspect metadata or allocate.
 
+An optional `fallback_additive_through_phase` artifact field changes covered
+phases through that inclusive boundary from learned replacement to
+`fallback + learned residual`. It does not make an uncovered phase learned and
+does not affect covered phases above the boundary. Arena runtime identity must
+include this policy so residual and replacement artifacts cannot be mistaken
+for equivalent evaluators.
+
 Missing `trained_phases` is legacy/unreported coverage, not a claim of
 all-phase learning. To preserve legacy artifact behavior, the phase-aware
 runtime routes such artifacts to the learned evaluator for every phase. A
@@ -212,7 +221,7 @@ Tests should cover:
 * score range inside search sentinels
 * artifact load success and rejection of incompatible data
 * fallback and learned routing at phase boundaries, including legacy metadata
-  compatibility and full-phase learned coverage
+  compatibility, full-phase learned coverage, and explicit residual routing
 * native and WASM parity for fixed positions when both runtimes are supported
 * explanation totals matching `evaluate`
 

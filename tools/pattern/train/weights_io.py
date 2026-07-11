@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,14 @@ from dataset_contract import (
     WEIGHTS_SCHEMA_VERSION_V2,
 )
 from objectives import PatternWeights
+
+
+@dataclass(frozen=True)
+class InitialWeights:
+    phase_bias: dict[str, float]
+    pattern_weights: PatternWeights
+    checksum: str
+    schema_version: str
 
 @dataclass(frozen=True)
 class WeightsMetadata:
@@ -37,6 +46,78 @@ def load_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"JSON root must be an object: {path}")
     return data
+
+
+def load_initial_weights(path: Path, expected_metadata: WeightsMetadata | None) -> InitialWeights:
+    try:
+        source_bytes = path.read_bytes()
+        payload = json.loads(source_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"cannot read initial weights: {path}: {error}") from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("initial weights JSON root must be an object")
+    phase_bias_payload = payload.get("phase_bias")
+    if not isinstance(phase_bias_payload, dict) or set(phase_bias_payload) != {
+        str(phase) for phase in PHASES
+    }:
+        raise RuntimeError("initial weights phase_bias must contain exactly phases 0..12")
+    phase_bias: dict[str, float] = {}
+    for phase in PHASES:
+        value = phase_bias_payload[str(phase)]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise RuntimeError(f"initial weights phase_bias[{phase}] must be finite numeric")
+        phase_bias[str(phase)] = float(value)
+
+    rows = payload.get("pattern_weights")
+    if not isinstance(rows, list):
+        raise RuntimeError("initial weights pattern_weights must be an array")
+    pattern_weights: PatternWeights = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or set(row) != {
+            "phase",
+            "pattern_id",
+            "ternary_index",
+            "weight",
+        }:
+            raise RuntimeError(f"initial weights pattern_weights[{index}] has invalid fields")
+        phase = row["phase"]
+        pattern_id = row["pattern_id"]
+        ternary_index = row["ternary_index"]
+        weight = row["weight"]
+        if isinstance(phase, bool) or not isinstance(phase, int) or phase not in PHASES:
+            raise RuntimeError(f"initial weights pattern_weights[{index}].phase is invalid")
+        if not isinstance(pattern_id, str) or not pattern_id:
+            raise RuntimeError(f"initial weights pattern_weights[{index}].pattern_id is invalid")
+        if isinstance(ternary_index, bool) or not isinstance(ternary_index, int) or ternary_index < 0:
+            raise RuntimeError(f"initial weights pattern_weights[{index}].ternary_index is invalid")
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not math.isfinite(weight):
+            raise RuntimeError(f"initial weights pattern_weights[{index}].weight must be finite numeric")
+        key = (phase, pattern_id, ternary_index)
+        if key in pattern_weights:
+            raise RuntimeError(f"initial weights contain duplicate key: {key}")
+        if float(weight) != 0.0:
+            pattern_weights[key] = float(weight)
+
+    schema_version = payload.get("weights_schema_version")
+    if schema_version == WEIGHTS_SCHEMA_VERSION_V2:
+        if expected_metadata is None:
+            raise RuntimeError("v2 initial weights require current pattern metadata")
+        for field, expected in metadata_json(expected_metadata).items():
+            if payload.get(field) != expected:
+                raise RuntimeError(
+                    f"initial weights {field} mismatch: {payload.get(field)!r} != {expected!r}"
+                )
+    elif payload.get("schema_version") == 1 and isinstance(payload.get("trainer_version"), str):
+        schema_version = "legacy-pattern-weights-v1"
+    else:
+        raise RuntimeError("initial weights schema is unsupported")
+
+    return InitialWeights(
+        phase_bias=phase_bias,
+        pattern_weights=pattern_weights,
+        checksum=f"sha256:{hashlib.sha256(source_bytes).hexdigest()}",
+        schema_version=schema_version,
+    )
 
 
 def optional_string(value: Any, field: str) -> str | None:
