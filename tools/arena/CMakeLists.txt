@@ -16,6 +16,13 @@ target_link_libraries(vibe_othello_pattern_artifact_arena PRIVATE vibe_othello_a
 set_target_properties(vibe_othello_pattern_artifact_arena
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-artifact-arena)
 
+add_executable(vibe_othello_full_game_artifact_arena full_game_artifact_arena.cc)
+
+target_link_libraries(vibe_othello_full_game_artifact_arena PRIVATE vibe_othello_arena_core)
+
+set_target_properties(vibe_othello_full_game_artifact_arena
+                      PROPERTIES OUTPUT_NAME vibe-othello-full-game-artifact-arena)
+
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -30,6 +37,12 @@ if(BUILD_TESTING)
     NAME vibe_othello_pattern_artifact_arena_smoke
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_artifact_arena_smoke.py
             --exe $<TARGET_FILE:vibe_othello_pattern_artifact_arena>)
+
+  add_test(
+    NAME vibe_othello_full_game_artifact_arena_smoke
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/check_full_game_artifact_arena_smoke.py
+            --exe $<TARGET_FILE:vibe_othello_full_game_artifact_arena>)
 
   add_test(
     NAME vibe_othello_pattern_artifact_arena_matrix_smoke
