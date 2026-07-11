@@ -38,6 +38,13 @@ child from the child side-to-move perspective. The stored root score is the
 negative child score. It writes explicit `move-teacher-tsv-v2` rows and
 normalized-v2 child rows with `label_kind = teacher_search_final_disc_diff`.
 
+Each `child_board_id` is the importer-compatible `board-v1` SHA-256 identity
+of its normalized child board, not a root/move-derived name. Move-teacher rows
+retain every root move, while child-normalized rows dedupe equal canonical child
+boards within a split. A canonical child board appearing across splits rejects
+the transaction. Search scores outside the normalized disc-difference range
+`[-64, 64]` also reject the transaction rather than being clamped.
+
 The teacher manifest and weights are required explicitly. The tool rejects an
 artifact without complete declared phase coverage `0..12`, so the runtime
 phase-aware fallback cannot silently become a teacher. Depth, node, time,
@@ -45,6 +52,8 @@ preset, and exact-endgame threshold are also required explicitly. Use fixed
 depth or fixed nodes; wall-clock-only runs are rejected. A stopped node-limited
 child is accepted only after at least one completed depth; incomplete roots
 reject the whole output transaction and produce no partial TSV.
+The report records roots whose node-limited child searches completed at
+different depths; fixed-depth completion remains the preferred campaign mode.
 
 Use the checksum-guarded local runner for resume:
 

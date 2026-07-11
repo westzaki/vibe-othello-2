@@ -4,6 +4,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
 #include <chrono>
@@ -131,7 +132,11 @@ struct Report {
   std::size_t terminal_roots = 0;
   std::size_t roots_with_pass_move = 0;
   std::size_t move_rows = 0;
+  std::size_t child_normalized_rows = 0;
+  std::size_t duplicate_child_normalized_rows = 0;
+  std::size_t child_split_collisions = 0;
   std::size_t accepted_node_limited_children = 0;
+  std::size_t roots_with_mixed_teacher_depth = 0;
   std::uint64_t teacher_nodes_sum = 0;
   std::string rejected_root_id;
   std::string rejection_reason;
@@ -195,6 +200,97 @@ std::string checksum_string(std::uint64_t checksum) {
   std::ostringstream output;
   output << "0x" << std::hex << std::nouppercase << std::setfill('0') << std::setw(16) << checksum;
   return output.str();
+}
+
+std::uint32_t sha256_rotr(std::uint32_t value, int shift) noexcept {
+  return (value >> shift) | (value << (32 - shift));
+}
+
+std::string sha256_hex(std::string_view text) {
+  constexpr std::array<std::uint32_t, 64> kRoundConstants{
+      0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u,
+      0xab1c5ed5u, 0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu,
+      0x9bdc06a7u, 0xc19bf174u, 0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu,
+      0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau, 0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+      0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u, 0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu,
+      0x53380d13u, 0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u, 0xa2bfe8a1u, 0xa81a664bu,
+      0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u, 0x19a4c116u,
+      0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+      0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u,
+      0xc67178f2u,
+  };
+  std::vector<unsigned char> bytes(text.begin(), text.end());
+  const std::uint64_t bit_length = static_cast<std::uint64_t>(bytes.size()) * 8ull;
+  bytes.push_back(0x80u);
+  while (bytes.size() % 64 != 56) {
+    bytes.push_back(0u);
+  }
+  for (int shift = 56; shift >= 0; shift -= 8) {
+    bytes.push_back(static_cast<unsigned char>((bit_length >> shift) & 0xffu));
+  }
+  std::array<std::uint32_t, 8> hash{
+      0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+      0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
+  };
+  for (std::size_t chunk = 0; chunk < bytes.size(); chunk += 64) {
+    std::array<std::uint32_t, 64> words{};
+    for (std::size_t index = 0; index < 16; ++index) {
+      const std::size_t offset = chunk + index * 4;
+      words[index] = (static_cast<std::uint32_t>(bytes[offset]) << 24) |
+                     (static_cast<std::uint32_t>(bytes[offset + 1]) << 16) |
+                     (static_cast<std::uint32_t>(bytes[offset + 2]) << 8) |
+                     static_cast<std::uint32_t>(bytes[offset + 3]);
+    }
+    for (std::size_t index = 16; index < words.size(); ++index) {
+      const std::uint32_t s0 = sha256_rotr(words[index - 15], 7) ^
+                               sha256_rotr(words[index - 15], 18) ^ (words[index - 15] >> 3);
+      const std::uint32_t s1 = sha256_rotr(words[index - 2], 17) ^
+                               sha256_rotr(words[index - 2], 19) ^ (words[index - 2] >> 10);
+      words[index] = words[index - 16] + s0 + words[index - 7] + s1;
+    }
+    std::uint32_t a = hash[0];
+    std::uint32_t b = hash[1];
+    std::uint32_t c = hash[2];
+    std::uint32_t d = hash[3];
+    std::uint32_t e = hash[4];
+    std::uint32_t f = hash[5];
+    std::uint32_t g = hash[6];
+    std::uint32_t h = hash[7];
+    for (std::size_t index = 0; index < words.size(); ++index) {
+      const std::uint32_t s1 = sha256_rotr(e, 6) ^ sha256_rotr(e, 11) ^ sha256_rotr(e, 25);
+      const std::uint32_t choice = (e & f) ^ ((~e) & g);
+      const std::uint32_t temp1 = h + s1 + choice + kRoundConstants[index] + words[index];
+      const std::uint32_t s0 = sha256_rotr(a, 2) ^ sha256_rotr(a, 13) ^ sha256_rotr(a, 22);
+      const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+      const std::uint32_t temp2 = s0 + majority;
+      h = g;
+      g = f;
+      f = e;
+      e = d + temp1;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2;
+    }
+    hash[0] += a;
+    hash[1] += b;
+    hash[2] += c;
+    hash[3] += d;
+    hash[4] += e;
+    hash[5] += f;
+    hash[6] += g;
+    hash[7] += h;
+  }
+  std::ostringstream output;
+  output << std::hex << std::nouppercase << std::setfill('0');
+  for (const std::uint32_t value : hash) {
+    output << std::setw(8) << value;
+  }
+  return output.str();
+}
+
+std::string canonical_board_id(std::string_view board) {
+  return "board-" + sha256_hex("board-v1\t" + std::string(board)).substr(0, 16);
 }
 
 void mix_output_checksum(std::string_view line, Report* report) noexcept {
@@ -556,11 +652,16 @@ std::optional<MoveRow> evaluate_child(const RootRow& root, board_core::Position 
   if (!acceptable_result(result, terminal_child, config, accepted_node_limited, error)) {
     return std::nullopt;
   }
+  if (result.score < -64 || result.score > 64) {
+    *error = "teacher search score is outside normalized disc-diff range";
+    return std::nullopt;
+  }
   const int player_count = std::popcount(position.player);
   const int opponent_count = std::popcount(position.opponent);
   const int occupied_count = player_count + opponent_count;
   const int empty_count = board_core::kSquareCount - occupied_count;
   const std::string move_text = move_to_string(move);
+  const std::string child_board = relative_board_from_position(position);
   return MoveRow{
       .root_board_id = root.board_id,
       .root_record_id = root.record_id,
@@ -568,8 +669,8 @@ std::optional<MoveRow> evaluate_child(const RootRow& root, board_core::Position 
       .root_phase = root.phase,
       .root_empty_count = root.empty_count,
       .move = move_text,
-      .child_board_id = "move-teacher-v1:" + root.board_id + ":" + move_text,
-      .child_board = relative_board_from_position(position),
+      .child_board_id = canonical_board_id(child_board),
+      .child_board = child_board,
       .child_empty_count = empty_count,
       .child_phase = phase_for_occupied_count(occupied_count),
       .child_occupied_count = occupied_count,
@@ -636,8 +737,76 @@ std::string child_normalized_line(const MoveRow& row) {
   return output.str();
 }
 
+bool select_child_normalized_rows(const std::vector<MoveRow>& move_rows,
+                                  std::vector<const MoveRow*>* child_rows, Report* report) {
+  std::map<std::string, const MoveRow*> by_child_id;
+  for (const MoveRow& row : move_rows) {
+    const auto [it, inserted] = by_child_id.emplace(row.child_board_id, &row);
+    if (inserted) {
+      continue;
+    }
+    ++report->duplicate_child_normalized_rows;
+    const MoveRow& existing = *it->second;
+    if (existing.child_board != row.child_board) {
+      report->rejected_roots = 1;
+      report->rejected_root_id = row.root_board_id;
+      report->rejection_reason = "canonical child_board_id has conflicting board contents";
+      return false;
+    }
+    if (existing.root_split != row.root_split) {
+      ++report->child_split_collisions;
+      report->rejected_roots = 1;
+      report->rejected_root_id = row.root_board_id;
+      report->rejection_reason = "canonical child_board_id crosses normalized splits";
+      return false;
+    }
+  }
+  child_rows->reserve(by_child_id.size());
+  for (const auto& [child_id, row] : by_child_id) {
+    (void)child_id;
+    child_rows->push_back(row);
+  }
+  report->child_normalized_rows = child_rows->size();
+  return true;
+}
+
+bool run_contract_self_test() {
+  if (sha256_hex("abc") != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") {
+    std::cerr << "sha256 board identity self-test failed\n";
+    return false;
+  }
+  const std::string board(board_core::kSquareCount, '-');
+  MoveRow first{.root_board_id = "root-a",
+                .root_split = "train",
+                .child_board_id = canonical_board_id(board),
+                .child_board = board};
+  MoveRow duplicate{.root_board_id = "root-b",
+                    .root_split = "train",
+                    .child_board_id = first.child_board_id,
+                    .child_board = board};
+  Report dedupe_report;
+  std::vector<const MoveRow*> deduped;
+  if (!select_child_normalized_rows({first, duplicate}, &deduped, &dedupe_report) ||
+      deduped.size() != 1 || dedupe_report.duplicate_child_normalized_rows != 1) {
+    std::cerr << "child normalized dedupe self-test failed\n";
+    return false;
+  }
+  MoveRow cross_split = duplicate;
+  cross_split.root_split = "validation";
+  Report collision_report;
+  std::vector<const MoveRow*> collision_rows;
+  if (select_child_normalized_rows({first, cross_split}, &collision_rows, &collision_report) ||
+      collision_report.child_split_collisions != 1) {
+    std::cerr << "child split collision self-test failed\n";
+    return false;
+  }
+  std::cout << "contract_self_test=ok\n";
+  return true;
+}
+
 bool write_outputs(const Args& args, const std::vector<MoveRow>& rows, const Teacher& teacher,
-                   const SearchConfig& config, Report* report) {
+                   const SearchConfig& config, const std::vector<const MoveRow*>& child_rows,
+                   Report* report) {
   std::ofstream move_output(args.move_teacher_out_path);
   std::ofstream child_output(args.child_normalized_out_path);
   if (!move_output || !child_output) {
@@ -648,10 +817,12 @@ bool write_outputs(const Args& args, const std::vector<MoveRow>& rows, const Tea
   child_output << kNormalizedHeaderV2 << '\n';
   for (const MoveRow& row : rows) {
     const std::string move_line = move_teacher_line(row, teacher, config);
-    const std::string child_line = child_normalized_line(row);
     move_output << move_line << '\n';
-    child_output << child_line << '\n';
     mix_output_checksum(move_line, report);
+  }
+  for (const MoveRow* row : child_rows) {
+    const std::string child_line = child_normalized_line(*row);
+    child_output << child_line << '\n';
     mix_output_checksum(child_line, report);
   }
   return static_cast<bool>(move_output) && static_cast<bool>(child_output);
@@ -681,7 +852,13 @@ bool write_report(const Args& args, const Teacher* teacher, const SearchConfig* 
   output << "  \"terminal_roots\": " << report.terminal_roots << ",\n";
   output << "  \"roots_with_pass_move\": " << report.roots_with_pass_move << ",\n";
   output << "  \"move_rows\": " << report.move_rows << ",\n";
+  output << "  \"child_normalized_rows\": " << report.child_normalized_rows << ",\n";
+  output << "  \"duplicate_child_normalized_rows\": " << report.duplicate_child_normalized_rows
+         << ",\n";
+  output << "  \"child_split_collisions\": " << report.child_split_collisions << ",\n";
   output << "  \"accepted_node_limited_children\": " << report.accepted_node_limited_children
+         << ",\n";
+  output << "  \"roots_with_mixed_teacher_depth\": " << report.roots_with_mixed_teacher_depth
          << ",\n";
   output << "  \"teacher_nodes_sum\": " << report.teacher_nodes_sum << ",\n";
   output << "  \"complete\": " << (report.rejected_roots == 0 ? "true" : "false") << ",\n";
@@ -835,6 +1012,9 @@ std::optional<Args> parse_args(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 2 && std::string_view(argv[1]) == "--self-test-contract") {
+    return run_contract_self_test() ? 0 : 1;
+  }
   const auto started = std::chrono::steady_clock::now();
   const std::optional<Args> args = parse_args(argc, argv);
   if (!args.has_value()) {
@@ -911,6 +1091,13 @@ int main(int argc, char** argv) {
     if (!root_ok) {
       break;
     }
+    const auto [minimum_depth, maximum_depth] = std::minmax_element(
+        root_rows.begin(), root_rows.end(), [](const MoveRow& left, const MoveRow& right) {
+          return left.teacher_depth < right.teacher_depth;
+        });
+    if ((*minimum_depth).teacher_depth != (*maximum_depth).teacher_depth) {
+      ++report.roots_with_mixed_teacher_depth;
+    }
     rank_root_moves(&root_rows);
     all_rows.insert(all_rows.end(), root_rows.begin(), root_rows.end());
     ++report.completed_roots;
@@ -928,7 +1115,14 @@ int main(int argc, char** argv) {
               << report.rejection_reason << '\n';
     return 1;
   }
-  if (!write_outputs(*args, all_rows, *teacher, config, &report) ||
+  std::vector<const MoveRow*> child_rows;
+  if (!select_child_normalized_rows(all_rows, &child_rows, &report)) {
+    (void)write_report(*args, &*teacher, &config, report);
+    std::cerr << "teacher generation rejected root " << report.rejected_root_id << ": "
+              << report.rejection_reason << '\n';
+    return 1;
+  }
+  if (!write_outputs(*args, all_rows, *teacher, config, child_rows, &report) ||
       !write_report(*args, &*teacher, &config, report)) {
     return 1;
   }

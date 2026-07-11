@@ -97,6 +97,12 @@ mandatory for search-generated labels. Search child-normalized rows use
 `teacher_search_final_disc_diff`; exact child rows retain
 `teacher_exact_move_child_final_disc_diff`.
 
+Child `board_id` values use the canonical `board-v1` SHA-256 identity derived
+only from `board_a1_to_h8`. Search materialization de-duplicates equal child
+boards only within one split and rejects a canonical child board that crosses
+splits. Search scores written to normalized schema v2 must remain in `[-64,64]`;
+out-of-range values are rejected rather than clamped.
+
 ## Directory Rules
 
 Keep this directory small and reviewable.

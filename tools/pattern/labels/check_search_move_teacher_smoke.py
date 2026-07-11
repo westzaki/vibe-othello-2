@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 
@@ -95,6 +98,32 @@ def run(command: list[str], expected: int = 0) -> subprocess.CompletedProcess[st
     return result
 
 
+def make_full_coverage_artifact(source_manifest: Path, source_weights: Path, output_root: Path,
+                                name: str, phase_zero_bias: int | None = None) -> tuple[Path, Path]:
+    manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
+    payload = bytearray(source_weights.read_bytes())
+    if payload[:8] != b"VOPWGT\0\0":
+        raise RuntimeError("unexpected source artifact magic")
+    _format, _bit_order, _unit, _scale, phase_count, _patterns, name_length, _reserved, weight_count = (
+        struct.unpack_from("<HHHHHHHHI", payload, 8)
+    )
+    if phase_count != 13 or weight_count % phase_count != 0:
+        raise RuntimeError("unexpected source artifact phase layout")
+    if phase_zero_bias is not None:
+        weights_offset = 8 + struct.calcsize("<HHHHHHHHI") + name_length
+        struct.pack_into("<i", payload, weights_offset, phase_zero_bias)
+    checksum = zlib.crc32(payload[:-4]) & 0xFFFFFFFF
+    struct.pack_into("<I", payload, len(payload) - 4, checksum)
+    weights = output_root / f"{name}.weights.bin"
+    weights.write_bytes(payload)
+    manifest["weights_file"] = weights.name
+    manifest["weights_checksum"] = f"0x{checksum:08x}"
+    manifest["trained_phases"] = list(range(13))
+    manifest_path = output_root / f"{name}.manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return weights, manifest_path
+
+
 def core_command(generator: Path, normalized: Path, manifest: Path, weights: Path, output: Path,
                  *, depth: int = 1, nodes: int = 0, time_ms: int = 0, exact: int = 0,
                  min_phase: int = 0, max_phase: int = 9) -> list[str]:
@@ -119,10 +148,9 @@ def main() -> int:
     try:
         with tempfile.TemporaryDirectory(prefix="vibe-othello-search-teacher-") as temp:
             root = Path(temp)
-            manifest = root / "teacher.manifest.json"
-            manifest_data = json.loads(default_manifest.read_text(encoding="utf-8"))
-            manifest_data["trained_phases"] = list(range(13))
-            manifest.write_text(json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8")
+            weights, manifest = make_full_coverage_artifact(
+                default_manifest, default_weights, root, "teacher"
+            )
 
             early = root / "early.tsv"
             write_tsv(early, [normalized_row("initial", initial)])
@@ -130,8 +158,8 @@ def main() -> int:
             second = root / "second"
             first.mkdir()
             second.mkdir()
-            run(core_command(args.generator, early, manifest, default_weights, first))
-            run(core_command(args.generator, early, manifest, default_weights, second))
+            run(core_command(args.generator, early, manifest, weights, first))
+            run(core_command(args.generator, early, manifest, weights, second))
             if (first / "moves.tsv").read_bytes() != (second / "moves.tsv").read_bytes():
                 raise RuntimeError("same input/config did not produce deterministic teacher TSV")
             rows = read_tsv(first / "moves.tsv")
@@ -142,6 +170,11 @@ def main() -> int:
                     raise RuntimeError(f"teacher provenance missing: {row}")
                 if int(row["root_move_score_side_to_move"]) != -int(row["child_label_score_side_to_move"]):
                     raise RuntimeError(f"root/child perspective sign failed: {row}")
+                expected_child_id = "board-" + hashlib.sha256(
+                    f"board-v1\t{row['child_board_a1_to_h8']}".encode("ascii")
+                ).hexdigest()[:16]
+                if row["child_board_id"] != expected_child_id:
+                    raise RuntimeError(f"child board identity is not canonical: {row}")
                 if row["best_move_tie_count"] != "4" or row["best_score_margin"] != "0":
                     raise RuntimeError(f"tie/margin contract failed: {row}")
 
@@ -149,7 +182,7 @@ def main() -> int:
             summary = root / "ranking.md"
             run([
                 str(args.ranking_evaluator), "--move-teacher", str(first / "moves.tsv"), "--weights",
-                str(default_weights), "--manifest", str(manifest), "--pattern-set", "pattern-v2-endgame-lite",
+                str(weights), "--manifest", str(manifest), "--pattern-set", "pattern-v2-endgame-lite",
                 "--report-out", str(ranking), "--summary-out", str(summary),
             ])
             if json.loads(ranking.read_text(encoding="utf-8"))["root_count"] != 1:
@@ -160,7 +193,7 @@ def main() -> int:
                               normalized_row("one-empty-pass", one_empty_pass, "validation")])
             late_out = root / "late"
             late_out.mkdir()
-            run(core_command(args.generator, late, manifest, default_weights, late_out,
+            run(core_command(args.generator, late, manifest, weights, late_out,
                              nodes=100000, exact=1, min_phase=12, max_phase=12))
             late_rows = read_tsv(late_out / "moves.tsv")
             if {row["root_board_id"] for row in late_rows} != {"one-empty-move", "one-empty-pass"}:
@@ -173,7 +206,7 @@ def main() -> int:
 
             interrupted = root / "interrupted"
             interrupted.mkdir()
-            run(core_command(args.generator, early, manifest, default_weights, interrupted, depth=5, nodes=1), 1)
+            run(core_command(args.generator, early, manifest, weights, interrupted, depth=5, nodes=1), 1)
             report = json.loads((interrupted / "report.json").read_text(encoding="utf-8"))
             if report["complete"] or (interrupted / "moves.tsv").exists():
                 raise RuntimeError("interrupted root produced a complete or partial teacher TSV")
@@ -181,12 +214,22 @@ def main() -> int:
             uncovered = root / "uncovered"
             uncovered.mkdir()
             run(core_command(args.generator, early, default_manifest, default_weights, uncovered), 1)
-            run(core_command(args.generator, early, manifest, default_weights, root / "wall-clock", time_ms=1), 2)
+            run(core_command(args.generator, early, manifest, weights, root / "wall-clock", time_ms=1), 2)
+
+            out_of_range_weights, out_of_range_manifest = make_full_coverage_artifact(
+                default_manifest, default_weights, root, "out-of-range", phase_zero_bias=100
+            )
+            score_reject = root / "score-reject"
+            score_reject.mkdir()
+            run(core_command(args.generator, early, out_of_range_manifest, out_of_range_weights, score_reject), 1)
+            score_report = json.loads((score_reject / "report.json").read_text(encoding="utf-8"))
+            if "outside normalized disc-diff range" not in score_report["rejection_reason"]:
+                raise RuntimeError(f"out-of-range teacher score was not rejected: {score_report}")
 
             runner_out = root / "resume"
             runner_base = [
                 sys.executable, str(args.runner), "--generator", str(args.generator), "--normalized-tsv", str(early),
-                "--teacher-manifest", str(manifest), "--teacher-weights", str(default_weights),
+                "--teacher-manifest", str(manifest), "--teacher-weights", str(weights),
                 "--output-dir", str(runner_out), "--max-depth", "1", "--max-nodes", "0",
                 "--max-time-ms", "0", "--search-preset", "basic", "--exact-endgame-empties", "0",
             ]
@@ -195,6 +238,7 @@ def main() -> int:
             if "skipped-resume-validated" not in resume.stdout:
                 raise RuntimeError("resume did not validate matching sidecar")
             run(runner_base + ["--max-depth", "2", "--resume"], 1)
+            run([str(args.generator), "--self-test-contract"])
     except (OSError, RuntimeError, json.JSONDecodeError) as error:
         print(error, file=sys.stderr)
         return 1

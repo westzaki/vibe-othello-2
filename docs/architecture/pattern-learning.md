@@ -182,7 +182,10 @@ are from the child side-to-move perspective, and predicted root move scores are
 derived as the negative child score. Exact child rows use
 `label_kind = teacher_exact_move_child_final_disc_diff`; artifact-search child
 rows use `teacher_search_final_disc_diff` and must carry explicit artifact and
-search-config provenance in the move-teacher schema.
+search-config provenance in the move-teacher schema. Child board identities
+remain canonical normalized-board identities, not root/move identifiers;
+cross-split child-board collisions must reject materialization. Search labels
+written through normalized schema v2 must satisfy its disc-difference range.
 
 Generated teacher-label, move-teacher, and child-normalized files are local-only
 intermediate outputs. They are not Elo results, self-play results, production
