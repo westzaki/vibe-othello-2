@@ -221,6 +221,38 @@ def validate_pattern_weights(
     return weights
 
 
+def validate_trained_phases(values: list[int] | None) -> list[int] | None:
+    if values is None:
+        return None
+    if not values:
+        fail("trained_phases must not be empty")
+    if any(phase < 0 or phase >= PHASE_COUNT for phase in values):
+        fail("trained_phases entries must be in [0, 12]")
+    if len(set(values)) != len(values):
+        fail("trained_phases entries must be unique")
+    return sorted(values)
+
+
+def phase_weight_diagnostics(
+    phase_biases: list[int], pattern_weights: dict[tuple[int, str, int], int]
+) -> list[dict[str, int | bool]]:
+    diagnostics: list[dict[str, int | bool]] = []
+    for phase, phase_bias in enumerate(phase_biases):
+        phase_weights = [
+            weight for (weight_phase, _pattern_id, _ternary_index), weight in pattern_weights.items()
+            if weight_phase == phase
+        ]
+        diagnostics.append(
+            {
+                "phase": phase,
+                "nonzero_pattern_weights": sum(weight != 0 for weight in phase_weights),
+                "nonzero_phase_bias": phase_bias != 0,
+                "max_absolute_weight": max((abs(weight) for weight in phase_weights), default=0),
+            }
+        )
+    return diagnostics
+
+
 def validate_v2_metadata(
     payload: dict[str, Any],
     pattern_set: PatternSetSpec,
@@ -374,7 +406,8 @@ def write_manifest(
     checksum: int,
     artifact_size: int,
     phase_biases: list[int],
-    nonzero_pattern_weights: int,
+    phase_diagnostics: list[dict[str, int | bool]],
+    trained_phases: list[int] | None,
     pattern_set: PatternSetSpec,
 ) -> None:
     manifest = {
@@ -391,15 +424,20 @@ def write_manifest(
         "weights_checksum": f"0x{checksum:08x}",
         "source_weights_schema_version": source_schema_version,
         "source_weights_checksum": source_checksum,
-        "nonzero_pattern_weights": nonzero_pattern_weights,
+        "nonzero_pattern_weights": sum(
+            int(diagnostic["nonzero_pattern_weights"]) for diagnostic in phase_diagnostics
+        ),
         "notes": pattern_set.note,
         "quantization": "round-half-away-from-zero to int32 search::Score",
         "phase_bias": phase_biases,
+        "phase_weight_diagnostics": phase_diagnostics,
         "patterns": [
             {"pattern_id": pattern_id, "length": length, "weights": "sparse-v0b-import"}
             for pattern_id, length in pattern_set.patterns
         ],
     }
+    if trained_phases is not None:
+        manifest["trained_phases"] = trained_phases
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -408,6 +446,12 @@ def main() -> int:
     parser.add_argument("--weights-json", required=True, type=Path)
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--manifest-out", required=True, type=Path)
+    parser.add_argument(
+        "--trained-phases",
+        nargs="+",
+        type=int,
+        help="Explicit source-of-truth phases represented in the training data.",
+    )
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     parser.add_argument(
         "--catalog-dump-exe",
@@ -432,6 +476,8 @@ def main() -> int:
         source_schema_version, phase_biases, pattern_weights = validate_weights(
             payload, pattern_set, args
         )
+        trained_phases = validate_trained_phases(args.trained_phases)
+        phase_diagnostics = phase_weight_diagnostics(phase_biases, pattern_weights)
         artifact, checksum = make_artifact(phase_biases, pattern_weights, pattern_set)
         args.weights_out.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
@@ -445,7 +491,8 @@ def main() -> int:
             checksum,
             len(artifact),
             phase_biases,
-            len(pattern_weights),
+            phase_diagnostics,
+            trained_phases,
             pattern_set,
         )
     except (OSError, RuntimeError) as error:
@@ -462,7 +509,10 @@ def main() -> int:
     print(f"weights_size_bytes={len(artifact)}")
     print(f"source_weights_schema_version={source_schema_version}")
     print(f"source_weights_checksum={source_checksum}")
-    print(f"nonzero_pattern_weights={len(pattern_weights)}")
+    print(
+        "nonzero_pattern_weights="
+        f"{sum(int(diagnostic['nonzero_pattern_weights']) for diagnostic in phase_diagnostics)}"
+    )
     print(f"notes={pattern_set.note}")
     return 0
 

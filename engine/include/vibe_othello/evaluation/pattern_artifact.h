@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace vibe_othello::evaluation {
 
@@ -17,6 +18,9 @@ struct LoadedPatternArtifact {
   std::string artifact_id;
   std::string pattern_set_id;
   std::string weights_checksum;
+  // Missing metadata means the artifact predates coverage reporting; it does
+  // not imply that every runtime phase was trained.
+  std::optional<std::vector<std::uint8_t>> trained_phases;
   std::filesystem::path manifest_path;
   std::filesystem::path weights_path;
   PatternWeights weights;
@@ -36,6 +40,8 @@ struct LoadedPatternArtifactBytes {
   std::string artifact_id;
   std::string pattern_set_id;
   std::string weights_checksum;
+  // Matches LoadedPatternArtifact::trained_phases for in-memory loading.
+  std::optional<std::vector<std::uint8_t>> trained_phases;
   PatternWeights weights;
   PatternFeatureSet feature_set;
 };

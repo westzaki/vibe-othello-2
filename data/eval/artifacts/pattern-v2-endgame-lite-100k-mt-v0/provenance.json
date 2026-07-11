@@ -5,6 +5,11 @@
   "status": "experimental-default",
   "pattern_set": "pattern-v2-endgame-lite",
   "trainer_mode": "pattern-sgd-v0c",
+  "trained_phases": [
+    10,
+    11,
+    12
+  ],
   "teacher_kind": "exact_move_teacher_child_final_disc_diff",
   "root_label_derivation": "max(root_move_score_side_to_move)",
   "selected_source_checksum": "sha256:260102a58ead4522169d7298ba828fa983930c902c261c49d18da4b11b6d0ce7",

@@ -177,6 +177,10 @@ This document only defines how loaded runtime weights are consumed by
 evaluators: after a loader validates compatibility, the evaluator receives an
 immutable pattern set definition and matching weight tables.
 
+The loader also exposes optional artifact `trained_phases` metadata to callers.
+It describes reviewed learning coverage and is not an evaluator policy: runtime
+selection, score calculation, and search behavior remain unchanged by it.
+
 ## Determinism and Safety
 
 Runtime evaluation must be deterministic for the same position, side to move,

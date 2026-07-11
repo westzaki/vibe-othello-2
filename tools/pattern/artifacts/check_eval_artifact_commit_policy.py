@@ -7,6 +7,7 @@ import argparse
 import fnmatch
 import hashlib
 import json
+import struct
 import subprocess
 import sys
 import zlib
@@ -38,6 +39,10 @@ LOCAL_PATH_MARKERS = (
     "$VIBE_OTHELLO_MEASUREMENTS",
     "VIBE_OTHELLO_MEASUREMENTS",
 )
+
+RUNTIME_PHASE_COUNT = 13
+WEIGHTS_HEADER_FORMAT = "<HHHHHHHHI"
+WEIGHTS_HEADER_SIZE = 8 + struct.calcsize(WEIGHTS_HEADER_FORMAT)
 
 FORBIDDEN_ARCHIVE_PATTERNS = (
     "*.zip",
@@ -202,6 +207,88 @@ def runtime_checksum(path: Path) -> str:
     return f"0x{zlib.crc32(payload[:-4]) & 0xFFFFFFFF:08x}"
 
 
+def trained_phases(path: Path, payload: dict[str, Any], errors: list[str]) -> list[int] | None:
+    value = payload.get("trained_phases")
+    if not isinstance(value, list):
+        errors.append(f"{path}: trained_phases must be a non-empty array")
+        return None
+    if not value:
+        errors.append(f"{path}: trained_phases must not be empty")
+        return None
+    if any(isinstance(phase, bool) or not isinstance(phase, int) for phase in value):
+        errors.append(f"{path}: trained_phases entries must be integers")
+        return None
+    if any(phase < 0 or phase >= RUNTIME_PHASE_COUNT for phase in value):
+        errors.append(f"{path}: trained_phases entries must be in [0, 12]")
+        return None
+    if len(set(value)) != len(value):
+        errors.append(f"{path}: trained_phases entries must be unique")
+        return None
+    return sorted(value)
+
+
+def phase_weight_diagnostics(path: Path) -> list[dict[str, int | bool]]:
+    payload = path.read_bytes()
+    if len(payload) < WEIGHTS_HEADER_SIZE + 4:
+        raise ValueError(f"{path}: weights.bin is too small for phase diagnostics")
+    if payload[:8] != b"VOPWGT\0\0":
+        raise ValueError(f"{path}: weights.bin has an invalid magic header")
+
+    (
+        format_version,
+        bit_order,
+        score_unit,
+        score_scale,
+        phase_count,
+        _pattern_count,
+        pattern_set_id_size,
+        _reserved,
+        weight_count,
+    ) = struct.unpack_from(WEIGHTS_HEADER_FORMAT, payload, 8)
+    if (format_version, bit_order, score_unit, score_scale) != (1, 1, 1, 1):
+        raise ValueError(f"{path}: weights.bin header is not a runtime v1 artifact")
+    if phase_count != RUNTIME_PHASE_COUNT:
+        raise ValueError(f"{path}: weights.bin phase_count must be {RUNTIME_PHASE_COUNT}")
+    if weight_count % phase_count != 0:
+        raise ValueError(f"{path}: weights.bin weight_count is not divisible by phase_count")
+
+    weights_offset = WEIGHTS_HEADER_SIZE + pattern_set_id_size
+    expected_size = weights_offset + weight_count * 4 + 4
+    if len(payload) != expected_size:
+        raise ValueError(f"{path}: weights.bin size does not match its header")
+
+    weights = struct.unpack_from(f"<{weight_count}i", payload, weights_offset)
+    phase_stride = weight_count // phase_count
+    diagnostics: list[dict[str, int | bool]] = []
+    for phase in range(phase_count):
+        start = phase * phase_stride
+        phase_bias = weights[start]
+        pattern_weights = weights[start + 1 : start + phase_stride]
+        diagnostics.append(
+            {
+                "phase": phase,
+                "nonzero_pattern_weights": sum(weight != 0 for weight in pattern_weights),
+                "nonzero_phase_bias": phase_bias != 0,
+                "max_absolute_weight": max((abs(weight) for weight in pattern_weights), default=0),
+            }
+        )
+    return diagnostics
+
+
+def check_phase_weight_diagnostics(
+    path: Path, manifest: dict[str, Any], actual: list[dict[str, int | bool]], errors: list[str]
+) -> None:
+    value = manifest.get("phase_weight_diagnostics")
+    if value != actual:
+        errors.append(f"{path}: phase_weight_diagnostics does not match weights.bin")
+    expected_nonzero = sum(int(diagnostic["nonzero_pattern_weights"]) for diagnostic in actual)
+    if manifest.get("nonzero_pattern_weights") != expected_nonzero:
+        errors.append(
+            f"{path}: nonzero_pattern_weights {manifest.get('nonzero_pattern_weights')!r} "
+            f"does not match {expected_nonzero}"
+        )
+
+
 def require_bool(
     path: Path, payload: dict[str, Any], field: str, expected: bool, errors: list[str]
 ) -> None:
@@ -236,6 +323,18 @@ def check_artifact_metadata(repo_root: Path) -> list[str]:
             errors.append(f"{relative_to_repo(provenance_path, repo_root)}: root must be an object")
             continue
 
+        manifest_trained_phases = trained_phases(manifest_path, manifest, errors)
+        provenance_trained_phases = trained_phases(provenance_path, provenance, errors)
+        if (
+            manifest_trained_phases is not None
+            and provenance_trained_phases is not None
+            and manifest_trained_phases != provenance_trained_phases
+        ):
+            errors.append(
+                f"{rel_dir}: manifest and provenance trained_phases do not match "
+                f"({manifest_trained_phases!r} != {provenance_trained_phases!r})"
+            )
+
         if manifest.get("weights_file") != "weights.bin":
             errors.append(
                 f"{relative_to_repo(manifest_path, repo_root)}: weights_file must be weights.bin"
@@ -262,6 +361,13 @@ def check_artifact_metadata(repo_root: Path) -> list[str]:
                 f"{relative_to_repo(provenance_path, repo_root)}: weights_sha256 {provenance_sha256!r} "
                 f"does not match {actual_sha256}"
             )
+
+        try:
+            diagnostics = phase_weight_diagnostics(weights)
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            check_phase_weight_diagnostics(manifest_path, manifest, diagnostics, errors)
 
         require_bool(provenance_path, provenance, "raw_data_redistributed", False, errors)
         require_bool(provenance_path, provenance, "teacher_labels_redistributed", False, errors)

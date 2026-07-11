@@ -29,12 +29,14 @@ struct ArtifactManifestFields {
   std::string pattern_set_id;
   std::filesystem::path weights_file;
   std::string weights_checksum;
+  std::optional<std::vector<std::uint8_t>> trained_phases;
 };
 
 struct LoadedPatternArtifactCore {
   std::string artifact_id;
   std::string pattern_set_id;
   std::string weights_checksum;
+  std::optional<std::vector<std::uint8_t>> trained_phases;
   PatternWeights weights;
   PatternFeatureSet feature_set;
 };
@@ -168,6 +170,78 @@ read_binary_file(const std::filesystem::path& path) {
   return value;
 }
 
+void skip_json_whitespace(std::string_view json, std::size_t* pos) {
+  while (*pos < json.size() &&
+         (json[*pos] == ' ' || json[*pos] == '\n' || json[*pos] == '\r' || json[*pos] == '\t')) {
+    ++*pos;
+  }
+}
+
+[[nodiscard]] std::optional<std::vector<std::uint8_t>>
+parse_trained_phases(std::string_view json, std::string_view manifest_label, std::string* error) {
+  std::optional<std::size_t> value_pos = field_value_offset(json, "trained_phases");
+  if (!value_pos.has_value()) {
+    return std::nullopt;
+  }
+  if (*value_pos >= json.size() || json[*value_pos] != '[') {
+    *error = std::string(manifest_label) + ": trained_phases must be an array";
+    return std::nullopt;
+  }
+
+  std::size_t pos = *value_pos + 1;
+  skip_json_whitespace(json, &pos);
+  if (pos < json.size() && json[pos] == ']') {
+    *error = std::string(manifest_label) + ": trained_phases must not be empty";
+    return std::nullopt;
+  }
+
+  std::vector<std::uint8_t> phases;
+  while (true) {
+    if (pos >= json.size()) {
+      *error = std::string(manifest_label) + ": trained_phases must be a complete array";
+      return std::nullopt;
+    }
+    const char* begin = json.data() + pos;
+    const char* end = json.data() + json.size();
+    int phase = 0;
+    const auto [ptr, ec] = std::from_chars(begin, end, phase);
+    if (ec != std::errc{} || ptr == begin) {
+      *error = std::string(manifest_label) + ": trained_phases entries must be integers";
+      return std::nullopt;
+    }
+    if (phase < 0 || phase >= kRuntimePhaseCount) {
+      *error = std::string(manifest_label) + ": trained_phases entries must be in [0, 12]";
+      return std::nullopt;
+    }
+    const std::uint8_t value = static_cast<std::uint8_t>(phase);
+    if (std::find(phases.begin(), phases.end(), value) != phases.end()) {
+      *error = std::string(manifest_label) + ": trained_phases entries must be unique";
+      return std::nullopt;
+    }
+    phases.push_back(value);
+    pos = static_cast<std::size_t>(ptr - json.data());
+    skip_json_whitespace(json, &pos);
+    if (pos >= json.size()) {
+      *error = std::string(manifest_label) + ": trained_phases must be a complete array";
+      return std::nullopt;
+    }
+    if (json[pos] == ']') {
+      std::sort(phases.begin(), phases.end());
+      return phases;
+    }
+    if (json[pos] != ',') {
+      *error = std::string(manifest_label) + ": trained_phases entries must be comma-separated";
+      return std::nullopt;
+    }
+    ++pos;
+    skip_json_whitespace(json, &pos);
+    if (pos >= json.size() || json[pos] == ']') {
+      *error = std::string(manifest_label) + ": trained_phases entries must be integers";
+      return std::nullopt;
+    }
+  }
+}
+
 [[nodiscard]] bool path_has_parent_reference(const std::filesystem::path& path) {
   return std::any_of(path.begin(), path.end(),
                      [](const std::filesystem::path& part) { return part == ".."; });
@@ -260,6 +334,7 @@ read_binary_file(const std::filesystem::path& path) {
 parse_manifest_fields(std::string_view manifest_text, std::string_view manifest_label,
                       std::string artifact_id_fallback, std::string* error) {
   const std::string manifest_label_string{manifest_label};
+  error->clear();
   if (const std::optional<std::string> contract_error =
           validate_manifest_contract(manifest_text, manifest_label_string);
       contract_error.has_value()) {
@@ -294,11 +369,17 @@ parse_manifest_fields(std::string_view manifest_text, std::string_view manifest_
     *error = manifest_label_string + ": missing string field weights_checksum";
     return std::nullopt;
   }
+  const std::optional<std::vector<std::uint8_t>> trained_phases =
+      parse_trained_phases(manifest_text, manifest_label, error);
+  if (!error->empty()) {
+    return std::nullopt;
+  }
   return ArtifactManifestFields{
       .artifact_id = resolved_artifact_id,
       .pattern_set_id = *pattern_set_id,
       .weights_file = std::move(weights_path),
       .weights_checksum = *weights_checksum,
+      .trained_phases = trained_phases,
   };
 }
 
@@ -345,6 +426,7 @@ load_pattern_artifact_core(const ArtifactManifestFields& fields, std::string_vie
               .artifact_id = fields.artifact_id,
               .pattern_set_id = fields.pattern_set_id,
               .weights_checksum = fields.weights_checksum,
+              .trained_phases = fields.trained_phases,
               .weights = std::move(*weights),
               .feature_set = std::move(runtime->feature_set),
           },
@@ -389,6 +471,7 @@ load_pattern_artifact_impl(const std::filesystem::path& manifest_path,
               .artifact_id = std::move(artifact_core.artifact_id),
               .pattern_set_id = std::move(artifact_core.pattern_set_id),
               .weights_checksum = std::move(artifact_core.weights_checksum),
+              .trained_phases = std::move(artifact_core.trained_phases),
               .manifest_path = manifest_path,
               .weights_path = weights_path,
               .weights = std::move(artifact_core.weights),
@@ -464,6 +547,7 @@ load_pattern_artifact_from_bytes(std::string_view manifest_text,
               .artifact_id = std::move(artifact_core.artifact_id),
               .pattern_set_id = std::move(artifact_core.pattern_set_id),
               .weights_checksum = std::move(artifact_core.weights_checksum),
+              .trained_phases = std::move(artifact_core.trained_phases),
               .weights = std::move(artifact_core.weights),
               .feature_set = std::move(artifact_core.feature_set),
           },
