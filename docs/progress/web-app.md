@@ -64,7 +64,7 @@ The current repository has a minimal browser runtime skeleton under `apps/web`:
 * Worker fetching of the copied default evaluation pointer from
   `/eval/default-artifact.json`, manifest and weights resolution from the copied
   static asset tree, and `WasmCore.loadEvaluationArtifact()` loading
-* a manual React `CPU move` button that asks the Worker to run one conservative
+* a manual React `CPU move` button that asks the Worker to run one normal-preset
   bounded best-move search for the current side to move and apply the result
 * a simple CPU opponent mode where the human is fixed to Black, the CPU is fixed
   to White, and the app automatically asks the Worker to run one CPU move after
@@ -85,13 +85,13 @@ manifest text and weights bytes. The WASM C ABI and plain JavaScript `WasmCore`
 wrapper can now load those bytes into an opaque WASM-side phase-aware evaluator
 handle, evaluate positions, and run bounded best-move search through that
 loaded evaluator. The browser Worker fetches the copied default artifact assets,
-loads the artifact through `WasmCore.loadEvaluationArtifact()`, and uses it for
-a CPU move with conservative default limits of depth 2, no node cap, and 500 ms.
-React can either expose that as a manual CPU move when CPU opponent mode is off,
-or reuse it as an automatic White response in the minimal CPU opponent mode.
-Side selection, difficulty selection, advanced cancellation, threaded WASM,
-review UI, evaluation explanation UI, and strength or Elo claims are still not
-implemented.
+loads the artifact through `WasmCore.loadEvaluationArtifact()`, and uses its
+`normal` preset for a CPU move with depth 8, no node cap, a 500 ms cap, and an
+8-empty exact-score threshold. React can either expose that as a manual CPU
+move when CPU opponent mode is off, or reuse it as an automatic White response
+in the minimal CPU opponent mode. Side selection, difficulty selection,
+advanced cancellation, threaded WASM, review UI, evaluation explanation UI,
+and strength or Elo claims are still not implemented.
 
 ## Current gaps
 
@@ -138,8 +138,8 @@ Status values:
 | Legal move, applyMove, and pass browser flow | done | Implemented when generated WASM runtime assets are present under `apps/web/public/wasm/`; pass is user-triggered through Worker -> `WasmCore` -> board_core |
 | Web CI with generated WASM and eval assets | done | Web job builds the Emscripten module, copies WASM runtime assets and eval runtime assets, verifies eval asset readiness, installs app dependencies, typechecks, and runs Vite build |
 | Engine in-memory evaluation artifact loader | done | Native engine API can load pattern artifacts from manifest text and weights bytes; browser/WASM consumption is wired for CPU moves |
-| Search best-move bindings | done | WASM C ABI and plain `WasmCore` expose bounded best-move search with a loaded evaluation artifact; Worker protocol now uses it through `cpuMove` |
-| Manual CPU move | done | React exposes a manual `CPU move` button when CPU opponent mode is off; Worker runs conservative depth 2 / 500 ms search through the copied default eval artifact and applies one move or pass |
+| Search best-move bindings | done | Legacy WASM C ABI behavior is preserved; a versioned C ABI and plain `WasmCore` expose `easy`/`normal`/`hard` preset search with independent limits and exact threshold through a loaded evaluation artifact; Worker protocol uses it through `cpuMove` |
+| Manual CPU move | done | React exposes a manual `CPU move` button when CPU opponent mode is off; Worker runs normal-preset depth 8 / 500 ms search with an 8-empty exact threshold through the copied default eval artifact and applies one move or pass |
 | CPU opponent | done | Minimal human-vs-CPU mode fixes the human to Black and CPU to White, automatically reusing the existing Worker `cpuMove` command after human moves |
 | Bounded search/evaluation display | done | CPU moves show a small search summary; continuous position evaluation display is not implemented |
 | GitHub Pages workflow | done | Dedicated Pages workflow builds generated WASM runtime assets, copies eval runtime assets, builds `apps/web`, uploads `apps/web/dist`, and deploys on pushes to `main` or manual dispatch |

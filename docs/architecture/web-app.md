@@ -153,6 +153,8 @@ Rules:
 * depends only on engine public headers
 * must not include UI policy
 * must not expose search internals or evaluator internals
+* browser-facing search strength selection should use a small stable preset plus
+  independent limits, not individual search-option flags
 * must not duplicate board rules
 
 ### TypeScript WasmCore wrapper under wasm/ts

@@ -24,6 +24,8 @@ declare module "@vibe-othello/wasm-core" {
     maxTimeMs?: number;
   }
 
+  export type WasmSearchPreset = "easy" | "normal" | "hard";
+
   export interface WasmSearchResult {
     hasBestMove: boolean;
     bestMoveSquare: number | null;
@@ -40,6 +42,12 @@ declare module "@vibe-othello/wasm-core" {
     private constructor();
     evaluatePosition(position: WasmPosition): number;
     searchBestMove(position: WasmPosition, limits: WasmSearchLimits): WasmSearchResult;
+    searchBestMoveWithPreset(
+      position: WasmPosition,
+      limits: WasmSearchLimits,
+      preset: WasmSearchPreset,
+      exactEndgameEmpties?: number,
+    ): WasmSearchResult;
     free(): void;
   }
 

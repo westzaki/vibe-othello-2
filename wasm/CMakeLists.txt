@@ -61,6 +61,7 @@ if(VIBE_OTHELLO_BUILD_WASM_MODULE)
     _vibe_othello_wasm_free_eval_artifact
     _vibe_othello_wasm_evaluate_position
     _vibe_othello_wasm_search_best_move
+    _vibe_othello_wasm_search_best_move_v2
     _malloc
     _free)
   list(TRANSFORM VIBE_OTHELLO_WASM_MODULE_EXPORTED_FUNCTIONS_LIST PREPEND "'")

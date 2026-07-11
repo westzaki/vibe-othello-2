@@ -17,7 +17,8 @@ The current adapter exposes:
 * checked pass application
 * loading an evaluation artifact from manifest text plus weights bytes
 * side-to-move-relative phase-aware position evaluation through the loaded artifact
-* bounded best-move search through the same phase-aware artifact evaluator
+* legacy bounded best-move search through the same phase-aware artifact evaluator
+* preset-based bounded best-move search with independent depth/node/time limits
 * ABI layout introspection for the C structs read by JavaScript
 
 The plain JavaScript wrapper lives in `wasm/js/wasmCore.mjs`. It converts the raw
@@ -41,6 +42,12 @@ const artifact = core.loadEvaluationArtifact(manifestText, weightsBytes);
 try {
   const score = artifact.evaluatePosition(position);
   const result = artifact.searchBestMove(position, { maxDepth: 1 });
+  const normal = artifact.searchBestMoveWithPreset(
+    position,
+    { maxDepth: 8, maxTimeMs: 500 },
+    "normal",
+    8,
+  );
 } finally {
   artifact.free();
 }
@@ -49,6 +56,13 @@ try {
 Search requests must be bounded with `maxDepth`, `maxNodes`, or `maxTimeMs`.
 The WASM path does not support infinite search, advanced cancellation, threaded
 WASM, or browser pthreads.
+
+`searchBestMove()` preserves the legacy C ABI behavior, which uses empty
+`SearchOptions`. `searchBestMoveWithPreset()` exposes only `easy`, `normal`,
+and `hard` algorithm presets instead of individual search internals. Limits are
+always caller-provided; `normal` and `hard` currently enable the same algorithm
+set, while callers choose wider limits for hard play. A nonzero final argument
+enables exact-score endgame search at or below that empty-square threshold.
 
 ## Native adapter build
 
