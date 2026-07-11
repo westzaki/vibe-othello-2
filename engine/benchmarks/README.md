@@ -79,9 +79,10 @@ The search fixture corpus currently covers:
 
 Evaluation benchmark output is TSV and measures direct evaluator calls outside
 recursive search. It loads the checked-in search corpus once, constructs the
-evaluators once, then times repeated calls to each evaluator for each fixed
-position. File I/O, TSV parsing, weight construction, and allocation happen
-before the timed loop.
+tiny learned fixture, `EarlyMidgameHeuristicEvaluator`, and mixed-coverage
+`PhaseAwareEvaluator` once, then times repeated calls for each fixed position.
+The corpus exercises both phase-aware branches. File I/O, TSV parsing, weight
+construction, and allocation happen before the timed loop.
 
 Use the default checked-in corpus and iteration count for a small local
 baseline:

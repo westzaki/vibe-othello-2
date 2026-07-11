@@ -6,10 +6,12 @@ target_sources(
   PRIVATE src/board_core/board.cc
           src/board_core/hash.cc
           src/board_core/serialization.cc
+          src/evaluation/early_midgame_heuristic_evaluator.cc
           src/evaluation/pattern.cc
           src/evaluation/pattern_artifact.cc
           src/evaluation/pattern_evaluator.cc
           src/evaluation/pattern_weights.cc
+          src/evaluation/phase_aware_evaluator.cc
           src/evaluation/tiny_pattern_evaluator.cc
           src/search/alphabeta.cc
           src/search/endgame_root.cc

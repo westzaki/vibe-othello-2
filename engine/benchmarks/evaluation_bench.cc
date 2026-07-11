@@ -1,6 +1,8 @@
 #include "vibe_othello/board_core/serialization.h"
+#include "vibe_othello/evaluation/early_midgame_heuristic_evaluator.h"
 #include "vibe_othello/evaluation/pattern.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
+#include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/evaluation/tiny_pattern_evaluator.h"
 #include "vibe_othello/search/evaluator.h"
 
@@ -23,11 +25,13 @@ namespace {
 
 using vibe_othello::board_core::parse_position;
 using vibe_othello::board_core::Position;
+using vibe_othello::evaluation::EarlyMidgameHeuristicEvaluator;
 using vibe_othello::evaluation::pattern_size;
 using vibe_othello::evaluation::PatternCell;
 using vibe_othello::evaluation::PatternEvaluator;
 using vibe_othello::evaluation::PatternWeights;
 using vibe_othello::evaluation::PatternWeightTable;
+using vibe_othello::evaluation::PhaseAwareEvaluator;
 using vibe_othello::evaluation::tiny_pattern_feature_set_fixture;
 using vibe_othello::evaluation::TinyPatternEvaluator;
 using vibe_othello::search::Evaluator;
@@ -306,6 +310,10 @@ int main(int argc, char** argv) {
   const TinyPatternEvaluator tiny_evaluator{make_tiny_pattern_fixture_weights()};
   const PatternEvaluator pattern_evaluator{make_tiny_pattern_fixture_weights(),
                                            tiny_pattern_feature_set_fixture()};
+  const EarlyMidgameHeuristicEvaluator heuristic_evaluator;
+  const PhaseAwareEvaluator phase_aware_evaluator{make_tiny_pattern_fixture_weights(),
+                                                  tiny_pattern_feature_set_fixture(),
+                                                  std::vector<std::uint8_t>{1}};
 
   print_header();
   for (const PositionCase& position_case : positions) {
@@ -313,6 +321,10 @@ int main(int argc, char** argv) {
                  run_benchmark(tiny_evaluator, position_case, config->iterations));
     print_result("PatternEvaluator", position_case,
                  run_benchmark(pattern_evaluator, position_case, config->iterations));
+    print_result("EarlyMidgameHeuristicEvaluator", position_case,
+                 run_benchmark(heuristic_evaluator, position_case, config->iterations));
+    print_result("PhaseAwareEvaluator", position_case,
+                 run_benchmark(phase_aware_evaluator, position_case, config->iterations));
   }
 
   return 0;

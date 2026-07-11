@@ -54,6 +54,7 @@ const hasLegalMoveBit = (legalMoves, squareIndex) =>
 
 const artifact = core.loadEvaluationArtifact(manifestText, weightsBytes);
 assert.equal(typeof artifact.evaluatePosition(initialPosition), "number");
+assert.equal(artifact.evaluatePosition(initialPosition), 0);
 
 const searchResult = artifact.searchBestMove(initialPosition, { maxDepth: 1 });
 assert.equal(searchResult.hasBestMove, true);
@@ -63,6 +64,7 @@ assert.ok(searchResult.bestMoveSquare >= 0);
 assert.ok(searchResult.bestMoveSquare < 64);
 assert.equal(hasLegalMoveBit(initialQuery.legalMoves, searchResult.bestMoveSquare), true);
 assert.equal(typeof searchResult.score, "number");
+assert.notEqual(searchResult.score, 0);
 assert.equal(searchResult.completedDepth, 1);
 assert.equal(typeof searchResult.nodes, "bigint");
 assert.ok(searchResult.nodes > 0n);

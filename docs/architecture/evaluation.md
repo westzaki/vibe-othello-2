@@ -74,8 +74,16 @@ The runtime evaluator stack is intentionally small:
 * `StaticEvaluator` or `BaselineEvaluator`: a simple handwritten evaluator for
   regression stability, fallback analysis, and tests that do not need learned
   weights.
+* `EarlyMidgameHeuristicEvaluator`: a small deterministic baseline used only
+  when a loaded artifact explicitly does not report learned coverage for the
+  current phase. It combines mobility, potential mobility, frontier, corner,
+  empty-corner X/C-square, and phase-weighted disc-difference signals; it is
+  not a production-strength claim.
 * `PatternEvaluator`: the learned runtime evaluator backed by an immutable
   pattern set definition and loaded phase-dependent weights.
+* `PhaseAwareEvaluator`: the artifact-facing composition that selects the
+  learned pattern evaluator only for reviewed phases and otherwise selects the
+  early/midgame heuristic fallback.
 * `CheapEvaluator`: an optional low-cost evaluator for move ordering,
   constrained WASM analysis, or other latency-sensitive paths.
 * `ExplainingEvaluator`: a non-recursive adapter that exposes score
@@ -177,9 +185,17 @@ This document only defines how loaded runtime weights are consumed by
 evaluators: after a loader validates compatibility, the evaluator receives an
 immutable pattern set definition and matching weight tables.
 
-The loader also exposes optional artifact `trained_phases` metadata to callers.
-It describes reviewed learning coverage and is not an evaluator policy: runtime
-selection, score calculation, and search behavior remain unchanged by it.
+The loader exposes optional artifact `trained_phases` metadata to callers.
+`PhaseAwareEvaluator` uses it as routing policy: reviewed phases use the
+learned evaluator and unreviewed phases use the deterministic fallback. It
+precomputes the routing table when the evaluator is constructed, so recursive
+evaluation does not inspect metadata or allocate.
+
+Missing `trained_phases` is legacy/unreported coverage, not a claim of
+all-phase learning. To preserve legacy artifact behavior, the phase-aware
+runtime routes such artifacts to the learned evaluator for every phase. A
+future artifact that explicitly reports every runtime phase naturally routes
+all phases to the learned evaluator and leaves the fallback unused.
 
 ## Determinism and Safety
 
@@ -195,6 +211,8 @@ Tests should cover:
 * phase mapping boundaries
 * score range inside search sentinels
 * artifact load success and rejection of incompatible data
+* fallback and learned routing at phase boundaries, including legacy metadata
+  compatibility and full-phase learned coverage
 * native and WASM parity for fixed positions when both runtimes are supported
 * explanation totals matching `evaluate`
 

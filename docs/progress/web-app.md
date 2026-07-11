@@ -82,11 +82,11 @@ future source of truth for board rules, search, and evaluation.
 
 The engine has an in-memory pattern evaluation artifact loader that accepts
 manifest text and weights bytes. The WASM C ABI and plain JavaScript `WasmCore`
-wrapper can now load those bytes into an opaque WASM-side evaluator handle,
-evaluate positions, and run bounded best-move search through that loaded
-evaluator. The browser Worker fetches the copied default artifact assets, loads
-the artifact through `WasmCore.loadEvaluationArtifact()`, and uses it for a
-CPU move with conservative default limits of depth 2, no node cap, and 500 ms.
+wrapper can now load those bytes into an opaque WASM-side phase-aware evaluator
+handle, evaluate positions, and run bounded best-move search through that
+loaded evaluator. The browser Worker fetches the copied default artifact assets,
+loads the artifact through `WasmCore.loadEvaluationArtifact()`, and uses it for
+a CPU move with conservative default limits of depth 2, no node cap, and 500 ms.
 React can either expose that as a manual CPU move when CPU opponent mode is off,
 or reuse it as an automatic White response in the minimal CPU opponent mode.
 Side selection, difficulty selection, advanced cancellation, threaded WASM,
@@ -128,7 +128,7 @@ Status values:
 | JS wrapper Node smoke | done | Exercises `WasmCore` against the generated Emscripten module, including artifact loading, evaluation, and bounded search when Node is available |
 | WASM parity smoke tests | not started | Detailed native-vs-WASM output comparison is still future work |
 | TypeScript `WasmCore` wrapper | not started | Plain JavaScript exists; typed app-facing wrapper remains future work |
-| WASM artifact loading | done | C ABI can load manifest text plus weights bytes through the engine in-memory loader into an opaque evaluator handle |
+| WASM artifact loading | done | C ABI can load manifest text plus weights bytes through the engine in-memory loader into an opaque phase-aware evaluator handle |
 | JavaScript artifact loading | done | Plain `WasmCore` can load caller-provided manifest text and weights bytes; Worker fetching from `/eval/default-artifact.json` is wired for CPU moves |
 | `apps/web` Vite project | done | Minimal React + Vite + TypeScript project under `apps/web` |
 | React board UI | done | Minimal 8x8 board consuming Worker snapshots |

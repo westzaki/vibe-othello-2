@@ -49,6 +49,27 @@ def make_zero_tiny_pattern_artifact(path: Path) -> None:
     path.write_bytes(payload)
 
 
+def make_legacy_tiny_pattern_manifest(weights_path: Path) -> Path:
+    checksum = struct.unpack("<I", weights_path.read_bytes()[-4:])[0]
+    manifest = weights_path.with_name("manifest.json")
+    manifest.write_text(
+        "{\n"
+        '  "artifact_id": "legacy-tiny-test-artifact",\n'
+        '  "format": "vibe-othello-pattern-eval",\n'
+        '  "format_version": 1,\n'
+        '  "bit_order": "a1-lsb",\n'
+        '  "score_unit": "disc-diff",\n'
+        '  "score_scale": 1,\n'
+        '  "phase_count": 13,\n'
+        '  "pattern_set_id": "fixed-pattern-fixture-v1",\n'
+        '  "weights_file": "weights.bin",\n'
+        f'  "weights_checksum": "0x{checksum:08x}"\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def run_case(
     exe: str, moves: str, depth: int, expected: str, extra_args: list[str] | None = None
 ) -> None:
@@ -88,17 +109,18 @@ def main(argv: list[str]) -> int:
         args.source_dir
         / "data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json"
     )
-    run_case(args.exe, "", 1, "bestmove d3 score 0 depth 1")
+    run_case(args.exe, "", 1, "bestmove d3 score -11 depth 1")
     run_case(
         args.exe,
         "",
         1,
-        "bestmove d3 score 0 depth 1",
+        "bestmove d3 score -11 depth 1",
         ["--eval-artifact", str(default_manifest)],
     )
+    run_case(args.exe, "d3 c3", 1, "bestmove c4 score 1 depth 1")
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        weights = Path(temp_dir) / "zero-tiny.weights.bin"
+        weights = Path(temp_dir) / "weights.bin"
         make_zero_tiny_pattern_artifact(weights)
         run_case(
             args.exe,
@@ -106,6 +128,14 @@ def main(argv: list[str]) -> int:
             1,
             "bestmove d3 score 0 depth 1",
             ["--eval", "pattern", "--pattern-set", "tiny", "--pattern-weights", str(weights)],
+        )
+        legacy_manifest = make_legacy_tiny_pattern_manifest(weights)
+        run_case(
+            args.exe,
+            "",
+            1,
+            "bestmove d3 score 0 depth 1",
+            ["--eval-artifact", str(legacy_manifest)],
         )
     return 0
 

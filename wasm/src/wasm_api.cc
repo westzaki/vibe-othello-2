@@ -2,7 +2,7 @@
 
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
-#include "vibe_othello/evaluation/pattern_evaluator.h"
+#include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
@@ -11,11 +11,13 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -32,12 +34,14 @@ struct WasmEvaluationArtifact {
       : artifact_id(std::move(artifact.artifact_id)),
         pattern_set_id(std::move(artifact.pattern_set_id)),
         weights_checksum(std::move(artifact.weights_checksum)),
-        evaluator(std::move(artifact.weights), std::move(artifact.feature_set)) {}
+        trained_phases(std::move(artifact.trained_phases)),
+        evaluator(std::move(artifact.weights), std::move(artifact.feature_set), trained_phases) {}
 
   std::string artifact_id;
   std::string pattern_set_id;
   std::string weights_checksum;
-  vibe_othello::evaluation::PatternEvaluator evaluator;
+  std::optional<std::vector<std::uint8_t>> trained_phases;
+  vibe_othello::evaluation::PhaseAwareEvaluator evaluator;
 };
 
 using ArtifactRegistry = std::unordered_map<uintptr_t, std::unique_ptr<WasmEvaluationArtifact>>;

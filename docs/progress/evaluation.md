@@ -22,6 +22,12 @@ weights, and evaluates the documented phase-dependent linear model:
 bias[phase] + sum(pattern weights)
 ```
 
+`PhaseAwareEvaluator` is the artifact-facing runtime composition. It uses
+`PatternEvaluator` only in metadata-declared `trained_phases` and otherwise
+uses the small deterministic `EarlyMidgameHeuristicEvaluator`. The fallback is
+board-derived (mobility, potential mobility, frontier, corner, empty-corner
+X/C-square, and phase-weighted disc difference) and is not a strength claim.
+
 The runtime evaluation module also includes pattern schema types, loaded
 artifact weight containers, runtime `PatternWeights`, ternary pattern indexing,
 declared pattern-symmetry support, pattern-set feature geometry, and the
@@ -48,8 +54,10 @@ The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 `provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
 The current default reports reviewed learning coverage for phases 10, 11, and
-12. The loader exposes that metadata for inspection; it does not limit runtime
-evaluation to those phases or alter scores, search options, or fallback policy.
+12. The phase-aware runtime uses learned pattern evaluation for those phases
+and deterministic fallback evaluation for phases 0 through 9. The current
+runtime mapping therefore selects learned evaluation from 51 occupied discs
+(13 empties) onward. No search option changes are required.
 
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
@@ -59,13 +67,14 @@ manifest text plus weights byte buffer. Both artifact paths share manifest
 contract validation, runtime pattern-set resolution, runtime checksum
 validation, embedded binary checksum validation, pattern set, phase count, score
 unit, score scale, and pattern table layout validation before constructing
-runtime weights for `PatternEvaluator`.
+runtime weights for phase-aware evaluation.
 
 The WASM C ABI and plain JavaScript `WasmCore` wrapper can load manifest text
 plus weights bytes through the in-memory loader, keep the resulting
-`PatternEvaluator` behind an opaque WASM-side handle, evaluate positions, and
-run bounded best-move search with that evaluator. Browser Worker fetching from
-`/eval/default-artifact.json` and React CPU opponent UI are not wired yet.
+`PhaseAwareEvaluator` behind an opaque WASM-side handle, evaluate positions,
+and run bounded best-move search with that evaluator. The browser Worker fetches
+`/eval/default-artifact.json` and uses the loaded evaluator for bounded CPU
+moves.
 
 The engine CLI uses the committed default artifact unless an explicit override
 is supplied. `--eval-artifact` selects a specific artifact manifest.
@@ -83,8 +92,7 @@ Runtime evaluation still lacks:
 
 * an evaluation explanation API for tools and UI
 * a calibration API for display-only score views
-* native/WASM parity coverage for fixed evaluator fixtures
-* browser Worker artifact fetching for the WASM evaluator path
+* broader native/WASM parity coverage beyond fixed phase-aware artifact routing
 * an incremental evaluator state path, if benchmarks later justify one
 * a separately promoted production baseline evaluator beyond the legacy static
   override
@@ -102,7 +110,7 @@ Keep upcoming work limited to unfinished items:
 
 * add explanation support outside the recursive search hot path
 * add calibration support without changing recursive search scores
-* broaden native/WASM parity checks for fixed evaluator fixtures
+* broaden native/WASM parity checks beyond fixed phase-aware artifact fixtures
 * decide whether an incremental evaluator state is needed from benchmarks
 * define the evidence required before any learned artifact can claim production
   strength
