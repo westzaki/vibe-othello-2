@@ -248,6 +248,38 @@ self-play, not a production strength claim, and not a publication gate.
 Generated arena reports, logs, weights, artifacts, and corpus payloads must stay
 out of git.
 
+## Persistent Full-Game Artifact Arena
+
+`vibe-othello-full-game-artifact-arena` evaluates two manifest-backed artifacts
+from opening positions through terminal games. It loads each manifest and
+constructs each phase-aware evaluator once before all games, then runs every
+selected opening twice with candidate as Black and White. Opening syntax reuses
+the process arena parser, so `start:`, move-sequence shorthand, and `id: moves`
+are all accepted.
+
+```sh
+build/tools/arena/vibe-othello-full-game-artifact-arena \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/manifest.json" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/manifest.json" \
+  --openings tools/arena/openings/smoke.txt \
+  --report-out "$VIBE_OTHELLO_MEASUREMENTS/arena/full-game/arena-report.json" \
+  --search-preset full --depth 3 --nodes 200000 --exact-endgame-empties 8 \
+  --seed 0 --opening-limit 100
+```
+
+`basic` uses default search options; `full` enables the non-experimental search
+stack used for bounded artifact evaluation. Depth, node, and time limits are
+identical per move for both artifacts. An exact-endgame threshold requires a
+node or time cap because exact root search does not use the depth cap.
+
+The JSON-only report includes runtime artifact identities and checksums,
+resolved search options, selected openings, per-game and per-opening results,
+color-assignment buckets, pass/failure/illegal counts, elapsed time, and
+same-artifact paired-neutral sanity data. Its deterministic checksum excludes
+paths and elapsed time. This is a local strength-gate foundation, not Elo,
+artifact promotion, or a production-strength claim; generated reports and local
+artifacts must not be committed.
+
 ## Openings
 
 Opening files are plain text:
