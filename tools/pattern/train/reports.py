@@ -551,6 +551,24 @@ def run_pattern_rank_v0e(
                 "teacher_search_config_id": move_teacher_result.provenance.teacher_search_config_id,
             }
         ),
+        "move_teacher_inputs": [
+            {
+                "schema_version": item.schema_version,
+                "move_rows": item.move_rows,
+                "provenance": (
+                    None
+                    if item.provenance is None
+                    else {
+                        "teacher_kind": item.provenance.teacher_kind,
+                        "teacher_source": item.provenance.teacher_source,
+                        "teacher_artifact_id": item.provenance.teacher_artifact_id,
+                        "teacher_artifact_checksum": item.provenance.teacher_artifact_checksum,
+                        "teacher_search_config_id": item.provenance.teacher_search_config_id,
+                    }
+                ),
+            }
+            for item in move_teacher_result.inputs
+        ],
         "trained_phases": trained_phases,
         "counts_by_split_roots": {
             split: sum(root.split == split for root in move_teacher_result.roots) for split in SPLITS

@@ -117,10 +117,13 @@ def dataset_report(catalog_dump: Path, path: Path) -> None:
 
 
 def trainer_command(
-    trainer: Path, dataset: Path, move_teacher: Path, report_input: Path, weights: Path, report: Path,
+    trainer: Path, dataset: Path, move_teachers: Path | list[Path], report_input: Path, weights: Path, report: Path,
 ) -> list[str]:
-    return [
-        sys.executable, str(trainer), "--dataset", str(dataset), "--move-teacher", str(move_teacher),
+    sidecars = [move_teachers] if isinstance(move_teachers, Path) else move_teachers
+    command = [sys.executable, str(trainer), "--dataset", str(dataset)]
+    for move_teacher in sidecars:
+        command.extend(["--move-teacher", str(move_teacher)])
+    return command + [
         "--mode", "pattern-rank-v0e", "--epochs", "12", "--learning-rate", "0.2",
         "--weight-decay", "0", "--rank-temperature", "1", "--value-loss-weight", "0",
         "--pair-sampling-cap", "0", "--tie-margin", "0", "--seed", "17",
@@ -129,11 +132,19 @@ def trainer_command(
 
 
 def train(
-    trainer: Path, dataset: Path, move_teacher: Path, report_input: Path, weights: Path, report: Path,
+    trainer: Path, dataset: Path, move_teacher: Path | list[Path], report_input: Path, weights: Path, report: Path,
     extra: list[str] | None = None,
 ) -> None:
     command = trainer_command(trainer, dataset, move_teacher, report_input, weights, report)
     run(command + (extra or []))
+
+
+def split_sidecar(source: Path, first: Path, second: Path) -> None:
+    lines = source.read_text(encoding="utf-8").splitlines(keepends=True)
+    first_rows = [line for line in lines[1:] if line.startswith(("root-two\t", "root-three\t", "root-tie\t"))]
+    second_rows = [line for line in lines[1:] if line not in first_rows]
+    first.write_text(lines[0] + "".join(first_rows), encoding="utf-8")
+    second.write_text(lines[0] + "".join(second_rows), encoding="utf-8")
 
 
 def weight_map(payload: dict[str, object]) -> dict[tuple[int, str, int], float]:
@@ -188,6 +199,25 @@ def main() -> int:
                 raise RuntimeError("ranking report is missing value and score-range diagnostics")
             if report.get("trained_phases") != [0, 1]:
                 raise RuntimeError(f"rank trainer did not report updated child phases: {report!r}")
+
+            first_sidecar = temp / "first-move-teacher.tsv"
+            second_sidecar = temp / "second-move-teacher.tsv"
+            split_sidecar(move_teacher, first_sidecar, second_sidecar)
+            multi_weights = temp / "multi.weights.json"
+            multi_report = temp / "multi.report.json"
+            train(
+                args.trainer,
+                dataset,
+                [first_sidecar, second_sidecar],
+                report_input,
+                multi_weights,
+                multi_report,
+            )
+            multi = json.loads(multi_report.read_text(encoding="utf-8"))
+            if len(multi.get("move_teacher_inputs", [])) != 2:
+                raise RuntimeError(f"multiple move-teacher inputs were not retained: {multi!r}")
+            if multi.get("trained_phases") != [0, 1]:
+                raise RuntimeError(f"multiple sidecars changed phase coverage: {multi!r}")
 
             valid_v2 = temp / "move-teacher-v2.tsv"
             write_v2_fixture(move_teacher, valid_v2, mismatch=False)
