@@ -396,23 +396,43 @@ def ranking_summary(report_paths: dict[str, Path]) -> dict[str, Any]:
     return {"by_teacher": pairs, "root_count": total_roots, "pairwise_accuracy_delta": weighted("pairwise_accuracy_delta"), "mean_root_regret_delta": weighted("mean_root_regret_delta"), "top1_accuracy_delta": weighted("top1_accuracy_delta"), "all_same_score_rate": weighted("all_same_score_rate")}
 
 
-def arena_score_rate(report: dict[str, Any]) -> float | None:
-    value = report.get("candidate_score_rate")
-    return float(value) if isinstance(value, (int, float)) else None
+def arena_overall(report: dict[str, Any]) -> dict[str, Any]:
+    results = report.get("results")
+    if not isinstance(results, dict):
+        raise CycleError("full-game arena report has no results")
+    overall = results.get("overall")
+    if not isinstance(overall, dict):
+        raise CycleError("full-game arena report has no overall results")
+    return overall
+
+
+def arena_score_rate(report: dict[str, Any]) -> float:
+    value = arena_overall(report).get("candidate_score_rate")
+    if not isinstance(value, (int, float)):
+        raise CycleError("full-game arena report has no candidate_score_rate")
+    return float(value)
+
+
+def clean_arena(report: dict[str, Any]) -> bool:
+    return report.get("failed_games") == 0 and report.get("illegal_games") == 0
 
 
 def full_game_summary(paths: dict[str, Path]) -> dict[str, Any]:
     reports = {name: load_json(path) for name, path in paths.items()}
     same = reports["same_artifact"]
-    same_rate = arena_score_rate(same)
+    same_sanity = same.get("same_artifact_sanity")
     same_ok = (
-        int(same.get("illegal_or_failed_games", 1)) == 0
-        and same_rate is not None
-        and abs(same_rate - 0.5) <= 0.02
+        clean_arena(same)
+        and isinstance(same_sanity, dict)
+        and same_sanity.get("neutral") is True
     )
     forward = arena_score_rate(reports["candidate_vs_baseline"])
     reverse = arena_score_rate(reports["baseline_vs_candidate"])
-    swap_ok = forward is not None and reverse is not None and abs((forward + reverse) - 1.0) <= 0.04
+    swap_ok = (
+        clean_arena(reports["candidate_vs_baseline"])
+        and clean_arena(reports["baseline_vs_candidate"])
+        and abs((forward + reverse) - 1.0) <= 0.04
+    )
     return {
         "same_artifact_sanity": same_ok,
         "swap_sanity": swap_ok,
@@ -420,6 +440,33 @@ def full_game_summary(paths: dict[str, Path]) -> dict[str, Any]:
         "baseline_vs_candidate_score_rate": reverse,
         "reports": {name: report_path(path) for name, path in paths.items()},
     }
+
+
+def validate_selection_train_coverage(path: Path) -> None:
+    report = load_json(path)
+    phase_split_counts = report.get("selected_phase_split_counts")
+    if not isinstance(phase_split_counts, dict):
+        raise CycleError("phase selection report has no selected phase/split coverage")
+    missing = [
+        phase
+        for phase in range(13)
+        if not isinstance(phase_split_counts.get(str(phase)), dict)
+        or int(phase_split_counts[str(phase)].get("train", 0)) <= 0
+    ]
+    if missing:
+        raise CycleError(
+            "phase selection has no train roots for phase(s): " + ", ".join(str(phase) for phase in missing)
+        )
+
+
+def trainer_trained_phases(path: Path) -> list[int]:
+    value = load_json(path).get("trained_phases")
+    if value != list(range(13)):
+        raise CycleError(
+            "full-phase candidate requires trainer trained_phases [0, ..., 12]; "
+            f"got {value!r}"
+        )
+    return list(range(13))
 
 
 def decision_for_run(
@@ -488,6 +535,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--scale", choices=tuple(SCALE_ROOTS), default="smoke")
     parser.add_argument("--roots-per-phase", type=int)
+    parser.add_argument("--max-roots-per-game-group", type=int)
     parser.add_argument("--seeds", default="0", type=lambda value: parse_int_list(value, "--seeds"))
     parser.add_argument("--pattern-set", default="pattern-v2-endgame-lite")
     parser.add_argument("--teacher-manifest", required=True, type=Path)
@@ -533,10 +581,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full-arena-exe", type=Path, default=root / "build/tools/arena/vibe-othello-full-game-artifact-arena")
     args = parser.parse_args()
     args.roots_per_phase = args.roots_per_phase or SCALE_ROOTS[args.scale]
+    if args.max_roots_per_game_group is None and args.scale in ("candidate", "large"):
+        args.max_roots_per_game_group = 1
     args.arena_max_positions = args.arena_max_positions or SCALE_ARENA_POSITIONS[args.scale]
     args.full_game_opening_limit = args.full_game_opening_limit or SCALE_OPENING_LIMIT[args.scale]
     if args.roots_per_phase <= 0 or args.search_max_depth <= 0 or args.full_game_depth <= 0:
         parser.error("root quota and search depths must be positive")
+    if args.max_roots_per_game_group is not None and args.max_roots_per_game_group <= 0:
+        parser.error("--max-roots-per-game-group must be positive")
     if args.search_max_nodes < 0 or args.full_game_max_nodes < 0 or args.search_max_time_ms < 0 or args.exact_max_empty < 0 or args.exact_max_empty > 64:
         parser.error("search and exact bounds are invalid")
     if args.search_max_nodes == 0 and args.search_max_time_ms != 0:
@@ -559,7 +611,7 @@ def preflight(args: argparse.Namespace) -> dict[str, Any]:
             if not path.is_file():
                 raise CycleError(f"required local input/tool is missing: {path}")
         check_full_teacher_coverage(args.teacher_manifest)
-    return {"status": "planned" if args.dry_run else "ok", "scale": args.scale, "roots_per_phase": args.roots_per_phase, "seeds": args.seeds, "warnings": LOCAL_ONLY_WARNINGS}
+    return {"status": "planned" if args.dry_run else "ok", "scale": args.scale, "roots_per_phase": args.roots_per_phase, "max_roots_per_game_group": args.max_roots_per_game_group, "seeds": args.seeds, "warnings": LOCAL_ONLY_WARNINGS}
 
 
 def main() -> int:
@@ -579,8 +631,14 @@ def main() -> int:
             early_selected = selection_dir / "selected-midgame.tsv"
             late_selected = selection_dir / "selected-late-game.tsv"
             selection_command = [sys.executable, str(args.selector), "--normalized-tsv", str(args.normalized_tsv), "--output-tsv", str(selected), "--report-out", str(selection_report), "--roots-per-phase", str(args.roots_per_phase), "--seed", str(seed), "--require-all-phases"]
+            if args.max_roots_per_game_group is not None:
+                selection_command.extend(["--max-roots-per-game-group", str(args.max_roots_per_game_group)])
             stages: dict[str, Any] = {}
-            stages["phase_selection"] = execute_stage(args=args, name="phase_selection", run_dir=run_dir, repo_sha=commit_sha, config={"command": selection_command}, inputs=[("normalized_tsv", args.normalized_tsv)], tools=[args.selector], outputs=[selected, selection_report, early_selected, late_selected], action=lambda: (run_command(selection_command), partition_selected(selected, early_selected, late_selected)))
+            def run_selection() -> None:
+                run_command(selection_command)
+                validate_selection_train_coverage(selection_report)
+                partition_selected(selected, early_selected, late_selected)
+            stages["phase_selection"] = execute_stage(args=args, name="phase_selection", run_dir=run_dir, repo_sha=commit_sha, config={"command": selection_command}, inputs=[("normalized_tsv", args.normalized_tsv)], tools=[args.selector], outputs=[selected, selection_report, early_selected, late_selected], action=run_selection)
 
             search_dir = run_dir / "midgame_search_teacher"
             search_move = search_dir / "search-move-teacher.tsv"
@@ -620,8 +678,9 @@ def main() -> int:
             export_dir = run_dir / "export"
             candidate_weights = export_dir / "candidate.weights.bin"
             candidate_manifest = export_dir / "candidate.manifest.json"
-            export_command = [sys.executable, str(args.exporter), "--weights-json", str(weights_json), "--weights-out", str(candidate_weights), "--manifest-out", str(candidate_manifest), "--pattern-set", args.pattern_set, "--catalog-dump-exe", str(args.catalog_dump_exe), "--trained-phases", *[str(value) for value in range(13)]]
-            stages["export"] = execute_stage(args=args, name="export", run_dir=run_dir, repo_sha=commit_sha, config={"command": export_command}, inputs=[("weights_json", weights_json), ("trainer_report", trainer_report)], tools=[args.exporter, args.catalog_dump_exe], outputs=[candidate_weights, candidate_manifest], action=lambda: run_command(export_command))
+            trained_phases = list(range(13)) if args.dry_run else trainer_trained_phases(trainer_report)
+            export_command = [sys.executable, str(args.exporter), "--weights-json", str(weights_json), "--weights-out", str(candidate_weights), "--manifest-out", str(candidate_manifest), "--pattern-set", args.pattern_set, "--catalog-dump-exe", str(args.catalog_dump_exe), "--trained-phases", *[str(value) for value in trained_phases]]
+            stages["export"] = execute_stage(args=args, name="export", run_dir=run_dir, repo_sha=commit_sha, config={"command": export_command, "trained_phases_source": "trainer-report"}, inputs=[("weights_json", weights_json), ("trainer_report", trainer_report)], tools=[args.exporter, args.catalog_dump_exe], outputs=[candidate_weights, candidate_manifest], action=lambda: run_command(export_command))
 
             ranking_dir = run_dir / "offline_ranking"
             ranking_paths = {name: ranking_dir / f"{name}.json" for name in ("candidate_search", "baseline_search", "candidate_exact", "baseline_exact")}

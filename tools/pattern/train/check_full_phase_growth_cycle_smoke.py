@@ -101,6 +101,19 @@ def make_full_coverage_artifact(args: argparse.Namespace, directory: Path) -> tu
     return weights, manifest
 
 
+def make_validation_only_phase(source: Path, output: Path, phase: int) -> None:
+    with source.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    for row in rows:
+        if int(row["phase"]) == phase:
+            row["split"] = "validation"
+            row["game_group_id"] = f"{row['game_group_id']}-validation-only-{row['record_id']}"
+    with output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]), delimiter="\t", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def runner_command(
     args: argparse.Namespace,
     normalized: Path,
@@ -117,6 +130,8 @@ def runner_command(
         str(output_dir),
         "--scale",
         "smoke",
+        "--roots-per-phase",
+        "2",
         "--teacher-manifest",
         str(manifest),
         "--teacher-weights",
@@ -207,6 +222,18 @@ def main() -> int:
             }
             if report.get("status") != "ok" or set(run_data["stages"]) != expected_stages:
                 raise RuntimeError(f"full-phase cycle did not complete every stage: {report!r}")
+            decision = json.loads(
+                (cycle / "runs" / "seed-0" / "decision_summary" / "decision-report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            full_game = decision.get("full_game_arena", {})
+            if full_game.get("candidate_vs_baseline_score_rate") is None:
+                raise RuntimeError(f"full-game score rate was not read from the arena report: {decision!r}")
+            if decision.get("same_artifact_sanity") is not True or decision.get("swap_sanity") is not True:
+                raise RuntimeError(f"full-game sanity checks were not retained: {decision!r}")
+            if decision.get("suggested_decision", {}).get("category") == "invalid_run":
+                raise RuntimeError(f"valid tiny fixture produced invalid decision: {decision!r}")
             run(command + ["--resume"])
             mismatch = run(command + ["--resume", "--search-max-depth", "2"], expect_success=False)
             if mismatch.returncode == 0 or "resume metadata mismatch" not in mismatch.stderr:
@@ -216,6 +243,21 @@ def main() -> int:
             planned = json.loads((dry / "full-phase-growth-cycle-report.json").read_text(encoding="utf-8"))
             if planned.get("status") != "planned":
                 raise RuntimeError(f"dry run did not report planned status: {planned!r}")
+            undertrained = run(
+                runner_command(args, normalized, root / "undertrained", weights, manifest)
+                + ["--roots-per-phase", "1"],
+                expect_success=False,
+            )
+            if undertrained.returncode == 0 or "full-phase candidate requires trainer trained_phases" not in undertrained.stderr:
+                raise RuntimeError(f"partial trainer coverage was exported: {undertrained.stderr!r}")
+            validation_only = root / "validation-only-phase.tsv"
+            make_validation_only_phase(normalized, validation_only, 12)
+            missing_train = run(
+                runner_command(args, validation_only, root / "missing-train", weights, manifest),
+                expect_success=False,
+            )
+            if missing_train.returncode == 0 or "phase selection has no train roots for phase(s): 12" not in missing_train.stderr:
+                raise RuntimeError(f"validation-only phase was not rejected before export: {missing_train.stderr!r}")
     except (OSError, RuntimeError, StopIteration, json.JSONDecodeError) as error:
         print(error, file=sys.stderr)
         return 1

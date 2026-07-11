@@ -125,7 +125,6 @@ def trainer_command(
         command.extend(["--move-teacher", str(move_teacher)])
     return command + [
         "--mode", "pattern-rank-v0e", "--epochs", "12", "--learning-rate", "0.2",
-        "--mode", "pattern-rank-v0e", "--epochs", "12", "--learning-rate", "0.2",
         "--weight-decay", "0", "--rank-temperature", "1", "--value-loss-weight", "0",
         "--pair-sampling-cap", "0", "--tie-margin", "0", "--seed", "17",
         "--dataset-report", str(report_input), "--weights-out", str(weights), "--report-out", str(report),
