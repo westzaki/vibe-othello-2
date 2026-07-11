@@ -36,10 +36,13 @@ type DispatchResult = BoardSnapshot | CpuMoveResult;
 type JsonObject = Record<string, unknown>;
 
 const CPU_SEARCH_LIMITS = {
-  maxDepth: 2,
+  maxDepth: 8,
   maxNodes: 0,
   maxTimeMs: 500,
 } as const;
+
+const CPU_SEARCH_PRESET = "normal" as const;
+const CPU_SEARCH_EXACT_ENDGAME_EMPTIES = 8;
 
 const workerGlobal = self as unknown as WorkerGlobal;
 
@@ -147,7 +150,12 @@ async function cpuMove(): Promise<CpuMoveResult> {
   }
 
   const artifact = await getDefaultEvaluationArtifact(engine);
-  const searchResult = artifact.searchBestMove(positionBefore, CPU_SEARCH_LIMITS);
+  const searchResult = artifact.searchBestMoveWithPreset(
+    positionBefore,
+    CPU_SEARCH_LIMITS,
+    CPU_SEARCH_PRESET,
+    CPU_SEARCH_EXACT_ENDGAME_EMPTIES,
+  );
   if (!searchResult.hasBestMove) {
     throw new Error("CPU search did not return a best move.");
   }

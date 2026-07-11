@@ -72,6 +72,29 @@ assert.equal(typeof searchResult.elapsedMs, "number");
 assert.equal(typeof searchResult.stopped, "boolean");
 assert.equal(typeof searchResult.exact, "boolean");
 
+const normalSearchResult = artifact.searchBestMoveWithPreset(
+  initialPosition,
+  { maxDepth: 3 },
+  "normal",
+  0,
+);
+assert.equal(normalSearchResult.hasBestMove, true);
+assert.equal(normalSearchResult.isPass, false);
+assert.equal(typeof normalSearchResult.bestMoveSquare, "number");
+assert.equal(hasLegalMoveBit(initialQuery.legalMoves, normalSearchResult.bestMoveSquare), true);
+assert.equal(normalSearchResult.completedDepth, 3);
+assert.ok(normalSearchResult.completedDepth > 2);
+assert.equal(typeof normalSearchResult.nodes, "bigint");
+assert.ok(normalSearchResult.nodes > 0n);
+assert.throws(
+  () => artifact.searchBestMoveWithPreset(initialPosition, { maxDepth: 1 }, "invalid"),
+  /invalid search preset/,
+);
+assert.throws(
+  () => artifact.searchBestMoveWithPreset(initialPosition, { maxDepth: 1 }, "normal", 64),
+  /requires maxNodes or maxTimeMs/,
+);
+
 artifact.free();
 artifact.free();
 assert.throws(() => artifact.evaluatePosition(initialPosition), /freed/);

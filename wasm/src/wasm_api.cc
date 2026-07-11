@@ -1,5 +1,6 @@
 #include "vibe_othello_wasm/wasm_api.h"
 
+#include "search_preset_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/phase_aware_evaluator.h"
@@ -233,6 +234,64 @@ uint32_t fill_search_result(const vibe_othello::search::SearchResult& result,
   }
 
   return VIBE_OTHELLO_WASM_STATUS_OK;
+}
+
+uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_position* position,
+                          uint32_t max_depth, uint32_t max_nodes, uint32_t max_time_ms,
+                          vibe_othello::search::SearchOptions options,
+                          vibe_othello_wasm_search_result* out_result) noexcept {
+  if (out_result == nullptr) {
+    return VIBE_OTHELLO_WASM_STATUS_NULL_POINTER;
+  }
+  *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_OK);
+
+  if (position == nullptr) {
+    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_NULL_POINTER);
+    return VIBE_OTHELLO_WASM_STATUS_NULL_POINTER;
+  }
+
+  if (eval_handle == 0) {
+    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED);
+    return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
+  }
+
+  if (max_depth == 0 && max_nodes == 0 && max_time_ms == 0) {
+    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+    return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
+  }
+  if (max_depth > static_cast<uint32_t>(std::numeric_limits<vibe_othello::search::Depth>::max())) {
+    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+    return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
+  }
+
+  try {
+    WasmEvaluationArtifact* artifact = find_artifact(eval_handle);
+    if (artifact == nullptr) {
+      *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED);
+      return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
+    }
+
+    Position engine_position{};
+    const uint32_t status = to_engine_position(*position, &engine_position);
+    if (status != VIBE_OTHELLO_WASM_STATUS_OK) {
+      *out_result = empty_search_result(status);
+      return status;
+    }
+
+    const vibe_othello::search::SearchLimits limits{
+        .max_depth = static_cast<vibe_othello::search::Depth>(max_depth),
+        .max_nodes = max_nodes,
+        .max_time = std::chrono::milliseconds{max_time_ms},
+        .infinite = false,
+        .stop_requested = nullptr,
+    };
+    const vibe_othello::search::SearchResult result = vibe_othello::search::search_iterative(
+        engine_position, artifact->evaluator, limits, options);
+    return fill_search_result(result, out_result);
+  } catch (...) {
+    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED);
+    return VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED;
+  }
 }
 
 } // namespace
@@ -533,58 +592,31 @@ uint32_t vibe_othello_wasm_search_best_move(uintptr_t eval_handle,
                                             uint32_t max_depth, uint32_t max_nodes,
                                             uint32_t max_time_ms,
                                             vibe_othello_wasm_search_result* out_result) noexcept {
+  return search_best_move(eval_handle, position, max_depth, max_nodes, max_time_ms,
+                          vibe_othello::search::SearchOptions{}, out_result);
+}
+
+uint32_t vibe_othello_wasm_search_best_move_v2(
+    uintptr_t eval_handle, const vibe_othello_wasm_position* position, uint32_t max_depth,
+    uint32_t max_nodes, uint32_t max_time_ms, uint32_t search_preset,
+    uint32_t exact_endgame_empties, vibe_othello_wasm_search_result* out_result) noexcept {
   if (out_result == nullptr) {
     return VIBE_OTHELLO_WASM_STATUS_NULL_POINTER;
   }
-  *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_OK);
-
-  if (position == nullptr) {
-    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_NULL_POINTER);
-    return VIBE_OTHELLO_WASM_STATUS_NULL_POINTER;
-  }
-
-  if (eval_handle == 0) {
-    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED);
-    return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
-  }
-
-  if (max_depth == 0 && max_nodes == 0 && max_time_ms == 0) {
+  if (!vibe_othello::wasm_adapter::internal::is_valid_search_preset(search_preset) ||
+      exact_endgame_empties > vibe_othello::board_core::kSquareCount) {
     *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
     return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
   }
-  if (max_depth > static_cast<uint32_t>(std::numeric_limits<vibe_othello::search::Depth>::max())) {
+  if (exact_endgame_empties != 0 && max_nodes == 0 && max_time_ms == 0) {
     *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
     return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
   }
 
-  try {
-    WasmEvaluationArtifact* artifact = find_artifact(eval_handle);
-    if (artifact == nullptr) {
-      *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED);
-      return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
-    }
-
-    Position engine_position{};
-    const uint32_t status = to_engine_position(*position, &engine_position);
-    if (status != VIBE_OTHELLO_WASM_STATUS_OK) {
-      *out_result = empty_search_result(status);
-      return status;
-    }
-
-    const vibe_othello::search::SearchLimits limits{
-        .max_depth = static_cast<vibe_othello::search::Depth>(max_depth),
-        .max_nodes = max_nodes,
-        .max_time = std::chrono::milliseconds{max_time_ms},
-        .infinite = false,
-        .stop_requested = nullptr,
-    };
-    const vibe_othello::search::SearchResult result =
-        vibe_othello::search::search_iterative(engine_position, artifact->evaluator, limits);
-    return fill_search_result(result, out_result);
-  } catch (...) {
-    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED);
-    return VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED;
-  }
+  return search_best_move(eval_handle, position, max_depth, max_nodes, max_time_ms,
+                          vibe_othello::wasm_adapter::internal::search_options_for_preset(
+                              search_preset, static_cast<std::uint8_t>(exact_endgame_empties)),
+                          out_result);
 }
 
 } // extern "C"

@@ -16,6 +16,12 @@ const STATUS_NAMES = new Map([
 const SIDE_BLACK = 0;
 const SIDE_WHITE = 1;
 
+const SEARCH_PRESETS = new Map([
+  ["easy", 0],
+  ["normal", 1],
+  ["hard", 2],
+]);
+
 function requireFunction(module, name) {
   const fn = module[name];
   if (typeof fn !== "function") {
@@ -64,6 +70,14 @@ function toUint32Limit(value, name) {
   }
   if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
     throw new Error(`${name} must be an integer between 0 and 4294967295`);
+  }
+  return value;
+}
+
+function searchPresetToWire(preset) {
+  const value = SEARCH_PRESETS.get(preset);
+  if (value === undefined) {
+    throw new Error(`invalid search preset: ${preset}`);
   }
   return value;
 }
@@ -150,6 +164,16 @@ export class WasmEvaluationArtifact {
     return this.#core.searchBestMoveWithHandle(this.#requireHandle(), position, limits);
   }
 
+  searchBestMoveWithPreset(position, limits = {}, preset = "easy", exactEndgameEmpties = 0) {
+    return this.#core.searchBestMoveWithPresetHandle(
+      this.#requireHandle(),
+      position,
+      limits,
+      preset,
+      exactEndgameEmpties,
+    );
+  }
+
   free() {
     if (this.#handle !== 0) {
       this.#core.freeEvaluationArtifactHandle(this.#handle);
@@ -198,6 +222,7 @@ export class WasmCore {
     this.freeEvalArtifactFn = requireFunction(module, "_vibe_othello_wasm_free_eval_artifact");
     this.evaluatePositionFn = requireFunction(module, "_vibe_othello_wasm_evaluate_position");
     this.searchBestMoveFn = requireFunction(module, "_vibe_othello_wasm_search_best_move");
+    this.searchBestMoveV2Fn = requireFunction(module, "_vibe_othello_wasm_search_best_move_v2");
     this.mallocFn = requireFunction(module, "_malloc");
     this.freeFn = requireFunction(module, "_free");
   }
@@ -333,6 +358,63 @@ export class WasmCore {
         resultPtr,
       );
       this.checkResultStatus(status, resultPtr, this.layout.searchResult.status, "searchBestMove");
+      return this.readSearchResult(resultPtr);
+    } finally {
+      if (resultPtr !== 0) {
+        this.freeFn(resultPtr);
+      }
+      if (positionPtr !== 0) {
+        this.freeFn(positionPtr);
+      }
+    }
+  }
+
+  searchBestMoveWithPresetHandle(
+    handle,
+    position,
+    limits = {},
+    preset = "easy",
+    exactEndgameEmpties = 0,
+  ) {
+    const maxDepth = toUint32Limit(limits.maxDepth, "maxDepth");
+    const maxNodes = toUint32Limit(limits.maxNodes, "maxNodes");
+    const maxTimeMs = toUint32Limit(limits.maxTimeMs, "maxTimeMs");
+    const searchPreset = searchPresetToWire(preset);
+    const exactEmpties = toUint32Limit(exactEndgameEmpties, "exactEndgameEmpties");
+    if (exactEmpties > 64) {
+      throw new Error("exactEndgameEmpties must be at most 64");
+    }
+    if (exactEmpties !== 0 && maxNodes === 0 && maxTimeMs === 0) {
+      throw new Error(
+        "searchBestMoveWithPreset requires maxNodes or maxTimeMs when exactEndgameEmpties is set",
+      );
+    }
+    if (maxDepth === 0 && maxNodes === 0 && maxTimeMs === 0) {
+      throw new Error("searchBestMoveWithPreset requires maxDepth, maxNodes, or maxTimeMs");
+    }
+
+    let positionPtr = 0;
+    let resultPtr = 0;
+    try {
+      positionPtr = this.malloc(this.layout.position.size);
+      resultPtr = this.malloc(this.layout.searchResult.size);
+      this.writePosition(positionPtr, position);
+      const status = this.searchBestMoveV2Fn(
+        handle,
+        positionPtr,
+        maxDepth,
+        maxNodes,
+        maxTimeMs,
+        searchPreset,
+        exactEmpties,
+        resultPtr,
+      );
+      this.checkResultStatus(
+        status,
+        resultPtr,
+        this.layout.searchResult.status,
+        "searchBestMoveWithPreset",
+      );
       return this.readSearchResult(resultPtr);
     } finally {
       if (resultPtr !== 0) {

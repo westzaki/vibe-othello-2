@@ -1,3 +1,4 @@
+#include "../src/search_preset_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/serialization.h"
 #include "vibe_othello/evaluation/early_midgame_heuristic_evaluator.h"
@@ -7,6 +8,7 @@
 #include "vibe_othello/search/search.h"
 #include "vibe_othello_wasm/wasm_api.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -439,6 +441,167 @@ TEST_CASE("WASM adapter runs bounded artifact-backed best-move search", "[wasm]"
   const Move best_move = vibe_othello::board_core::make_move(
       vibe_othello::board_core::square_from_index(static_cast<int>(result.best_move_square)));
   REQUIRE(is_legal_root_move(engine_position, best_move));
+}
+
+TEST_CASE("WASM search presets resolve normal to the production search stack", "[wasm][search]") {
+  const vibe_othello::search::SearchOptions normal =
+      vibe_othello::wasm_adapter::internal::search_options_for_preset(
+          VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 8);
+
+  REQUIRE(normal.midgame.use_pvs);
+  REQUIRE(normal.midgame.use_aspiration);
+  REQUIRE(normal.midgame.use_iid);
+  REQUIRE(normal.midgame.use_midgame_tt);
+  REQUIRE(normal.ordering.use_tt_best_move_ordering);
+  REQUIRE(normal.ordering.use_history);
+  REQUIRE(normal.ordering.use_killers);
+  REQUIRE(normal.ordering.use_endgame_parity_ordering);
+  REQUIRE(normal.endgame.exact_endgame);
+  REQUIRE(normal.endgame.use_endgame_tt);
+  REQUIRE(normal.endgame.endgame_exact_empties == 8);
+  REQUIRE(normal.endgame.endgame_wld_empties == 0);
+  REQUIRE_FALSE(normal.experimental.probcut);
+  REQUIRE_FALSE(normal.experimental.use_pv_table);
+  REQUIRE_FALSE(normal.experimental.use_parallel);
+
+  const vibe_othello::search::SearchOptions hard =
+      vibe_othello::wasm_adapter::internal::search_options_for_preset(
+          VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD, 8);
+  REQUIRE(hard.midgame.use_pvs == normal.midgame.use_pvs);
+  REQUIRE(hard.midgame.use_aspiration == normal.midgame.use_aspiration);
+  REQUIRE(hard.midgame.use_iid == normal.midgame.use_iid);
+  REQUIRE(hard.midgame.use_midgame_tt == normal.midgame.use_midgame_tt);
+  REQUIRE(hard.ordering.use_tt_best_move_ordering == normal.ordering.use_tt_best_move_ordering);
+  REQUIRE(hard.ordering.use_history == normal.ordering.use_history);
+  REQUIRE(hard.ordering.use_killers == normal.ordering.use_killers);
+  REQUIRE(hard.ordering.use_endgame_parity_ordering == normal.ordering.use_endgame_parity_ordering);
+  REQUIRE(hard.endgame.exact_endgame == normal.endgame.exact_endgame);
+  REQUIRE(hard.endgame.use_endgame_tt == normal.endgame.use_endgame_tt);
+}
+
+TEST_CASE("WASM search preset API returns legal moves for every preset", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+
+  const Position engine_position = vibe_othello::board_core::initial_position();
+  const vibe_othello_wasm_position position = to_wasm_position(engine_position);
+  for (const uint32_t preset : std::array{
+           VIBE_OTHELLO_WASM_SEARCH_PRESET_EASY,
+           VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL,
+           VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD,
+       }) {
+    vibe_othello_wasm_search_result result{};
+    REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 3, 0, 0, preset, 0,
+                                                  &result) == VIBE_OTHELLO_WASM_STATUS_OK);
+    REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_OK);
+    REQUIRE(result.completed_depth == 3);
+    REQUIRE(result.has_best_move == 1);
+    REQUIRE(result.is_pass == 0);
+    REQUIRE(result.best_move_square < 64);
+
+    const Move best_move = vibe_othello::board_core::make_move(
+        vibe_othello::board_core::square_from_index(static_cast<int>(result.best_move_square)));
+    REQUIRE(is_legal_root_move(engine_position, best_move));
+  }
+}
+
+TEST_CASE("legacy WASM search ABI keeps empty SearchOptions behavior", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+  const vibe_othello::evaluation::PhaseAwareEvaluator evaluator =
+      direct_phase_aware_evaluator(manifest_text, weights_bytes);
+
+  const Position engine_position = vibe_othello::board_core::initial_position();
+  const vibe_othello_wasm_position position = to_wasm_position(engine_position);
+  vibe_othello_wasm_search_result result{};
+  REQUIRE(vibe_othello_wasm_search_best_move(artifact.get(), &position, 2, 0, 0, &result) ==
+          VIBE_OTHELLO_WASM_STATUS_OK);
+
+  const vibe_othello::search::SearchResult direct = vibe_othello::search::search_iterative(
+      engine_position, evaluator, vibe_othello::search::SearchLimits{.max_depth = 2});
+  REQUIRE(direct.best_move.has_value());
+  REQUIRE(result.has_best_move == 1);
+  REQUIRE(result.best_move_square == direct.best_move->square.index);
+  REQUIRE(result.score == direct.score);
+  REQUIRE(result.completed_depth == static_cast<uint32_t>(direct.completed_depth));
+  REQUIRE(result.nodes == direct.nodes);
+  REQUIRE(result.stopped == static_cast<uint8_t>(direct.stopped));
+  REQUIRE(result.exact == static_cast<uint8_t>(direct.exact));
+}
+
+TEST_CASE("normal WASM preset matches native search on a fixed position", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+  const vibe_othello::evaluation::PhaseAwareEvaluator evaluator =
+      direct_phase_aware_evaluator(manifest_text, weights_bytes);
+
+  const Position engine_position = vibe_othello::board_core::initial_position();
+  const vibe_othello_wasm_position position = to_wasm_position(engine_position);
+  vibe_othello_wasm_search_result result{};
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 3, 0, 0,
+                                                VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 0,
+                                                &result) == VIBE_OTHELLO_WASM_STATUS_OK);
+
+  const vibe_othello::search::SearchResult direct = vibe_othello::search::search_iterative(
+      engine_position, evaluator, vibe_othello::search::SearchLimits{.max_depth = 3},
+      vibe_othello::wasm_adapter::internal::search_options_for_preset(
+          VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 0));
+  REQUIRE(direct.best_move.has_value());
+  REQUIRE(result.has_best_move == 1);
+  REQUIRE(result.best_move_square == direct.best_move->square.index);
+  REQUIRE(result.score == direct.score);
+  REQUIRE(result.completed_depth == static_cast<uint32_t>(direct.completed_depth));
+  REQUIRE(result.nodes == direct.nodes);
+  REQUIRE(result.stopped == static_cast<uint8_t>(direct.stopped));
+  REQUIRE(result.exact == static_cast<uint8_t>(direct.exact));
+}
+
+TEST_CASE("WASM normal preset honors the exact endgame threshold", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+
+  const std::optional<Position> parsed = vibe_othello::board_core::parse_position(
+      "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+  REQUIRE(parsed.has_value());
+  const vibe_othello_wasm_position position = to_wasm_position(*parsed);
+  vibe_othello_wasm_search_result without_exact{};
+  vibe_othello_wasm_search_result with_exact{};
+
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 1, 0, 0,
+                                                VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 0,
+                                                &without_exact) == VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 1, 100, 0,
+                                                VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 1,
+                                                &with_exact) == VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE_FALSE(without_exact.exact);
+  REQUIRE(with_exact.exact);
+  REQUIRE(with_exact.completed_depth == 1);
+}
+
+TEST_CASE("WASM search preset API rejects invalid presets", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+
+  const vibe_othello_wasm_position position =
+      to_wasm_position(vibe_othello::board_core::initial_position());
+  vibe_othello_wasm_search_result result{};
+  REQUIRE(
+      vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 1, 0, 0, 99, 0, &result) ==
+      VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(
+              artifact.get(), &position, 1, 0, 0, VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 65,
+              &result) == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(
+              artifact.get(), &position, 1, 0, 0, VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 64,
+              &result) == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
 }
 
 TEST_CASE("WASM adapter rejects invalid evaluation artifact ABI inputs", "[wasm]") {

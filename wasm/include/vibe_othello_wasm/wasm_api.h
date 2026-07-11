@@ -19,6 +19,10 @@
 #define VIBE_OTHELLO_WASM_SIDE_BLACK 0u
 #define VIBE_OTHELLO_WASM_SIDE_WHITE 1u
 
+#define VIBE_OTHELLO_WASM_SEARCH_PRESET_EASY 0u
+#define VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL 1u
+#define VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD 2u
+
 #ifdef __cplusplus
 #define VIBE_OTHELLO_WASM_NOEXCEPT noexcept
 extern "C" {
@@ -147,6 +151,19 @@ uint32_t vibe_othello_wasm_evaluate_position(uintptr_t eval_handle,
 uint32_t vibe_othello_wasm_search_best_move(
     uintptr_t eval_handle, const vibe_othello_wasm_position* position, uint32_t max_depth,
     uint32_t max_nodes, uint32_t max_time_ms,
+    vibe_othello_wasm_search_result* out_result) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+// Run bounded best-move search using a stable algorithm preset.
+//
+// Search limits are explicit and independent from the preset. A nonzero
+// exact_endgame_empties enables exact-score endgame search at or below that
+// root empty-count threshold and requires max_nodes or max_time_ms because an
+// exact root ignores max_depth. The legacy search_best_move function remains
+// available for callers that require its empty-SearchOptions behavior.
+uint32_t vibe_othello_wasm_search_best_move_v2(
+    uintptr_t eval_handle, const vibe_othello_wasm_position* position, uint32_t max_depth,
+    uint32_t max_nodes, uint32_t max_time_ms, uint32_t search_preset,
+    uint32_t exact_endgame_empties,
     vibe_othello_wasm_search_result* out_result) VIBE_OTHELLO_WASM_NOEXCEPT;
 
 #ifdef __cplusplus
