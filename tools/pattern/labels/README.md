@@ -30,6 +30,48 @@ optional global cap for reducing over-representation of one semantic game.
 The report includes aggregate selected split counts and a selected phase × split
 cross-tab. Selected TSVs and reports are local-only and must not be committed.
 
+## Search Move-Teacher Generation
+
+`vibe-othello-generate-search-move-teacher-dataset` generates every legal
+root move for selected phases (default `0..9`) by searching each after-move
+child from the child side-to-move perspective. The stored root score is the
+negative child score. It writes explicit `move-teacher-tsv-v2` rows and
+normalized-v2 child rows with `label_kind = teacher_search_final_disc_diff`.
+
+Each `child_board_id` is the importer-compatible `board-v1` SHA-256 identity
+of its normalized child board, not a root/move-derived name. Move-teacher rows
+retain every root move, while child-normalized rows dedupe equal canonical child
+boards within a split. A canonical child board appearing across splits rejects
+the transaction. Search scores outside the normalized disc-difference range
+`[-64, 64]` also reject the transaction rather than being clamped.
+
+The teacher manifest and weights are required explicitly. The tool rejects an
+artifact without complete declared phase coverage `0..12`, so the runtime
+phase-aware fallback cannot silently become a teacher. Depth, node, time,
+preset, and exact-endgame threshold are also required explicitly. Use fixed
+depth or fixed nodes; wall-clock-only runs are rejected. A stopped node-limited
+child is accepted only after at least one completed depth; incomplete roots
+reject the whole output transaction and produce no partial TSV.
+The report records roots whose node-limited child searches completed at
+different depths; fixed-depth completion remains the preferred campaign mode.
+
+Use the checksum-guarded local runner for resume:
+
+```sh
+python3 tools/pattern/labels/run_search_move_teacher_generation.py \
+  --generator build/tools/pattern/labels/vibe-othello-generate-search-move-teacher-dataset \
+  --normalized-tsv <phase-0-to-9-selected.tsv> \
+  --teacher-manifest <teacher.manifest.json> \
+  --teacher-weights <teacher.weights.bin> \
+  --output-dir <local-output-dir> \
+  --max-depth 8 --max-nodes 200000 --max-time-ms 0 \
+  --search-preset full --exact-endgame-empties 8 --resume
+```
+
+The runner validates checksums for the generator, input, teacher manifest,
+teacher weights, and all outputs before reuse. It is a complete-output resume
+contract, not the exact per-root cache contract below.
+
 ## Contract
 
 Cache entries are split-independent solve facts for one root board and its legal
