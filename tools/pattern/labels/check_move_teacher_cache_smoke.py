@@ -974,7 +974,7 @@ parser.add_argument("--report-out")
 parser.add_argument("--seed")
 args, _ = parser.parse_known_args()
 open(args.weights_out, "w", encoding="utf-8").write(json.dumps({"weights": []}, sort_keys=True) + "\\n")
-open(args.report_out, "w", encoding="utf-8").write(json.dumps({"ok": True}, sort_keys=True) + "\\n")
+open(args.report_out, "w", encoding="utf-8").write(json.dumps({"ok": True, "trained_phases": [10, 11, 12]}, sort_keys=True) + "\\n")
 """,
     )
     exporter = make_executable(
@@ -987,9 +987,10 @@ parser.add_argument("--weights-out")
 parser.add_argument("--manifest-out")
 parser.add_argument("--pattern-set")
 parser.add_argument("--catalog-dump-exe")
+parser.add_argument("--trained-phases", nargs="+")
 args = parser.parse_args()
 open(args.weights_out, "wb").write(b"fake-weights")
-open(args.manifest_out, "w", encoding="utf-8").write(json.dumps({"pattern_set": args.pattern_set}, sort_keys=True) + "\\n")
+open(args.manifest_out, "w", encoding="utf-8").write(json.dumps({"pattern_set": args.pattern_set, "trained_phases": [int(value) for value in args.trained_phases]}, sort_keys=True) + "\\n")
 """,
     )
     catalog = make_executable(
@@ -1136,6 +1137,10 @@ def check_partial_miss_campaign(args: argparse.Namespace, root: Path) -> bool:
     campaign = load_json(output_dir / "campaign-report.json")
     if campaign.get("partial_cache_miss_solved") is not True:
         print(f"campaign did not record partial solve: {campaign}", file=sys.stderr)
+        return False
+    manifest = load_json(output_dir / "move-teacher-child.manifest.json")
+    if manifest.get("trained_phases") != [10, 11, 12]:
+        print(f"campaign did not forward trainer coverage to exporter: {manifest}", file=sys.stderr)
         return False
     return True
 

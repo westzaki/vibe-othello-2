@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -48,6 +51,7 @@ struct Args {
   std::string pattern_set = "pattern-v2-endgame-lite";
   std::string report_out_path;
   std::string summary_out_path;
+  double tie_margin = 0.0;
 };
 
 struct MoveTeacherRow {
@@ -100,6 +104,10 @@ struct MetricsAccumulator {
   std::vector<int> regrets;
   std::vector<int> exact_best_predicted_ranks;
   std::vector<int> predicted_best_exact_margins;
+  ScoreRange predicted_score_range;
+  double child_value_absolute_error = 0.0;
+  double child_value_squared_error = 0.0;
+  int child_value_count = 0;
 };
 
 struct EvaluationReport {
@@ -108,6 +116,7 @@ struct EvaluationReport {
   std::string manifest_path;
   std::string pattern_set;
   std::string artifact_checksum;
+  double tie_margin = 0.0;
   MetricsAccumulator overall;
   std::map<std::string, MetricsAccumulator> by_empty_count;
   std::map<std::string, MetricsAccumulator> by_phase;
@@ -149,6 +158,17 @@ std::optional<int> parse_int(std::string_view text) noexcept {
   return value;
 }
 
+std::optional<double> parse_double(std::string_view text) {
+  const std::string buffer{text};
+  char* end = nullptr;
+  errno = 0;
+  const double value = std::strtod(buffer.c_str(), &end);
+  if (errno == ERANGE || end != buffer.c_str() + buffer.size() || !std::isfinite(value)) {
+    return std::nullopt;
+  }
+  return value;
+}
+
 void mix_fnv1a(std::string_view text, std::uint64_t* hash) noexcept {
   for (const char character : text) {
     *hash ^= static_cast<unsigned char>(character);
@@ -165,6 +185,12 @@ void mix_checksum(std::string_view text, EvaluationReport* report) noexcept {
 std::string checksum_string(std::uint64_t checksum) {
   std::ostringstream output;
   output << "0x" << std::hex << std::nouppercase << std::setfill('0') << std::setw(16) << checksum;
+  return output.str();
+}
+
+std::string canonical_double(double value) {
+  std::ostringstream output;
+  output << std::setprecision(17) << value;
   return output.str();
 }
 
@@ -240,6 +266,17 @@ std::optional<Args> parse_args(int argc, char** argv) {
       if (!next_value(&index, argc, argv, &args.summary_out_path)) {
         return std::nullopt;
       }
+    } else if (arg == "--tie-margin") {
+      std::string value;
+      if (!next_value(&index, argc, argv, &value)) {
+        return std::nullopt;
+      }
+      const std::optional<double> tie_margin = parse_double(value);
+      if (!tie_margin.has_value() || *tie_margin < 0.0) {
+        std::cerr << "--tie-margin must be a non-negative finite number\n";
+        return std::nullopt;
+      }
+      args.tie_margin = *tie_margin;
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -656,11 +693,17 @@ void add_metrics(const MetricsAccumulator& root, MetricsAccumulator* total) {
   total->predicted_best_exact_margins.insert(total->predicted_best_exact_margins.end(),
                                              root.predicted_best_exact_margins.begin(),
                                              root.predicted_best_exact_margins.end());
+  if (root.predicted_score_range.has_value) {
+    update_score_range(root.predicted_score_range.min, &total->predicted_score_range);
+    update_score_range(root.predicted_score_range.max, &total->predicted_score_range);
+  }
+  total->child_value_absolute_error += root.child_value_absolute_error;
+  total->child_value_squared_error += root.child_value_squared_error;
+  total->child_value_count += root.child_value_count;
 }
 
 MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
-                                 const eval::PatternEvaluator& evaluator,
-                                 ScoreRange* static_score_range) {
+                                 const eval::PatternEvaluator& evaluator, double tie_margin) {
   struct Prediction {
     int index = 0;
     int predicted_root_score = 0;
@@ -673,7 +716,6 @@ MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
         position_from_relative_board(rows[index].child_board);
     const int child_score = evaluator.evaluate(*child);
     const int predicted_root_score = -child_score;
-    update_score_range(predicted_root_score, static_score_range);
     predictions.push_back(Prediction{
         .index = static_cast<int>(index),
         .predicted_root_score = predicted_root_score,
@@ -710,8 +752,9 @@ MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
     if (prediction.predicted_root_score != best_predicted_score) {
       break;
     }
-    if (rows[static_cast<std::size_t>(prediction.index)].root_move_score_side_to_move ==
-        exact_best_score) {
+    if (exact_best_score -
+            rows[static_cast<std::size_t>(prediction.index)].root_move_score_side_to_move <=
+        tie_margin) {
       predicted_top_tie_has_exact_best = true;
       break;
     }
@@ -719,8 +762,9 @@ MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
 
   bool top2_has_exact_best = false;
   for (std::size_t rank = 0; rank < std::min<std::size_t>(2, predictions.size()); ++rank) {
-    if (rows[static_cast<std::size_t>(predictions[rank].index)].root_move_score_side_to_move ==
-        exact_best_score) {
+    if (exact_best_score -
+            rows[static_cast<std::size_t>(predictions[rank].index)].root_move_score_side_to_move <=
+        tie_margin) {
       top2_has_exact_best = true;
       break;
     }
@@ -728,8 +772,9 @@ MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
 
   int best_exact_rank = static_cast<int>(predictions.size());
   for (std::size_t rank = 0; rank < predictions.size(); ++rank) {
-    if (rows[static_cast<std::size_t>(predictions[rank].index)].root_move_score_side_to_move ==
-        exact_best_score) {
+    if (exact_best_score -
+            rows[static_cast<std::size_t>(predictions[rank].index)].root_move_score_side_to_move <=
+        tie_margin) {
       best_exact_rank = static_cast<int>(rank + 1);
       break;
     }
@@ -738,23 +783,32 @@ MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
   MetricsAccumulator result;
   result.root_count = 1;
   result.legal_move_count = static_cast<int>(rows.size());
-  result.top1_correct =
-      rows[static_cast<std::size_t>(predicted_best_index)].root_move_score_side_to_move ==
-              exact_best_score
-          ? 1.0
-          : 0.0;
+  result.top1_correct = exact_best_score - rows[static_cast<std::size_t>(predicted_best_index)]
+                                               .root_move_score_side_to_move <=
+                                tie_margin
+                            ? 1.0
+                            : 0.0;
   result.top1_tie_aware_correct = predicted_top_tie_has_exact_best ? 1.0 : 0.0;
   result.best_in_top2 = top2_has_exact_best ? 1.0 : 0.0;
   result.roots_with_all_moves_same_predicted_score = all_same_predicted ? 1 : 0;
   result.regrets.push_back(exact_best_score - predicted_best_exact_score);
   result.exact_best_predicted_ranks.push_back(best_exact_rank);
   result.predicted_best_exact_margins.push_back(predicted_best_exact_score - exact_best_score);
+  for (const Prediction& prediction : predictions) {
+    update_score_range(prediction.predicted_root_score, &result.predicted_score_range);
+    const MoveTeacherRow& row = rows[static_cast<std::size_t>(prediction.index)];
+    const int child_score = -prediction.predicted_root_score;
+    const int value_error = child_score - row.child_label_score_side_to_move;
+    result.child_value_absolute_error += std::abs(value_error);
+    result.child_value_squared_error += static_cast<double>(value_error) * value_error;
+    ++result.child_value_count;
+  }
 
   for (std::size_t left = 0; left < rows.size(); ++left) {
     for (std::size_t right = left + 1; right < rows.size(); ++right) {
       const int exact_diff =
           rows[left].root_move_score_side_to_move - rows[right].root_move_score_side_to_move;
-      if (exact_diff == 0) {
+      if (std::abs(exact_diff) <= tie_margin) {
         continue;
       }
       const int predicted_left =
@@ -782,8 +836,12 @@ void evaluate_all(const std::map<std::string, std::vector<MoveTeacherRow>>& root
   for (const auto& [root_board_id, rows] : roots) {
     (void)root_board_id;
     const MetricsAccumulator root_metrics =
-        evaluate_root(rows, artifact.evaluator, &report->static_score_range);
+        evaluate_root(rows, artifact.evaluator, report->tie_margin);
     add_metrics(root_metrics, &report->overall);
+    if (root_metrics.predicted_score_range.has_value) {
+      update_score_range(root_metrics.predicted_score_range.min, &report->static_score_range);
+      update_score_range(root_metrics.predicted_score_range.max, &report->static_score_range);
+    }
     const MoveTeacherRow& first = rows.front();
     add_metrics(root_metrics, &report->by_empty_count[std::to_string(first.root_empty_count)]);
     add_metrics(root_metrics, &report->by_phase[std::to_string(first.root_phase)]);
@@ -819,6 +877,21 @@ void write_metrics_object(std::ofstream& output, const MetricsAccumulator& metri
          << mean_or_zero(metrics.predicted_best_exact_margins);
   output << ", \"roots_with_all_moves_same_predicted_score\": "
          << metrics.roots_with_all_moves_same_predicted_score;
+  output << ", \"predicted_score_range\": ";
+  if (metrics.predicted_score_range.has_value) {
+    output << "{\"min\": " << metrics.predicted_score_range.min
+           << ", \"max\": " << metrics.predicted_score_range.max << "}";
+  } else {
+    output << "null";
+  }
+  output << ", \"value_MAE\": " << std::fixed << std::setprecision(6)
+         << (metrics.child_value_count == 0
+                 ? 0.0
+                 : metrics.child_value_absolute_error / metrics.child_value_count);
+  output << ", \"value_RMSE\": " << std::fixed << std::setprecision(6)
+         << (metrics.child_value_count == 0
+                 ? 0.0
+                 : std::sqrt(metrics.child_value_squared_error / metrics.child_value_count));
   output << "}";
 }
 
@@ -862,6 +935,8 @@ bool write_report(const std::string& path, const EvaluationReport& report) {
   output << "    \"not a production strength claim\"\n";
   output << "  ],\n";
   output << "  \"pattern_set\": \"" << json_escape(report.pattern_set) << "\",\n";
+  output << "  \"tie_margin\": " << std::fixed << std::setprecision(6) << report.tie_margin
+         << ",\n";
   output << "  \"results_by_empty_count\": ";
   write_metrics_map(output, report.by_empty_count);
   output << ",\n";
@@ -907,6 +982,24 @@ bool write_report(const std::string& path, const EvaluationReport& report) {
          << mean_or_zero(report.overall.predicted_best_exact_margins) << ",\n";
   output << "  \"roots_with_all_moves_same_predicted_score\": "
          << report.overall.roots_with_all_moves_same_predicted_score << ",\n";
+  output << "  \"predicted_score_range\": ";
+  if (report.overall.predicted_score_range.has_value) {
+    output << "{\"min\": " << report.overall.predicted_score_range.min
+           << ", \"max\": " << report.overall.predicted_score_range.max << "},\n";
+  } else {
+    output << "null,\n";
+  }
+  output << "  \"value_MAE\": " << std::fixed << std::setprecision(6)
+         << (report.overall.child_value_count == 0
+                 ? 0.0
+                 : report.overall.child_value_absolute_error / report.overall.child_value_count)
+         << ",\n";
+  output << "  \"value_RMSE\": " << std::fixed << std::setprecision(6)
+         << (report.overall.child_value_count == 0
+                 ? 0.0
+                 : std::sqrt(report.overall.child_value_squared_error /
+                             report.overall.child_value_count))
+         << ",\n";
   output << "  \"static_score_range\": ";
   if (report.static_score_range.has_value) {
     output << "{\"min\": " << report.static_score_range.min
@@ -973,8 +1066,10 @@ int main(int argc, char** argv) {
       .manifest_path = report_path(args->manifest_path),
       .pattern_set = args->pattern_set,
       .artifact_checksum = artifact->artifact_checksum,
+      .tie_margin = args->tie_margin,
   };
   mix_checksum(artifact->artifact_checksum, &report);
+  mix_checksum("tie_margin=" + canonical_double(args->tie_margin), &report);
 
   const std::optional<std::map<std::string, std::vector<MoveTeacherRow>>> roots =
       load_move_teacher(args->move_teacher_path, &report);

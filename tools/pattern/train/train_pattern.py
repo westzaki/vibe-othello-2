@@ -13,14 +13,16 @@ from dataset_contract import (
     TRAINER_ALGORITHM_V0B,
     TRAINER_ALGORITHM_V0C,
     TRAINER_ALGORITHM_V0D,
+    TRAINER_ALGORITHM_V0E,
     WEIGHTS_SCHEMA_VERSION_V1,
     WEIGHTS_SCHEMA_VERSION_V2,
 )
-from dataset_io import load_examples, validate_training_examples
+from dataset_io import load_examples, load_move_teacher_roots, validate_training_examples
 from reports import (
     run_pattern_sgd_v0b,
     run_pattern_sgd_v0c,
     run_pattern_sgd_v0d,
+    run_pattern_rank_v0e,
     run_phase_bias_v0a,
 )
 
@@ -34,6 +36,7 @@ def parse_args() -> argparse.Namespace:
             TRAINER_ALGORITHM_V0B,
             TRAINER_ALGORITHM_V0C,
             TRAINER_ALGORITHM_V0D,
+            TRAINER_ALGORITHM_V0E,
         ),
         default=TRAINER_ALGORITHM_V0A,
     )
@@ -101,6 +104,36 @@ def parse_args() -> argparse.Namespace:
         help="Phase weight floor for pattern-sgd-v0d. Defaults to 0.25.",
     )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--emit-trained-phases",
+        action="store_true",
+        help="Include train-split child phases in non-v0e reports for artifact export workflows.",
+    )
+    parser.add_argument(
+        "--move-teacher",
+        type=Path,
+        help="Move-teacher TSV sidecar joined to child pattern dataset by child_board_id; required for pattern-rank-v0e.",
+    )
+    parser.add_argument(
+        "--rank-temperature",
+        type=float,
+        help="Positive pairwise logistic-loss temperature for pattern-rank-v0e. Defaults to 1.0.",
+    )
+    parser.add_argument(
+        "--value-loss-weight",
+        type=float,
+        help="Optional Huber child-value calibration coefficient for pattern-rank-v0e. Defaults to 0.05; set 0 to disable.",
+    )
+    parser.add_argument(
+        "--pair-sampling-cap",
+        type=int,
+        help="Maximum non-tie pairs per root for pattern-rank-v0e. Defaults to 64; 0 keeps all pairs.",
+    )
+    parser.add_argument(
+        "--tie-margin",
+        type=float,
+        help="Teacher-score difference treated as a tie for pattern-rank-v0e. Defaults to 0.",
+    )
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--report-out", required=True, type=Path)
     parser.add_argument(
@@ -154,6 +187,37 @@ def parse_args() -> argparse.Namespace:
             parser.error("--min-phase-weight must be positive")
         if args.min_phase_weight > args.max_phase_weight:
             parser.error("--min-phase-weight must be <= --max-phase-weight")
+    v0e_only_args = (
+        args.move_teacher is not None
+        or args.rank_temperature is not None
+        or args.value_loss_weight is not None
+        or args.pair_sampling_cap is not None
+        or args.tie_margin is not None
+    )
+    if args.mode != TRAINER_ALGORITHM_V0E and v0e_only_args:
+        parser.error(
+            "--move-teacher, --rank-temperature, --value-loss-weight, --pair-sampling-cap, and --tie-margin "
+            "require --mode pattern-rank-v0e"
+        )
+    if args.mode == TRAINER_ALGORITHM_V0E:
+        if args.move_teacher is None:
+            parser.error("--move-teacher is required for --mode pattern-rank-v0e")
+        if args.rank_temperature is None:
+            args.rank_temperature = 1.0
+        if args.value_loss_weight is None:
+            args.value_loss_weight = 0.05
+        if args.pair_sampling_cap is None:
+            args.pair_sampling_cap = 64
+        if args.tie_margin is None:
+            args.tie_margin = 0.0
+        if args.rank_temperature <= 0.0:
+            parser.error("--rank-temperature must be positive")
+        if args.value_loss_weight < 0.0:
+            parser.error("--value-loss-weight must be non-negative")
+        if args.pair_sampling_cap < 0:
+            parser.error("--pair-sampling-cap must be non-negative")
+        if args.tie_margin < 0.0:
+            parser.error("--tie-margin must be non-negative")
     if args.phase_count is not None and args.phase_count != PHASE_COUNT:
         parser.error(f"--phase-count must be {PHASE_COUNT}")
     return args
@@ -171,6 +235,12 @@ def main() -> int:
             run_pattern_sgd_v0c(load_result, args)
         elif args.mode == TRAINER_ALGORITHM_V0D:
             run_pattern_sgd_v0d(load_result, args)
+        elif args.mode == TRAINER_ALGORITHM_V0E:
+            assert args.move_teacher is not None
+            move_teacher_result = load_move_teacher_roots(
+                args.move_teacher, load_result.accepted_examples
+            )
+            run_pattern_rank_v0e(load_result, move_teacher_result, args)
         else:
             raise RuntimeError(f"unsupported mode: {args.mode}")
     except RuntimeError as error:

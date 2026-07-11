@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-TRAINER_MODES = ("pattern-sgd-v0c", "pattern-sgd-v0d")
+TRAINER_MODES = ("pattern-sgd-v0c", "pattern-sgd-v0d", "pattern-rank-v0e")
 RANKING_METRICS = (
     "top1_accuracy",
     "top1_tie_aware_accuracy",
@@ -25,6 +25,8 @@ RANKING_METRICS = (
     "exact_best_predicted_score_rank_mean",
     "exact_best_predicted_score_rank_median",
     "roots_with_all_moves_same_predicted_score",
+    "value_MAE",
+    "value_RMSE",
 )
 HELDOUT_SPLITS = ("validation", "test")
 
@@ -95,6 +97,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--lr-schedule", choices=("constant", "inverse-sqrt"), default="inverse-sqrt")
     parser.add_argument("--weight-decay", type=float, default=0.0001)
+    parser.add_argument("--rank-temperature", type=float, default=1.0)
+    parser.add_argument("--value-loss-weight", type=float, default=0.05)
+    parser.add_argument("--pair-sampling-cap", type=int, default=64)
+    parser.add_argument("--tie-margin", type=float, default=0.0)
+    parser.add_argument("--gradient-clip", type=float)
+    parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--dataset-output-format", choices=("compact-tsv", "expanded-tsv"), default="compact-tsv")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--keep-going", action="store_true")
@@ -164,6 +172,18 @@ def parse_args() -> argparse.Namespace:
         parser.error("--learning-rate must be non-negative")
     if args.weight_decay < 0.0:
         parser.error("--weight-decay must be non-negative")
+    if args.rank_temperature <= 0.0:
+        parser.error("--rank-temperature must be positive")
+    if args.value_loss_weight < 0.0:
+        parser.error("--value-loss-weight must be non-negative")
+    if args.pair_sampling_cap < 0:
+        parser.error("--pair-sampling-cap must be non-negative")
+    if args.tie_margin < 0.0:
+        parser.error("--tie-margin must be non-negative")
+    if args.gradient_clip is not None and args.gradient_clip <= 0.0:
+        parser.error("--gradient-clip must be positive")
+    if args.early_stop_patience is not None and args.early_stop_patience < 0:
+        parser.error("--early-stop-patience must be non-negative")
     if (args.previous_weights is None) != (args.previous_manifest is None):
         parser.error("--previous-weights and --previous-manifest must be supplied together")
     if (args.arena_baseline_weights is None) != (args.arena_baseline_manifest is None):
@@ -230,6 +250,14 @@ def command_template(args: argparse.Namespace) -> str:
         args.lr_schedule,
         "--weight-decay",
         str(args.weight_decay),
+        "--rank-temperature",
+        str(args.rank_temperature),
+        "--value-loss-weight",
+        str(args.value_loss_weight),
+        "--pair-sampling-cap",
+        str(args.pair_sampling_cap),
+        "--tie-margin",
+        str(args.tie_margin),
     ]
     if args.resume:
         command.append("--resume")
@@ -241,6 +269,10 @@ def command_template(args: argparse.Namespace) -> str:
         command.append("--write-move-teacher-cache")
     if args.allow_cache_miss_solve:
         command.append("--allow-cache-miss-solve")
+    if args.gradient_clip is not None:
+        command.extend(["--gradient-clip", str(args.gradient_clip)])
+    if args.early_stop_patience is not None:
+        command.extend(["--early-stop-patience", str(args.early_stop_patience)])
     return shell_join(command)
 
 
@@ -302,6 +334,14 @@ def campaign_command(args: argparse.Namespace, output_dir: Path, root_count: int
         args.lr_schedule,
         "--weight-decay",
         str(args.weight_decay),
+        "--rank-temperature",
+        str(args.rank_temperature),
+        "--value-loss-weight",
+        str(args.value_loss_weight),
+        "--pair-sampling-cap",
+        str(args.pair_sampling_cap),
+        "--tie-margin",
+        str(args.tie_margin),
         "--dataset-output-format",
         args.dataset_output_format,
         "--generator",
@@ -332,6 +372,10 @@ def campaign_command(args: argparse.Namespace, output_dir: Path, root_count: int
         command.append("--write-move-teacher-cache")
     if args.allow_cache_miss_solve:
         command.append("--allow-cache-miss-solve")
+    if args.gradient_clip is not None:
+        command.extend(["--gradient-clip", str(args.gradient_clip)])
+    if args.early_stop_patience is not None:
+        command.extend(["--early-stop-patience", str(args.early_stop_patience)])
     if args.previous_weights is not None and args.previous_manifest is not None:
         command.extend(
             [

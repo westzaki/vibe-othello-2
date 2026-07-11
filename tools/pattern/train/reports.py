@@ -16,8 +16,9 @@ from dataset_contract import (
     TRAINER_ALGORITHM_V0B,
     TRAINER_ALGORITHM_V0C,
     TRAINER_ALGORITHM_V0D,
+    TRAINER_ALGORITHM_V0E,
 )
-from examples import Example, LoadResult, phase_examples, split_examples
+from examples import Example, LoadResult, MoveTeacherLoadResult, phase_examples, split_examples
 from metrics import (
     max_abs_weight,
     metrics_for_examples,
@@ -32,6 +33,7 @@ from optimizer import (
     train_pattern_sgd,
     train_pattern_sgd_v0c,
     train_pattern_sgd_v0d,
+    train_pattern_rank_v0e,
     v0c_weight_decay,
     weighted_train_residual_mae,
 )
@@ -104,6 +106,10 @@ def report_without_checksum(
         ],
     }
     return stable_float(report)
+
+
+def trained_phases_for_examples(examples: list[Example]) -> list[int]:
+    return sorted({example.phase for example in examples if example.split == "train"})
 
 
 def metrics_by_split(
@@ -214,6 +220,8 @@ def pattern_sgd_report_without_checksum(
     }
     if weights_metadata is not None:
         report.update(metadata_json(weights_metadata))
+    if args.emit_trained_phases:
+        report["trained_phases"] = trained_phases_for_examples(accepted)
     return stable_float(report)
 
 
@@ -377,6 +385,8 @@ def pattern_sgd_v0c_report_without_checksum(
                 "phase_balance_notes": phase_balance_notes or [],
             }
         )
+    if args.emit_trained_phases:
+        report["trained_phases"] = trained_phases_for_examples(accepted)
     return stable_float(report)
 
 
@@ -483,6 +493,134 @@ def run_pattern_sgd_v0d(load_result: LoadResult, args: argparse.Namespace) -> No
         phase_weights=phase_weights,
         phase_balance_notes=phase_balance_notes,
     )
+    report["checksum"] = checksum_for(report, weights_text)
+    report_text = json.dumps(report, indent=2, sort_keys=False) + "\n"
+    write_text(args.weights_out, weights_text)
+    write_text(args.report_out, report_text)
+
+
+def run_pattern_rank_v0e(
+    load_result: LoadResult,
+    move_teacher_result: MoveTeacherLoadResult,
+    args: argparse.Namespace,
+) -> None:
+    initial_phase_bias = train_phase_bias(load_result.accepted_examples)
+    phase_bias, pattern_weights, metrics_by_epoch, training_state, sampling_totals, trained_phases = (
+        train_pattern_rank_v0e(move_teacher_result.roots, initial_phase_bias, args)
+    )
+    weights_metadata = weights_metadata_for(args)
+    weights_text = pattern_weights_json(phase_bias, pattern_weights, args, weights_metadata)
+    weights_checksum = weights_checksum_for(weights_text)
+    nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
+    final_ranking_metrics = (
+        metrics_by_epoch[-1]["ranking_metrics"]
+        if metrics_by_epoch and not training_state["early_stop_triggered"]
+        else None
+    )
+    if final_ranking_metrics is None:
+        from metrics import ranking_metrics_for_roots
+
+        final_ranking_metrics = ranking_metrics_for_roots(
+            move_teacher_result.roots,
+            phase_bias,
+            pattern_weights,
+            args.tie_margin,
+            args.rank_temperature,
+        )
+    report: dict[str, Any] = {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "trainer_algorithm": TRAINER_ALGORITHM_V0E,
+        "weights_schema_version": args.weights_schema_version,
+        "input_format": load_result.input_format,
+        "input_rows": load_result.input_rows,
+        "input_feature_rows": load_result.input_feature_rows,
+        "accepted_examples": len(load_result.accepted_examples),
+        "rejected_examples": load_result.rejected_examples,
+        "rejected_feature_rows": load_result.rejected_feature_rows,
+        "move_teacher_root_count": len(move_teacher_result.roots),
+        "move_teacher_move_row_count": move_teacher_result.move_rows,
+        "move_teacher_schema_version": move_teacher_result.schema_version,
+        "move_teacher_provenance": (
+            None
+            if move_teacher_result.provenance is None
+            else {
+                "teacher_kind": move_teacher_result.provenance.teacher_kind,
+                "teacher_source": move_teacher_result.provenance.teacher_source,
+                "teacher_artifact_id": move_teacher_result.provenance.teacher_artifact_id,
+                "teacher_artifact_checksum": move_teacher_result.provenance.teacher_artifact_checksum,
+                "teacher_search_config_id": move_teacher_result.provenance.teacher_search_config_id,
+            }
+        ),
+        "trained_phases": trained_phases,
+        "counts_by_split_roots": {
+            split: sum(root.split == split for root in move_teacher_result.roots) for split in SPLITS
+        },
+        "counts_by_phase_roots": {
+            str(phase): sum(root.phase == phase for root in move_teacher_result.roots)
+            for phase in PHASES
+        },
+        "duplicate_feature_rows": load_result.duplicate_feature_rows.total,
+        "duplicate_feature_rows_by_record_id": load_result.duplicate_feature_rows.by_record_id,
+        "deterministic_seed": args.seed,
+        "ranking_config": {
+            "rank_temperature": args.rank_temperature,
+            "value_loss_weight": args.value_loss_weight,
+            "value_loss": "Huber(delta=1.0)",
+            "pair_sampling_cap": args.pair_sampling_cap,
+            "tie_margin": args.tie_margin,
+            "pair_sampling": "deterministic seed/root_board_id sampling; 0 means all pairs",
+            "root_order": "deterministic seed + epoch shuffle",
+            "pair_order": "deterministic seed + epoch + root_board_id shuffle",
+        },
+        "epochs_requested": training_state["epochs_requested"],
+        "epochs_completed": training_state["epochs_completed"],
+        "early_stop_triggered": training_state["early_stop_triggered"],
+        "best_epoch": training_state["best_epoch"],
+        "best_validation_pairwise_logistic_loss": training_state[
+            "best_validation_pairwise_logistic_loss"
+        ],
+        "final_validation_pairwise_logistic_loss": training_state[
+            "final_validation_pairwise_logistic_loss"
+        ],
+        "learning_rate": args.learning_rate,
+        "lr_schedule": args.lr_schedule,
+        "l2": args.l2,
+        "weight_decay": v0c_weight_decay(args),
+        "gradient_clip": args.gradient_clip,
+        "early_stop_patience": args.early_stop_patience,
+        "update_rule": {
+            "model": "V(child) = phase_bias[child_phase] + sum(pattern_weight[child_phase, pattern_id, ternary_index])",
+            "root_move_score": "-V(child)",
+            "ranking_loss": "softplus(-(root_score_better - root_score_worse) / rank_temperature)",
+            "tie_policy": "teacher pairs with abs(score difference) <= tie_margin are excluded from ranking loss",
+            "value_calibration": "optional Huber child-value loss; value_loss_weight=0 disables it",
+            "weight_key": "phase + pattern_id + ternary_index; instance is excluded",
+            "feature_occurrences": "duplicate occurrences contribute repeatedly to the linear score and gradient",
+        },
+        "ranking_metrics": final_ranking_metrics,
+        "metrics_by_epoch": metrics_by_epoch,
+        "pair_sampling_totals": sampling_totals,
+        "phase_bias_initial": initial_phase_bias,
+        "phase_bias_final": phase_bias,
+        "nonzero_weight_count": len(nonzero_weights),
+        "weight_l2_norm": weight_l2_norm(pattern_weights),
+        "max_abs_weight": max_abs_weight(pattern_weights),
+        "weights_by_phase": weight_count_by_phase(pattern_weights),
+        "weights_by_pattern": weight_count_by_pattern(pattern_weights),
+        "top_abs_weights": top_abs_weights(pattern_weights),
+        "weights_checksum": weights_checksum,
+        "notes": [
+            "pattern-rank-v0e is a local pairwise ranking trainer, not a production strength claim",
+            "ranking metrics are the primary diagnostics; child value MAE/RMSE are calibration diagnostics",
+            "teacher ties are excluded from pairwise loss but retained in tie-aware top1 metrics",
+            "runtime-compatible weights JSON uses the existing pattern-eval-weights-v2 schema",
+            "validation and test roots are never used for updates",
+            *load_result.notes,
+        ],
+    }
+    if weights_metadata is not None:
+        report.update(metadata_json(weights_metadata))
+    report = stable_float(report)
     report["checksum"] = checksum_for(report, weights_text)
     report_text = json.dumps(report, indent=2, sort_keys=False) + "\n"
     write_text(args.weights_out, weights_text)

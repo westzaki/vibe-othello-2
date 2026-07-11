@@ -33,6 +33,20 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/train_pattern.py)
 
   add_test(
+    NAME vibe_othello_pattern_rank_train_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_rank_smoke.py
+      --trainer
+      ${CMAKE_CURRENT_SOURCE_DIR}/train_pattern.py
+      --exporter
+      ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py
+      --catalog-dump
+      $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
+      --roundtrip
+      $<TARGET_FILE:vibe_othello_pattern_evaluation_roundtrip_smoke>)
+
+  add_test(
     NAME vibe_othello_pattern_growth_cycle_smoke
     COMMAND
       ${Python3_EXECUTABLE}

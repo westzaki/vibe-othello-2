@@ -33,6 +33,7 @@ TRAINER_ALGORITHM_V0A = "phase-bias-v0a"
 TRAINER_ALGORITHM_V0B = "pattern-sgd-v0b"
 TRAINER_ALGORITHM_V0C = "pattern-sgd-v0c"
 TRAINER_ALGORITHM_V0D = "pattern-sgd-v0d"
+TRAINER_ALGORITHM_V0E = "pattern-rank-v0e"
 
 def parse_int(text: str | None) -> int | None:
     if text is None:
