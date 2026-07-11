@@ -384,6 +384,11 @@ export class WasmCore {
     if (exactEmpties > 64) {
       throw new Error("exactEndgameEmpties must be at most 64");
     }
+    if (exactEmpties !== 0 && maxNodes === 0 && maxTimeMs === 0) {
+      throw new Error(
+        "searchBestMoveWithPreset requires maxNodes or maxTimeMs when exactEndgameEmpties is set",
+      );
+    }
     if (maxDepth === 0 && maxNodes === 0 && maxTimeMs === 0) {
       throw new Error("searchBestMoveWithPreset requires maxDepth, maxNodes, or maxTimeMs");
     }

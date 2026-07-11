@@ -258,6 +258,10 @@ should rely on C++ `SearchLimits` `max_depth` and `max_time` for bounded work.
 Hard cancellation should be designed separately, for example through cooperative
 polling, shared state, or chunked search.
 
+An exact-endgame threshold must not be accepted with only `max_depth`: exact
+root search intentionally bypasses iterative depth search. The WASM adapter must
+require a node or time limit whenever callers enable exact root search.
+
 ## Search and evaluation use from web
 
 v0 should use existing public search APIs only.

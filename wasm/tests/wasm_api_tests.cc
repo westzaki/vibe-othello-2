@@ -574,7 +574,7 @@ TEST_CASE("WASM normal preset honors the exact endgame threshold", "[wasm][searc
   REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 1, 0, 0,
                                                 VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 0,
                                                 &without_exact) == VIBE_OTHELLO_WASM_STATUS_OK);
-  REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 1, 0, 0,
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 1, 100, 0,
                                                 VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 1,
                                                 &with_exact) == VIBE_OTHELLO_WASM_STATUS_OK);
   REQUIRE_FALSE(without_exact.exact);
@@ -596,6 +596,10 @@ TEST_CASE("WASM search preset API rejects invalid presets", "[wasm][search]") {
   REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
   REQUIRE(vibe_othello_wasm_search_best_move_v2(
               artifact.get(), &position, 1, 0, 0, VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 65,
+              &result) == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(
+              artifact.get(), &position, 1, 0, 0, VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 64,
               &result) == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
   REQUIRE(result.status == VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
 }

@@ -157,7 +157,8 @@ uint32_t vibe_othello_wasm_search_best_move(
 //
 // Search limits are explicit and independent from the preset. A nonzero
 // exact_endgame_empties enables exact-score endgame search at or below that
-// root empty-count threshold. The legacy search_best_move function remains
+// root empty-count threshold and requires max_nodes or max_time_ms because an
+// exact root ignores max_depth. The legacy search_best_move function remains
 // available for callers that require its empty-SearchOptions behavior.
 uint32_t vibe_othello_wasm_search_best_move_v2(
     uintptr_t eval_handle, const vibe_othello_wasm_position* position, uint32_t max_depth,

@@ -608,6 +608,10 @@ uint32_t vibe_othello_wasm_search_best_move_v2(
     *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
     return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
   }
+  if (exact_endgame_empties != 0 && max_nodes == 0 && max_time_ms == 0) {
+    *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+    return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
+  }
 
   return search_best_move(eval_handle, position, max_depth, max_nodes, max_time_ms,
                           vibe_othello::wasm_adapter::internal::search_options_for_preset(

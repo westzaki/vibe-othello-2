@@ -90,6 +90,10 @@ assert.throws(
   () => artifact.searchBestMoveWithPreset(initialPosition, { maxDepth: 1 }, "invalid"),
   /invalid search preset/,
 );
+assert.throws(
+  () => artifact.searchBestMoveWithPreset(initialPosition, { maxDepth: 1 }, "normal", 64),
+  /requires maxNodes or maxTimeMs/,
+);
 
 artifact.free();
 artifact.free();

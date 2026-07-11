@@ -62,7 +62,9 @@ WASM, or browser pthreads.
 and `hard` algorithm presets instead of individual search internals. Limits are
 always caller-provided; `normal` and `hard` currently enable the same algorithm
 set, while callers choose wider limits for hard play. A nonzero final argument
-enables exact-score endgame search at or below that empty-square threshold.
+enables exact-score endgame search at or below that empty-square threshold and
+requires `maxNodes` or `maxTimeMs`: exact root search intentionally ignores a
+depth limit.
 
 ## Native adapter build
 
