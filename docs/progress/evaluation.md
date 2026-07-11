@@ -47,6 +47,10 @@ data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json
 The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 `provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
+The current default reports reviewed learning coverage for phases 10, 11, and
+12. The loader exposes that metadata for inspection; it does not limit runtime
+evaluation to those phases or alter scores, search options, or fallback policy.
+
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
 `vibe_othello::evaluation::load_pattern_artifact` for filesystem artifacts, and

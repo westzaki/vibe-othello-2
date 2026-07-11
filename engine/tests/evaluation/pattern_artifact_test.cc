@@ -176,6 +176,12 @@ std::string replace_once(std::string text, std::string_view needle, std::string_
   return text;
 }
 
+std::string with_trained_phases(std::string manifest, std::string_view phases) {
+  return replace_once(std::move(manifest), "  \"phase_count\": 13,\n",
+                      "  \"phase_count\": 13,\n  \"trained_phases\": " + std::string(phases) +
+                          ",\n");
+}
+
 board_core::Position opening_move_position() {
   board_core::Position position = board_core::initial_position();
   board_core::MoveDelta delta{};
@@ -202,6 +208,7 @@ TEST_CASE("default evaluation artifact pointer loads committed artifact",
   REQUIRE(result.artifact->artifact_id == "pattern-v2-endgame-lite-100k-mt-v0");
   REQUIRE(result.artifact->pattern_set_id == "pattern-v2-endgame-lite");
   REQUIRE(result.artifact->weights_checksum == "0x3d50ed72");
+  REQUIRE(result.artifact->trained_phases == std::vector<std::uint8_t>{10, 11, 12});
   REQUIRE(result.artifact->manifest_path == committed_manifest_path());
 }
 
@@ -232,6 +239,7 @@ TEST_CASE("in-memory evaluation artifact loader matches filesystem loading",
   REQUIRE(memory_result.artifact->artifact_id == filesystem_result.artifact->artifact_id);
   REQUIRE(memory_result.artifact->pattern_set_id == filesystem_result.artifact->pattern_set_id);
   REQUIRE(memory_result.artifact->weights_checksum == filesystem_result.artifact->weights_checksum);
+  REQUIRE(memory_result.artifact->trained_phases == filesystem_result.artifact->trained_phases);
 
   LoadedPatternArtifact filesystem_artifact = std::move(*filesystem_result.artifact);
   LoadedPatternArtifactBytes memory_artifact = std::move(*memory_result.artifact);
@@ -247,6 +255,55 @@ TEST_CASE("in-memory evaluation artifact loader matches filesystem loading",
   };
   for (const board_core::Position position : positions) {
     REQUIRE(memory_evaluator.evaluate(position) == filesystem_evaluator.evaluate(position));
+  }
+}
+
+TEST_CASE("evaluation artifact loader validates trained phase coverage", "[evaluation][artifact]") {
+  TempDir temp;
+  std::uint32_t checksum = 0;
+  const std::vector<std::uint8_t> artifact = zero_tiny_artifact(&checksum);
+  const std::filesystem::path manifest_path = temp.path() / "manifest.json";
+  write_tiny_manifest(manifest_path, hex_u32(checksum));
+  const std::string legacy_manifest = read_text_or_fail(manifest_path);
+
+  SECTION("valid coverage is normalized and exposed") {
+    const PatternArtifactBytesLoadResult result = load_pattern_artifact_from_bytes(
+        with_trained_phases(legacy_manifest, "[12, 10, 11]"), artifact, "valid-coverage.json");
+
+    REQUIRE(result.ok());
+    REQUIRE(result.artifact->trained_phases == std::vector<std::uint8_t>{10, 11, 12});
+  }
+
+  SECTION("duplicate coverage is rejected") {
+    const PatternArtifactBytesLoadResult result = load_pattern_artifact_from_bytes(
+        with_trained_phases(legacy_manifest, "[10, 10]"), artifact, "duplicate-coverage.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("must be unique") != std::string::npos);
+  }
+
+  SECTION("out-of-range coverage is rejected") {
+    const PatternArtifactBytesLoadResult result = load_pattern_artifact_from_bytes(
+        with_trained_phases(legacy_manifest, "[13]"), artifact, "out-of-range-coverage.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("must be in [0, 12]") != std::string::npos);
+  }
+
+  SECTION("empty coverage is rejected") {
+    const PatternArtifactBytesLoadResult result = load_pattern_artifact_from_bytes(
+        with_trained_phases(legacy_manifest, "[]"), artifact, "empty-coverage.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("must not be empty") != std::string::npos);
+  }
+
+  SECTION("legacy artifacts report unknown coverage") {
+    write_bytes(temp.path() / "weights.bin", artifact);
+    const PatternArtifactLoadResult result = load_pattern_artifact(manifest_path);
+
+    REQUIRE(result.ok());
+    REQUIRE_FALSE(result.artifact->trained_phases.has_value());
   }
 }
 

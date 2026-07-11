@@ -278,6 +278,10 @@ with binary weights and manifest metadata. Export must preserve the runtime
 loader contract: score unit, scale, phase count, pattern set id, weight checksum,
 binary format, and pattern table layout.
 
+Reviewed training coverage is exported as explicit `trained_phases` metadata.
+It must come from the reviewed training route, not be inferred from nonzero
+weights after quantization.
+
 Exporter and committed artifact boundaries are delegated to
 `docs/architecture/evaluation-artifacts.md`. That document owns committed
 artifact layout, default pointer handling, promotion, rollback, provenance, and

@@ -67,10 +67,23 @@ that directory and must not be an absolute path.
 * `score_unit`
 * `score_scale`
 * `phase_count`
+* `trained_phases`, when the artifact reports reviewed learning coverage
 * `pattern_set_id`
 * `weights_file`
 * `weights_checksum`
 * pattern table shape and phase metadata
+
+`trained_phases` is an array of unique runtime phase ids in `0..12`. It is the
+source of truth for learning coverage and can represent non-contiguous phase
+sets. A missing field is legacy/unreported coverage, not a claim of all-phase
+training; the runtime loader remains backward compatible with such artifacts.
+Committed reviewed artifacts must report the field in both manifest and
+provenance, with matching values.
+
+The manifest also records phase diagnostics derived from final quantized binary
+weights: nonzero pattern-weight count, nonzero phase-bias presence, and maximum
+absolute pattern weight. These diagnostics are sanity data only and never infer
+or replace `trained_phases`.
 
 `weights_file` is resolved relative to the artifact directory. The runtime
 resolver rejects absolute paths and parent traversal.
@@ -91,6 +104,7 @@ the hot runtime loader:
 * redistribution flags
 * weight SHA-256
 * runtime checksum
+* reviewed `trained_phases`
 * validation summary
 * non-claims
 
@@ -137,6 +151,9 @@ It validates:
 * metadata does not contain local absolute paths
 * committed `weights.bin` SHA-256 matches provenance
 * manifest and provenance runtime checksums match the binary payload
+* manifest and provenance `trained_phases` are present, valid, and equal
+* phase diagnostics and aggregate nonzero pattern-weight count match the final
+  binary payload
 * tracked archive, TSV, log, and generated evaluation intermediate names are
   not committed outside checked-in smoke fixture/sample locations
 
@@ -146,7 +163,8 @@ To promote a future v1:
 
 1. create a new artifact id and directory under `data/eval/artifacts/`
 2. copy only the final runtime `weights.bin`
-3. write a loader-compatible `manifest.json` with relative `weights_file`
+3. write a loader-compatible `manifest.json` with relative `weights_file` and
+   reviewed `trained_phases`
 4. write `provenance.json` with source attribution, redistribution flags,
    validation summary, checksum, and non-claims
 5. update `data/eval/default-artifact.json`

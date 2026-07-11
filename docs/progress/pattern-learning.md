@@ -11,6 +11,11 @@ documents linked from it.
 `pattern-v2-endgame-lite-100k-mt-v0` is the committed learned evaluation
 artifact v0 and is the current experimental default.
 
+Its reviewed learning coverage is the late-phase set `[10, 11, 12]`, recorded
+in both runtime manifest and provenance. The artifact remains a runtime payload
+for the full phase mapping; coverage metadata is explicit rather than inferred
+from zero or nonzero weights.
+
 The default pointer is `data/eval/default-artifact.json`, with status
 `experimental-default`, resolving to:
 

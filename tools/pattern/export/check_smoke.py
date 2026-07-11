@@ -111,6 +111,19 @@ def check_v0b_manifest(
     if not isinstance(nonzero, int) or nonzero <= 0:
         print(f"invalid v0b nonzero pattern count: {nonzero!r}", file=sys.stderr)
         return False
+    if manifest_data.get("trained_phases") != [0, 1, 12]:
+        print(f"invalid v0b trained phases: {manifest_data.get('trained_phases')!r}", file=sys.stderr)
+        return False
+    diagnostics = manifest_data.get("phase_weight_diagnostics")
+    if not isinstance(diagnostics, list) or len(diagnostics) != 13:
+        print(f"invalid v0b phase diagnostics: {diagnostics!r}", file=sys.stderr)
+        return False
+    if [row.get("phase") for row in diagnostics if isinstance(row, dict)] != list(range(13)):
+        print(f"v0b phase diagnostics have unexpected phase order: {diagnostics!r}", file=sys.stderr)
+        return False
+    if sum(row.get("nonzero_pattern_weights", -1) for row in diagnostics if isinstance(row, dict)) != nonzero:
+        print("v0b phase diagnostics do not match aggregate nonzero count", file=sys.stderr)
+        return False
     return True
 
 
@@ -139,6 +152,10 @@ def check_v0b_roundtrip(
             str(first_manifest),
             "--catalog-dump-exe",
             str(catalog_dump_exe),
+            "--trained-phases",
+            "0",
+            "1",
+            "12",
         ]
     )
     if first_export is None:
@@ -155,6 +172,10 @@ def check_v0b_roundtrip(
             str(second_manifest),
             "--catalog-dump-exe",
             str(catalog_dump_exe),
+            "--trained-phases",
+            "0",
+            "1",
+            "12",
         ]
     )
     if second_export is None:

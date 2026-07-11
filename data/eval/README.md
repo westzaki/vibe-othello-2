@@ -24,6 +24,10 @@ Committed artifact payloads are limited to final runtime files:
 Artifact-specific details belong in each artifact directory's `README.md` and
 `provenance.json`.
 
+Reviewed artifacts must declare `trained_phases` in both manifest and
+provenance. This coverage metadata is distinct from phase-by-phase nonzero
+weight diagnostics and is not inferred from them.
+
 ## What Must Stay Local
 
 Do not commit generated or source data under `data/eval/`, including:
