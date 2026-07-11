@@ -1,10 +1,34 @@
-# Pattern Label Cache Operations
+# Pattern Label and Root Selection Operations
 
 ## Scope
 
 This is the current contract for exact move-teacher cache reuse and
 materialization. Cache payloads, materialized TSVs, and reports are local-only;
 keep them outside the repository and outside disposable worktrees.
+
+## Phase-Stratified Root Selection
+
+`select_phase_stratified_roots.py` selects a uniform local root quota from
+each normalized schema v2 phase `0..12`. It validates schema-v2 rows, dedupes
+by `board_id`, rejects board/game-group cross-split leakage, preserves the
+selected source row and split, and emits a local JSON coverage report. It does
+not resplit data, generate teacher labels, or train artifacts.
+
+```sh
+python3 tools/pattern/labels/select_phase_stratified_roots.py \
+  --normalized-tsv <normalized-v2.tsv> \
+  --output-tsv <selected.tsv> \
+  --report-out <report.json> \
+  --roots-per-phase <count> \
+  --seed 0 \
+  --require-all-phases
+```
+
+Without `--require-all-phases`, a shortage is a successful partial diagnostic
+selection and is explicit in the report. `--max-roots-per-game-group` is an
+optional global cap for reducing over-representation of one semantic game.
+The report includes aggregate selected split counts and a selected phase × split
+cross-tab. Selected TSVs and reports are local-only and must not be committed.
 
 ## Contract
 
