@@ -17,7 +17,7 @@ from dataset_contract import (
     WEIGHTS_SCHEMA_VERSION_V1,
     WEIGHTS_SCHEMA_VERSION_V2,
 )
-from dataset_io import load_examples, load_move_teacher_roots, validate_training_examples
+from dataset_io import load_examples, load_move_teacher_roots_many, validate_training_examples
 from reports import (
     run_pattern_sgd_v0b,
     run_pattern_sgd_v0c,
@@ -112,7 +112,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--move-teacher",
         type=Path,
-        help="Move-teacher TSV sidecar joined to child pattern dataset by child_board_id; required for pattern-rank-v0e.",
+        action="append",
+        help="Move-teacher TSV sidecar joined to child pattern dataset by child_board_id; repeat for disjoint teacher sources; required for pattern-rank-v0e.",
     )
     parser.add_argument(
         "--rank-temperature",
@@ -237,9 +238,7 @@ def main() -> int:
             run_pattern_sgd_v0d(load_result, args)
         elif args.mode == TRAINER_ALGORITHM_V0E:
             assert args.move_teacher is not None
-            move_teacher_result = load_move_teacher_roots(
-                args.move_teacher, load_result.accepted_examples
-            )
+            move_teacher_result = load_move_teacher_roots_many(args.move_teacher, load_result.accepted_examples)
             run_pattern_rank_v0e(load_result, move_teacher_result, args)
         else:
             raise RuntimeError(f"unsupported mode: {args.mode}")

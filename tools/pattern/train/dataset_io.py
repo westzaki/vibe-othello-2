@@ -13,6 +13,7 @@ from examples import (
     LoadResult,
     MoveTeacherLoadResult,
     MoveTeacherMove,
+    MoveTeacherInput,
     MoveTeacherProvenance,
     MoveTeacherRoot,
     ParsedFeatureRow,
@@ -331,7 +332,7 @@ def _require_move_teacher_field(row: dict[str, str], field: str, line_number: in
 
 
 def load_move_teacher_roots(
-    path: Path, examples: list[Example]
+    path: Path, examples: list[Example], *, require_all_examples: bool = True
 ) -> MoveTeacherLoadResult:
     """Join move-teacher rows to compact or expanded child examples by child_board_id."""
     examples_by_record_id: dict[str, Example] = {}
@@ -449,7 +450,7 @@ def load_move_teacher_roots(
     if move_rows == 0:
         raise RuntimeError("move-teacher TSV has no rows")
     extra_record_ids = sorted(set(examples_by_record_id) - referenced_child_ids)
-    if extra_record_ids:
+    if require_all_examples and extra_record_ids:
         raise RuntimeError(
             "pattern dataset has examples absent from move-teacher TSV: "
             + ", ".join(extra_record_ids[:3])
@@ -474,4 +475,52 @@ def load_move_teacher_roots(
         move_rows=move_rows,
         schema_version=schema_version,
         provenance=file_provenance,
+        inputs=[
+            MoveTeacherInput(
+                schema_version=schema_version,
+                move_rows=move_rows,
+                provenance=file_provenance,
+            )
+        ],
+    )
+
+
+def load_move_teacher_roots_many(paths: list[Path], examples: list[Example]) -> MoveTeacherLoadResult:
+    """Load disjoint teacher sidecars while preserving each file's schema contract."""
+    if not paths:
+        raise RuntimeError("pattern-rank-v0e requires at least one move-teacher TSV")
+
+    loaded = [load_move_teacher_roots(path, examples, require_all_examples=False) for path in paths]
+    roots: list[MoveTeacherRoot] = []
+    root_ids: set[str] = set()
+    referenced_child_ids: set[str] = set()
+    for result in loaded:
+        for root in result.roots:
+            if root.root_board_id in root_ids:
+                raise RuntimeError(
+                    "move-teacher sidecars contain duplicate root_board_id: "
+                    f"{root.root_board_id!r}"
+                )
+            root_ids.add(root.root_board_id)
+            roots.append(root)
+            referenced_child_ids.update(move.example.record_id for move in root.moves)
+
+    expected_child_ids = {example.record_id for example in examples}
+    missing_child_ids = sorted(expected_child_ids - referenced_child_ids)
+    if missing_child_ids:
+        raise RuntimeError(
+            "pattern dataset has examples absent from all move-teacher TSV inputs: "
+            + ", ".join(missing_child_ids[:3])
+        )
+    if not any(root.split == "train" for root in roots):
+        raise RuntimeError("move-teacher TSV inputs have no train roots")
+
+    schema_versions = {result.schema_version for result in loaded}
+    shared_provenance = loaded[0].provenance if len(loaded) == 1 else None
+    return MoveTeacherLoadResult(
+        roots=sorted(roots, key=lambda root: root.root_board_id),
+        move_rows=sum(result.move_rows for result in loaded),
+        schema_version=next(iter(schema_versions)) if len(schema_versions) == 1 else 0,
+        provenance=shared_provenance,
+        inputs=[entry for result in loaded for entry in result.inputs],
     )

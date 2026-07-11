@@ -159,6 +159,7 @@ lines, or PR-specific context are needed.
 | Move-teacher labels | Exact child labels made root move-ranking and decision leverage visible with the existing value trainer. |
 | Cache/materialization | Move-teacher cache and materialization flows support large local reruns while keeping labels and child-normalized TSVs local-only. |
 | Growth cycle | 50k and 100k local growth-cycle validations selected the move-teacher route for broader validation. |
+| Full-phase local cycle | `tools/pattern/train/run_full_phase_growth_cycle.py` connects phase-stratified selection, explicit-artifact search teaching, late exact teaching, v0e training, export, ranking, and bounded late/full-game local arenas without changing the default artifact. |
 | Arena validation | Broader bounded validation supported promoting the 100k move-teacher artifact to experimental default. |
 | Artifact v0 | `pattern-v2-endgame-lite-100k-mt-v0` is committed as the first learned experimental default with manifest, provenance, default pointer, and policy checks. |
 | Archive policy | Long logs, tables, command examples, and obsolete next actions belong in `docs/experiments/README.md` and linked experiment docs. |

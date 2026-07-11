@@ -120,11 +120,19 @@ class MoveTeacherProvenance:
 
 
 @dataclass(frozen=True)
+class MoveTeacherInput:
+    schema_version: int
+    move_rows: int
+    provenance: MoveTeacherProvenance | None
+
+
+@dataclass(frozen=True)
 class MoveTeacherLoadResult:
     roots: list[MoveTeacherRoot]
     move_rows: int
     schema_version: int
     provenance: MoveTeacherProvenance | None
+    inputs: list[MoveTeacherInput]
 
 def row_record_id(row: dict[str, Any] | None) -> str | None:
     if row is None:

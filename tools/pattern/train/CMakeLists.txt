@@ -53,4 +53,28 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_growth_cycle_smoke.py
       --growth-runner
       ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_growth_cycle.py)
+
+  add_test(
+    NAME vibe_othello_full_phase_pattern_growth_cycle_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_full_phase_growth_cycle_smoke.py
+      --runner ${CMAKE_CURRENT_SOURCE_DIR}/run_full_phase_growth_cycle.py
+      --importer ${CMAKE_SOURCE_DIR}/tools/data-import/import_egaroucid_sequences.py
+      --replay-helper $<TARGET_FILE:vibe_othello_egaroucid_sequence_replay>
+      --sequence-fixture ${CMAKE_SOURCE_DIR}/data/corpora/samples/tiny-egaroucid-sequences.txt
+      --sequence-manifest ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-sequence-v0002-local.manifest.json
+      --openings ${CMAKE_SOURCE_DIR}/tools/arena/openings/smoke.txt
+      --selector ${CMAKE_SOURCE_DIR}/tools/pattern/labels/select_phase_stratified_roots.py
+      --search-teacher-runner ${CMAKE_SOURCE_DIR}/tools/pattern/labels/run_search_move_teacher_generation.py
+      --search-generator $<TARGET_FILE:vibe_othello_generate_search_move_teacher_dataset>
+      --exact-generator $<TARGET_FILE:vibe_othello_generate_exact_move_teacher_dataset>
+      --dataset-exe $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
+      --trainer ${CMAKE_CURRENT_SOURCE_DIR}/train_pattern.py
+      --exporter ${CMAKE_SOURCE_DIR}/tools/pattern/export/export_v0b.py
+      --catalog-dump $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
+      --ranking-evaluator $<TARGET_FILE:vibe_othello_evaluate_move_teacher_ranking>
+      --late-arena-runner ${CMAKE_SOURCE_DIR}/tools/arena/run_pattern_artifact_arena_matrix.py
+      --late-arena-exe $<TARGET_FILE:vibe_othello_pattern_artifact_arena>
+      --full-arena-exe $<TARGET_FILE:vibe_othello_full_game_artifact_arena>)
 endif()
