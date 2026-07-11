@@ -18,6 +18,16 @@ set_target_properties(vibe_othello_generate_exact_move_teacher_dataset
                       PROPERTIES OUTPUT_NAME
                                  vibe-othello-generate-exact-move-teacher-dataset)
 
+add_executable(vibe_othello_generate_search_move_teacher_dataset
+               generate_search_move_teacher_dataset.cc)
+
+target_link_libraries(vibe_othello_generate_search_move_teacher_dataset
+                      PRIVATE vibe_othello::engine)
+
+set_target_properties(vibe_othello_generate_search_move_teacher_dataset
+                      PROPERTIES OUTPUT_NAME
+                                 vibe-othello-generate-search-move-teacher-dataset)
+
 add_executable(vibe_othello_evaluate_move_teacher_ranking
                evaluate_move_teacher_ranking.cc)
 
@@ -74,6 +84,18 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_decision_campaign.py
       --matrix-helper
       ${CMAKE_CURRENT_SOURCE_DIR}/run_move_teacher_campaign_matrix.py)
+
+  add_test(
+    NAME vibe_othello_pattern_search_move_teacher_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_search_move_teacher_smoke.py
+      --generator
+      $<TARGET_FILE:vibe_othello_generate_search_move_teacher_dataset>
+      --runner
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_search_move_teacher_generation.py
+      --ranking-evaluator
+      $<TARGET_FILE:vibe_othello_evaluate_move_teacher_ranking>)
 
   add_test(
     NAME vibe_othello_pattern_move_teacher_cache_smoke

@@ -73,7 +73,7 @@ Missing-label handling belongs in tool or workflow docs, not in committed data.
 
 ## Move-Teacher Label Contract
 
-Move-teacher labels connect root legal moves to exact child board labels.
+Move-teacher labels connect root legal moves to child board labels.
 
 Child exact labels are from the child side-to-move perspective. The root move
 score is derived as the negative child score.
@@ -89,6 +89,13 @@ label_perspective = side_to_move
 Move-teacher and child-normalized TSVs are generated local outputs and must
 stay out of the repository unless a future tiny repo-owned fixture is added for
 tests.
+
+Search move-teacher TSV schema v2 preserves the existing root/child, score,
+rank, tie, and margin fields and adds `teacher_kind`, `teacher_artifact_id`,
+`teacher_artifact_checksum`, and `teacher_search_config_id`. This provenance is
+mandatory for search-generated labels. Search child-normalized rows use
+`teacher_search_final_disc_diff`; exact child rows retain
+`teacher_exact_move_child_final_disc_diff`.
 
 ## Directory Rules
 

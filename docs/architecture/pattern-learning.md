@@ -176,11 +176,13 @@ teacher-label TSV keyed by `board_id`, then emit normalized schema v2 rows with
 only label fields changed. The teacher-label TSV contract is defined in
 `data/labels/README.md`.
 
-Move-teacher labels connect local exact child solves to root move choice. Root
-and child boards use the normalized side-to-move `X`/`O` convention, exact child
-labels are from the child side-to-move perspective, predicted root move scores
-are derived as the negative child score, and child-normalized rows use
-`label_kind = teacher_exact_move_child_final_disc_diff`.
+Move-teacher labels connect local child solves to root move choice. Root and
+child boards use the normalized side-to-move `X`/`O` convention, child labels
+are from the child side-to-move perspective, and predicted root move scores are
+derived as the negative child score. Exact child rows use
+`label_kind = teacher_exact_move_child_final_disc_diff`; artifact-search child
+rows use `teacher_search_final_disc_diff` and must carry explicit artifact and
+search-config provenance in the move-teacher schema.
 
 Generated teacher-label, move-teacher, and child-normalized files are local-only
 intermediate outputs. They are not Elo results, self-play results, production
