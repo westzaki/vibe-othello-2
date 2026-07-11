@@ -27,7 +27,8 @@ python3 tools/pattern/labels/select_phase_stratified_roots.py \
 Without `--require-all-phases`, a shortage is a successful partial diagnostic
 selection and is explicit in the report. `--max-roots-per-game-group` is an
 optional global cap for reducing over-representation of one semantic game.
-Selected TSVs and reports are local-only and must not be committed.
+The report includes aggregate selected split counts and a selected phase × split
+cross-tab. Selected TSVs and reports are local-only and must not be committed.
 
 ## Contract
 

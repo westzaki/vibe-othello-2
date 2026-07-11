@@ -10,6 +10,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -54,7 +55,11 @@ HEADER_V2 = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selector", required=True, type=Path)
-    return parser.parse_args()
+    parser.add_argument("--benchmark-game-groups", type=int, default=0)
+    args = parser.parse_args()
+    if args.benchmark_game_groups < 0:
+        parser.error("--benchmark-game-groups must be non-negative")
+    return args
 
 
 def occupied_for_phase(phase: int) -> int:
@@ -178,6 +183,15 @@ def check_exact_quota_and_dedupe(selector: Path, root: Path) -> bool:
     if report.get("shortage_phases") != [] or report.get("all_phase_quotas_satisfied") is not True:
         print(f"quota status mismatch: {report}", file=sys.stderr)
         return False
+    phase_split_counts = report.get("selected_phase_split_counts")
+    if not isinstance(phase_split_counts, dict):
+        print(f"missing selected phase/split cross-tab: {report}", file=sys.stderr)
+        return False
+    for phase in range(13):
+        counts = phase_split_counts.get(str(phase))
+        if not isinstance(counts, dict) or sum(counts.values()) != 2:
+            print(f"phase/split cross-tab mismatch for phase {phase}: {counts}", file=sys.stderr)
+            return False
     if report.get("input_checksum") != f"sha256:{hashlib.sha256(normalized.read_bytes()).hexdigest()}":
         print("input checksum mismatch", file=sys.stderr)
         return False
@@ -310,11 +324,24 @@ def check_game_cap(selector: Path, root: Path) -> bool:
     ]
     normalized = root / "cap-input.tsv"
     output = root / "cap-output.tsv"
+    repeat_output = root / "cap-repeat-output.tsv"
     report_path = root / "cap-report.json"
     write_tsv(normalized, HEADER_V2, rows)
     result = run_selector(selector, normalized, output, report_path, 1, "--max-roots-per-game-group", "7")
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
+        return False
+    repeated = run_selector(
+        selector,
+        normalized,
+        repeat_output,
+        root / "cap-repeat-report.json",
+        1,
+        "--max-roots-per-game-group",
+        "7",
+    )
+    if repeated.returncode != 0 or output.read_bytes() != repeat_output.read_bytes():
+        print("game-cap selection was not deterministic", file=sys.stderr)
         return False
     selected = read_rows(output)
     selected_games = Counter(row["game_group_id"] for row in selected)
@@ -348,10 +375,65 @@ def check_invalid_schema(selector: Path, root: Path) -> bool:
     return True
 
 
-def check_selector(selector: Path) -> bool:
+def run_cap_benchmark(selector: Path, game_groups: int) -> bool:
+    if game_groups == 0:
+        return True
+    roots_per_phase = game_groups // 13
+    if roots_per_phase == 0:
+        print("benchmark requires at least 13 game groups", file=sys.stderr)
+        return False
     with tempfile.TemporaryDirectory() as raw_root:
         root = Path(raw_root)
-        return (
+        normalized = root / "benchmark-input.tsv"
+        output = root / "benchmark-output.tsv"
+        report_path = root / "benchmark-report.json"
+        rows = [
+            normalized_row(
+                phase,
+                game_index % 64,
+                f"benchmark-game-{game_index:05d}",
+                "train",
+                f"benchmark-board-{game_index:05d}-p{phase:02d}",
+            )
+            for game_index in range(game_groups)
+            for phase in range(13)
+        ]
+        write_tsv(normalized, HEADER_V2, rows)
+        started = time.monotonic()
+        result = run_selector(
+            selector,
+            normalized,
+            output,
+            report_path,
+            roots_per_phase,
+            "--max-roots-per-game-group",
+            "1",
+        )
+        elapsed_seconds = time.monotonic() - started
+        if result.returncode != 0:
+            print(result.stderr, file=sys.stderr)
+            return False
+        report = load_report(report_path)
+        expected_selected = roots_per_phase * 13
+        selected_rows = read_rows(output)
+        if len(selected_rows) != expected_selected or report.get("selected_rows") != expected_selected:
+            print(f"benchmark selection count mismatch: {report}", file=sys.stderr)
+            return False
+        if max(Counter(row["game_group_id"] for row in selected_rows).values()) > 1:
+            print("benchmark game-group cap was exceeded", file=sys.stderr)
+            return False
+        print(
+            "cap_benchmark "
+            f"game_groups={game_groups} input_rows={len(rows)} selected_rows={expected_selected} "
+            f"cap=1 elapsed_seconds={elapsed_seconds:.3f}"
+        )
+    return True
+
+
+def check_selector(selector: Path, benchmark_game_groups: int) -> bool:
+    with tempfile.TemporaryDirectory() as raw_root:
+        root = Path(raw_root)
+        checks_passed = (
             check_exact_quota_and_dedupe(selector, root)
             and check_shortage_and_partial(selector, root)
             and check_determinism(selector, root)
@@ -359,11 +441,12 @@ def check_selector(selector: Path) -> bool:
             and check_game_cap(selector, root)
             and check_invalid_schema(selector, root)
         )
+    return checks_passed and run_cap_benchmark(selector, benchmark_game_groups)
 
 
 def main() -> int:
     args = parse_args()
-    return 0 if check_selector(args.selector) else 1
+    return 0 if check_selector(args.selector, args.benchmark_game_groups) else 1
 
 
 if __name__ == "__main__":

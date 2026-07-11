@@ -9,7 +9,7 @@ import hashlib
 import io
 import json
 import sys
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,7 +49,7 @@ class FlowEdge:
 
 
 class CapacityMatcher:
-    """Small deterministic max-flow helper for the optional per-game cap."""
+    """Small deterministic Dinic matcher for the optional per-game cap."""
 
     def __init__(self, node_count: int) -> None:
         self.graph: list[list[FlowEdge]] = [[] for _ in range(node_count)]
@@ -61,40 +61,48 @@ class CapacityMatcher:
         self.graph[destination].append(reverse)
         return forward
 
+    def build_levels(self, source: int) -> list[int]:
+        levels = [-1] * len(self.graph)
+        levels[source] = 0
+        queue: deque[int] = deque([source])
+        while queue:
+            node = queue.popleft()
+            for edge in self.graph[node]:
+                if edge.capacity <= 0 or levels[edge.destination] >= 0:
+                    continue
+                levels[edge.destination] = levels[node] + 1
+                queue.append(edge.destination)
+        return levels
+
+    def send_blocking_flow(
+        self, node: int, sink: int, available: int, levels: list[int], next_edge: list[int]
+    ) -> int:
+        if node == sink:
+            return available
+        while next_edge[node] < len(self.graph[node]):
+            edge = self.graph[node][next_edge[node]]
+            if edge.capacity > 0 and levels[edge.destination] == levels[node] + 1:
+                sent = self.send_blocking_flow(
+                    edge.destination,
+                    sink,
+                    min(available, edge.capacity),
+                    levels,
+                    next_edge,
+                )
+                if sent:
+                    edge.capacity -= sent
+                    self.graph[edge.destination][edge.reverse_index].capacity += sent
+                    return sent
+            next_edge[node] += 1
+        return 0
+
     def max_flow(self, source: int, sink: int) -> int:
         total = 0
-        while True:
-            parent: list[tuple[int, int] | None] = [None] * len(self.graph)
-            parent[source] = (source, -1)
-            queue = [source]
-            for node in queue:
-                if node == sink:
-                    break
-                for edge_index, edge in enumerate(self.graph[node]):
-                    if edge.capacity <= 0 or parent[edge.destination] is not None:
-                        continue
-                    parent[edge.destination] = (node, edge_index)
-                    queue.append(edge.destination)
-            if parent[sink] is None:
-                return total
-
-            bottleneck: int | None = None
-            node = sink
-            while node != source:
-                previous, edge_index = parent[node]  # type: ignore[misc]
-                edge = self.graph[previous][edge_index]
-                bottleneck = edge.capacity if bottleneck is None else min(bottleneck, edge.capacity)
-                node = previous
-            assert bottleneck is not None
-
-            node = sink
-            while node != source:
-                previous, edge_index = parent[node]  # type: ignore[misc]
-                edge = self.graph[previous][edge_index]
-                edge.capacity -= bottleneck
-                self.graph[node][edge.reverse_index].capacity += bottleneck
-                node = previous
-            total += bottleneck
+        while (levels := self.build_levels(source))[sink] >= 0:
+            next_edge = [0] * len(self.graph)
+            while sent := self.send_blocking_flow(source, sink, sys.maxsize, levels, next_edge):
+                total += sent
+        return total
 
 
 def parse_args() -> argparse.Namespace:
@@ -321,6 +329,10 @@ def build_report(
     unique_phase_counts: Counter[str] = Counter(root.row["phase"] for root in roots)
     selected_phase_counts: Counter[str] = Counter(root.row["phase"] for root in selected)
     selected_split_counts: Counter[str] = Counter(root.row["split"] for root in selected)
+    selected_phase_split_counts_by_key: Counter[tuple[str, str]] = Counter(
+        (root.row["phase"], root.row["split"]) for root in selected
+    )
+    selected_phase_split_counts: dict[str, dict[str, int]] = {}
     phase_coverage: dict[str, dict[str, Any]] = {}
     shortage_phases: list[int] = []
     for phase in PHASES:
@@ -336,6 +348,10 @@ def build_report(
             "selected_roots": selected_count,
             "shortage_roots": shortage,
             "quota_satisfied": shortage == 0,
+        }
+        selected_phase_split_counts[key] = {
+            split: selected_phase_split_counts_by_key[(key, split)]
+            for split in normalized_contract.VALID_SPLITS
         }
 
     quotas_satisfied = not shortage_phases
@@ -367,6 +383,7 @@ def build_report(
         "input_split_counts": input_report["input_split_counts"],
         "unique_eligible_split_counts": input_report["unique_eligible_split_counts"],
         "selected_split_counts": counter_dict(selected_split_counts),
+        "selected_phase_split_counts": selected_phase_split_counts,
         "input_game_group_count": input_report["input_game_group_count"],
         "unique_eligible_game_group_count": input_report["unique_eligible_game_group_count"],
         "selected_game_group_count": len({root.row["game_group_id"] for root in selected}),
