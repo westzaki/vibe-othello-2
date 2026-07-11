@@ -138,3 +138,12 @@ Use this file for label/cache operations involving
 and `run_pattern_growth_cycle.py`. The checked smoke coverage is
 `check_move_teacher_cache_smoke.py`; label data policy remains in
 `../../../data/labels/README.md`.
+
+The decision campaign and matrix can also select `pattern-rank-v0e`. It trains
+the existing child-value model from a move-teacher TSV sidecar, ranks root moves
+as negative child values, and keeps generated datasets, weights, reports, and
+artifacts local-only. Its pair temperature, calibration weight, deterministic
+per-root pair cap, tie margin, gradient clip, and early-stop patience are
+explicit campaign options. Compare its final artifact with v0c/v0d using the
+same move-teacher ranking evaluator; do not treat that local comparison as an
+artifact promotion or strength claim.

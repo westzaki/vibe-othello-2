@@ -28,13 +28,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pattern-set", default="pattern-v2-endgame-lite")
     parser.add_argument(
         "--trainer-mode",
-        choices=("pattern-sgd-v0c", "pattern-sgd-v0d"),
+        choices=("pattern-sgd-v0c", "pattern-sgd-v0d", "pattern-rank-v0e"),
         default="pattern-sgd-v0c",
     )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=0.1)
     parser.add_argument("--lr-schedule", choices=("constant", "inverse-sqrt"), default="inverse-sqrt")
     parser.add_argument("--weight-decay", type=float, default=0.0001)
+    parser.add_argument("--rank-temperature", type=float, default=1.0)
+    parser.add_argument("--value-loss-weight", type=float, default=0.05)
+    parser.add_argument("--pair-sampling-cap", type=int, default=64)
+    parser.add_argument("--tie-margin", type=float, default=0.0)
+    parser.add_argument("--gradient-clip", type=float)
+    parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--dataset-output-format", choices=("compact-tsv", "expanded-tsv"), default="compact-tsv")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--move-teacher-cache-dir", type=Path)
@@ -101,6 +107,18 @@ def parse_args() -> argparse.Namespace:
         parser.error("--learning-rate must be non-negative")
     if args.weight_decay < 0.0:
         parser.error("--weight-decay must be non-negative")
+    if args.rank_temperature <= 0.0:
+        parser.error("--rank-temperature must be positive")
+    if args.value_loss_weight < 0.0:
+        parser.error("--value-loss-weight must be non-negative")
+    if args.pair_sampling_cap < 0:
+        parser.error("--pair-sampling-cap must be non-negative")
+    if args.tie_margin < 0.0:
+        parser.error("--tie-margin must be non-negative")
+    if args.gradient_clip is not None and args.gradient_clip <= 0.0:
+        parser.error("--gradient-clip must be positive")
+    if args.early_stop_patience is not None and args.early_stop_patience < 0:
+        parser.error("--early-stop-patience must be non-negative")
     if (args.previous_weights is None) != (args.previous_manifest is None):
         parser.error("--previous-weights and --previous-manifest must be supplied together")
     if (args.arena_baseline_weights is None) != (args.arena_baseline_manifest is None):
@@ -616,6 +634,7 @@ def train(
     args: argparse.Namespace,
     dataset: Path,
     dataset_report: Path,
+    move_teacher: Path,
     weights_json: Path,
     report: Path,
     stages: dict[str, dict[str, Any]],
@@ -643,20 +662,59 @@ def train(
         str(dataset_report),
         "--seed",
         str(args.seed),
+        "--emit-trained-phases",
     ]
     if args.trainer_mode == "pattern-sgd-v0d":
         command.extend(["--phase-balance", "sqrt-inverse-count"])
+    if args.trainer_mode == "pattern-rank-v0e":
+        command.extend(
+            [
+                "--move-teacher", str(move_teacher),
+                "--rank-temperature", str(args.rank_temperature),
+                "--value-loss-weight", str(args.value_loss_weight),
+                "--pair-sampling-cap", str(args.pair_sampling_cap),
+                "--tie-margin", str(args.tie_margin),
+            ]
+        )
+        if args.gradient_clip is not None:
+            command.extend(["--gradient-clip", str(args.gradient_clip)])
+        if args.early_stop_patience is not None:
+            command.extend(["--early-stop-patience", str(args.early_stop_patience)])
     run_stage(
         args,
-        "train_child_value_artifact",
+        "train_pairwise_rank_artifact" if args.trainer_mode == "pattern-rank-v0e" else "train_child_value_artifact",
         command,
         [weights_json, report],
         stages,
-        resume_inputs={"dataset": dataset, "dataset_report": dataset_report},
+        resume_inputs={
+            "dataset": dataset,
+            "dataset_report": dataset_report,
+            **({"move_teacher": move_teacher} if args.trainer_mode == "pattern-rank-v0e" else {}),
+        },
     )
 
 
-def export_artifact(args: argparse.Namespace, weights_json: Path, weights_bin: Path, manifest: Path, stages: dict[str, dict[str, Any]]) -> None:
+def trained_phases_from_trainer_report(report_path: Path) -> list[int]:
+    report = load_json(report_path)
+    values = report.get("trained_phases")
+    if not isinstance(values, list) or not values:
+        raise RuntimeError("trainer report must contain a non-empty trained_phases array")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 12 for value in values):
+        raise RuntimeError("trainer report trained_phases must contain phase ids in [0, 12]")
+    if values != sorted(set(values)):
+        raise RuntimeError("trainer report trained_phases must be sorted and unique")
+    return values
+
+
+def export_artifact(
+    args: argparse.Namespace,
+    weights_json: Path,
+    trainer_report: Path,
+    weights_bin: Path,
+    manifest: Path,
+    stages: dict[str, dict[str, Any]],
+) -> None:
+    trained_phases = trained_phases_from_trainer_report(trainer_report)
     run_stage(
         args,
         "export_child_value_artifact",
@@ -673,10 +731,12 @@ def export_artifact(args: argparse.Namespace, weights_json: Path, weights_bin: P
             args.pattern_set,
             "--catalog-dump-exe",
             str(args.catalog_dump_exe),
+            "--trained-phases",
+            *[str(phase) for phase in trained_phases],
         ],
         [weights_bin, manifest],
         stages,
-        resume_inputs={"weights_json": weights_json},
+        resume_inputs={"weights_json": weights_json, "trainer_report": trainer_report},
     )
 
 
@@ -691,24 +751,27 @@ def evaluate_artifact(
     summary: Path,
     stages: dict[str, dict[str, Any]],
 ) -> None:
+    command = [
+        str(args.ranking_evaluator),
+        "--move-teacher",
+        str(move_teacher),
+        "--weights",
+        str(weights),
+        "--manifest",
+        str(manifest),
+        "--pattern-set",
+        pattern_set,
+        "--report-out",
+        str(report),
+        "--summary-out",
+        str(summary),
+    ]
+    if args.tie_margin != 0.0:
+        command.extend(["--tie-margin", str(args.tie_margin)])
     run_stage(
         args,
         stage_name,
-        [
-            str(args.ranking_evaluator),
-            "--move-teacher",
-            str(move_teacher),
-            "--weights",
-            str(weights),
-            "--manifest",
-            str(manifest),
-            "--pattern-set",
-            pattern_set,
-            "--report-out",
-            str(report),
-            "--summary-out",
-            str(summary),
-        ],
+        command,
         [report, summary],
         stages,
         resume_inputs={
@@ -795,6 +858,9 @@ def extract_ranking(report_path: Path | None) -> dict[str, Any] | None:
         "exact_best_predicted_score_rank_median",
         "predicted_best_exact_margin_mean",
         "roots_with_all_moves_same_predicted_score",
+        "predicted_score_range",
+        "value_MAE",
+        "value_RMSE",
     )
     return {key: report.get(key) for key in keys}
 
@@ -1046,8 +1112,8 @@ def main() -> int:
         if args.write_move_teacher_cache and not generated_from_cache:
             populate_move_teacher_cache(args, move_teacher, cache_report, stages)
         build_dataset(args, child_normalized, dataset, dataset_report, stages)
-        train(args, dataset, dataset_report, weights_json, trainer_report, stages)
-        export_artifact(args, weights_json, weights_bin, manifest, stages)
+        train(args, dataset, dataset_report, move_teacher, weights_json, trainer_report, stages)
+        export_artifact(args, weights_json, trainer_report, weights_bin, manifest, stages)
 
         if args.previous_weights is not None and args.previous_manifest is not None:
             evaluate_artifact(

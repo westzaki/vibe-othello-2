@@ -191,6 +191,13 @@ Generated teacher-label, move-teacher, and child-normalized files are local-only
 intermediate outputs. They are not Elo results, self-play results, production
 strength claims, or runtime artifacts.
 
+Search move-teacher TSV v2 carries mandatory teacher provenance. A trainer must
+reject a v2 input unless `teacher_kind`, `teacher_source`,
+`teacher_artifact_id`, `teacher_artifact_checksum`, and
+`teacher_search_config_id` are identical across the complete input file.
+Per-move depth and node counts may differ and are not part of this equality
+check. Trainer reports preserve the accepted v2 provenance for local review.
+
 ## Pattern Dataset Contract
 
 Pattern datasets are derived local training inputs built from normalized schema
@@ -258,9 +265,18 @@ the current experimental default artifact. It preserves the v1 order and adds
 bounded late-phase families with table lengths capped for the existing runtime
 artifact shape.
 
-Future pattern-set investigations such as `pattern-v3`, pairwise rank
-training, or larger objective changes are not part of the current architecture
-contract until adopted through separate design and validation.
+`pattern-rank-v0e` is a local pairwise-ranking trainer for move-teacher child
+rows. It keeps the runtime model as `V(child)` and derives the root move score
+as `-V(child)`. It joins the local move-teacher TSV to the local pattern dataset
+by child board id, groups rows by `root_board_id`, excludes teacher ties from
+the ranking loss according to its explicit tie margin, and may add a small
+Huber child-value calibration loss to keep score scale usable. Its output uses
+the existing phase-bias and sparse pattern-weight schema; it does not alter the
+runtime pattern set or artifact format.
+
+Future pattern-set investigations such as `pattern-v3` or larger objective
+changes are not part of the current architecture contract until adopted through
+separate design and validation.
 
 ## Trainer and Exporter Responsibilities
 
@@ -268,6 +284,11 @@ Trainers consume local pattern datasets and produce local fitting outputs,
 diagnostics, and candidate weights. Trainer behavior must be deterministic for
 the same input data, manifest/provenance metadata, seed, pattern set, and
 options.
+
+Campaign trainers report the sorted child phases actually targeted by train
+updates as `trained_phases`. Campaign export forwards that reviewed coverage to
+the exporter; it must not infer coverage from root phases, nonzero weights, or
+missing metadata.
 
 Trainer diagnostics may include fitting error, split and phase summaries,
 optimizer statistics, residual summaries, weight norms, sparsity, and local

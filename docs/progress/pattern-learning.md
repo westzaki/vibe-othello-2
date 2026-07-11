@@ -67,8 +67,9 @@ experimental default artifact:
    side-to-move label identity.
 3. Connected-board-game split for more honest sequence-derived validation.
 4. Compact pattern dataset rows for scalable local training and diagnostics.
-5. Trainer v0c/v0d diagnostics on `pattern-v2-endgame-lite`, keeping runtime
-   artifact shape compatible with the existing pattern evaluator.
+5. Trainer v0c/v0d value diagnostics and the local `pattern-rank-v0e` pairwise
+   ranking trainer on `pattern-v2-endgame-lite`, all keeping runtime artifact
+   shape compatible with the existing pattern evaluator.
 6. Exact move-teacher child labels for legal after-move boards.
 7. Move-teacher cache and partial-miss solve flow to reuse exact solves without
    committing labels or generated datasets.
@@ -94,9 +95,9 @@ Exact root-label training is not the current adopted default route.
 Move-teacher child-label training is the adopted route for the current
 experimental default.
 
-`pattern-v3`, a pairwise rank trainer, and larger objective changes should not
-be mixed with artifact default changes. Keep trainer/objective investigations
-separate from default-artifact promotion PRs.
+`pattern-v3` and larger objective changes should not be mixed with artifact
+default changes. Keep trainer/objective investigations separate from
+default-artifact promotion PRs.
 
 Artifact promotion and rollback must go through the committed manifest,
 provenance, default pointer, validation summary, and commit-policy checker.
@@ -130,8 +131,8 @@ Current next actions:
 * Add NTest or external-engine match validation before making strength claims.
 * Harden artifact promotion gates around manifest/provenance/default-pointer
   consistency and rollback review.
-* Continue trainer v0e or move-ranking objective work as a separate
-  investigation.
+* Run bounded local v0e versus v0c/v0d ranking comparisons before considering
+  any artifact-promotion decision.
 * Investigate `pattern-v3` separately from artifact default maintenance.
 * Confirm the default artifact rollback path remains simple and documented.
 
@@ -153,7 +154,7 @@ lines, or PR-specific context are needed.
 | Search move-teacher labels | A local-only artifact-search generator can rank every legal move for phases `0..9` using an explicit full-coverage teacher artifact and fixed search configuration; exact move teaching remains the late-game route. |
 | Dataset shape | Compact TSV example rows are the scalable path for local pattern training diagnostics. |
 | Pattern sets | `pattern-v1-buro-lite` is the earlier production-ish schema; `pattern-v2-endgame-lite` is the bounded endgame-oriented pattern set used by the current experimental default. |
-| Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics and reports; they are not standalone strength claims. |
+| Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics; v0e adds deterministic move-teacher pairwise ranking with optional value calibration. They are not standalone strength claims. |
 | Exact teacher labels | Exact root-label experiments were useful diagnostics but did not become the adopted default route. |
 | Move-teacher labels | Exact child labels made root move-ranking and decision leverage visible with the existing value trainer. |
 | Cache/materialization | Move-teacher cache and materialization flows support large local reruns while keeping labels and child-normalized TSVs local-only. |

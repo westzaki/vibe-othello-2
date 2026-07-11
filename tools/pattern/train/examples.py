@@ -86,6 +86,46 @@ class LoadResult:
     duplicate_feature_rows: DuplicateFeatureRows
     notes: list[str]
 
+
+@dataclass(frozen=True)
+class MoveTeacherMove:
+    root_board_id: str
+    root_record_id: str
+    root_split: str
+    root_phase: int
+    move: str
+    teacher_root_score: int
+    child_label_score: int
+    child_phase: int
+    provenance: "MoveTeacherProvenance | None"
+    example: Example
+
+
+@dataclass(frozen=True)
+class MoveTeacherRoot:
+    root_board_id: str
+    root_record_id: str
+    split: str
+    phase: int
+    moves: list[MoveTeacherMove]
+
+
+@dataclass(frozen=True)
+class MoveTeacherProvenance:
+    teacher_kind: str
+    teacher_source: str
+    teacher_artifact_id: str
+    teacher_artifact_checksum: str
+    teacher_search_config_id: str
+
+
+@dataclass(frozen=True)
+class MoveTeacherLoadResult:
+    roots: list[MoveTeacherRoot]
+    move_rows: int
+    schema_version: int
+    provenance: MoveTeacherProvenance | None
+
 def row_record_id(row: dict[str, Any] | None) -> str | None:
     if row is None:
         return None

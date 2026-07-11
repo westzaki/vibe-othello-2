@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
 from typing import Any
 
 from dataset_contract import PHASES, SPLITS
-from examples import Example, split_examples
-from objectives import PatternWeights, pattern_sgd_score, phase_bias_score, sign
+from examples import Example, MoveTeacherRoot, split_examples
+from objectives import PatternWeights, pairwise_logistic_loss_and_child_gradients, pattern_sgd_score, phase_bias_score, sign
 
 def metrics_for_examples(
     examples: list[Example],
@@ -158,3 +159,182 @@ def v0c_metrics_by_split_phase(
                 phase_bucket, phase_bias, pattern_weights
             )
     return result
+
+
+_PREDICTED_TIE_EPSILON = 1e-12
+
+
+@dataclass
+class RankingAccumulator:
+    root_count: int = 0
+    legal_move_count: int = 0
+    top1_correct: float = 0.0
+    top1_tie_aware_correct: float = 0.0
+    best_in_top2: float = 0.0
+    pairwise_correct: float = 0.0
+    pairwise_count: int = 0
+    pairwise_loss_sum: float = 0.0
+    roots_with_all_moves_same_predicted_score: int = 0
+    regrets: list[float] = field(default_factory=list)
+    value_absolute_error: float = 0.0
+    value_squared_error: float = 0.0
+    value_count: int = 0
+    predicted_score_min: float | None = None
+    predicted_score_max: float | None = None
+
+    def add_root(
+        self,
+        root: MoveTeacherRoot,
+        phase_bias: dict[str, float],
+        pattern_weights: PatternWeights,
+        tie_margin: float,
+        rank_temperature: float,
+    ) -> None:
+        predictions = [
+            -pattern_sgd_score(move.example, phase_bias, pattern_weights)
+            for move in root.moves
+        ]
+        child_values = [-prediction for prediction in predictions]
+        teacher_scores = [move.teacher_root_score for move in root.moves]
+        ordered_indices = sorted(
+            range(len(root.moves)), key=lambda index: (-predictions[index], root.moves[index].move)
+        )
+        best_teacher_score = max(teacher_scores)
+        teacher_best_indices = {
+            index
+            for index, teacher_score in enumerate(teacher_scores)
+            if best_teacher_score - teacher_score <= tie_margin
+        }
+        chosen_index = ordered_indices[0]
+        top_prediction = predictions[chosen_index]
+        predicted_top_indices = {
+            index
+            for index, prediction in enumerate(predictions)
+            if abs(prediction - top_prediction) <= _PREDICTED_TIE_EPSILON
+        }
+
+        self.root_count += 1
+        self.legal_move_count += len(root.moves)
+        self.top1_correct += 1.0 if chosen_index in teacher_best_indices else 0.0
+        self.top1_tie_aware_correct += (
+            1.0 if predicted_top_indices & teacher_best_indices else 0.0
+        )
+        self.best_in_top2 += (
+            1.0 if any(index in teacher_best_indices for index in ordered_indices[:2]) else 0.0
+        )
+        self.regrets.append(best_teacher_score - teacher_scores[chosen_index])
+        if max(predictions) - min(predictions) <= _PREDICTED_TIE_EPSILON:
+            self.roots_with_all_moves_same_predicted_score += 1
+        self.predicted_score_min = (
+            min(predictions)
+            if self.predicted_score_min is None
+            else min(self.predicted_score_min, min(predictions))
+        )
+        self.predicted_score_max = (
+            max(predictions)
+            if self.predicted_score_max is None
+            else max(self.predicted_score_max, max(predictions))
+        )
+
+        for move, value in zip(root.moves, child_values, strict=True):
+            error = value - move.child_label_score
+            self.value_absolute_error += abs(error)
+            self.value_squared_error += error * error
+            self.value_count += 1
+        for left in range(len(root.moves)):
+            for right in range(left + 1, len(root.moves)):
+                teacher_difference = teacher_scores[left] - teacher_scores[right]
+                if abs(teacher_difference) <= tie_margin:
+                    continue
+                if teacher_difference > 0.0:
+                    loss, _better_gradient, _worse_gradient = pairwise_logistic_loss_and_child_gradients(
+                        child_values[left], child_values[right], rank_temperature
+                    )
+                else:
+                    loss, _better_gradient, _worse_gradient = pairwise_logistic_loss_and_child_gradients(
+                        child_values[right], child_values[left], rank_temperature
+                    )
+                predicted_difference = predictions[left] - predictions[right]
+                self.pairwise_count += 1
+                self.pairwise_loss_sum += loss
+                if abs(predicted_difference) <= _PREDICTED_TIE_EPSILON:
+                    self.pairwise_correct += 0.5
+                elif sign(teacher_difference) == sign(predicted_difference):
+                    self.pairwise_correct += 1.0
+
+    def as_dict(self) -> dict[str, Any]:
+        if self.root_count == 0:
+            return {
+                "root_count": 0,
+                "legal_move_count": 0,
+                "top1_accuracy": None,
+                "top1_tie_aware_accuracy": None,
+                "best_move_in_top2_rate": None,
+                "pairwise_accuracy": None,
+                "pairwise_count": 0,
+                "pairwise_logistic_loss": None,
+                "mean_teacher_regret": None,
+                "median_teacher_regret": None,
+                "roots_with_all_moves_same_predicted_score": 0,
+                "predicted_score_range": None,
+                "value_MAE": None,
+                "value_RMSE": None,
+            }
+        return {
+            "root_count": self.root_count,
+            "legal_move_count": self.legal_move_count,
+            "top1_accuracy": self.top1_correct / self.root_count,
+            "top1_tie_aware_accuracy": self.top1_tie_aware_correct / self.root_count,
+            "best_move_in_top2_rate": self.best_in_top2 / self.root_count,
+            "pairwise_accuracy": (
+                self.pairwise_correct / self.pairwise_count if self.pairwise_count else None
+            ),
+            "pairwise_count": self.pairwise_count,
+            "pairwise_logistic_loss": (
+                self.pairwise_loss_sum / self.pairwise_count if self.pairwise_count else None
+            ),
+            "mean_teacher_regret": sum(self.regrets) / len(self.regrets),
+            "median_teacher_regret": median_float(self.regrets),
+            "roots_with_all_moves_same_predicted_score": self.roots_with_all_moves_same_predicted_score,
+            "predicted_score_range": {
+                "min": self.predicted_score_min,
+                "max": self.predicted_score_max,
+            },
+            "value_MAE": self.value_absolute_error / self.value_count,
+            "value_RMSE": math.sqrt(self.value_squared_error / self.value_count),
+        }
+
+
+def median_float(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def ranking_metrics_for_roots(
+    roots: list[MoveTeacherRoot],
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    tie_margin: float,
+    rank_temperature: float,
+) -> dict[str, Any]:
+    overall = RankingAccumulator()
+    by_split = {split: RankingAccumulator() for split in SPLITS}
+    by_phase = {str(phase): RankingAccumulator() for phase in PHASES}
+    for root in roots:
+        overall.add_root(root, phase_bias, pattern_weights, tie_margin, rank_temperature)
+        by_split[root.split].add_root(
+            root, phase_bias, pattern_weights, tie_margin, rank_temperature
+        )
+        by_phase[str(root.phase)].add_root(
+            root, phase_bias, pattern_weights, tie_margin, rank_temperature
+        )
+    return {
+        "overall": overall.as_dict(),
+        "by_split": {split: by_split[split].as_dict() for split in SPLITS},
+        "by_phase": {str(phase): by_phase[str(phase)].as_dict() for phase in PHASES},
+    }

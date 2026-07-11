@@ -10,9 +10,23 @@ import time
 from typing import Any
 
 from dataset_contract import PHASES
-from examples import Example
-from metrics import metrics_for_examples, max_abs_weight, v0c_metrics_for_examples, weight_l2_norm
-from objectives import PatternWeights, pattern_sgd_score, phase_bias_score
+from examples import Example, MoveTeacherRoot
+from metrics import (
+    max_abs_weight,
+    metrics_for_examples,
+    ranking_metrics_for_roots,
+    v0c_metrics_for_examples,
+    weight_l2_norm,
+)
+from objectives import (
+    PatternWeights,
+    huber_loss_and_gradient,
+    pairwise_logistic_loss_and_child_gradients,
+    pattern_sgd_score,
+    phase_bias_score,
+    sampled_rank_pairs,
+    stable_seed,
+)
 from weights_io import nonzero_pattern_weight_items, stable_float
 
 def train_counts_by_phase(examples: list[Example]) -> dict[str, int]:
@@ -510,3 +524,206 @@ def train_pattern_sgd_v0d(
         "final_validation_MAE": final_validation_metrics["MAE"],
     }
     return pattern_weights, stable_float(metrics_by_epoch), stable_float(state)
+
+
+def _clip_gradient(gradient: float, gradient_clip: float | None) -> tuple[float, bool]:
+    if gradient_clip is None:
+        return gradient, False
+    clipped = max(-gradient_clip, min(gradient_clip, gradient))
+    return clipped, clipped != gradient
+
+
+def _rank_epoch_metrics(
+    roots: list[MoveTeacherRoot],
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    return ranking_metrics_for_roots(
+        roots,
+        phase_bias,
+        pattern_weights,
+        args.tie_margin,
+        args.rank_temperature,
+    )
+
+
+def train_pattern_rank_v0e(
+    roots: list[MoveTeacherRoot],
+    initial_phase_bias: dict[str, float],
+    args: argparse.Namespace,
+) -> tuple[
+    dict[str, float], PatternWeights, list[dict[str, Any]], dict[str, Any], dict[str, int], list[int]
+]:
+    """Train V(child) with root-level pairwise ranking and optional value calibration."""
+    train_roots = [root for root in roots if root.split == "train"]
+    phase_bias = dict(initial_phase_bias)
+    pattern_weights: PatternWeights = {}
+    best_phase_bias = dict(phase_bias)
+    best_weights: PatternWeights = {}
+    best_validation_loss: float | None = None
+    best_epoch: int | None = None
+    epochs_without_improvement = 0
+    early_stop_triggered = False
+    epochs_completed = 0
+    metrics_by_epoch: list[dict[str, Any]] = []
+    sampling_totals = {
+        "eligible_pair_count": 0,
+        "selected_pair_count": 0,
+        "teacher_tie_pair_count": 0,
+        "roots_with_no_selected_pairs": 0,
+    }
+    updated_child_phases: set[int] = set()
+
+    for epoch in range(1, args.epochs + 1):
+        epochs_completed = epoch
+        epoch_roots = list(train_roots)
+        random.Random(args.seed + epoch - 1).shuffle(epoch_roots)
+        learning_rate = v0c_learning_rate(args.learning_rate, args.lr_schedule, epoch)
+        epoch_sampling = {
+            "eligible_pair_count": 0,
+            "selected_pair_count": 0,
+            "teacher_tie_pair_count": 0,
+            "roots_with_no_selected_pairs": 0,
+        }
+        gradient_clip_count = 0
+        updated_feature_occurrence_count = 0
+
+        for root_index, root in enumerate(epoch_roots, start=1):
+            child_values = [
+                pattern_sgd_score(move.example, phase_bias, pattern_weights)
+                for move in root.moves
+            ]
+            pairs, eligible_pair_count = sampled_rank_pairs(
+                root, args.tie_margin, args.pair_sampling_cap, args.seed
+            )
+            total_pair_count = len(root.moves) * (len(root.moves) - 1) // 2
+            epoch_sampling["eligible_pair_count"] += eligible_pair_count
+            epoch_sampling["selected_pair_count"] += len(pairs)
+            epoch_sampling["teacher_tie_pair_count"] += total_pair_count - eligible_pair_count
+            if not pairs:
+                epoch_sampling["roots_with_no_selected_pairs"] += 1
+            pair_order = list(pairs)
+            random.Random(stable_seed(args.seed, "pair-order", epoch, root.root_board_id)).shuffle(
+                pair_order
+            )
+
+            value_gradients = [0.0 for _move in root.moves]
+            if pair_order:
+                pair_scale = 1.0 / len(pair_order)
+                for pair in pair_order:
+                    updated_child_phases.add(root.moves[pair.better_index].example.phase)
+                    updated_child_phases.add(root.moves[pair.worse_index].example.phase)
+                    _loss, better_gradient, worse_gradient = pairwise_logistic_loss_and_child_gradients(
+                        child_values[pair.better_index],
+                        child_values[pair.worse_index],
+                        args.rank_temperature,
+                    )
+                    value_gradients[pair.better_index] += better_gradient * pair_scale
+                    value_gradients[pair.worse_index] += worse_gradient * pair_scale
+            if args.value_loss_weight > 0.0:
+                calibration_scale = args.value_loss_weight / len(root.moves)
+                for move_index, move in enumerate(root.moves):
+                    updated_child_phases.add(move.example.phase)
+                    _loss, gradient = huber_loss_and_gradient(
+                        child_values[move_index] - move.child_label_score
+                    )
+                    value_gradients[move_index] += gradient * calibration_scale
+
+            phase_bias_gradients: dict[str, float] = {}
+            pattern_gradients: dict[tuple[int, str, int], float] = {}
+            for move_index, move in enumerate(root.moves):
+                value_gradient = value_gradients[move_index]
+                phase_key = str(move.example.phase)
+                phase_bias_gradients[phase_key] = phase_bias_gradients.get(phase_key, 0.0) + value_gradient
+                for feature in move.example.features:
+                    key = (move.example.phase, feature.pattern_id, feature.ternary_index)
+                    pattern_gradients[key] = pattern_gradients.get(key, 0.0) + value_gradient
+                    updated_feature_occurrence_count += 1
+
+            for phase_key in sorted(phase_bias_gradients):
+                gradient, clipped = _clip_gradient(phase_bias_gradients[phase_key], args.gradient_clip)
+                gradient_clip_count += int(clipped)
+                phase_bias[phase_key] -= learning_rate * gradient
+            weight_decay = v0c_weight_decay(args)
+            for key in sorted(pattern_gradients):
+                gradient, clipped = _clip_gradient(pattern_gradients[key], args.gradient_clip)
+                gradient_clip_count += int(clipped)
+                weight = pattern_weights.get(key, 0.0)
+                weight -= learning_rate * (gradient + weight_decay * weight)
+                if weight == 0.0:
+                    pattern_weights.pop(key, None)
+                else:
+                    pattern_weights[key] = weight
+
+            if (
+                args.progress_every_examples is not None
+                and root_index % args.progress_every_examples == 0
+            ):
+                print(
+                    "trainer_progress "
+                    f"epoch={epoch} roots={root_index}/{len(epoch_roots)} "
+                    f"selected_pairs={epoch_sampling['selected_pair_count']}",
+                    file=sys.stderr,
+                )
+
+        for key in sampling_totals:
+            sampling_totals[key] += epoch_sampling[key]
+        needs_metrics = args.eval_every_epoch or epoch == args.epochs or args.early_stop_patience is not None
+        current_metrics = _rank_epoch_metrics(roots, phase_bias, pattern_weights, args) if needs_metrics else None
+        validation = None if current_metrics is None else current_metrics["by_split"]["validation"]
+        validation_loss = None if validation is None else validation["pairwise_logistic_loss"]
+        if validation_loss is not None:
+            if best_validation_loss is None or validation_loss < best_validation_loss:
+                best_validation_loss = validation_loss
+                best_epoch = epoch
+                best_phase_bias = dict(phase_bias)
+                best_weights = dict(pattern_weights)
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+        if args.eval_every_epoch or epoch == args.epochs:
+            assert current_metrics is not None
+            metrics_by_epoch.append(
+                {
+                    "epoch": epoch,
+                    "learning_rate": learning_rate,
+                    "ranking_metrics": current_metrics,
+                    "pair_sampling": epoch_sampling,
+                    "nonzero_weight_count": len(nonzero_pattern_weight_items(pattern_weights)),
+                    "weight_l2_norm": weight_l2_norm(pattern_weights),
+                    "max_abs_weight": max_abs_weight(pattern_weights),
+                    "gradient_clip_count": gradient_clip_count if args.gradient_clip is not None else None,
+                    "updated_feature_occurrence_count": updated_feature_occurrence_count,
+                }
+            )
+        if (
+            args.early_stop_patience is not None
+            and validation_loss is not None
+            and epochs_without_improvement >= args.early_stop_patience
+        ):
+            early_stop_triggered = True
+            break
+
+    if early_stop_triggered and best_epoch is not None:
+        phase_bias = best_phase_bias
+        pattern_weights = best_weights
+    final_metrics = _rank_epoch_metrics(roots, phase_bias, pattern_weights, args)
+    state = {
+        "epochs_requested": args.epochs,
+        "epochs_completed": epochs_completed,
+        "early_stop_triggered": early_stop_triggered,
+        "best_epoch": best_epoch,
+        "best_validation_pairwise_logistic_loss": best_validation_loss,
+        "final_validation_pairwise_logistic_loss": final_metrics["by_split"]["validation"][
+            "pairwise_logistic_loss"
+        ],
+    }
+    return (
+        stable_float(phase_bias),
+        pattern_weights,
+        stable_float(metrics_by_epoch),
+        stable_float(state),
+        sampling_totals,
+        sorted(updated_child_phases),
+    )
