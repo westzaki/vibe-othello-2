@@ -181,6 +181,7 @@ TEST_CASE("loaded pattern weights convert to evaluator runtime tables") {
 
   REQUIRE(runtime_weights.has_value());
   REQUIRE(runtime_weights->phase_count() == 2);
+  REQUIRE(runtime_weights->score_scale() == 1);
   REQUIRE(runtime_weights->phase_bias(0) == 10);
   REQUIRE(runtime_weights->phase_bias(1) == 20);
   REQUIRE(std::vector<search::Score>(runtime_weights->phase_biases().begin(),
@@ -213,6 +214,20 @@ TEST_CASE("pattern weight artifact loader validates score unit") {
 TEST_CASE("pattern weight artifact loader validates score scale") {
   require_error(tiny_manifest(), tiny_artifact(ArtifactOptions{.score_scale = 100}),
                 PatternWeightsLoadError::unsupported_score_scale);
+}
+
+TEST_CASE("pattern weight artifact loader accepts matching fixed point score scale") {
+  PatternManifest manifest = tiny_manifest();
+  manifest.score_scale = 100;
+  const PatternWeightsLoadResult result =
+      load_pattern_weights(manifest, tiny_artifact(ArtifactOptions{.score_scale = 100}));
+
+  REQUIRE(result.ok());
+  REQUIRE(result.weights->manifest.score_scale == 100);
+  const std::optional<PatternWeights> runtime_weights =
+      make_pattern_weights(*result.weights, std::array<std::uint8_t, 65>{});
+  REQUIRE(runtime_weights.has_value());
+  REQUIRE(runtime_weights->score_scale() == 100);
 }
 
 TEST_CASE("pattern weight artifact loader validates phase count") {

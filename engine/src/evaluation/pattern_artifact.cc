@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -29,7 +30,9 @@ struct ArtifactManifestFields {
   std::string pattern_set_id;
   std::filesystem::path weights_file;
   std::string weights_checksum;
+  std::uint16_t score_scale = 1;
   std::optional<std::vector<std::uint8_t>> trained_phases;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
 };
 
 struct LoadedPatternArtifactCore {
@@ -37,6 +40,7 @@ struct LoadedPatternArtifactCore {
   std::string pattern_set_id;
   std::string weights_checksum;
   std::optional<std::vector<std::uint8_t>> trained_phases;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
   PatternWeights weights;
   PatternFeatureSet feature_set;
 };
@@ -165,6 +169,14 @@ read_binary_file(const std::filesystem::path& path) {
   int value = 0;
   const auto [ptr, ec] = std::from_chars(begin, end, value);
   if (ec != std::errc{} || ptr == begin) {
+    return std::nullopt;
+  }
+  const char* cursor = ptr;
+  while (cursor < end &&
+         (*cursor == ' ' || *cursor == '\n' || *cursor == '\r' || *cursor == '\t')) {
+    ++cursor;
+  }
+  if (cursor < end && *cursor != ',' && *cursor != '}' && *cursor != ']') {
     return std::nullopt;
   }
   return value;
@@ -320,8 +332,9 @@ parse_trained_phases(std::string_view json, std::string_view manifest_label, std
     return std::string(path) + ": score_unit must be disc-diff";
   }
   const std::optional<int> score_scale = json_int_field(manifest_text, "score_scale");
-  if (!score_scale.has_value() || *score_scale != 1) {
-    return std::string(path) + ": score_scale must be 1";
+  if (!score_scale.has_value() || *score_scale <= 0 ||
+      *score_scale > std::numeric_limits<std::uint16_t>::max()) {
+    return std::string(path) + ": score_scale must be in [1, 65535]";
   }
   const std::optional<int> phase_count = json_int_field(manifest_text, "phase_count");
   if (!phase_count.has_value() || *phase_count != kRuntimePhaseCount) {
@@ -369,9 +382,28 @@ parse_manifest_fields(std::string_view manifest_text, std::string_view manifest_
     *error = manifest_label_string + ": missing string field weights_checksum";
     return std::nullopt;
   }
+  const std::optional<int> score_scale = json_int_field(manifest_text, "score_scale");
+  if (!score_scale.has_value() || *score_scale <= 0 ||
+      *score_scale > std::numeric_limits<std::uint16_t>::max()) {
+    *error = manifest_label_string + ": score_scale must be in [1, 65535]";
+    return std::nullopt;
+  }
   const std::optional<std::vector<std::uint8_t>> trained_phases =
       parse_trained_phases(manifest_text, manifest_label, error);
   if (!error->empty()) {
+    return std::nullopt;
+  }
+  const bool has_fallback_additive_through_phase =
+      field_value_offset(manifest_text, "fallback_additive_through_phase").has_value();
+  const std::optional<int> fallback_additive_through_phase =
+      json_int_field(manifest_text, "fallback_additive_through_phase");
+  if (has_fallback_additive_through_phase && !fallback_additive_through_phase.has_value()) {
+    *error = manifest_label_string + ": fallback_additive_through_phase must be an integer";
+    return std::nullopt;
+  }
+  if (fallback_additive_through_phase.has_value() &&
+      (*fallback_additive_through_phase < 0 || *fallback_additive_through_phase >= 13)) {
+    *error = manifest_label_string + ": fallback_additive_through_phase must be in [0, 12]";
     return std::nullopt;
   }
   return ArtifactManifestFields{
@@ -379,7 +411,13 @@ parse_manifest_fields(std::string_view manifest_text, std::string_view manifest_
       .pattern_set_id = *pattern_set_id,
       .weights_file = std::move(weights_path),
       .weights_checksum = *weights_checksum,
+      .score_scale = static_cast<std::uint16_t>(*score_scale),
       .trained_phases = trained_phases,
+      .fallback_additive_through_phase =
+          fallback_additive_through_phase.has_value()
+              ? std::optional<std::uint8_t>{static_cast<std::uint8_t>(
+                    *fallback_additive_through_phase)}
+              : std::nullopt,
   };
 }
 
@@ -404,7 +442,7 @@ load_pattern_artifact_core(const ArtifactManifestFields& fields, std::string_vie
       .format_version = kPatternWeightFormatVersion,
       .bit_order = PatternBitOrder::a1_lsb,
       .score_unit = PatternScoreUnit::disc_diff,
-      .score_scale = 1,
+      .score_scale = fields.score_scale,
       .phase_count = kRuntimePhaseCount,
       .pattern_set_id = runtime->pattern_set->id,
       .patterns = runtime->pattern_set->patterns,
@@ -427,6 +465,7 @@ load_pattern_artifact_core(const ArtifactManifestFields& fields, std::string_vie
               .pattern_set_id = fields.pattern_set_id,
               .weights_checksum = fields.weights_checksum,
               .trained_phases = fields.trained_phases,
+              .fallback_additive_through_phase = fields.fallback_additive_through_phase,
               .weights = std::move(*weights),
               .feature_set = std::move(runtime->feature_set),
           },
@@ -472,6 +511,7 @@ load_pattern_artifact_impl(const std::filesystem::path& manifest_path,
               .pattern_set_id = std::move(artifact_core.pattern_set_id),
               .weights_checksum = std::move(artifact_core.weights_checksum),
               .trained_phases = std::move(artifact_core.trained_phases),
+              .fallback_additive_through_phase = artifact_core.fallback_additive_through_phase,
               .manifest_path = manifest_path,
               .weights_path = weights_path,
               .weights = std::move(artifact_core.weights),
@@ -548,6 +588,7 @@ load_pattern_artifact_from_bytes(std::string_view manifest_text,
               .pattern_set_id = std::move(artifact_core.pattern_set_id),
               .weights_checksum = std::move(artifact_core.weights_checksum),
               .trained_phases = std::move(artifact_core.trained_phases),
+              .fallback_additive_through_phase = artifact_core.fallback_additive_through_phase,
               .weights = std::move(artifact_core.weights),
               .feature_set = std::move(artifact_core.feature_set),
           },

@@ -551,6 +551,8 @@ def _rank_epoch_metrics(
 def train_pattern_rank_v0e(
     roots: list[MoveTeacherRoot],
     initial_phase_bias: dict[str, float],
+    initial_pattern_weights: PatternWeights,
+    frozen_phases: frozenset[int],
     args: argparse.Namespace,
 ) -> tuple[
     dict[str, float], PatternWeights, list[dict[str, Any]], dict[str, Any], dict[str, int], list[int]
@@ -558,9 +560,9 @@ def train_pattern_rank_v0e(
     """Train V(child) with root-level pairwise ranking and optional value calibration."""
     train_roots = [root for root in roots if root.split == "train"]
     phase_bias = dict(initial_phase_bias)
-    pattern_weights: PatternWeights = {}
+    pattern_weights: PatternWeights = dict(initial_pattern_weights)
     best_phase_bias = dict(phase_bias)
-    best_weights: PatternWeights = {}
+    best_weights: PatternWeights = dict(pattern_weights)
     best_validation_loss: float | None = None
     best_epoch: int | None = None
     epochs_without_improvement = 0
@@ -612,8 +614,10 @@ def train_pattern_rank_v0e(
             if pair_order:
                 pair_scale = 1.0 / len(pair_order)
                 for pair in pair_order:
-                    updated_child_phases.add(root.moves[pair.better_index].example.phase)
-                    updated_child_phases.add(root.moves[pair.worse_index].example.phase)
+                    if root.moves[pair.better_index].example.phase not in frozen_phases:
+                        updated_child_phases.add(root.moves[pair.better_index].example.phase)
+                    if root.moves[pair.worse_index].example.phase not in frozen_phases:
+                        updated_child_phases.add(root.moves[pair.worse_index].example.phase)
                     _loss, better_gradient, worse_gradient = pairwise_logistic_loss_and_child_gradients(
                         child_values[pair.better_index],
                         child_values[pair.worse_index],
@@ -624,7 +628,8 @@ def train_pattern_rank_v0e(
             if args.value_loss_weight > 0.0:
                 calibration_scale = args.value_loss_weight / len(root.moves)
                 for move_index, move in enumerate(root.moves):
-                    updated_child_phases.add(move.example.phase)
+                    if move.example.phase not in frozen_phases:
+                        updated_child_phases.add(move.example.phase)
                     _loss, gradient = huber_loss_and_gradient(
                         child_values[move_index] - move.child_label_score
                     )
@@ -642,11 +647,15 @@ def train_pattern_rank_v0e(
                     updated_feature_occurrence_count += 1
 
             for phase_key in sorted(phase_bias_gradients):
+                if int(phase_key) in frozen_phases:
+                    continue
                 gradient, clipped = _clip_gradient(phase_bias_gradients[phase_key], args.gradient_clip)
                 gradient_clip_count += int(clipped)
                 phase_bias[phase_key] -= learning_rate * gradient
             weight_decay = v0c_weight_decay(args)
             for key in sorted(pattern_gradients):
+                if key[0] in frozen_phases:
+                    continue
                 gradient, clipped = _clip_gradient(pattern_gradients[key], args.gradient_clip)
                 gradient_clip_count += int(clipped)
                 weight = pattern_weights.get(key, 0.0)

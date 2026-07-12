@@ -400,7 +400,8 @@ int main(int argc, char** argv) {
     eval::LoadedPatternArtifact artifact = std::move(*result.artifact);
     try {
       phase_aware_evaluator.emplace(std::move(artifact.weights), std::move(artifact.feature_set),
-                                    std::move(artifact.trained_phases));
+                                    std::move(artifact.trained_phases),
+                                    artifact.fallback_additive_through_phase);
     } catch (const std::exception& error) {
       std::cerr << "phase-aware evaluator rejected artifact: " << error.what() << '\n';
       return 2;

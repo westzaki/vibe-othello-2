@@ -36,7 +36,8 @@ struct WasmEvaluationArtifact {
         pattern_set_id(std::move(artifact.pattern_set_id)),
         weights_checksum(std::move(artifact.weights_checksum)),
         trained_phases(std::move(artifact.trained_phases)),
-        evaluator(std::move(artifact.weights), std::move(artifact.feature_set), trained_phases) {}
+        evaluator(std::move(artifact.weights), std::move(artifact.feature_set), trained_phases,
+                  artifact.fallback_additive_through_phase) {}
 
   std::string artifact_id;
   std::string pattern_set_id;

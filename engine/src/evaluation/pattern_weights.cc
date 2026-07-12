@@ -176,7 +176,7 @@ struct Reader {
   if (manifest.score_unit != PatternScoreUnit::disc_diff) {
     return PatternWeightsLoadError::unsupported_score_unit;
   }
-  if (manifest.score_scale != 1) {
+  if (manifest.score_scale == 0) {
     return PatternWeightsLoadError::unsupported_score_scale;
   }
   if (manifest.phase_count == 0) {
@@ -234,7 +234,7 @@ validate_header(const Header& header, const PatternManifest& manifest,
   if (header.score_unit != static_cast<std::uint16_t>(manifest.score_unit)) {
     return PatternWeightsLoadError::score_unit_mismatch;
   }
-  if (header.score_scale != 1 || header.score_scale != manifest.score_scale) {
+  if (header.score_scale == 0 || header.score_scale != manifest.score_scale) {
     return PatternWeightsLoadError::unsupported_score_scale;
   }
   if (header.phase_count != manifest.phase_count) {
@@ -329,9 +329,10 @@ PatternWeightsLoadResult load_pattern_weights(const PatternManifest& manifest,
 PatternWeights::PatternWeights(std::uint8_t phase_count,
                                std::array<std::uint8_t, kDiscCountEntries> phase_by_disc_count,
                                std::vector<search::Score> phase_biases,
-                               std::vector<PatternWeightTable> tables)
+                               std::vector<PatternWeightTable> tables, std::uint16_t score_scale)
     : phase_count_(phase_count), phase_by_disc_count_(phase_by_disc_count),
-      phase_biases_(std::move(phase_biases)), tables_(std::move(tables)) {}
+      phase_biases_(std::move(phase_biases)), tables_(std::move(tables)),
+      score_scale_(score_scale) {}
 
 std::uint8_t PatternWeights::phase_for_disc_count(int disc_count) const noexcept {
   if (disc_count < 0) {
@@ -433,6 +434,7 @@ std::optional<PatternWeights> make_pattern_weights(
       phase_by_disc_count,
       std::move(phase_biases),
       std::move(tables),
+      loaded.manifest.score_scale,
   };
 }
 

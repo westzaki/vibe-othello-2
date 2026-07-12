@@ -36,6 +36,7 @@ MOVE_TEACHER_HEADER_V2 = [
     "move_rank", "best_score_margin", "teacher_kind", "teacher_source", "teacher_artifact_id",
     "teacher_artifact_checksum", "teacher_depth", "teacher_nodes", "teacher_search_config_id",
 ]
+PHASES = tuple(range(13))
 SCALE_ROOTS = {"smoke": 1, "diagnostic": 5_000, "candidate": 20_000, "large": 50_000}
 SCALE_ARENA_POSITIONS = {"smoke": 1, "diagnostic": 500, "candidate": 1_000, "large": 2_000}
 SCALE_OPENING_LIMIT = {"smoke": 1, "diagnostic": 32, "candidate": 128, "large": 256}
@@ -81,6 +82,20 @@ def parse_int_list(text: str, option: str, *, minimum: int = 0) -> list[int]:
     if not values or any(value < minimum for value in values) or len(set(values)) != len(values):
         raise argparse.ArgumentTypeError(f"{option} must contain unique integers >= {minimum}")
     return values
+
+
+def parse_phase_quota(text: str) -> tuple[int, int]:
+    try:
+        phase_text, count_text = text.split("=", 1)
+        phase = int(phase_text)
+        count = int(count_text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("phase quota must use PHASE=COUNT") from error
+    if phase not in PHASES:
+        raise argparse.ArgumentTypeError("phase quota phase must be in [0, 12]")
+    if count <= 0:
+        raise argparse.ArgumentTypeError("phase quota count must be positive")
+    return phase, count
 
 
 def sha256_file(path: Path) -> str:
@@ -444,6 +459,22 @@ def full_game_summary(paths: dict[str, Path]) -> dict[str, Any]:
 
 def validate_selection_train_coverage(path: Path) -> None:
     report = load_json(path)
+    collision_counts: dict[str, int] = {}
+    for field in (
+        "selected_cross_split_board_collision_count",
+        "selected_cross_split_game_group_collision_count",
+    ):
+        value = report.get(field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise CycleError(f"phase selection report has invalid {field}")
+        collision_counts[field] = value
+    if any(collision_counts.values()):
+        raise CycleError(
+            "phase selection report has selected cross-split leakage: "
+            f"board_id={collision_counts['selected_cross_split_board_collision_count']}, "
+            "game_group_id="
+            f"{collision_counts['selected_cross_split_game_group_collision_count']}"
+        )
     phase_split_counts = report.get("selected_phase_split_counts")
     if not isinstance(phase_split_counts, dict):
         raise CycleError("phase selection report has no selected phase/split coverage")
@@ -507,6 +538,13 @@ def decision_for_run(
         "seed": seed,
         "scale": args.scale,
         "selected_roots": selection.get("selected_rows"),
+        "requested_roots": selection.get("requested_rows"),
+        "phase_quotas": selection.get("selection_policy", {}).get("phase_quotas"),
+        "phase_quota_overrides": selection.get("selection_policy", {}).get("phase_quota_overrides"),
+        "selected_split_policy": selection.get("selection_policy", {}).get("selected_split_policy"),
+        "train_only_phases": selection.get("selection_policy", {}).get("train_only_phases"),
+        "artifact_score_scale": args.artifact_score_scale,
+        "fallback_additive_through_phase": args.fallback_additive_through_phase,
         "phase_coverage": teacher_bundle.get("root_phase_coverage"),
         "child_rows": teacher_bundle.get("child_rows"),
         "rejected_or_incomplete_teacher_roots": teacher_bundle.get("teacher_root_summary"),
@@ -535,7 +573,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--scale", choices=tuple(SCALE_ROOTS), default="smoke")
     parser.add_argument("--roots-per-phase", type=int)
+    parser.add_argument(
+        "--phase-quota",
+        action="append",
+        default=[],
+        type=parse_phase_quota,
+        metavar="PHASE=COUNT",
+        help="Override the base root quota for one phase; repeat for multiple phases.",
+    )
     parser.add_argument("--max-roots-per-game-group", type=int)
+    parser.add_argument(
+        "--selected-split-policy",
+        choices=("preserve", "game-group-hash"),
+        default="preserve",
+        help="Preserve input splits or deterministically resplit cap-1 selected roots by game group.",
+    )
+    parser.add_argument(
+        "--train-only-phase",
+        action="append",
+        default=[],
+        type=int,
+        metavar="PHASE",
+        help="Force selected roots in one phase to train after split assignment; repeat as needed.",
+    )
     parser.add_argument("--seeds", default="0", type=lambda value: parse_int_list(value, "--seeds"))
     parser.add_argument("--pattern-set", default="pattern-v2-endgame-lite")
     parser.add_argument("--teacher-manifest", required=True, type=Path)
@@ -556,6 +616,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--value-loss-weight", type=float, default=0.05)
     parser.add_argument("--pair-sampling-cap", type=int, default=64)
     parser.add_argument("--tie-margin", type=float, default=0.0)
+    parser.add_argument("--artifact-score-scale", type=int, default=1)
+    parser.add_argument("--fallback-additive-through-phase", type=int)
+    parser.add_argument("--initial-weights", type=Path)
+    parser.add_argument(
+        "--initial-trained-phases",
+        type=lambda value: parse_int_list(value, "--initial-trained-phases"),
+    )
+    parser.add_argument(
+        "--freeze-phases",
+        default=[],
+        type=lambda value: parse_int_list(value, "--freeze-phases"),
+    )
     parser.add_argument("--gradient-clip", type=float)
     parser.add_argument("--early-stop-patience", type=int)
     parser.add_argument("--arena-depths", default="3", type=lambda value: parse_int_list(value, "--arena-depths", minimum=1))
@@ -581,6 +653,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full-arena-exe", type=Path, default=root / "build/tools/arena/vibe-othello-full-game-artifact-arena")
     args = parser.parse_args()
     args.roots_per_phase = args.roots_per_phase or SCALE_ROOTS[args.scale]
+    override_phases = [phase for phase, _ in args.phase_quota]
+    if len(set(override_phases)) != len(override_phases):
+        parser.error("--phase-quota must not repeat a phase")
+    args.phase_quota_overrides = dict(args.phase_quota)
+    args.phase_quotas = {
+        phase: args.phase_quota_overrides.get(phase, args.roots_per_phase) for phase in PHASES
+    }
     if args.max_roots_per_game_group is None and args.scale in ("candidate", "large"):
         args.max_roots_per_game_group = 1
     args.arena_max_positions = args.arena_max_positions or SCALE_ARENA_POSITIONS[args.scale]
@@ -589,6 +668,13 @@ def parse_args() -> argparse.Namespace:
         parser.error("root quota and search depths must be positive")
     if args.max_roots_per_game_group is not None and args.max_roots_per_game_group <= 0:
         parser.error("--max-roots-per-game-group must be positive")
+    if args.selected_split_policy == "game-group-hash" and args.max_roots_per_game_group != 1:
+        parser.error("--selected-split-policy game-group-hash requires --max-roots-per-game-group 1")
+    if any(phase not in PHASES for phase in args.train_only_phase):
+        parser.error("--train-only-phase must be in [0, 12]")
+    if len(set(args.train_only_phase)) != len(args.train_only_phase):
+        parser.error("--train-only-phase must not repeat a phase")
+    args.train_only_phases = frozenset(args.train_only_phase)
     if args.search_max_nodes < 0 or args.full_game_max_nodes < 0 or args.search_max_time_ms < 0 or args.exact_max_empty < 0 or args.exact_max_empty > 64:
         parser.error("search and exact bounds are invalid")
     if args.search_max_nodes == 0 and args.search_max_time_ms != 0:
@@ -597,6 +683,21 @@ def parse_args() -> argparse.Namespace:
         parser.error("trainer values must be non-negative")
     if args.rank_temperature <= 0 or args.pair_sampling_cap < 0 or args.arena_max_positions <= 0 or args.full_game_opening_limit <= 0:
         parser.error("rank/arena values are invalid")
+    if args.artifact_score_scale <= 0 or args.artifact_score_scale > 65535:
+        parser.error("--artifact-score-scale must be in [1, 65535]")
+    if args.fallback_additive_through_phase is not None and not (
+        0 <= args.fallback_additive_through_phase < len(PHASES)
+    ):
+        parser.error("--fallback-additive-through-phase must be in [0, 12]")
+    if args.initial_weights is None and (args.initial_trained_phases is not None or args.freeze_phases):
+        parser.error("warm-start phase arguments require --initial-weights")
+    if args.initial_weights is not None and args.initial_trained_phases is None:
+        parser.error("--initial-weights requires --initial-trained-phases")
+    initial_phases = [] if args.initial_trained_phases is None else args.initial_trained_phases
+    if any(phase not in PHASES for phase in [*initial_phases, *args.freeze_phases]):
+        parser.error("warm-start phases must be in [0, 12]")
+    if not set(args.freeze_phases).issubset(initial_phases):
+        parser.error("--freeze-phases must be a subset of --initial-trained-phases")
     return args
 
 
@@ -606,12 +707,33 @@ def required_tools(args: argparse.Namespace) -> list[Path]:
 
 def preflight(args: argparse.Namespace) -> dict[str, Any]:
     paths = [args.normalized_tsv, args.teacher_manifest, args.teacher_weights, args.baseline_manifest, args.baseline_weights, args.full_game_openings]
+    if args.initial_weights is not None:
+        paths.append(args.initial_weights)
     if not args.dry_run:
         for path in [*paths, *required_tools(args)]:
             if not path.is_file():
                 raise CycleError(f"required local input/tool is missing: {path}")
         check_full_teacher_coverage(args.teacher_manifest)
-    return {"status": "planned" if args.dry_run else "ok", "scale": args.scale, "roots_per_phase": args.roots_per_phase, "max_roots_per_game_group": args.max_roots_per_game_group, "seeds": args.seeds, "warnings": LOCAL_ONLY_WARNINGS}
+    return {
+        "status": "planned" if args.dry_run else "ok",
+        "scale": args.scale,
+        "roots_per_phase": args.roots_per_phase,
+        "phase_quotas": {str(phase): args.phase_quotas[phase] for phase in PHASES},
+        "phase_quota_overrides": {
+            str(phase): count for phase, count in sorted(args.phase_quota_overrides.items())
+        },
+        "requested_roots": sum(args.phase_quotas.values()),
+        "max_roots_per_game_group": args.max_roots_per_game_group,
+        "selected_split_policy": args.selected_split_policy,
+        "train_only_phases": sorted(args.train_only_phases),
+        "artifact_score_scale": args.artifact_score_scale,
+        "fallback_additive_through_phase": args.fallback_additive_through_phase,
+        "initial_weights": None if args.initial_weights is None else report_path(args.initial_weights),
+        "initial_trained_phases": args.initial_trained_phases,
+        "freeze_phases": args.freeze_phases,
+        "seeds": args.seeds,
+        "warnings": LOCAL_ONLY_WARNINGS,
+    }
 
 
 def main() -> int:
@@ -631,8 +753,14 @@ def main() -> int:
             early_selected = selection_dir / "selected-midgame.tsv"
             late_selected = selection_dir / "selected-late-game.tsv"
             selection_command = [sys.executable, str(args.selector), "--normalized-tsv", str(args.normalized_tsv), "--output-tsv", str(selected), "--report-out", str(selection_report), "--roots-per-phase", str(args.roots_per_phase), "--seed", str(seed), "--require-all-phases"]
+            for phase, count in sorted(args.phase_quota_overrides.items()):
+                selection_command.extend(["--phase-quota", f"{phase}={count}"])
             if args.max_roots_per_game_group is not None:
                 selection_command.extend(["--max-roots-per-game-group", str(args.max_roots_per_game_group)])
+            if args.selected_split_policy != "preserve":
+                selection_command.extend(["--selected-split-policy", args.selected_split_policy])
+            for phase in sorted(args.train_only_phases):
+                selection_command.extend(["--train-only-phase", str(phase)])
             stages: dict[str, Any] = {}
             def run_selection() -> None:
                 run_command(selection_command)
@@ -673,13 +801,35 @@ def main() -> int:
                 train_command.extend(["--gradient-clip", str(args.gradient_clip)])
             if args.early_stop_patience is not None:
                 train_command.extend(["--early-stop-patience", str(args.early_stop_patience)])
-            stages["rank_train"] = execute_stage(args=args, name="rank_train", run_dir=run_dir, repo_sha=commit_sha, config={"command": train_command}, inputs=[("dataset", dataset), ("dataset_report", dataset_report), ("search_move_teacher", search_move), ("exact_move_teacher", exact_move)], tools=[args.trainer], outputs=[weights_json, trainer_report], action=lambda: run_command(train_command))
+            if args.initial_weights is not None:
+                train_command.extend(["--initial-weights", str(args.initial_weights)])
+                train_command.extend(
+                    ["--initial-trained-phases", *[str(value) for value in args.initial_trained_phases]]
+                )
+                for phase in args.freeze_phases:
+                    train_command.extend(["--freeze-phase", str(phase)])
+            train_inputs = [
+                ("dataset", dataset),
+                ("dataset_report", dataset_report),
+                ("search_move_teacher", search_move),
+                ("exact_move_teacher", exact_move),
+            ]
+            if args.initial_weights is not None:
+                train_inputs.append(("initial_weights", args.initial_weights))
+            stages["rank_train"] = execute_stage(args=args, name="rank_train", run_dir=run_dir, repo_sha=commit_sha, config={"command": train_command}, inputs=train_inputs, tools=[args.trainer], outputs=[weights_json, trainer_report], action=lambda: run_command(train_command))
 
             export_dir = run_dir / "export"
             candidate_weights = export_dir / "candidate.weights.bin"
             candidate_manifest = export_dir / "candidate.manifest.json"
             trained_phases = list(range(13)) if args.dry_run else trainer_trained_phases(trainer_report)
-            export_command = [sys.executable, str(args.exporter), "--weights-json", str(weights_json), "--weights-out", str(candidate_weights), "--manifest-out", str(candidate_manifest), "--pattern-set", args.pattern_set, "--catalog-dump-exe", str(args.catalog_dump_exe), "--trained-phases", *[str(value) for value in trained_phases]]
+            export_command = [sys.executable, str(args.exporter), "--weights-json", str(weights_json), "--weights-out", str(candidate_weights), "--manifest-out", str(candidate_manifest), "--pattern-set", args.pattern_set, "--score-scale", str(args.artifact_score_scale), "--catalog-dump-exe", str(args.catalog_dump_exe), "--trained-phases", *[str(value) for value in trained_phases]]
+            if args.fallback_additive_through_phase is not None:
+                export_command.extend(
+                    [
+                        "--fallback-additive-through-phase",
+                        str(args.fallback_additive_through_phase),
+                    ]
+                )
             stages["export"] = execute_stage(args=args, name="export", run_dir=run_dir, repo_sha=commit_sha, config={"command": export_command, "trained_phases_source": "trainer-report"}, inputs=[("weights_json", weights_json), ("trainer_report", trainer_report)], tools=[args.exporter, args.catalog_dump_exe], outputs=[candidate_weights, candidate_manifest], action=lambda: run_command(export_command))
 
             ranking_dir = run_dir / "offline_ranking"

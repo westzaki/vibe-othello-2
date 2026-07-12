@@ -233,6 +233,74 @@ def check_shortage_and_partial(selector: Path, root: Path) -> bool:
     return True
 
 
+def check_phase_quota_overrides(selector: Path, root: Path) -> bool:
+    normalized = root / "override-input.tsv"
+    output = root / "override-output.tsv"
+    report_path = root / "override-report.json"
+    write_tsv(normalized, HEADER_V2, phase_rows(4, game_prefix="override"))
+    result = run_selector(
+        selector,
+        normalized,
+        output,
+        report_path,
+        3,
+        "--phase-quota",
+        "0=1",
+        "--phase-quota",
+        "12=2",
+        "--max-roots-per-game-group",
+        "1",
+        "--require-all-phases",
+    )
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr)
+        return False
+    report = load_report(report_path)
+    selected_counts = Counter(row["phase"] for row in read_rows(output))
+    expected = Counter({str(phase): 3 for phase in range(1, 12)})
+    expected.update({"0": 1, "12": 2})
+    if selected_counts != expected or report.get("selected_rows") != 36:
+        print(f"phase quota override mismatch: {selected_counts} {report}", file=sys.stderr)
+        return False
+    policy = report.get("selection_policy", {})
+    if (
+        report.get("requested_rows") != 36
+        or policy.get("phase_quota_overrides") != {"0": 1, "12": 2}
+        or policy.get("phase_quotas", {}).get("0") != 1
+        or policy.get("phase_quotas", {}).get("1") != 3
+        or report.get("command_args", {}).get("phase_quota_overrides") != {"0": 1, "12": 2}
+    ):
+        print(f"phase quota report mismatch: {report}", file=sys.stderr)
+        return False
+    duplicate = run_selector(
+        selector,
+        normalized,
+        root / "override-duplicate.tsv",
+        root / "override-duplicate.json",
+        3,
+        "--phase-quota",
+        "0=1",
+        "--phase-quota",
+        "0=2",
+    )
+    if duplicate.returncode == 0 or "must not repeat a phase" not in duplicate.stderr:
+        print(f"duplicate phase quota should fail: {duplicate.stderr}", file=sys.stderr)
+        return False
+    invalid = run_selector(
+        selector,
+        normalized,
+        root / "override-invalid.tsv",
+        root / "override-invalid.json",
+        3,
+        "--phase-quota",
+        "13=1",
+    )
+    if invalid.returncode == 0 or "phase must be in [0, 12]" not in invalid.stderr:
+        print(f"invalid phase quota should fail: {invalid.stderr}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_determinism(selector: Path, root: Path) -> bool:
     normalized = root / "deterministic-input.tsv"
     write_tsv(normalized, HEADER_V2, phase_rows(12, game_prefix="deterministic"))
@@ -310,6 +378,96 @@ def check_connected_split_preservation(selector: Path, root: Path) -> bool:
     rejected_game = run_selector(selector, game_leak, root / "game-leak-out.tsv", root / "game-leak.json", 1)
     if rejected_game.returncode == 0 or "game_group_id cross-split leakage" not in rejected_game.stderr:
         print(f"cross-split game should fail: {rejected_game.stderr}", file=sys.stderr)
+        return False
+    return True
+
+
+def check_selected_split_policy(selector: Path, root: Path) -> bool:
+    normalized = root / "selected-resplit-input.tsv"
+    output = root / "selected-resplit-output.tsv"
+    repeat = root / "selected-resplit-repeat.tsv"
+    report_path = root / "selected-resplit-report.json"
+    write_tsv(normalized, HEADER_V2, phase_rows(30, game_prefix="selected-resplit"))
+    extras = (
+        "--max-roots-per-game-group",
+        "1",
+        "--selected-split-policy",
+        "game-group-hash",
+        "--train-only-phase",
+        "0",
+        "--require-all-phases",
+    )
+    first = run_selector(selector, normalized, output, report_path, 20, *extras)
+    second = run_selector(
+        selector,
+        normalized,
+        repeat,
+        root / "selected-resplit-repeat.json",
+        20,
+        *extras,
+    )
+    if first.returncode != 0 or second.returncode != 0 or output.read_bytes() != repeat.read_bytes():
+        print(f"selected-root resplit was not deterministic: {first.stderr} {second.stderr}", file=sys.stderr)
+        return False
+    selected = read_rows(output)
+    split_counts = Counter(row["split"] for row in selected)
+    report = load_report(report_path)
+    if set(split_counts) != {"train", "validation", "test"}:
+        print(f"selected-root resplit did not populate every split: {split_counts}", file=sys.stderr)
+        return False
+    if any(row["split"] != "train" for row in selected if row["phase"] == "0"):
+        print("selected-root resplit did not force phase 0 to train", file=sys.stderr)
+        return False
+    if (
+        report.get("selected_split_changes", 0) <= 0
+        or report.get("selected_cross_split_board_collision_count") != 0
+        or report.get("selected_cross_split_game_group_collision_count") != 0
+        or report.get("selection_policy", {}).get("selected_split_policy") != "game-group-hash"
+        or report.get("selection_policy", {}).get("train_only_phases") != [0]
+        or report.get("command_args", {}).get("selected_split_policy") != "game-group-hash"
+        or report.get("command_args", {}).get("train_only_phases") != [0]
+    ):
+        print(f"selected-root resplit report mismatch: {report}", file=sys.stderr)
+        return False
+    invalid = run_selector(
+        selector,
+        normalized,
+        root / "selected-resplit-invalid.tsv",
+        root / "selected-resplit-invalid.json",
+        20,
+        "--selected-split-policy",
+        "game-group-hash",
+    )
+    if invalid.returncode == 0 or "requires --max-roots-per-game-group 1" not in invalid.stderr:
+        print(f"selected-root resplit without cap 1 should fail: {invalid.stderr}", file=sys.stderr)
+        return False
+
+    collision_rows = phase_rows(1, game_prefix="selected-collision")
+    for index in (0, 1):
+        collision_rows[index]["game_group_id"] = "selected-collision-shared-game"
+        collision_rows[index]["split"] = "validation"
+    collision_input = root / "selected-collision-input.tsv"
+    collision_output = root / "selected-collision-output.tsv"
+    collision_report = root / "selected-collision-report.json"
+    write_tsv(collision_input, HEADER_V2, collision_rows)
+    collision = run_selector(
+        selector,
+        collision_input,
+        collision_output,
+        collision_report,
+        1,
+        "--max-roots-per-game-group",
+        "2",
+        "--train-only-phase",
+        "0",
+    )
+    if (
+        collision.returncode == 0
+        or "selected roots have cross-split leakage" not in collision.stderr
+        or collision_output.exists()
+        or collision_report.exists()
+    ):
+        print(f"selected-root collision should fail transactionally: {collision.stderr}", file=sys.stderr)
         return False
     return True
 
@@ -436,8 +594,10 @@ def check_selector(selector: Path, benchmark_game_groups: int) -> bool:
         checks_passed = (
             check_exact_quota_and_dedupe(selector, root)
             and check_shortage_and_partial(selector, root)
+            and check_phase_quota_overrides(selector, root)
             and check_determinism(selector, root)
             and check_connected_split_preservation(selector, root)
+            and check_selected_split_policy(selector, root)
             and check_game_cap(selector, root)
             and check_invalid_schema(selector, root)
         )

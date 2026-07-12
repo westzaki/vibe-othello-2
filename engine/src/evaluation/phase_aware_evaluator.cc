@@ -1,5 +1,6 @@
 #include "vibe_othello/evaluation/phase_aware_evaluator.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -46,15 +47,49 @@ std::array<bool, PatternWeights::kDiscCountEntries> PhaseAwareEvaluator::learned
   return result;
 }
 
-PhaseAwareEvaluator::PhaseAwareEvaluator(PatternWeights weights, PatternFeatureSet feature_set,
-                                         std::optional<std::vector<std::uint8_t>> trained_phases)
+std::array<bool, PatternWeights::kDiscCountEntries>
+PhaseAwareEvaluator::fallback_additive_by_disc_count(
+    const PatternWeights& weights,
+    const std::array<bool, PatternWeights::kDiscCountEntries>& learned_by_disc_count,
+    std::optional<std::uint8_t> fallback_additive_through_phase) {
+  if (fallback_additive_through_phase.has_value() &&
+      *fallback_additive_through_phase >= weights.phase_count()) {
+    throw std::invalid_argument("fallback additive phase is out of range");
+  }
+
+  std::array<bool, PatternWeights::kDiscCountEntries> result{};
+  if (!fallback_additive_through_phase.has_value()) {
+    return result;
+  }
+  for (std::uint8_t disc_count = 0; disc_count < result.size(); ++disc_count) {
+    result[disc_count] =
+        learned_by_disc_count[disc_count] &&
+        weights.phase_for_disc_count(disc_count) <= *fallback_additive_through_phase;
+  }
+  return result;
+}
+
+PhaseAwareEvaluator::PhaseAwareEvaluator(
+    PatternWeights weights, PatternFeatureSet feature_set,
+    std::optional<std::vector<std::uint8_t>> trained_phases,
+    std::optional<std::uint8_t> fallback_additive_through_phase)
     : learned_by_disc_count_(learned_by_disc_count(weights, trained_phases)),
+      fallback_additive_by_disc_count_(fallback_additive_by_disc_count(
+          weights, learned_by_disc_count_, fallback_additive_through_phase)),
       learned_(std::move(weights), std::move(feature_set)) {}
 
 search::Score PhaseAwareEvaluator::evaluate(const board_core::Position& position) const noexcept {
   const int discs = std::popcount(board_core::occupied(position));
   if (learned_by_disc_count_[static_cast<std::size_t>(discs)]) {
-    return learned_.evaluate(position);
+    const search::Score learned_score = learned_.evaluate(position);
+    if (!fallback_additive_by_disc_count_[static_cast<std::size_t>(discs)]) {
+      return learned_score;
+    }
+    const std::int64_t combined =
+        static_cast<std::int64_t>(fallback_.evaluate(position)) + learned_score;
+    return static_cast<search::Score>(std::clamp(combined,
+                                                 static_cast<std::int64_t>(search::kScoreLoss + 1),
+                                                 static_cast<std::int64_t>(search::kScoreWin - 1)));
   }
   return fallback_.evaluate(position);
 }

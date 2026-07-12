@@ -81,7 +81,8 @@ std::string hex_u32(std::uint32_t value) {
   return output.str();
 }
 
-std::vector<std::uint8_t> zero_tiny_artifact(std::uint32_t* checksum) {
+std::vector<std::uint8_t> zero_tiny_artifact(std::uint32_t* checksum,
+                                             std::uint16_t score_scale = 1) {
   const std::string pattern_set_id = "fixed-pattern-fixture-v1";
   const std::uint16_t phase_count = 13;
   const std::uint16_t pattern_count = 2;
@@ -92,7 +93,7 @@ std::vector<std::uint8_t> zero_tiny_artifact(std::uint32_t* checksum) {
   append_u16(&bytes, 1);
   append_u16(&bytes, 1);
   append_u16(&bytes, 1);
-  append_u16(&bytes, 1);
+  append_u16(&bytes, score_scale);
   append_u16(&bytes, phase_count);
   append_u16(&bytes, pattern_count);
   append_u16(&bytes, static_cast<std::uint16_t>(pattern_set_id.size()));
@@ -182,6 +183,12 @@ std::string with_trained_phases(std::string manifest, std::string_view phases) {
                           ",\n");
 }
 
+std::string with_fallback_additive_phase(std::string manifest, std::string_view phase) {
+  return replace_once(std::move(manifest), "  \"phase_count\": 13,\n",
+                      "  \"phase_count\": 13,\n  \"fallback_additive_through_phase\": " +
+                          std::string(phase) + ",\n");
+}
+
 board_core::Position opening_move_position() {
   board_core::Position position = board_core::initial_position();
   board_core::MoveDelta delta{};
@@ -240,6 +247,8 @@ TEST_CASE("in-memory evaluation artifact loader matches filesystem loading",
   REQUIRE(memory_result.artifact->pattern_set_id == filesystem_result.artifact->pattern_set_id);
   REQUIRE(memory_result.artifact->weights_checksum == filesystem_result.artifact->weights_checksum);
   REQUIRE(memory_result.artifact->trained_phases == filesystem_result.artifact->trained_phases);
+  REQUIRE(memory_result.artifact->fallback_additive_through_phase ==
+          filesystem_result.artifact->fallback_additive_through_phase);
 
   LoadedPatternArtifact filesystem_artifact = std::move(*filesystem_result.artifact);
   LoadedPatternArtifactBytes memory_artifact = std::move(*memory_result.artifact);
@@ -256,6 +265,27 @@ TEST_CASE("in-memory evaluation artifact loader matches filesystem loading",
   for (const board_core::Position position : positions) {
     REQUIRE(memory_evaluator.evaluate(position) == filesystem_evaluator.evaluate(position));
   }
+}
+
+TEST_CASE("evaluation artifact loader accepts fixed point residual artifacts",
+          "[evaluation][artifact]") {
+  TempDir temp;
+  std::uint32_t checksum = 0;
+  const std::vector<std::uint8_t> artifact = zero_tiny_artifact(&checksum, 100);
+  const std::filesystem::path manifest_path = temp.path() / "manifest.json";
+  write_tiny_manifest(manifest_path, hex_u32(checksum));
+  std::string manifest = read_text_or_fail(manifest_path);
+  manifest = replace_once(std::move(manifest), "\"score_scale\": 1", "\"score_scale\": 100");
+  manifest = with_trained_phases(std::move(manifest), "[0, 1, 10, 11, 12]");
+  manifest = with_fallback_additive_phase(std::move(manifest), "9");
+
+  const PatternArtifactBytesLoadResult result =
+      load_pattern_artifact_from_bytes(manifest, artifact, "fixed-point-residual.json");
+
+  INFO(result.error);
+  REQUIRE(result.ok());
+  REQUIRE(result.artifact->weights.score_scale() == 100);
+  REQUIRE(result.artifact->fallback_additive_through_phase == 9);
 }
 
 TEST_CASE("evaluation artifact loader validates trained phase coverage", "[evaluation][artifact]") {
@@ -304,6 +334,26 @@ TEST_CASE("evaluation artifact loader validates trained phase coverage", "[evalu
 
     REQUIRE(result.ok());
     REQUIRE_FALSE(result.artifact->trained_phases.has_value());
+  }
+
+  SECTION("out-of-range fallback residual phase is rejected") {
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(with_fallback_additive_phase(legacy_manifest, "13"),
+                                         artifact, "out-of-range-fallback-additive.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("fallback_additive_through_phase must be in [0, 12]") !=
+            std::string::npos);
+  }
+
+  SECTION("non-integer fallback residual phase is rejected") {
+    const PatternArtifactBytesLoadResult result =
+        load_pattern_artifact_from_bytes(with_fallback_additive_phase(legacy_manifest, "\"9\""),
+                                         artifact, "non-integer-fallback-additive.json");
+
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.error.find("fallback_additive_through_phase must be an integer") !=
+            std::string::npos);
   }
 }
 

@@ -21,6 +21,7 @@ struct LoadedPatternArtifact {
   // Missing metadata means the artifact predates coverage reporting; it does
   // not imply that every runtime phase was trained.
   std::optional<std::vector<std::uint8_t>> trained_phases;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
   std::filesystem::path manifest_path;
   std::filesystem::path weights_path;
   PatternWeights weights;
@@ -42,6 +43,7 @@ struct LoadedPatternArtifactBytes {
   std::string weights_checksum;
   // Matches LoadedPatternArtifact::trained_phases for in-memory loading.
   std::optional<std::vector<std::uint8_t>> trained_phases;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
   PatternWeights weights;
   PatternFeatureSet feature_set;
 };

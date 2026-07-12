@@ -9,10 +9,13 @@ keep them outside the repository and outside disposable worktrees.
 ## Phase-Stratified Root Selection
 
 `select_phase_stratified_roots.py` selects a uniform local root quota from
-each normalized schema v2 phase `0..12`. It validates schema-v2 rows, dedupes
-by `board_id`, rejects board/game-group cross-split leakage, preserves the
-selected source row and split, and emits a local JSON coverage report. It does
-not resplit data, generate teacher labels, or train artifacts.
+each normalized schema v2 phase `0..12`. A repeated explicit
+`--phase-quota PHASE=COUNT` can override the base quota for phases whose finite
+unique-board capacity is lower than a larger campaign rung. It validates
+schema-v2 rows, dedupes by `board_id`, rejects board/game-group cross-split
+leakage, preserves the selected source row and, by default, its split, and emits
+a local JSON coverage report. It does not generate teacher labels or train
+artifacts.
 
 ```sh
 python3 tools/pattern/labels/select_phase_stratified_roots.py \
@@ -20,15 +23,64 @@ python3 tools/pattern/labels/select_phase_stratified_roots.py \
   --output-tsv <selected.tsv> \
   --report-out <report.json> \
   --roots-per-phase <count> \
+  --phase-quota 0=<explicit-phase-0-count> \
   --seed 0 \
+  --max-roots-per-game-group 1 \
+  --selected-split-policy game-group-hash \
   --require-all-phases
 ```
 
 Without `--require-all-phases`, a shortage is a successful partial diagnostic
 selection and is explicit in the report. `--max-roots-per-game-group` is an
 optional global cap for reducing over-representation of one semantic game.
-The report includes aggregate selected split counts and a selected phase × split
-cross-tab. Selected TSVs and reports are local-only and must not be committed.
+Overrides are never inferred from input capacity and duplicate phase overrides
+fail. The report records the base quota, explicit overrides, effective quota for
+every phase, expected total rows, aggregate selected split counts, and a selected
+phase × split cross-tab. Selected TSVs and reports are local-only and must not be
+committed.
+
+`--selected-split-policy game-group-hash` is an explicit escape hatch for an
+input connected split that becomes extremely imbalanced because repeated early
+boards join many source games. It requires `--max-roots-per-game-group 1`, runs
+only after board dedupe and capacity matching, and assigns each selected root by
+a stable hash of source dataset id plus game group id. The selected set therefore
+contains at most one row per game and one row per board, so the report must retain
+zero selected board/game cross-split collisions. The default `preserve` policy
+continues to leave source splits unchanged. Reports record the policy version,
+number of changed split assignments, and post-selection leakage audit.
+
+After every selected split assignment, the selector requires both selected
+board and selected game-group cross-split collision counts to be zero. Any
+collision rejects the run before the selected TSV or report is written. The
+full-phase growth cycle independently revalidates both report fields before
+partitioning selected roots.
+
+Repeated `--train-only-phase PHASE` options force selected roots in named
+phases to `train` after selected-set split assignment. This is intended for
+very early phases where different roots can transpose to the same canonical
+child and therefore cannot be separated safely across train, validation, and
+test. It is explicit in the report and must be limited to the smallest affected
+phase set; all remaining phases keep normal held-out splits.
+
+`run_full_phase_growth_cycle.py` accepts the same repeated `--phase-quota`
+option and forwards it to root selection. For example, a campaign may keep
+phase 0 at a previously validated 100 roots while increasing phases `1..12`:
+
+```sh
+python3 tools/pattern/train/run_full_phase_growth_cycle.py \
+  <required-local-input-options> \
+  --roots-per-phase 500 \
+  --phase-quota 0=100 \
+  --max-roots-per-game-group 1 \
+  --selected-split-policy game-group-hash \
+  --train-only-phase 0
+```
+
+This is an explicit non-uniform measurement design, not a claim that the phase
+0 quota was satisfied at 500 or that phase coverage is balanced by example
+count. Every phase must still have its effective quota satisfied and at least
+one train root before training and export continue. Teacher outputs and pairwise
+datasets preserve the selected-root split produced by this policy.
 
 ## Search Move-Teacher Generation
 
@@ -147,3 +199,9 @@ per-root pair cap, tie margin, gradient clip, and early-stop patience are
 explicit campaign options. Compare its final artifact with v0c/v0d using the
 same move-teacher ranking evaluator; do not treat that local comparison as an
 artifact promotion or strength claim.
+
+The ranking evaluator loads each manifest through the same phase-aware runtime
+path as CLI, WASM, and full-game arena consumers. Reported move scores therefore
+respect `trained_phases`, fallback routing, fixed-point `score_scale`, and any
+`fallback_additive_through_phase` residual policy; they are not raw pattern-table
+scores detached from artifact policy.

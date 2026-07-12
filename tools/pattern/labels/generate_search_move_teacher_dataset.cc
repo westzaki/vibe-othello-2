@@ -653,7 +653,8 @@ std::optional<MoveRow> evaluate_child(const RootRow& root, board_core::Position 
     return std::nullopt;
   }
   if (result.score < -64 || result.score > 64) {
-    *error = "teacher search score is outside normalized disc-diff range";
+    *error = "teacher search score is outside normalized disc-diff range: " +
+             std::to_string(result.score);
     return std::nullopt;
   }
   const int player_count = std::popcount(position.player);
@@ -757,7 +758,10 @@ bool select_child_normalized_rows(const std::vector<MoveRow>& move_rows,
       ++report->child_split_collisions;
       report->rejected_roots = 1;
       report->rejected_root_id = row.root_board_id;
-      report->rejection_reason = "canonical child_board_id crosses normalized splits";
+      report->rejection_reason =
+          "canonical child_board_id crosses normalized splits: child=" + row.child_board_id +
+          " existing_root=" + existing.root_board_id + " existing_split=" + existing.root_split +
+          " root=" + row.root_board_id + " split=" + row.root_split;
       return false;
     }
   }

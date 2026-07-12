@@ -19,9 +19,10 @@ import normalized_v2_contract as normalized_contract
 
 SCHEMA_VERSION = 1
 PHASES = tuple(range(13))
+SELECTED_SPLIT_POLICY_VERSION = "selected-game-group-hash-v1"
 LOCAL_ONLY_NOTES = [
     "local-only phase-stratified root selection",
-    "preserves input split assignments and selected source rows",
+    "preserves input split assignments unless an explicit selected-root split policy is requested",
     "generated selected TSVs and reports must not be committed",
     "not an Elo result",
     "not self-play",
@@ -105,14 +106,50 @@ class CapacityMatcher:
         return total
 
 
+def parse_phase_quota(text: str) -> tuple[int, int]:
+    try:
+        phase_text, count_text = text.split("=", 1)
+        phase = int(phase_text)
+        count = int(count_text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("phase quota must use PHASE=COUNT") from error
+    if phase not in PHASES:
+        raise argparse.ArgumentTypeError("phase quota phase must be in [0, 12]")
+    if count <= 0:
+        raise argparse.ArgumentTypeError("phase quota count must be positive")
+    return phase, count
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--normalized-tsv", required=True, type=Path)
     parser.add_argument("--output-tsv", required=True, type=Path)
     parser.add_argument("--report-out", required=True, type=Path)
     parser.add_argument("--roots-per-phase", required=True, type=int)
+    parser.add_argument(
+        "--phase-quota",
+        action="append",
+        default=[],
+        type=parse_phase_quota,
+        metavar="PHASE=COUNT",
+        help="Override the base root quota for one phase; repeat for multiple phases.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-roots-per-game-group", type=int)
+    parser.add_argument(
+        "--selected-split-policy",
+        choices=("preserve", "game-group-hash"),
+        default="preserve",
+        help="Preserve input splits or deterministically resplit cap-1 selected roots by game group.",
+    )
+    parser.add_argument(
+        "--train-only-phase",
+        action="append",
+        default=[],
+        type=int,
+        metavar="PHASE",
+        help="Force selected roots in one phase to train after split assignment; repeat as needed.",
+    )
     parser.add_argument("--require-all-phases", action="store_true")
     args = parser.parse_args()
     if args.roots_per_phase <= 0:
@@ -121,6 +158,20 @@ def parse_args() -> argparse.Namespace:
         parser.error("--seed must be non-negative")
     if args.max_roots_per_game_group is not None and args.max_roots_per_game_group <= 0:
         parser.error("--max-roots-per-game-group must be positive")
+    if args.selected_split_policy == "game-group-hash" and args.max_roots_per_game_group != 1:
+        parser.error("--selected-split-policy game-group-hash requires --max-roots-per-game-group 1")
+    override_phases = [phase for phase, _ in args.phase_quota]
+    if len(set(override_phases)) != len(override_phases):
+        parser.error("--phase-quota must not repeat a phase")
+    if any(phase not in PHASES for phase in args.train_only_phase):
+        parser.error("--train-only-phase must be in [0, 12]")
+    if len(set(args.train_only_phase)) != len(args.train_only_phase):
+        parser.error("--train-only-phase must not repeat a phase")
+    args.train_only_phases = frozenset(args.train_only_phase)
+    args.phase_quota_overrides = dict(args.phase_quota)
+    args.phase_quotas = {
+        phase: args.phase_quota_overrides.get(phase, args.roots_per_phase) for phase in PHASES
+    }
     resolved_paths = {
         "normalized TSV": args.normalized_tsv.resolve(),
         "selected TSV": args.output_tsv.resolve(),
@@ -243,17 +294,17 @@ def roots_by_phase_and_game(roots: list[Root]) -> dict[tuple[int, str], list[Roo
 
 
 def select_without_game_cap(
-    grouped: dict[tuple[int, str], list[Root]], roots_per_phase: int
+    grouped: dict[tuple[int, str], list[Root]], phase_quotas: dict[int, int]
 ) -> list[Root]:
     selected: list[Root] = []
     for phase in PHASES:
         candidates = [root for (candidate_phase, _), values in grouped.items() if candidate_phase == phase for root in values]
-        selected.extend(sorted(candidates, key=root_order)[:roots_per_phase])
+        selected.extend(sorted(candidates, key=root_order)[: phase_quotas[phase]])
     return selected
 
 
 def select_with_game_cap(
-    grouped: dict[tuple[int, str], list[Root]], roots_per_phase: int, max_roots_per_game_group: int, seed: int
+    grouped: dict[tuple[int, str], list[Root]], phase_quotas: dict[int, int], max_roots_per_game_group: int, seed: int
 ) -> tuple[list[Root], int]:
     games = sorted(
         {game_group_id for _, game_group_id in grouped},
@@ -274,7 +325,7 @@ def select_with_game_cap(
     cell_edges: dict[tuple[int, str], tuple[FlowEdge, int]] = {}
 
     for phase in phase_order:
-        matcher.add_edge(source, phase_nodes[phase], roots_per_phase)
+        matcher.add_edge(source, phase_nodes[phase], phase_quotas[phase])
     for phase in phase_order:
         for game in games:
             candidates = grouped.get((phase, game), [])
@@ -306,14 +357,76 @@ def render_selected_rows(rows: list[Root]) -> str:
     return output.getvalue()
 
 
+def selected_game_group_split(root: Root) -> str:
+    identity = "\t".join(
+        (
+            root.row["source_dataset_id"],
+            SELECTED_SPLIT_POLICY_VERSION,
+            root.row["game_group_id"],
+        )
+    )
+    bucket = int(hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16], 16) % 100
+    if bucket < 80:
+        return "train"
+    if bucket < 90:
+        return "validation"
+    return "test"
+
+
+def apply_selected_split_policy(
+    rows: list[Root], policy: str, train_only_phases: frozenset[int]
+) -> tuple[list[Root], int]:
+    if policy == "preserve" and not train_only_phases:
+        return rows, 0
+    result: list[Root] = []
+    changed = 0
+    for root in rows:
+        phase = normalized_contract.parse_int(root.row["phase"], "phase")
+        split = (
+            "train"
+            if phase in train_only_phases
+            else root.row["split"]
+            if policy == "preserve"
+            else selected_game_group_split(root)
+        )
+        changed += split != root.row["split"]
+        row = dict(root.row)
+        row["split"] = split
+        result.append(Root(row=row, input_index=root.input_index, sample_key=root.sample_key))
+    return result, changed
+
+
+def selected_cross_split_count(rows: list[Root], field: str) -> int:
+    splits: dict[str, set[str]] = {}
+    for root in rows:
+        splits.setdefault(root.row[field], set()).add(root.row["split"])
+    return cross_split_entity_count(splits)
+
+
+def validate_selected_split_hygiene(rows: list[Root]) -> tuple[int, int]:
+    board_collisions = selected_cross_split_count(rows, "board_id")
+    game_group_collisions = selected_cross_split_count(rows, "game_group_id")
+    if board_collisions or game_group_collisions:
+        raise SelectorError(
+            "selected roots have cross-split leakage after split assignment: "
+            f"board_id={board_collisions}, game_group_id={game_group_collisions}"
+        )
+    return board_collisions, game_group_collisions
+
+
 def command_args(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "normalized_tsv": report_path(args.normalized_tsv),
         "output_tsv": report_path(args.output_tsv),
         "report_out": report_path(args.report_out),
         "roots_per_phase": args.roots_per_phase,
+        "phase_quota_overrides": {
+            str(phase): count for phase, count in sorted(args.phase_quota_overrides.items())
+        },
         "seed": args.seed,
         "max_roots_per_game_group": args.max_roots_per_game_group,
+        "selected_split_policy": args.selected_split_policy,
+        "train_only_phases": sorted(args.train_only_phases),
         "require_all_phases": bool(args.require_all_phases),
     }
 
@@ -325,6 +438,9 @@ def build_report(
     selected: list[Root],
     output_checksum: str,
     cap_max_selected: int | None,
+    selected_split_changes: int,
+    selected_board_collision_count: int,
+    selected_game_group_collision_count: int,
 ) -> dict[str, Any]:
     unique_phase_counts: Counter[str] = Counter(root.row["phase"] for root in roots)
     selected_phase_counts: Counter[str] = Counter(root.row["phase"] for root in selected)
@@ -337,14 +453,15 @@ def build_report(
     shortage_phases: list[int] = []
     for phase in PHASES:
         key = str(phase)
+        requested = args.phase_quotas[phase]
         selected_count = selected_phase_counts[key]
-        shortage = max(0, args.roots_per_phase - selected_count)
+        shortage = max(0, requested - selected_count)
         if shortage:
             shortage_phases.append(phase)
         phase_coverage[key] = {
             "eligible_rows": input_report["input_phase_counts"].get(key, 0),
             "unique_eligible_boards": unique_phase_counts[key],
-            "requested_roots": args.roots_per_phase,
+            "requested_roots": requested,
             "selected_roots": selected_count,
             "shortage_roots": shortage,
             "quota_satisfied": shortage == 0,
@@ -367,8 +484,21 @@ def build_report(
             "name": "phase-stratified-board-id-fnv1a64-v1",
             "phases": list(PHASES),
             "roots_per_phase": args.roots_per_phase,
+            "phase_quotas": {str(phase): args.phase_quotas[phase] for phase in PHASES},
+            "phase_quota_overrides": {
+                str(phase): count for phase, count in sorted(args.phase_quota_overrides.items())
+            },
             "board_dedupe": "first normalized input row per board_id; conflicting board contents fail",
-            "split_policy": "validate connected game/board split; preserve input split values",
+            "split_policy": (
+                "validate input split hygiene; preserve input split values"
+                if args.selected_split_policy == "preserve"
+                else "validate input split hygiene; deterministically resplit cap-1 selected roots by game group"
+            ),
+            "selected_split_policy": args.selected_split_policy,
+            "train_only_phases": sorted(args.train_only_phases),
+            "selected_split_policy_version": (
+                None if args.selected_split_policy == "preserve" else SELECTED_SPLIT_POLICY_VERSION
+            ),
             "game_group_cap_policy": cap_policy,
             "output_order": "board_id ascending",
         },
@@ -380,6 +510,7 @@ def build_report(
         "eligible_rows": input_report["eligible_rows"],
         "unique_eligible_boards": input_report["unique_eligible_boards"],
         "selected_rows": len(selected),
+        "requested_rows": sum(args.phase_quotas.values()),
         "input_split_counts": input_report["input_split_counts"],
         "unique_eligible_split_counts": input_report["unique_eligible_split_counts"],
         "selected_split_counts": counter_dict(selected_split_counts),
@@ -391,6 +522,9 @@ def build_report(
         "duplicate_board_id_count": input_report["duplicate_board_id_count"],
         "cross_split_board_collision_count": input_report["cross_split_board_collision_count"],
         "cross_split_game_group_collision_count": input_report["cross_split_game_group_collision_count"],
+        "selected_cross_split_board_collision_count": selected_board_collision_count,
+        "selected_cross_split_game_group_collision_count": selected_game_group_collision_count,
+        "selected_split_changes": selected_split_changes,
         "phase_coverage": phase_coverage,
         "shortage_phases": shortage_phases,
         "all_phase_quotas_satisfied": quotas_satisfied,
@@ -414,18 +548,34 @@ def main() -> int:
         roots, input_report = load_roots(args.normalized_tsv, args.seed)
         grouped = roots_by_phase_and_game(roots)
         if args.max_roots_per_game_group is None:
-            selected = select_without_game_cap(grouped, args.roots_per_phase)
+            selected = select_without_game_cap(grouped, args.phase_quotas)
             cap_max_selected = None
         else:
             selected, cap_max_selected = select_with_game_cap(
                 grouped,
-                args.roots_per_phase,
+                args.phase_quotas,
                 args.max_roots_per_game_group,
                 args.seed,
             )
+        selected, selected_split_changes = apply_selected_split_policy(
+            selected, args.selected_split_policy, args.train_only_phases
+        )
+        selected_board_collision_count, selected_game_group_collision_count = (
+            validate_selected_split_hygiene(selected)
+        )
         selected_text = render_selected_rows(selected)
         output_checksum = sha256_text(selected_text)
-        report = build_report(args, input_report, roots, selected, output_checksum, cap_max_selected)
+        report = build_report(
+            args,
+            input_report,
+            roots,
+            selected,
+            output_checksum,
+            cap_max_selected,
+            selected_split_changes,
+            selected_board_collision_count,
+            selected_game_group_collision_count,
+        )
         write_text(args.output_tsv, selected_text)
         write_text(args.report_out, stable_json(report))
         print(f"selected_rows={len(selected)}")

@@ -18,7 +18,7 @@ from pattern_sets import PatternSetSpec, resolve_pattern_set
 
 
 FORMAT_VERSION = 1
-SCORE_SCALE = 1
+DEFAULT_SCORE_SCALE = 1
 PHASE_COUNT = 13
 EXPECTED_PHASE_MAPPING_ID = "disc-count-13-v1"
 SCORE_UNIT = "disc-diff"
@@ -50,7 +50,8 @@ def is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def quantize_weight(value: float) -> int:
+def quantize_weight(value: float, score_scale: int) -> int:
+    value *= score_scale
     if value >= 0:
         rounded = math.floor(value + 0.5)
     else:
@@ -162,7 +163,7 @@ def selected_contract(
     return contract
 
 
-def validate_phase_bias(payload: dict[str, Any]) -> list[int]:
+def validate_phase_bias(payload: dict[str, Any], score_scale: int) -> list[int]:
     phase_bias = payload.get("phase_bias")
     if not isinstance(phase_bias, dict):
         fail("phase_bias must be an object")
@@ -175,12 +176,12 @@ def validate_phase_bias(payload: dict[str, Any]) -> list[int]:
         value = phase_bias[str(phase)]
         if not is_number(value):
             fail(f"phase_bias[{phase}] must be numeric")
-        values.append(quantize_weight(float(value)))
+        values.append(quantize_weight(float(value), score_scale))
     return values
 
 
 def validate_pattern_weights(
-    payload: dict[str, Any], pattern_set: PatternSetSpec
+    payload: dict[str, Any], pattern_set: PatternSetSpec, score_scale: int
 ) -> dict[tuple[int, str, int], int]:
     pattern_weights = payload.get("pattern_weights")
     if not isinstance(pattern_weights, list):
@@ -217,7 +218,7 @@ def validate_pattern_weights(
         key = (phase, pattern_id, ternary_index)
         if key in weights:
             fail(f"duplicate pattern weight entry: {key}")
-        weights[key] = quantize_weight(float(weight))
+        weights[key] = quantize_weight(float(weight), score_scale)
     return weights
 
 
@@ -336,8 +337,8 @@ def validate_weights(
             fail("pattern-eval-weights-v1 is accepted only with --allow-legacy-v1")
         return (
             WEIGHTS_SCHEMA_VERSION_V1,
-            validate_phase_bias(payload),
-            validate_pattern_weights(payload, pattern_set),
+            validate_phase_bias(payload, args.score_scale),
+            validate_pattern_weights(payload, pattern_set, args.score_scale),
         )
     if schema_version != WEIGHTS_SCHEMA_VERSION_V2:
         fail(f"weights_schema_version must be {WEIGHTS_SCHEMA_VERSION_V2}")
@@ -347,12 +348,14 @@ def validate_weights(
     validate_v2_metadata(payload, pattern_set, contract)
     return (
         WEIGHTS_SCHEMA_VERSION_V2,
-        validate_phase_bias(payload),
-        validate_pattern_weights(payload, pattern_set),
+        validate_phase_bias(payload, args.score_scale),
+        validate_pattern_weights(payload, pattern_set, args.score_scale),
     )
 
 
-def append_header(output: bytearray, weight_count: int, pattern_set: PatternSetSpec) -> None:
+def append_header(
+    output: bytearray, weight_count: int, pattern_set: PatternSetSpec, score_scale: int
+) -> None:
     output.extend(b"VOPWGT\0\0")
     output.extend(
         struct.pack(
@@ -360,7 +363,7 @@ def append_header(output: bytearray, weight_count: int, pattern_set: PatternSetS
             FORMAT_VERSION,
             1,
             1,
-            SCORE_SCALE,
+            score_scale,
             PHASE_COUNT,
             len(pattern_set.patterns),
             len(pattern_set.pattern_set_id),
@@ -375,6 +378,7 @@ def make_artifact(
     phase_biases: list[int],
     pattern_weights: dict[tuple[int, str, int], int],
     pattern_set: PatternSetSpec,
+    score_scale: int,
 ) -> tuple[bytes, int]:
     pattern_offsets: dict[str, int] = {}
     stride = 1
@@ -384,7 +388,7 @@ def make_artifact(
     weight_count = stride * PHASE_COUNT
 
     output = bytearray()
-    append_header(output, weight_count, pattern_set)
+    append_header(output, weight_count, pattern_set, score_scale)
     weights = [0] * weight_count
     for phase, bias in enumerate(phase_biases):
         weights[phase * stride] = bias
@@ -409,6 +413,8 @@ def write_manifest(
     phase_diagnostics: list[dict[str, int | bool]],
     trained_phases: list[int] | None,
     pattern_set: PatternSetSpec,
+    score_scale: int,
+    fallback_additive_through_phase: int | None,
 ) -> None:
     manifest = {
         "artifact_id": pattern_set.v0b_artifact_id,
@@ -416,7 +422,7 @@ def write_manifest(
         "format_version": FORMAT_VERSION,
         "bit_order": "a1-lsb",
         "score_unit": "disc-diff",
-        "score_scale": SCORE_SCALE,
+        "score_scale": score_scale,
         "phase_count": PHASE_COUNT,
         "pattern_set_id": pattern_set.pattern_set_id,
         "weights_file": weights_path.name,
@@ -428,7 +434,10 @@ def write_manifest(
             int(diagnostic["nonzero_pattern_weights"]) for diagnostic in phase_diagnostics
         ),
         "notes": pattern_set.note,
-        "quantization": "round-half-away-from-zero to int32 search::Score",
+        "quantization": (
+            "round-half-away-from-zero to int32 fixed-point weight; "
+            f"runtime divides the accumulated score by {score_scale}"
+        ),
         "phase_bias": phase_biases,
         "phase_weight_diagnostics": phase_diagnostics,
         "patterns": [
@@ -438,6 +447,8 @@ def write_manifest(
     }
     if trained_phases is not None:
         manifest["trained_phases"] = trained_phases
+    if fallback_additive_through_phase is not None:
+        manifest["fallback_additive_through_phase"] = fallback_additive_through_phase
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -454,6 +465,13 @@ def main() -> int:
     )
     parser.add_argument("--pattern-set", default="fixed-pattern-fixture-v1")
     parser.add_argument(
+        "--score-scale",
+        type=int,
+        default=DEFAULT_SCORE_SCALE,
+        help="Positive uint16 fixed-point scale for exported weights; runtime default is 1.",
+    )
+    parser.add_argument("--fallback-additive-through-phase", type=int)
+    parser.add_argument(
         "--catalog-dump-exe",
         type=Path,
         help="Runtime pattern catalog dump executable used to validate v2 weights.",
@@ -469,6 +487,12 @@ def main() -> int:
         help="Accept pattern-eval-weights-v1 for legacy smoke compatibility.",
     )
     args = parser.parse_args()
+    if args.score_scale <= 0 or args.score_scale > 65535:
+        parser.error("--score-scale must be in [1, 65535]")
+    if args.fallback_additive_through_phase is not None and not (
+        0 <= args.fallback_additive_through_phase < PHASE_COUNT
+    ):
+        parser.error("--fallback-additive-through-phase must be in [0, 12]")
 
     try:
         pattern_set = resolve_pattern_set(args.pattern_set)
@@ -478,7 +502,9 @@ def main() -> int:
         )
         trained_phases = validate_trained_phases(args.trained_phases)
         phase_diagnostics = phase_weight_diagnostics(phase_biases, pattern_weights)
-        artifact, checksum = make_artifact(phase_biases, pattern_weights, pattern_set)
+        artifact, checksum = make_artifact(
+            phase_biases, pattern_weights, pattern_set, args.score_scale
+        )
         args.weights_out.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
         args.weights_out.write_bytes(artifact)
@@ -494,6 +520,8 @@ def main() -> int:
             phase_diagnostics,
             trained_phases,
             pattern_set,
+            args.score_scale,
+            args.fallback_additive_through_phase,
         )
     except (OSError, RuntimeError) as error:
         print(error, file=sys.stderr)
@@ -502,7 +530,7 @@ def main() -> int:
     print(f"format_version={FORMAT_VERSION}")
     print("bit_order=a1-lsb")
     print(f"score_unit={SCORE_UNIT}")
-    print(f"score_scale={SCORE_SCALE}")
+    print(f"score_scale={args.score_scale}")
     print(f"phase_count={PHASE_COUNT}")
     print(f"pattern_set_id={pattern_set.pattern_set_id}")
     print(f"weights_checksum=0x{checksum:08x}")

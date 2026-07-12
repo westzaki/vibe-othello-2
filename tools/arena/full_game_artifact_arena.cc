@@ -76,6 +76,7 @@ struct ArtifactIdentity {
   std::string weights_checksum;
   std::vector<std::uint8_t> trained_phases;
   bool trained_phases_reported = false;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
   std::string evaluator_policy;
   std::string runtime_identity_checksum;
   std::filesystem::path manifest_path;
@@ -376,7 +377,12 @@ std::string runtime_identity_checksum(const ArtifactIdentity& identity) {
   payload << identity.pattern_set_id << '\n'
           << identity.weights_checksum << '\n'
           << identity.evaluator_policy << '\n'
-          << (identity.trained_phases_reported ? "1" : "0");
+          << (identity.trained_phases_reported ? "1" : "0") << '\n';
+  if (identity.fallback_additive_through_phase.has_value()) {
+    payload << static_cast<int>(*identity.fallback_additive_through_phase);
+  } else {
+    payload << "none";
+  }
   for (const std::uint8_t phase : identity.trained_phases) {
     payload << ',' << static_cast<int>(phase);
   }
@@ -404,7 +410,10 @@ load_evaluator(std::string display_name, const std::filesystem::path& manifest_p
         .weights_checksum = artifact.weights_checksum,
         .trained_phases = artifact.trained_phases.value_or(std::vector<std::uint8_t>{}),
         .trained_phases_reported = artifact.trained_phases.has_value(),
-        .evaluator_policy = artifact.trained_phases.has_value()
+        .fallback_additive_through_phase = artifact.fallback_additive_through_phase,
+        .evaluator_policy = artifact.fallback_additive_through_phase.has_value()
+                                ? "phase-aware-covered-phases-with-fallback-residual"
+                            : artifact.trained_phases.has_value()
                                 ? "phase-aware-covered-phases"
                                 : "phase-aware-legacy-all-phase-learned",
         .manifest_path = artifact.manifest_path,
@@ -415,7 +424,8 @@ load_evaluator(std::string display_name, const std::filesystem::path& manifest_p
         .identity = std::move(identity),
         .evaluator = evaluation::PhaseAwareEvaluator{std::move(artifact.weights),
                                                      std::move(artifact.feature_set),
-                                                     std::move(artifact.trained_phases)},
+                                                     std::move(artifact.trained_phases),
+                                                     artifact.fallback_additive_through_phase},
     };
   } catch (const std::exception& error) {
     std::cerr << "phase-aware evaluator rejected artifact for " << display_name << ": "
@@ -675,6 +685,12 @@ void write_artifact_identity(std::ostream& output, const ArtifactIdentity& ident
   write_json_string(output, identity.weights_checksum);
   output << ", \"trained_phases\": ";
   write_trained_phases(output, identity);
+  output << ", \"fallback_additive_through_phase\": ";
+  if (identity.fallback_additive_through_phase.has_value()) {
+    output << static_cast<int>(*identity.fallback_additive_through_phase);
+  } else {
+    output << "null";
+  }
   output << ", \"evaluator_policy\": ";
   write_json_string(output, identity.evaluator_policy);
   output << ", \"runtime_identity_checksum\": ";

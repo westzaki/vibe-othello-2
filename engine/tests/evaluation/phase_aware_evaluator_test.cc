@@ -119,6 +119,25 @@ TEST_CASE("phase-aware evaluator routes full coverage to learned evaluation",
   REQUIRE(evaluator.evaluate(late_game_position()) == learned.evaluate(late_game_position()));
 }
 
+TEST_CASE("phase-aware evaluator can add learned early residuals to the fallback",
+          "[evaluation][phase_aware]") {
+  const PatternWeights weights = learned_fixture_weights();
+  const PatternFeatureSet feature_set = single_square_feature_set();
+  const PatternEvaluator learned{weights, feature_set};
+  const EarlyMidgameHeuristicEvaluator fallback;
+  const PhaseAwareEvaluator evaluator{
+      weights,
+      feature_set,
+      std::vector<std::uint8_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+      9,
+  };
+  const board_core::Position midgame = midgame_position();
+  const board_core::Position late_game = late_game_position();
+
+  REQUIRE(evaluator.evaluate(midgame) == fallback.evaluate(midgame) + learned.evaluate(midgame));
+  REQUIRE(evaluator.evaluate(late_game) == learned.evaluate(late_game));
+}
+
 TEST_CASE("phase-aware evaluator preserves legacy all-phase learned routing",
           "[evaluation][phase_aware]") {
   const PhaseAwareEvaluator evaluator = make_phase_aware(std::nullopt);
@@ -139,6 +158,9 @@ TEST_CASE("phase-aware evaluator is deterministic and rejects invalid coverage",
   REQUIRE(first < search::kScoreWin);
   REQUIRE_THROWS_AS(make_phase_aware(std::vector<std::uint8_t>{10, 10}), std::invalid_argument);
   REQUIRE_THROWS_AS(make_phase_aware(std::vector<std::uint8_t>{13}), std::invalid_argument);
+  REQUIRE_THROWS_AS(PhaseAwareEvaluator(learned_fixture_weights(), single_square_feature_set(),
+                                        std::vector<std::uint8_t>{0}, 13),
+                    std::invalid_argument);
 }
 
 } // namespace
