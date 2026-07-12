@@ -16,6 +16,21 @@ The persistent full-game artifact arena provides:
 * opt-in `--persistent-session` with caller-selected `--tt-bytes`
 * requested/actual TT allocation and split same-key, bucket-conflict,
   replacement, probe-slot, and generation-age telemetry
+* a local-only fixed-time artifact strength campaign with a default
+  50/100/500-ms by exact-8/10/12 matrix
+* per-cell forward, argument-order reverse, candidate/candidate, and
+  baseline/baseline reports with checksum-guarded resume
+* one schema-checked decision report containing paired confidence intervals,
+  outcome and disc-difference aggregates, phase/side exposure rates, completed
+  depth, throughput, exact, and incremental-evaluation telemetry
+* optional independent holdout-corpus evaluation and configurable promotion
+  thresholds without artifact or default-pointer mutation
+* a fixed 95% promotion interval, a default 100-opening-pair floor, and breadth
+  across at least two distinct passing time limits
+* fixed-time same-artifact and argument-order symmetry as diagnostics rather
+  than timing-sensitive correctness rejection gates
+* strict report-to-request binding for search config, runtime artifacts,
+  executable identity, and opening selection
 
 ## Limitations
 
@@ -27,3 +42,14 @@ Persistent sessions remain opt-in. Each engine gets an independent session and
 each game starts from a fresh session; retention occurs only between sequential
 moves of that game. The selected TT allocation is used in both persistent and
 non-persistent modes.
+
+The fixed-time campaign enables persistent sessions by default as an explicit
+campaign configuration. Its wall-time results remain machine- and load-sensitive;
+the suggested decision is a local validation aid, not an Elo or production
+strength claim. Long default-matrix campaigns are intentionally excluded from
+CI; CI runs only a tiny real-tool override.
+
+The matrix-wide outcome aggregate is descriptive and deliberately omits a
+confidence interval. Cell-level intervals cluster by opening pair; repeated
+openings under different time and exact conditions are not treated as
+independent observations.

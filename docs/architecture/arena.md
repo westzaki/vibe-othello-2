@@ -79,6 +79,45 @@ configuration, failures, score complementarity, and disc-difference inversion.
 Generated reports, logs, and sanity output are local-only and must not be
 committed.
 
+## Fixed-Time Campaign Layer
+
+The fixed-time artifact strength campaign is a Python orchestration layer over
+the v3 full-game arena. Its default 3-by-3 matrix crosses 50, 100, and 500 ms
+per move with exact thresholds 8, 10, and 12 while holding the TT budget and
+session-retention policy constant. Every cell includes forward, argument-order
+reverse, and both same-artifact comparisons; the arena remains responsible for
+paired colors, legal-move adjudication, and search telemetry.
+
+Candidate and baseline manifest and weights paths are required inputs. The
+campaign does not resolve the default artifact pointer. An optional independent
+holdout corpus repeats the complete matrix and becomes the decision-driving
+opening set when supplied.
+
+The campaign converts the reversed argument-order result back to the original
+candidate perspective and averages both orders by opening before producing each
+cell's strength interval. It aggregates game outcomes, cell-level paired-opening
+bootstrap intervals, disc differences, phase and side-to-move game-result
+exposures, and per-role search telemetry into one decision report. Conditions
+from different matrix cells are not independent, so the heterogeneous aggregate
+is descriptive and has no confidence interval.
+
+Promotion is only a suggested local category. The promotion contract always
+uses a fixed 95% cell interval regardless of the optional displayed confidence
+level. It also requires a configurable opening-pair floor, positive score and
+95% lower bound, no material p50 completed-depth regression, and passing cells
+at multiple distinct time limits. Same-artifact exact neutrality and exact
+argument-order complementarity under fixed wall time are timing-sensitive
+diagnostics, not correctness rejection gates. Failed or illegal games remain
+correctness failures. The runner does not mutate artifacts or defaults.
+
+Each arena stage owns a resume sidecar. A stage is reusable only when its full
+campaign config and command, input content, artifact identity, repository
+identity, runner and executable identity, and output content all match. Missing,
+partial, or mismatched resume state is rejected instead of silently mixing
+campaigns. Independently of resume, every arena report is checked against the
+requested search config, runtime artifact identities, executable, opening
+source, selected count, and seed before it can enter the decision report.
+
 Search-session retention is an explicit arena configuration, never an implicit
 property of the evaluator. Candidate and baseline own independent sessions.
 Sessions clear at game boundaries and may retain TT/history/killer knowledge
