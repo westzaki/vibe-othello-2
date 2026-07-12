@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -20,7 +21,9 @@ struct SearchTelemetry {
   int occupied_count = 0;
   int phase = 0;
   int completed_depth = 0;
-  std::uint64_t elapsed_ms = 0;
+  std::uint64_t elapsed_ns = 0;
+  std::uint64_t engine_elapsed_ms = 0;
+  std::int64_t timer_accounting_delta_ns = 0;
   std::uint64_t nodes = 0;
   std::uint64_t eval_calls = 0;
   std::uint64_t leaf_nodes = 0;
@@ -41,14 +44,17 @@ struct SearchTelemetry {
   std::uint64_t selective_cuts = 0;
   bool exact = false;
   bool stopped = false;
-  bool exact_handoff_attempted = false;
+  bool exact_handoff_used = false;
+  bool exact_root_search = false;
   bool time_budget_applies = false;
-  std::uint64_t time_budget_ms = 0;
+  std::uint64_t time_budget_ns = 0;
 };
 
 struct TelemetrySummary {
   std::uint64_t search_calls = 0;
-  std::uint64_t elapsed_ms = 0;
+  std::uint64_t elapsed_ns = 0;
+  std::uint64_t engine_elapsed_ms = 0;
+  std::int64_t timer_accounting_delta_ns = 0;
   std::uint64_t nodes = 0;
   std::uint64_t eval_calls = 0;
   std::uint64_t leaf_nodes = 0;
@@ -68,10 +74,11 @@ struct TelemetrySummary {
   std::uint64_t endgame_nodes = 0;
   std::uint64_t selective_cuts = 0;
   std::uint64_t stopped_searches = 0;
-  std::uint64_t exact_handoff_attempts = 0;
+  std::uint64_t exact_handoff_uses = 0;
+  std::uint64_t exact_root_searches = 0;
   std::uint64_t exact_searches = 0;
   std::vector<std::uint64_t> completed_depths;
-  std::vector<std::uint64_t> time_overshoot_ms;
+  std::vector<std::uint64_t> time_overshoot_ns;
 };
 
 struct PairGameResult {
@@ -111,8 +118,15 @@ struct SanitySummary {
   std::size_t incomplete_pairs = 0;
 };
 
+struct StrengthGateSummary {
+  bool eligible = false;
+  std::vector<std::string> reasons;
+};
+
 [[nodiscard]] const char* engine_role_name(EngineRole role) noexcept;
 [[nodiscard]] TelemetrySummary summarize_telemetry(std::span<const SearchTelemetry> records);
+[[nodiscard]] std::optional<double> events_per_second(std::uint64_t events,
+                                                      std::uint64_t elapsed_ns) noexcept;
 [[nodiscard]] double nearest_rank_percentile(std::span<const std::uint64_t> values,
                                              double percentile);
 [[nodiscard]] std::vector<PairObservation>
@@ -125,6 +139,11 @@ make_pair_observations(std::span<const PairGameResult> games);
                                                    int forward_disc_diff_sum,
                                                    const BootstrapInterval& reverse,
                                                    int reverse_disc_diff_sum) noexcept;
+[[nodiscard]] StrengthGateSummary
+evaluate_strength_gate(bool pure_limit_mode, std::size_t failed_games, std::size_t illegal_games,
+                       std::size_t incomplete_pairs, std::size_t opening_pairs,
+                       std::size_t minimum_opening_pairs, bool candidate_telemetry_present,
+                       bool baseline_telemetry_present);
 
 } // namespace vibe_othello::tools::full_game_arena
 

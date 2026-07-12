@@ -54,6 +54,9 @@ constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 #ifndef VIBE_OTHELLO_ARENA_BUILD_TYPE
 #define VIBE_OTHELLO_ARENA_BUILD_TYPE "unknown"
 #endif
+#ifndef VIBE_OTHELLO_ARENA_SOURCE_DIRTY
+#define VIBE_OTHELLO_ARENA_SOURCE_DIRTY 0
+#endif
 
 enum class SearchPreset {
   basic,
@@ -87,6 +90,7 @@ struct Args {
   std::uint8_t exact_endgame_empties = 0;
   std::uint64_t seed = 0;
   int opening_limit = 0;
+  int minimum_opening_pairs = 1;
   int progress_every = 0;
   std::uint64_t bootstrap_seed = 0;
   std::uint32_t bootstrap_samples = 10000;
@@ -179,7 +183,7 @@ void print_usage() {
                "[--limit-mode depth|nodes|time] [--depth 3] [--nodes 0] "
                "[--time-ms 0] [--search-preset basic|full] [--exact-endgame-empties 0] "
                "[--seed 0] [--bootstrap-seed 0] [--bootstrap-samples 10000] "
-               "[--opening-limit 0] [--progress-every 0]\n";
+               "[--opening-limit 0] [--minimum-opening-pairs 1] [--progress-every 0]\n";
 }
 
 std::optional<int> parse_int(std::string_view text) noexcept {
@@ -363,6 +367,16 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.opening_limit = *limit;
+    } else if (arg == "--minimum-opening-pairs") {
+      if (!next_value(&value)) {
+        return std::nullopt;
+      }
+      const std::optional<int> minimum = parse_int(value);
+      if (!minimum.has_value() || *minimum <= 0) {
+        std::cerr << "--minimum-opening-pairs must be a positive integer\n";
+        return std::nullopt;
+      }
+      args.minimum_opening_pairs = *minimum;
     } else if (arg == "--progress-every") {
       if (!next_value(&value)) {
         return std::nullopt;
@@ -684,8 +698,24 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
     const LoadedEvaluator& active = candidate_to_move ? candidate : baseline;
     const search::Evaluator& evaluator = static_cast<const search::Evaluator&>(active.evaluator);
     const int occupied_count = std::popcount(position.player) + std::popcount(position.opponent);
+    const auto search_started = std::chrono::steady_clock::now();
     const search::SearchResult result =
         search::search_iterative(position, evaluator, search_config.limits, search_config.options);
+    const auto measured_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - search_started);
+    const std::uint64_t elapsed_ns =
+        measured_elapsed.count() > 0 ? static_cast<std::uint64_t>(measured_elapsed.count()) : 0;
+    const std::uint64_t engine_elapsed_ms =
+        result.elapsed.count() > 0 ? static_cast<std::uint64_t>(result.elapsed.count()) : 0;
+    const std::int64_t timer_accounting_delta_ns =
+        measured_elapsed.count() -
+        std::chrono::duration_cast<std::chrono::nanoseconds>(result.elapsed).count();
+    const bool exact_root_search =
+        search_config.exact_endgame_empties != 0 &&
+        64 - occupied_count <= static_cast<int>(search_config.exact_endgame_empties);
+    const std::uint64_t time_budget_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(search_config.limits.max_time)
+            .count());
     GameRecord::SearchCall search_call{
         .telemetry =
             full_arena::SearchTelemetry{
@@ -696,7 +726,9 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
                 .occupied_count = occupied_count,
                 .phase = active.phase_by_occupied_count[static_cast<std::size_t>(occupied_count)],
                 .completed_depth = result.completed_depth,
-                .elapsed_ms = static_cast<std::uint64_t>(result.elapsed.count()),
+                .elapsed_ns = elapsed_ns,
+                .engine_elapsed_ms = engine_elapsed_ms,
+                .timer_accounting_delta_ns = timer_accounting_delta_ns,
                 .nodes = result.nodes,
                 .eval_calls = result.stats.eval_calls,
                 .leaf_nodes = result.stats.leaf_nodes,
@@ -717,11 +749,10 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
                 .selective_cuts = result.stats.selective_cuts,
                 .exact = result.exact,
                 .stopped = result.stopped,
-                .exact_handoff_attempted =
-                    search_config.exact_endgame_empties != 0 &&
-                    64 - occupied_count <= static_cast<int>(search_config.exact_endgame_empties),
+                .exact_handoff_used = result.stats.endgame_nodes > 0,
+                .exact_root_search = exact_root_search,
                 .time_budget_applies = search_config.limits.max_time.count() > 0,
-                .time_budget_ms = static_cast<std::uint64_t>(search_config.limits.max_time.count()),
+                .time_budget_ns = time_budget_ns,
             },
         .best_move = result.best_move.has_value() ? arena::format_move(*result.best_move) : "none",
         .best_move_status = "legal",
@@ -943,7 +974,7 @@ void write_search_config(std::ostream& output, const SearchConfig& config) {
   output << ", \"limit_scope\": \"per-move\"";
   output << ", \"limit_mode\": ";
   write_json_string(output, limit_mode_name(config.limit_mode));
-  output << ", \"gate_eligible\": ";
+  output << ", \"pure_limit_mode\": ";
   write_bool(output, config.limit_mode != LimitMode::legacy_combined);
   output << ", \"infinite\": ";
   write_bool(output, config.limits.infinite);
@@ -1013,18 +1044,21 @@ void write_histogram(std::ostream& output, std::span<const std::uint64_t> values
   output << "}";
 }
 
-void write_distribution(std::ostream& output, std::span<const std::uint64_t> values) {
+void write_distribution(std::ostream& output, std::span<const std::uint64_t> values,
+                        double divisor = 1.0) {
   output << "{";
   output << "\"count\": " << values.size();
   if (values.empty()) {
     output << ", \"mean\": null, \"p50\": null, \"p90\": null, \"p99\": null, \"max\": null";
   } else {
     const std::uint64_t total = std::accumulate(values.begin(), values.end(), std::uint64_t{0});
-    output << ", \"mean\": " << static_cast<double>(total) / static_cast<double>(values.size());
-    output << ", \"p50\": " << full_arena::nearest_rank_percentile(values, 0.50);
-    output << ", \"p90\": " << full_arena::nearest_rank_percentile(values, 0.90);
-    output << ", \"p99\": " << full_arena::nearest_rank_percentile(values, 0.99);
-    output << ", \"max\": " << *std::max_element(values.begin(), values.end());
+    output << ", \"mean\": "
+           << static_cast<double>(total) / static_cast<double>(values.size()) / divisor;
+    output << ", \"p50\": " << full_arena::nearest_rank_percentile(values, 0.50) / divisor;
+    output << ", \"p90\": " << full_arena::nearest_rank_percentile(values, 0.90) / divisor;
+    output << ", \"p99\": " << full_arena::nearest_rank_percentile(values, 0.99) / divisor;
+    output << ", \"max\": "
+           << static_cast<double>(*std::max_element(values.begin(), values.end())) / divisor;
   }
   output << "}";
 }
@@ -1032,7 +1066,10 @@ void write_distribution(std::ostream& output, std::span<const std::uint64_t> val
 void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySummary& summary) {
   output << "{";
   output << "\"search_calls\": " << summary.search_calls;
-  output << ", \"elapsed_ms\": " << summary.elapsed_ms;
+  output << ", \"elapsed_ns\": " << summary.elapsed_ns;
+  output << ", \"elapsed_ms\": " << static_cast<double>(summary.elapsed_ns) / 1'000'000.0;
+  output << ", \"engine_elapsed_ms\": " << summary.engine_elapsed_ms;
+  output << ", \"timer_accounting_delta_ns\": " << summary.timer_accounting_delta_ns;
   output << ", \"nodes\": {\"total\": " << summary.nodes << ", \"mean\": ";
   if (summary.search_calls == 0) {
     output << "null";
@@ -1048,9 +1085,21 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   }
   output << "}";
   output << ", \"nodes_per_sec\": ";
-  write_optional_rate(output, summary.nodes * 1000U, summary.elapsed_ms);
+  const std::optional<double> nodes_per_sec =
+      full_arena::events_per_second(summary.nodes, summary.elapsed_ns);
+  if (!nodes_per_sec.has_value()) {
+    output << "null";
+  } else {
+    output << *nodes_per_sec;
+  }
   output << ", \"evals_per_sec\": ";
-  write_optional_rate(output, summary.eval_calls * 1000U, summary.elapsed_ms);
+  const std::optional<double> evals_per_sec =
+      full_arena::events_per_second(summary.eval_calls, summary.elapsed_ns);
+  if (!evals_per_sec.has_value()) {
+    output << "null";
+  } else {
+    output << *evals_per_sec;
+  }
   output << ", \"completed_depth_histogram\": ";
   write_histogram(output, summary.completed_depths);
   output << ", \"completed_depth_percentiles\": {\"p10\": ";
@@ -1083,10 +1132,13 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   output << ", \"endgame_nodes\": " << summary.endgame_nodes;
   output << ", \"selective_cuts\": " << summary.selective_cuts;
   output << ", \"stopped_searches\": " << summary.stopped_searches;
-  output << ", \"exact_handoff_attempts\": " << summary.exact_handoff_attempts;
+  output << ", \"exact_handoff_uses\": " << summary.exact_handoff_uses;
+  output << ", \"exact_root_searches\": " << summary.exact_root_searches;
   output << ", \"exact_searches\": " << summary.exact_searches;
+  output << ", \"time_budget_overshoot_ns\": ";
+  write_distribution(output, summary.time_overshoot_ns);
   output << ", \"time_budget_overshoot_ms\": ";
-  write_distribution(output, summary.time_overshoot_ms);
+  write_distribution(output, summary.time_overshoot_ns, 1'000'000.0);
   output << "}";
 }
 
@@ -1136,7 +1188,10 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   output << ", \"occupied_count\": " << record.occupied_count;
   output << ", \"phase\": " << record.phase;
   output << ", \"completed_depth\": " << record.completed_depth;
-  output << ", \"elapsed_ms\": " << record.elapsed_ms;
+  output << ", \"elapsed_ns\": " << record.elapsed_ns;
+  output << ", \"elapsed_ms\": " << static_cast<double>(record.elapsed_ns) / 1'000'000.0;
+  output << ", \"engine_elapsed_ms\": " << record.engine_elapsed_ms;
+  output << ", \"timer_accounting_delta_ns\": " << record.timer_accounting_delta_ns;
   output << ", \"nodes\": " << record.nodes;
   output << ", \"eval_calls\": " << record.eval_calls;
   output << ", \"leaf_nodes\": " << record.leaf_nodes;
@@ -1159,11 +1214,19 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   write_bool(output, record.exact);
   output << ", \"stopped\": ";
   write_bool(output, record.stopped);
-  output << ", \"exact_handoff_attempted\": ";
-  write_bool(output, record.exact_handoff_attempted);
+  output << ", \"exact_handoff_used\": ";
+  write_bool(output, record.exact_handoff_used);
+  output << ", \"exact_root_search\": ";
+  write_bool(output, record.exact_root_search);
+  output << ", \"time_budget_ns\": ";
+  if (record.time_budget_applies) {
+    output << record.time_budget_ns;
+  } else {
+    output << "null";
+  }
   output << ", \"time_budget_ms\": ";
   if (record.time_budget_applies) {
-    output << record.time_budget_ms;
+    output << static_cast<double>(record.time_budget_ns) / 1'000'000.0;
   } else {
     output << "null";
   }
@@ -1289,7 +1352,7 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
                                   std::span<const SelectedOpening> openings,
                                   const SearchConfig& search_config, std::uint64_t seed,
                                   int opening_limit, std::uint64_t bootstrap_seed,
-                                  std::uint32_t bootstrap_samples,
+                                  std::uint32_t bootstrap_samples, int minimum_opening_pairs,
                                   std::span<const GameRecord> games) {
   std::ostringstream output;
   output << kArenaVersion << '\n';
@@ -1299,7 +1362,8 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
          << seed << '\n'
          << opening_limit << '\n'
          << bootstrap_seed << '\n'
-         << bootstrap_samples << '\n';
+         << bootstrap_samples << '\n'
+         << minimum_opening_pairs << '\n';
   output << search_preset_name(search_config.preset) << '\n'
          << limit_mode_name(search_config.limit_mode) << '\n'
          << search_config.limits.max_depth << '\n'
@@ -1355,7 +1419,8 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
              << telemetry.iid_searches << '\n'
              << telemetry.endgame_nodes << '\n'
              << telemetry.selective_cuts << '\n'
-             << telemetry.exact << telemetry.stopped << telemetry.exact_handoff_attempted << '\n'
+             << telemetry.exact << telemetry.stopped << telemetry.exact_handoff_used
+             << telemetry.exact_root_search << '\n'
              << call.best_move << '\n'
              << call.best_move_status << '\n';
     }
@@ -1392,10 +1457,21 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
       full_arena::paired_cluster_bootstrap(pairs, args.bootstrap_seed, args.bootstrap_samples);
   const full_arena::SanitySummary paired_sanity =
       full_arena::summarize_sanity(pairs, same_artifact);
+  const full_arena::TelemetrySummary candidate_telemetry =
+      full_arena::summarize_telemetry(telemetry.candidate);
+  const full_arena::TelemetrySummary baseline_telemetry =
+      full_arena::summarize_telemetry(telemetry.baseline);
+  const full_arena::StrengthGateSummary strength_gate = full_arena::evaluate_strength_gate(
+      search_config.limit_mode != LimitMode::legacy_combined,
+      static_cast<std::size_t>(stats.overall.failed_games),
+      static_cast<std::size_t>(stats.overall.illegal_games), paired_sanity.incomplete_pairs,
+      pairs.size(), static_cast<std::size_t>(args.minimum_opening_pairs),
+      candidate_telemetry.search_calls != 0, baseline_telemetry.search_calls != 0);
   const std::string selected_checksum = selected_openings_checksum(openings);
-  const std::string report_checksum = checksum_for(deterministic_payload(
-      candidate, baseline, openings_checksum, openings, search_config, args.seed,
-      args.opening_limit, args.bootstrap_seed, args.bootstrap_samples, games));
+  const std::string report_checksum = checksum_for(
+      deterministic_payload(candidate, baseline, openings_checksum, openings, search_config,
+                            args.seed, args.opening_limit, args.bootstrap_seed,
+                            args.bootstrap_samples, args.minimum_opening_pairs, games));
   output << std::fixed << std::setprecision(6);
   output << "{\n";
   output << "  \"schema_version\": 2,\n";
@@ -1406,8 +1482,11 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
   output << ",\n  \"baseline\": ";
   write_artifact_identity(output, baseline.identity);
   output << ",\n  \"inputs\": {\n";
-  output << "    \"repository_sha\": ";
+  output << "    \"repository\": {\"configure_time_sha\": ";
   write_json_string(output, VIBE_OTHELLO_ARENA_REPOSITORY_SHA);
+  output << ", \"configure_time_dirty\": ";
+  write_bool(output, VIBE_OTHELLO_ARENA_SOURCE_DIRTY != 0);
+  output << ", \"identity_source\": \"configure_time\"}";
   output << ",\n    \"executable\": {\"path\": ";
   write_json_string(output, executable_path.string());
   output << ", \"checksum\": ";
@@ -1468,19 +1547,22 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
   output << ", \"draws\": " << stats.overall.draws;
   output << ", \"candidate_losses\": " << stats.overall.baseline_wins;
   output << ", \"bootstrap_seed\": " << paired_bootstrap.seed;
-  output << ", \"bootstrap_samples\": " << paired_bootstrap.samples << "}";
+  output << ", \"bootstrap_samples\": " << paired_bootstrap.samples;
+  output << ", \"descriptive_only\": ";
+  write_bool(output, !strength_gate.eligible);
+  output << "}";
   output << "\n  },\n";
   output << "  \"failed_games\": " << stats.overall.failed_games << ",\n";
   output << "  \"illegal_games\": " << stats.overall.illegal_games << ",\n";
   output << "  \"elapsed_sec\": " << elapsed_sec << ",\n";
   output << "  \"telemetry\": {\n    \"candidate\": {\"overall\": ";
-  write_telemetry_summary(output, full_arena::summarize_telemetry(telemetry.candidate));
+  write_telemetry_summary(output, candidate_telemetry);
   output << ", \"by_phase\": ";
   write_telemetry_map(output, telemetry.candidate_by_phase);
   output << ", \"by_side_to_move\": ";
   write_telemetry_map(output, telemetry.candidate_by_side_to_move);
   output << "},\n    \"baseline\": {\"overall\": ";
-  write_telemetry_summary(output, full_arena::summarize_telemetry(telemetry.baseline));
+  write_telemetry_summary(output, baseline_telemetry);
   output << ", \"by_phase\": ";
   write_telemetry_map(output, telemetry.baseline_by_phase);
   output << ", \"by_side_to_move\": ";
@@ -1502,6 +1584,17 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
   output << ", \"same_artifact_neutral\": ";
   write_bool(output, paired_sanity.same_artifact_neutral);
   output << "},\n";
+  output << "  \"strength_gate\": {\"eligible\": ";
+  write_bool(output, strength_gate.eligible);
+  output << ", \"minimum_opening_pairs\": " << args.minimum_opening_pairs;
+  output << ", \"reasons\": [";
+  for (std::size_t index = 0; index < strength_gate.reasons.size(); ++index) {
+    if (index != 0) {
+      output << ", ";
+    }
+    write_json_string(output, strength_gate.reasons[index]);
+  }
+  output << "]},\n";
   output << "  \"report_checksum_algorithm\": \"fnv1a64\",\n";
   output << "  \"report_checksum_scope\": \"deterministic config, runtime identities, selected "
             "openings, game results, and non-time telemetry; excludes paths and elapsed time\",\n";

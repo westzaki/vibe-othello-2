@@ -36,9 +36,14 @@ Reports always include the resolved limits and all search options.
 ## Telemetry
 
 Each engine search call records its engine role, side to move, occupied count,
-artifact phase id, completed depth, elapsed time, all public `SearchStats`
+artifact phase id, completed depth, arena-measured nanosecond elapsed time, all public `SearchStats`
 counters, exact/stopped flags, and exact-handoff status. Aggregates are emitted
 separately for candidate and baseline overall, by phase, and by side to move.
+
+Nodes/sec and evals/sec use the arena timer rather than the engine's
+millisecond-rounded elapsed field. Both timings and their accounting delta are
+reported. Exact handoff usage is derived from nonzero endgame nodes; root exact
+search is reported separately.
 
 Wall-time search is cooperative. Its elapsed time and completed depth can vary
 with machine load, so reports expose time-budget overshoot rather than treating
@@ -47,14 +52,21 @@ time while retaining all non-time outcomes and counters.
 
 ## Identity and Sanity
 
-The report fingerprints repository SHA embedded at configure time, executable
-content where readable, compiler/build metadata, artifact manifest and weights
-content, opening input, selected openings, and resolved search configuration.
+The report fingerprints repository SHA and dirty state observed at configure
+time, executable content where readable, compiler/build metadata, artifact
+manifest and weights content, opening input, selected openings, and resolved
+search configuration.
+
+Formal strength-gate eligibility requires a pure limit mode, zero failed and
+illegal games, complete pairs, the configured minimum pair count, and telemetry
+from both engines. Bootstrap output from an ineligible run is descriptive only.
 
 Same-artifact sanity requires each opening pair to have score exactly 0.5 and
 candidate disc-difference sum exactly zero. The companion
-`run_full_game_artifact_arena_sanity.py` also runs candidate/baseline in both
-argument orders and checks score complementarity and disc-difference inversion.
+`run_full_game_artifact_arena_sanity.py` runs candidate/candidate,
+baseline/baseline, and candidate/baseline in both argument orders. It preserves
+weights overrides and checks content identities, selected openings, search
+configuration, failures, score complementarity, and disc-difference inversion.
 
 Generated reports, logs, and sanity output are local-only and must not be
 committed.

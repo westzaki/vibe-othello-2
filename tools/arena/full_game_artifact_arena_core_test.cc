@@ -9,14 +9,18 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
   const std::vector<SearchTelemetry> records{
       SearchTelemetry{.role = EngineRole::candidate,
                       .completed_depth = 3,
-                      .elapsed_ms = 10,
+                      .elapsed_ns = 10'000'000,
+                      .engine_elapsed_ms = 9,
+                      .timer_accounting_delta_ns = 1'000'000,
                       .nodes = 100,
                       .eval_calls = 40,
                       .tt_probes = 20,
                       .tt_hits = 10},
       SearchTelemetry{.role = EngineRole::baseline,
                       .completed_depth = 5,
-                      .elapsed_ms = 20,
+                      .elapsed_ns = 20'000'000,
+                      .engine_elapsed_ms = 19,
+                      .timer_accounting_delta_ns = 1'000'000,
                       .nodes = 300,
                       .eval_calls = 80,
                       .tt_probes = 30,
@@ -38,26 +42,35 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
 TEST_CASE("telemetry records stopped and wall-time overshoot cases", "[arena]") {
   const std::vector<SearchTelemetry> records{
       SearchTelemetry{.role = EngineRole::candidate,
-                      .elapsed_ms = 12,
+                      .elapsed_ns = 12'000'000,
+                      .engine_elapsed_ms = 11,
+                      .timer_accounting_delta_ns = 1'000'000,
                       .nodes = 7,
-                      .stopped = true,
                       .exact = true,
-                      .exact_handoff_attempted = true,
+                      .stopped = true,
+                      .exact_handoff_used = true,
+                      .exact_root_search = true,
                       .time_budget_applies = true,
-                      .time_budget_ms = 10},
+                      .time_budget_ns = 10'000'000},
       SearchTelemetry{.role = EngineRole::candidate,
-                      .elapsed_ms = 4,
+                      .elapsed_ns = 4'000'000,
+                      .engine_elapsed_ms = 3,
+                      .timer_accounting_delta_ns = 1'000'000,
                       .nodes = 3,
                       .time_budget_applies = true,
-                      .time_budget_ms = 10},
+                      .time_budget_ns = 10'000'000},
   };
 
   const TelemetrySummary summary = summarize_telemetry(records);
 
   REQUIRE(summary.stopped_searches == 1);
-  REQUIRE(summary.exact_handoff_attempts == 1);
+  REQUIRE(summary.exact_handoff_uses == 1);
+  REQUIRE(summary.exact_root_searches == 1);
   REQUIRE(summary.exact_searches == 1);
-  REQUIRE(summary.time_overshoot_ms == std::vector<std::uint64_t>{2, 0});
+  REQUIRE(summary.elapsed_ns == 16'000'000);
+  REQUIRE(summary.engine_elapsed_ms == 14);
+  REQUIRE(summary.timer_accounting_delta_ns == 2'000'000);
+  REQUIRE(summary.time_overshoot_ns == std::vector<std::uint64_t>{2'000'000, 0});
 }
 
 TEST_CASE("nearest rank depth percentiles return observed depths", "[arena]") {
@@ -67,6 +80,15 @@ TEST_CASE("nearest rank depth percentiles return observed depths", "[arena]") {
   REQUIRE(nearest_rank_percentile(depths, 0.5) == 5.0);
   REQUIRE(nearest_rank_percentile(depths, 0.9) == 9.0);
   REQUIRE(nearest_rank_percentile({}, 0.5) == 0.0);
+}
+
+TEST_CASE("speed rates retain sub-millisecond timing precision", "[arena]") {
+  const std::optional<double> rate = events_per_second(100, 900'000);
+
+  REQUIRE(rate.has_value());
+  REQUIRE(*rate > 111'111.0);
+  REQUIRE(*rate < 111'112.0);
+  REQUIRE_FALSE(events_per_second(100, 0).has_value());
 }
 
 TEST_CASE("paired bootstrap is deterministic and clusters opening pairs", "[arena]") {
@@ -134,6 +156,18 @@ TEST_CASE("argument-order sanity requires complementary scores and disc differen
 
   REQUIRE(argument_order_is_complementary(forward, 12, reverse, -12));
   REQUIRE_FALSE(argument_order_is_complementary(forward, 12, reverse, 12));
+}
+
+TEST_CASE("strength gate rejects invalid games and missing telemetry", "[arena]") {
+  const StrengthGateSummary eligible = evaluate_strength_gate(true, 0, 0, 0, 10, 10, true, true);
+  const StrengthGateSummary invalid = evaluate_strength_gate(true, 2, 1, 0, 10, 10, true, false);
+
+  REQUIRE(eligible.eligible);
+  REQUIRE(eligible.reasons.empty());
+  REQUIRE_FALSE(invalid.eligible);
+  REQUIRE(invalid.reasons == std::vector<std::string>{"failed_games_nonzero",
+                                                      "illegal_games_nonzero",
+                                                      "baseline_telemetry_missing"});
 }
 
 } // namespace

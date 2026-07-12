@@ -37,7 +37,9 @@ std::size_t bounded_index(SplitMix64* rng, std::size_t upper_bound) noexcept {
 
 void add(TelemetrySummary* summary, const SearchTelemetry& record) {
   ++summary->search_calls;
-  summary->elapsed_ms += record.elapsed_ms;
+  summary->elapsed_ns += record.elapsed_ns;
+  summary->engine_elapsed_ms += record.engine_elapsed_ms;
+  summary->timer_accounting_delta_ns += record.timer_accounting_delta_ns;
   summary->nodes += record.nodes;
   summary->eval_calls += record.eval_calls;
   summary->leaf_nodes += record.leaf_nodes;
@@ -57,12 +59,13 @@ void add(TelemetrySummary* summary, const SearchTelemetry& record) {
   summary->endgame_nodes += record.endgame_nodes;
   summary->selective_cuts += record.selective_cuts;
   summary->stopped_searches += record.stopped ? 1U : 0U;
-  summary->exact_handoff_attempts += record.exact_handoff_attempted ? 1U : 0U;
+  summary->exact_handoff_uses += record.exact_handoff_used ? 1U : 0U;
+  summary->exact_root_searches += record.exact_root_search ? 1U : 0U;
   summary->exact_searches += record.exact ? 1U : 0U;
   summary->completed_depths.push_back(static_cast<std::uint64_t>(record.completed_depth));
   if (record.time_budget_applies) {
-    summary->time_overshoot_ms.push_back(
-        record.elapsed_ms > record.time_budget_ms ? record.elapsed_ms - record.time_budget_ms : 0);
+    summary->time_overshoot_ns.push_back(
+        record.elapsed_ns > record.time_budget_ns ? record.elapsed_ns - record.time_budget_ns : 0);
   }
 }
 
@@ -78,6 +81,13 @@ TelemetrySummary summarize_telemetry(std::span<const SearchTelemetry> records) {
     add(&summary, record);
   }
   return summary;
+}
+
+std::optional<double> events_per_second(std::uint64_t events, std::uint64_t elapsed_ns) noexcept {
+  if (elapsed_ns == 0) {
+    return std::nullopt;
+  }
+  return static_cast<double>(events) * 1'000'000'000.0 / static_cast<double>(elapsed_ns);
 }
 
 double nearest_rank_percentile(std::span<const std::uint64_t> values, double percentile) {
@@ -185,6 +195,38 @@ bool argument_order_is_complementary(const BootstrapInterval& forward, int forwa
          forward.game_count == reverse.game_count &&
          std::abs((forward.point_estimate + reverse.point_estimate) - 1.0) <= 0.0000001 &&
          forward_disc_diff_sum == -reverse_disc_diff_sum;
+}
+
+StrengthGateSummary evaluate_strength_gate(bool pure_limit_mode, std::size_t failed_games,
+                                           std::size_t illegal_games, std::size_t incomplete_pairs,
+                                           std::size_t opening_pairs,
+                                           std::size_t minimum_opening_pairs,
+                                           bool candidate_telemetry_present,
+                                           bool baseline_telemetry_present) {
+  StrengthGateSummary gate;
+  if (!pure_limit_mode) {
+    gate.reasons.emplace_back("limit_mode_not_pure");
+  }
+  if (failed_games != 0) {
+    gate.reasons.emplace_back("failed_games_nonzero");
+  }
+  if (illegal_games != 0) {
+    gate.reasons.emplace_back("illegal_games_nonzero");
+  }
+  if (incomplete_pairs != 0) {
+    gate.reasons.emplace_back("incomplete_pairs_nonzero");
+  }
+  if (opening_pairs < minimum_opening_pairs) {
+    gate.reasons.emplace_back("insufficient_opening_pairs");
+  }
+  if (!candidate_telemetry_present) {
+    gate.reasons.emplace_back("candidate_telemetry_missing");
+  }
+  if (!baseline_telemetry_present) {
+    gate.reasons.emplace_back("baseline_telemetry_missing");
+  }
+  gate.eligible = gate.reasons.empty();
+  return gate;
 }
 
 } // namespace vibe_othello::tools::full_game_arena

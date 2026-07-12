@@ -124,6 +124,7 @@ def assert_report(report: dict[str, object]) -> None:
         "telemetry",
         "paired_sanity",
         "selected_openings_checksum",
+        "strength_gate",
     }
     missing = sorted(expected - set(report))
     if missing:
@@ -174,6 +175,8 @@ def assert_report(report: dict[str, object]) -> None:
         raise AssertionError(f"paired bootstrap missing: {paired!r}")
     if paired.get("opening_pair_count") != 4 or paired.get("game_count") != 8:
         raise AssertionError(f"wrong pair accounting: {paired!r}")
+    if paired.get("descriptive_only") is not False:
+        raise AssertionError(f"valid paired result was marked descriptive-only: {paired!r}")
     paired_sanity = report["paired_sanity"]
     if paired_sanity.get("paired_color_swap_complete") is not True or paired_sanity.get(
         "same_artifact_neutral"
@@ -184,10 +187,25 @@ def assert_report(report: dict[str, object]) -> None:
         role_report = telemetry.get(role)
         if not isinstance(role_report, dict) or role_report["overall"]["search_calls"] <= 0:
             raise AssertionError(f"missing {role} telemetry: {role_report!r}")
+        overall_telemetry = role_report["overall"]
+        if overall_telemetry["elapsed_ns"] <= 0 or overall_telemetry["nodes_per_sec"] is None:
+            raise AssertionError(f"missing high-resolution {role} timing: {overall_telemetry!r}")
+        if "engine_elapsed_ms" not in overall_telemetry or "timer_accounting_delta_ns" not in overall_telemetry:
+            raise AssertionError(f"missing {role} timer accounting: {overall_telemetry!r}")
         if not role_report["by_phase"] or not role_report["by_side_to_move"]:
             raise AssertionError(f"missing {role} telemetry buckets: {role_report!r}")
     if any(not game.get("search_calls") for game in report["game_records"]):
         raise AssertionError("game record lacks per-search telemetry")
+    first_search = report["game_records"][0]["search_calls"][0]
+    for field in ("elapsed_ns", "elapsed_ms", "engine_elapsed_ms", "timer_accounting_delta_ns", "exact_handoff_used"):
+        if field not in first_search:
+            raise AssertionError(f"per-search telemetry lacks {field}: {first_search!r}")
+    gate = report["strength_gate"]
+    if gate != {"eligible": True, "minimum_opening_pairs": 1, "reasons": []}:
+        raise AssertionError(f"valid smoke run was not gate eligible: {gate!r}")
+    repository = report["inputs"].get("repository")
+    if not isinstance(repository, dict) or "configure_time_dirty" not in repository:
+        raise AssertionError(f"repository fingerprint lacks dirty state: {repository!r}")
 
 
 def assert_sanity_runner(exe: str, temp_dir: Path) -> None:
@@ -200,8 +218,12 @@ def assert_sanity_runner(exe: str, temp_dir: Path) -> None:
         exe,
         "--candidate-manifest",
         str(temp_dir / "candidate.manifest.json"),
+        "--candidate-weights",
+        str(temp_dir / "candidate.weights.bin"),
         "--baseline-manifest",
         str(temp_dir / "baseline.manifest.json"),
+        "--baseline-weights",
+        str(temp_dir / "baseline.weights.bin"),
         "--openings",
         str(temp_dir / "openings.txt"),
         "--output-dir",
@@ -210,6 +232,8 @@ def assert_sanity_runner(exe: str, temp_dir: Path) -> None:
         "depth",
         "--depth",
         "1",
+        "--opening-limit",
+        "4",
     ]
     completed = run(command)
     if completed.returncode != 0:
@@ -280,6 +304,13 @@ def assert_explicit_limit_modes(exe: str, temp_dir: Path) -> None:
         config = report["search_config"]
         if config["limit_mode"] != expected_mode or config["infinite"] is not expected_infinite:
             raise AssertionError(f"incorrect {mode} mode config: {config!r}")
+        if mode == "nodes":
+            gate = report["strength_gate"]
+            paired = report["results"]["paired_score"]
+            if gate["eligible"] is not False or "failed_games_nonzero" not in gate["reasons"]:
+                raise AssertionError(f"failed node-limited run remained gate eligible: {gate!r}")
+            if paired["descriptive_only"] is not True:
+                raise AssertionError(f"invalid run CI was not descriptive-only: {paired!r}")
 
 
 def main(argv: list[str]) -> int:
