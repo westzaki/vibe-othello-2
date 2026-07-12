@@ -417,7 +417,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     ++context.stats.pass_nodes;
     root_frame.current_move = board_core::make_pass();
     root_frame.delta = board_core::MoveDelta{.move = board_core::make_pass(), .flipped = 0};
-    apply_move(&context.position_state, root_frame.delta, &root_frame.position_undo);
+    apply_move(&context.position_state, root_frame.delta, &root_frame.position_undo,
+               &context.stats);
 
     const NodeCount before_nodes = context.stats.nodes;
     const Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
@@ -427,7 +428,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
         context.options.midgame.pass_consumes_depth ? static_cast<Depth>(completed_depth - 1)
                                                     : completed_depth,
         Ply{1});
-    undo_move(&context.position_state, root_frame.delta, root_frame.position_undo);
+    undo_move(&context.position_state, root_frame.delta, root_frame.position_undo, &context.stats);
     if (child.is_stopped()) {
       publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
       return result;

@@ -354,6 +354,20 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(iterative.stats.incremental_eval_calls == iterative.stats.eval_calls);
   REQUIRE(iterative.stats.stateless_eval_calls == 0);
 
+  const board_core::Position forced_root_pass{
+      .player = board_core::bit(board_core::square_from_file_rank(1, 0)),
+      .opponent = board_core::bit(board_core::square_from_file_rank(0, 0)),
+      .side_to_move = board_core::Color::black,
+  };
+  const search::SearchResult root_pass =
+      search::search_fixed_depth(forced_root_pass, fully_learned, 1);
+  REQUIRE(root_pass.stats.incremental_eval_enabled);
+  REQUIRE(root_pass.stats.incremental_state_initializations == 1);
+  REQUIRE(root_pass.stats.incremental_updates == 2);
+  REQUIRE(root_pass.stats.incremental_touched_instances == 0);
+  REQUIRE(root_pass.stats.incremental_eval_calls + root_pass.stats.stateless_eval_calls ==
+          root_pass.stats.eval_calls);
+
   PatternArtifactLoadResult direct_load_result =
       load_default_pattern_artifact(default_eval_root(source_root()));
   REQUIRE(direct_load_result.ok());
