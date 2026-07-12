@@ -765,6 +765,12 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
                 .timer_accounting_delta_ns = timer_accounting_delta_ns,
                 .nodes = result.nodes,
                 .eval_calls = result.stats.eval_calls,
+                .incremental_eval_enabled = result.stats.incremental_eval_enabled,
+                .incremental_state_initializations = result.stats.incremental_state_initializations,
+                .incremental_eval_calls = result.stats.incremental_eval_calls,
+                .stateless_eval_calls = result.stats.stateless_eval_calls,
+                .incremental_updates = result.stats.incremental_updates,
+                .incremental_touched_instances = result.stats.incremental_touched_instances,
                 .leaf_nodes = result.stats.leaf_nodes,
                 .terminal_nodes = result.stats.terminal_nodes,
                 .pass_nodes = result.stats.pass_nodes,
@@ -1142,6 +1148,16 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
     output << static_cast<double>(summary.eval_calls) / static_cast<double>(summary.search_calls);
   }
   output << "}";
+  output << ", \"incremental_eval_enabled\": "
+         << (summary.incremental_eval_enabled_searches != 0 ? "true" : "false");
+  output << ", \"incremental_eval_enabled_searches\": "
+         << summary.incremental_eval_enabled_searches;
+  output << ", \"incremental_state_initializations\": "
+         << summary.incremental_state_initializations;
+  output << ", \"incremental_eval_calls\": " << summary.incremental_eval_calls;
+  output << ", \"stateless_eval_calls\": " << summary.stateless_eval_calls;
+  output << ", \"incremental_updates\": " << summary.incremental_updates;
+  output << ", \"incremental_touched_instances\": " << summary.incremental_touched_instances;
   output << ", \"nodes_per_sec\": ";
   const std::optional<double> nodes_per_sec =
       full_arena::events_per_second(summary.nodes, summary.elapsed_ns);
@@ -1257,6 +1273,13 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   output << ", \"timer_accounting_delta_ns\": " << record.timer_accounting_delta_ns;
   output << ", \"nodes\": " << record.nodes;
   output << ", \"eval_calls\": " << record.eval_calls;
+  output << ", \"incremental_eval_enabled\": ";
+  write_bool(output, record.incremental_eval_enabled);
+  output << ", \"incremental_state_initializations\": " << record.incremental_state_initializations;
+  output << ", \"incremental_eval_calls\": " << record.incremental_eval_calls;
+  output << ", \"stateless_eval_calls\": " << record.stateless_eval_calls;
+  output << ", \"incremental_updates\": " << record.incremental_updates;
+  output << ", \"incremental_touched_instances\": " << record.incremental_touched_instances;
   output << ", \"leaf_nodes\": " << record.leaf_nodes;
   output << ", \"terminal_nodes\": " << record.terminal_nodes;
   output << ", \"pass_nodes\": " << record.pass_nodes;
@@ -1471,6 +1494,12 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
              << telemetry.completed_depth << '\n'
              << telemetry.nodes << '\n'
              << telemetry.eval_calls << '\n'
+             << telemetry.incremental_eval_enabled << '\n'
+             << telemetry.incremental_state_initializations << '\n'
+             << telemetry.incremental_eval_calls << '\n'
+             << telemetry.stateless_eval_calls << '\n'
+             << telemetry.incremental_updates << '\n'
+             << telemetry.incremental_touched_instances << '\n'
              << telemetry.leaf_nodes << '\n'
              << telemetry.terminal_nodes << '\n'
              << telemetry.pass_nodes << '\n'

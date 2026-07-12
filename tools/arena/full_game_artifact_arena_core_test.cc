@@ -14,6 +14,12 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
                       .timer_accounting_delta_ns = 1'000'000,
                       .nodes = 100,
                       .eval_calls = 40,
+                      .incremental_eval_enabled = true,
+                      .incremental_state_initializations = 3,
+                      .incremental_eval_calls = 30,
+                      .stateless_eval_calls = 10,
+                      .incremental_updates = 200,
+                      .incremental_touched_instances = 500,
                       .tt_probes = 20,
                       .tt_hits = 10},
       SearchTelemetry{.role = EngineRole::baseline,
@@ -33,6 +39,12 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
   REQUIRE(candidate.search_calls == 1);
   REQUIRE(candidate.nodes == 100);
   REQUIRE(candidate.eval_calls == 40);
+  REQUIRE(candidate.incremental_eval_enabled_searches == 1);
+  REQUIRE(candidate.incremental_state_initializations == 3);
+  REQUIRE(candidate.incremental_eval_calls == 30);
+  REQUIRE(candidate.stateless_eval_calls == 10);
+  REQUIRE(candidate.incremental_updates == 200);
+  REQUIRE(candidate.incremental_touched_instances == 500);
   REQUIRE(candidate.tt_hits == 10);
   REQUIRE(baseline.search_calls == 1);
   REQUIRE(baseline.nodes == 300);

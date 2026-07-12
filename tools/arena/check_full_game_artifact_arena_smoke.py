@@ -195,12 +195,35 @@ def assert_report(report: dict[str, object]) -> None:
             raise AssertionError(f"missing high-resolution {role} timing: {overall_telemetry!r}")
         if "engine_elapsed_ms" not in overall_telemetry or "timer_accounting_delta_ns" not in overall_telemetry:
             raise AssertionError(f"missing {role} timer accounting: {overall_telemetry!r}")
+        for field in (
+            "incremental_eval_enabled",
+            "incremental_eval_enabled_searches",
+            "incremental_state_initializations",
+            "incremental_eval_calls",
+            "stateless_eval_calls",
+            "incremental_updates",
+            "incremental_touched_instances",
+        ):
+            if field not in overall_telemetry:
+                raise AssertionError(f"missing {role} backend telemetry {field}: {overall_telemetry!r}")
         if not role_report["by_phase"] or not role_report["by_side_to_move"]:
             raise AssertionError(f"missing {role} telemetry buckets: {role_report!r}")
     if any(not game.get("search_calls") for game in report["game_records"]):
         raise AssertionError("game record lacks per-search telemetry")
     first_search = report["game_records"][0]["search_calls"][0]
-    for field in ("elapsed_ns", "elapsed_ms", "engine_elapsed_ms", "timer_accounting_delta_ns", "exact_handoff_used"):
+    for field in (
+        "elapsed_ns",
+        "elapsed_ms",
+        "engine_elapsed_ms",
+        "timer_accounting_delta_ns",
+        "exact_handoff_used",
+        "incremental_eval_enabled",
+        "incremental_state_initializations",
+        "incremental_eval_calls",
+        "stateless_eval_calls",
+        "incremental_updates",
+        "incremental_touched_instances",
+    ):
         if field not in first_search:
             raise AssertionError(f"per-search telemetry lacks {field}: {first_search!r}")
     gate = report["strength_gate"]

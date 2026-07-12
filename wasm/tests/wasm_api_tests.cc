@@ -441,6 +441,18 @@ TEST_CASE("WASM adapter runs bounded artifact-backed best-move search", "[wasm]"
   const Move best_move = vibe_othello::board_core::make_move(
       vibe_othello::board_core::square_from_index(static_cast<int>(result.best_move_square)));
   REQUIRE(is_legal_root_move(engine_position, best_move));
+
+  const std::optional<Position> late = vibe_othello::board_core::parse_position(
+      "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBBB/BBBWB.B./BBWBBB../BW.WWWWW b");
+  REQUIRE(late.has_value());
+  const vibe_othello_wasm_position late_position = to_wasm_position(*late);
+  result = {};
+  REQUIRE(vibe_othello_wasm_search_best_move(artifact.get(), &late_position, 3, 0, 0, &result) ==
+          VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(result.score == 4);
+  REQUIRE(result.completed_depth == 3);
+  REQUIRE(result.nodes == 152);
+  REQUIRE(result.best_move_square == 48);
 }
 
 TEST_CASE("WASM search presets resolve normal to the production search stack", "[wasm][search]") {

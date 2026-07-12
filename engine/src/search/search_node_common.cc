@@ -191,6 +191,11 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   if (depth <= 0) {
     ++context->stats.leaf_nodes;
     ++context->stats.eval_calls;
+    if (uses_incremental_evaluation(context->position_state)) {
+      ++context->stats.incremental_eval_calls;
+    } else {
+      ++context->stats.stateless_eval_calls;
+    }
     const Score score = evaluate_position(context->position_state, context->evaluator);
     if (context->position_state.evaluation_state.has_value() &&
         context->incremental_eval_verify_interval != 0 &&
@@ -301,7 +306,7 @@ SearchNodeResult search_full_window_child(SearchContext* context, board_core::Mo
         board_core::make_move_delta(context->position_state.position, move, &frame.delta);
     require_invariant(made_delta);
   }
-  apply_move(&context->position_state, frame.delta, &frame.position_undo);
+  apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const Depth child_depth =
       move.kind == board_core::MoveKind::pass && !context->options.midgame.pass_consumes_depth
@@ -311,7 +316,7 @@ SearchNodeResult search_full_window_child(SearchContext* context, board_core::Mo
   const SearchNodeResult child =
       dispatch_search(context, dispatch, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                       child_depth, static_cast<Ply>(ply + 1));
-  undo_move(&context->position_state, frame.delta, frame.position_undo);
+  undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
 
   return child_result(move, child);
 }
@@ -323,11 +328,11 @@ SearchNodeResult search_null_window_child(SearchContext* context, board_core::Mo
   const bool made_delta =
       board_core::make_move_delta(context->position_state.position, move, &frame.delta);
   require_invariant(made_delta);
-  apply_move(&context->position_state, frame.delta, &frame.position_undo);
+  apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const SearchNodeResult child =
       null_window_search(context, beta, static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
-  undo_move(&context->position_state, frame.delta, frame.position_undo);
+  undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
 
   return child_result(move, child);
 }

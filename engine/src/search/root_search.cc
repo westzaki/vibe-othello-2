@@ -127,14 +127,14 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   const bool made_delta =
       board_core::make_move_delta(context->position_state.position, move, &frame.delta);
   require_invariant(made_delta);
-  apply_move(&context->position_state, frame.delta, &frame.position_undo);
+  apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const NodeCount before_nodes = context->stats.nodes;
   const Score child_alpha = static_cast<Score>(-move_window.beta);
   const Score child_beta = static_cast<Score>(-move_window.alpha);
   const SearchNodeResult child =
       full_window_search(context, child_alpha, child_beta, static_cast<Depth>(depth - 1), Ply{1});
-  undo_move(&context->position_state, frame.delta, frame.position_undo);
+  undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
   if (child.is_stopped()) {
     return std::nullopt;
   }
@@ -350,6 +350,10 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .limit_state = limit_state,
       .incremental_eval_verify_interval = incremental_eval_verify_interval,
   };
+  if (context.position_state.evaluation_state.has_value()) {
+    context.stats.incremental_eval_enabled = true;
+    ++context.stats.incremental_state_initializations;
+  }
 
   SearchResult result{
       .completed_depth = completed_depth,

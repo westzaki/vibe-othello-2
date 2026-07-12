@@ -328,7 +328,14 @@ The JSON-only report includes runtime artifact identities and checksums,
 resolved search options, selected openings, per-game and per-opening results,
 color-assignment buckets, pass/failure/illegal counts, elapsed time, and
 same-artifact paired-neutral sanity data. Its deterministic checksum excludes
-paths and elapsed time. This is a local strength-gate foundation, not Elo,
+paths and elapsed time while retaining all non-time outcomes and counters,
+including backend telemetry. Per-call and phase-aggregated telemetry reports
+`incremental_eval_enabled`, state initializations,
+incremental/stateless evaluation calls, incremental updates, and touched
+pattern instances, so fallback-only and incremental phase behavior can be
+compared directly.
+
+This is a local strength-gate foundation, not Elo,
 artifact promotion, or a production-strength claim; generated reports and local
 artifacts must not be committed.
 

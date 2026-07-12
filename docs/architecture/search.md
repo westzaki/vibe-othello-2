@@ -505,6 +505,12 @@ struct SearchStats {
   NodeCount nodes;
   NodeCount leaf_nodes;
   NodeCount eval_calls;
+  bool incremental_eval_enabled;
+  NodeCount incremental_state_initializations;
+  NodeCount incremental_eval_calls;
+  NodeCount stateless_eval_calls;
+  NodeCount incremental_updates;
+  NodeCount incremental_touched_instances;
   NodeCount terminal_nodes;
   NodeCount pass_nodes;
   NodeCount beta_cutoffs;
@@ -589,6 +595,28 @@ Terminal positions should return no best move.
 `stats.leaf_nodes` counts depth-cutoff nodes that call the evaluator.
 
 `stats.eval_calls` counts calls to the evaluator.
+
+`stats.incremental_eval_enabled` reports whether at least one root search bound an
+incremental pattern state. Iterative and aspiration searches OR this flag while
+aggregating their root attempts.
+
+`stats.incremental_state_initializations` counts incremental state construction
+at search roots. `stats.incremental_eval_calls` and
+`stats.stateless_eval_calls` partition `stats.eval_calls`; their sum must equal
+`stats.eval_calls`.
+
+`stats.incremental_updates` counts incremental state transitions for apply and
+undo, including pass transitions. `stats.incremental_touched_instances` sums
+the unique pattern instances updated by those transitions; pass transitions
+therefore add an update but touch zero instances.
+
+For a `PhaseAwareEvaluator`, a fallback-only search reports incremental
+evaluation disabled and stateless calls. A search that can reach a learned
+phase binds the incremental state at the root and reports incremental calls,
+while individual fallback-only leaves remain stateless calls. Generic and
+deliberately wrapped flat-pattern stateless evaluators also report stateless
+calls; consumers such as `search_bench` distinguish those using the reported
+evaluator mode.
 
 `stats.terminal_nodes` counts terminal nodes that return exact disc difference.
 

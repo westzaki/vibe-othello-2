@@ -15,6 +15,8 @@ namespace vibe_othello::evaluation {
 
 class PatternEvaluator final : public search::Evaluator {
 public:
+  // The evaluator must outlive the incremental state. Moving the evaluator
+  // while an incremental state exists also invalidates the state.
   class IncrementalState {
   public:
     [[nodiscard]] search::Score evaluate() const noexcept;
@@ -27,13 +29,18 @@ public:
     [[nodiscard]] std::uint8_t occupied_count() const noexcept {
       return occupied_count_;
     }
+    // Returns the unique instance count from the most recent apply or undo.
+    // Pass transitions report zero.
+    [[nodiscard]] std::uint32_t last_touched_instances() const noexcept {
+      return last_touched_instances_;
+    }
 
   private:
     friend class PatternEvaluator;
     IncrementalState(const PatternEvaluator* evaluator, board_core::Position position);
 
-    void update_normal_move(board_core::MoveDelta delta, board_core::Color mover,
-                            int direction) noexcept;
+    [[nodiscard]] std::uint32_t update_normal_move(board_core::MoveDelta delta,
+                                                   board_core::Color mover, int direction) noexcept;
 
     const PatternEvaluator* evaluator_ = nullptr;
     std::vector<std::uint32_t> black_indices_;
@@ -43,6 +50,7 @@ public:
     std::vector<std::int32_t> pending_black_delta_;
     std::vector<std::int32_t> pending_white_delta_;
     std::uint32_t generation_ = 0;
+    std::uint32_t last_touched_instances_ = 0;
     std::uint8_t occupied_count_ = 0;
     board_core::Color side_to_move_ = board_core::Color::black;
   };

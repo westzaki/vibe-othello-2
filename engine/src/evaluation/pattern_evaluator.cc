@@ -649,9 +649,9 @@ search::Score PatternEvaluator::IncrementalState::evaluate() const noexcept {
                                       white_indices_.data());
 }
 
-void PatternEvaluator::IncrementalState::update_normal_move(board_core::MoveDelta delta,
-                                                            board_core::Color mover,
-                                                            int direction) noexcept {
+std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core::MoveDelta delta,
+                                                                     board_core::Color mover,
+                                                                     int direction) noexcept {
   ++generation_;
   if (generation_ == 0) {
     std::fill(touched_generation_.begin(), touched_generation_.end(), 0);
@@ -707,14 +707,16 @@ void PatternEvaluator::IncrementalState::update_normal_move(board_core::MoveDelt
     black_indices_[instance_id] = static_cast<std::uint32_t>(black_index);
     white_indices_[instance_id] = static_cast<std::uint32_t>(white_index);
   }
+  return static_cast<std::uint32_t>(touched_count);
 }
 
 void PatternEvaluator::IncrementalState::apply_move(board_core::MoveDelta delta) noexcept {
   if (delta.move.kind == board_core::MoveKind::pass) {
     side_to_move_ = board_core::opposite(side_to_move_);
+    last_touched_instances_ = 0;
     return;
   }
-  update_normal_move(delta, side_to_move_, 1);
+  last_touched_instances_ = update_normal_move(delta, side_to_move_, 1);
   ++occupied_count_;
   side_to_move_ = board_core::opposite(side_to_move_);
 }
@@ -722,9 +724,10 @@ void PatternEvaluator::IncrementalState::apply_move(board_core::MoveDelta delta)
 void PatternEvaluator::IncrementalState::undo_move(board_core::MoveDelta delta) noexcept {
   side_to_move_ = board_core::opposite(side_to_move_);
   if (delta.move.kind == board_core::MoveKind::pass) {
+    last_touched_instances_ = 0;
     return;
   }
-  update_normal_move(delta, side_to_move_, -1);
+  last_touched_instances_ = update_normal_move(delta, side_to_move_, -1);
   --occupied_count_;
 }
 

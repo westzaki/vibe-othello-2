@@ -40,6 +40,14 @@ artifact phase id, completed depth, arena-measured nanosecond elapsed time, all 
 counters, exact/stopped flags, and exact-handoff status. Aggregates are emitted
 separately for candidate and baseline overall, by phase, and by side to move.
 
+Backend telemetry keeps the public `SearchStats` field names on each search
+record and in every aggregate: incremental enablement and state
+initializations, incremental and stateless evaluation calls, incremental
+updates, and touched pattern instances. Aggregate records additionally report
+the number of searches that enabled incremental evaluation. Combined with the
+artifact phase bucket, this distinguishes learned incremental searches from
+phase-aware fallback-only searches and makes phase-local NPS changes auditable.
+
 Nodes/sec and evals/sec use the arena timer rather than the engine's
 millisecond-rounded elapsed field. Both timings and their accounting delta are
 reported. Exact handoff usage is derived from nonzero endgame nodes; root exact

@@ -5,6 +5,7 @@
 #include "vibe_othello/evaluation/pattern_evaluator.h"
 #include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/evaluator.h"
+#include "vibe_othello/search/result.h"
 
 #include <optional>
 
@@ -64,6 +65,14 @@ inline Score evaluate_position(const SearchPositionState& state,
   return evaluator.evaluate(state.position);
 }
 
+inline bool uses_incremental_evaluation(const SearchPositionState& state) noexcept {
+  if (state.pattern_evaluator != nullptr) {
+    return true;
+  }
+  return state.phase_aware_evaluator != nullptr &&
+         state.phase_aware_evaluator->uses_learned_patterns(state.position, 0);
+}
+
 inline Score evaluate_position_reference(const SearchPositionState& state,
                                          const Evaluator& evaluator) noexcept {
   if (state.phase_aware_evaluator != nullptr) {
@@ -92,7 +101,7 @@ inline board_core::Bitboard opponent_legal_moves(const SearchPositionState& stat
 }
 
 inline void apply_move(SearchPositionState* state, board_core::MoveDelta delta,
-                       SearchPositionUndo* undo) noexcept {
+                       SearchPositionUndo* undo, SearchStats* stats = nullptr) noexcept {
   *undo = SearchPositionUndo{
       .key = state->key,
       .legal_mask = state->legal_mask,
@@ -100,6 +109,10 @@ inline void apply_move(SearchPositionState* state, board_core::MoveDelta delta,
   };
   if (state->evaluation_state.has_value()) {
     state->evaluation_state->apply_move(delta);
+    if (stats != nullptr) {
+      ++stats->incremental_updates;
+      stats->incremental_touched_instances += state->evaluation_state->last_touched_instances();
+    }
   }
   state->key = board_core::hash_after_move(state->position, state->key, delta);
   board_core::apply_move_delta(&state->position, delta);
@@ -108,10 +121,14 @@ inline void apply_move(SearchPositionState* state, board_core::MoveDelta delta,
 }
 
 inline void undo_move(SearchPositionState* state, board_core::MoveDelta delta,
-                      SearchPositionUndo undo) noexcept {
+                      SearchPositionUndo undo, SearchStats* stats = nullptr) noexcept {
   board_core::undo_move(&state->position, delta);
   if (state->evaluation_state.has_value()) {
     state->evaluation_state->undo_move(delta);
+    if (stats != nullptr) {
+      ++stats->incremental_updates;
+      stats->incremental_touched_instances += state->evaluation_state->last_touched_instances();
+    }
   }
   state->key = undo.key;
   state->legal_mask = undo.legal_mask;

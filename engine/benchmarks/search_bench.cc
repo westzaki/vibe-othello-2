@@ -456,6 +456,12 @@ std::vector<EvalMode> eval_values(EvalSelection selection) {
   return {};
 }
 
+bool uses_pattern_evaluator(EvalSelection selection) noexcept {
+  return selection == EvalSelection::pattern_v2_incremental ||
+         selection == EvalSelection::pattern_v2_stateless ||
+         selection == EvalSelection::pattern_v2_both || selection == EvalSelection::all;
+}
+
 SearchOptions search_options_for_variant(BenchmarkVariant variant) noexcept {
   SearchOptions options{};
   switch (variant.tt_mode) {
@@ -1034,7 +1040,7 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
 }
 
 TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position position, Depth depth,
-                       const Evaluator& pattern_incremental, const Evaluator& pattern_stateless) {
+                       const Evaluator* pattern_incremental, const Evaluator* pattern_stateless) {
   DiscDifferenceEvaluator evaluator;
   SimpleEvaluator simple_evaluator;
   const Evaluator* selected_evaluator = &evaluator;
@@ -1045,10 +1051,12 @@ TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position po
     selected_evaluator = &simple_evaluator;
     break;
   case EvalMode::pattern_v2_incremental:
-    selected_evaluator = &pattern_incremental;
+    require_condition(pattern_incremental != nullptr, "incremental pattern evaluator is missing");
+    selected_evaluator = pattern_incremental;
     break;
   case EvalMode::pattern_v2_stateless:
-    selected_evaluator = &pattern_stateless;
+    require_condition(pattern_stateless != nullptr, "stateless pattern evaluator is missing");
+    selected_evaluator = pattern_stateless;
     break;
   }
   const auto start = std::chrono::steady_clock::now();
@@ -1077,16 +1085,19 @@ void print_delimited_header(char delimiter) {
             << "iid" << delimiter << "exact_endgame" << delimiter << "endgame_exact_empties"
             << delimiter << "endgame_tt" << delimiter << "endgame_parity" << delimiter << "depth"
             << delimiter << "score" << delimiter << "score_kind" << delimiter << "best_move"
-            << delimiter << "nodes" << delimiter << "eval_calls" << delimiter << "terminal_nodes"
-            << delimiter << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter
-            << "alpha_updates" << delimiter << "pvs_researches" << delimiter
-            << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs" << delimiter
-            << "iid_searches" << delimiter << "endgame_nodes" << delimiter << "tt_probes"
-            << delimiter << "tt_hits" << delimiter << "tt_stores" << delimiter << "tt_cutoffs"
-            << delimiter << "tt_replacements" << delimiter << "tt_bucket_conflicts" << delimiter
-            << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores" << delimiter
-            << "completed_depth" << delimiter << "stopped" << delimiter << "elapsed_ms" << delimiter
-            << "nps" << '\n';
+            << delimiter << "nodes" << delimiter << "eval_calls" << delimiter
+            << "incremental_eval_enabled" << delimiter << "incremental_state_initializations"
+            << delimiter << "incremental_eval_calls" << delimiter << "stateless_eval_calls"
+            << delimiter << "incremental_updates" << delimiter << "incremental_touched_instances"
+            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
+            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "pvs_researches"
+            << delimiter << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs"
+            << delimiter << "iid_searches" << delimiter << "endgame_nodes" << delimiter
+            << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_stores" << delimiter
+            << "tt_cutoffs" << delimiter << "tt_replacements" << delimiter << "tt_bucket_conflicts"
+            << delimiter << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores"
+            << delimiter << "completed_depth" << delimiter << "stopped" << delimiter << "elapsed_ms"
+            << delimiter << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode,
@@ -1113,6 +1124,12 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << score_kind_name(timed_result.result.score_kind) << delimiter
             << best_move_to_string(timed_result.result) << delimiter << timed_result.result.nodes
             << delimiter << timed_result.result.stats.eval_calls << delimiter
+            << bool_mode_name(timed_result.result.stats.incremental_eval_enabled) << delimiter
+            << timed_result.result.stats.incremental_state_initializations << delimiter
+            << timed_result.result.stats.incremental_eval_calls << delimiter
+            << timed_result.result.stats.stateless_eval_calls << delimiter
+            << timed_result.result.stats.incremental_updates << delimiter
+            << timed_result.result.stats.incremental_touched_instances << delimiter
             << timed_result.result.stats.terminal_nodes << delimiter
             << timed_result.result.stats.pass_nodes << delimiter
             << timed_result.result.stats.beta_cutoffs << delimiter
@@ -1184,6 +1201,15 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   print_json_root_moves(std::cout, timed_result.result.root_moves);
   std::cout << ",\"nodes\":" << timed_result.result.nodes;
   std::cout << ",\"eval_calls\":" << timed_result.result.stats.eval_calls;
+  std::cout << ",\"incremental_eval_enabled\":"
+            << (timed_result.result.stats.incremental_eval_enabled ? "true" : "false");
+  std::cout << ",\"incremental_state_initializations\":"
+            << timed_result.result.stats.incremental_state_initializations;
+  std::cout << ",\"incremental_eval_calls\":" << timed_result.result.stats.incremental_eval_calls;
+  std::cout << ",\"stateless_eval_calls\":" << timed_result.result.stats.stateless_eval_calls;
+  std::cout << ",\"incremental_updates\":" << timed_result.result.stats.incremental_updates;
+  std::cout << ",\"incremental_touched_instances\":"
+            << timed_result.result.stats.incremental_touched_instances;
   std::cout << ",\"terminal_nodes\":" << timed_result.result.stats.terminal_nodes;
   std::cout << ",\"pass_nodes\":" << timed_result.result.stats.pass_nodes;
   std::cout << ",\"beta_cutoffs\":" << timed_result.result.stats.beta_cutoffs;
@@ -1218,15 +1244,19 @@ int main(int argc, char** argv) {
   const std::vector<PositionCase> positions =
       config->corpus_path.empty() ? benchmark_positions() : load_corpus(config->corpus_path);
   const std::vector<BenchmarkMode> modes = modes_for_filter(config->mode_filter);
-  vibe_othello::evaluation::PatternArtifactLoadResult artifact_result =
-      vibe_othello::evaluation::load_default_pattern_artifact(
-          vibe_othello::evaluation::default_eval_root(VIBE_OTHELLO_SOURCE_DIR));
-  require_condition(artifact_result.ok(), "failed to load committed default artifact");
-  vibe_othello::evaluation::LoadedPatternArtifact artifact = std::move(*artifact_result.artifact);
-  const vibe_othello::evaluation::PhaseAwareEvaluator pattern_incremental{
-      std::move(artifact.weights), std::move(artifact.feature_set),
-      std::move(artifact.trained_phases), artifact.fallback_additive_through_phase};
-  const StatelessPhaseAwareEvaluator pattern_stateless{&pattern_incremental};
+  std::optional<vibe_othello::evaluation::PhaseAwareEvaluator> pattern_incremental;
+  std::optional<StatelessPhaseAwareEvaluator> pattern_stateless;
+  if (uses_pattern_evaluator(config->eval)) {
+    vibe_othello::evaluation::PatternArtifactLoadResult artifact_result =
+        vibe_othello::evaluation::load_default_pattern_artifact(
+            vibe_othello::evaluation::default_eval_root(VIBE_OTHELLO_SOURCE_DIR));
+    require_condition(artifact_result.ok(), "failed to load committed default artifact");
+    vibe_othello::evaluation::LoadedPatternArtifact artifact = std::move(*artifact_result.artifact);
+    pattern_incremental.emplace(std::move(artifact.weights), std::move(artifact.feature_set),
+                                std::move(artifact.trained_phases),
+                                artifact.fallback_additive_through_phase);
+    pattern_stateless.emplace(&*pattern_incremental);
+  }
 
   if (config->output_format != OutputFormat::jsonl) {
     print_delimited_header(config->delimiter);
@@ -1238,8 +1268,10 @@ int main(int argc, char** argv) {
       const std::vector<BenchmarkVariant> variants = variants_for_mode(mode, *config);
       for (Depth depth : depths) {
         for (const BenchmarkVariant variant : variants) {
-          TimedResult timed_result = run_search(mode, variant, position_case.position, depth,
-                                                pattern_incremental, pattern_stateless);
+          TimedResult timed_result =
+              run_search(mode, variant, position_case.position, depth,
+                         pattern_incremental ? &*pattern_incremental : nullptr,
+                         pattern_stateless ? &*pattern_stateless : nullptr);
           if (config->output_format == OutputFormat::jsonl) {
             print_jsonl_result(position_case, mode, variant, depth, timed_result);
           } else {

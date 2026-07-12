@@ -315,6 +315,14 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(incremental.score == reference.score);
   REQUIRE(incremental.best_move == reference.best_move);
   REQUIRE(incremental.nodes == reference.nodes);
+  REQUIRE_FALSE(incremental.stats.incremental_eval_enabled);
+  REQUIRE(incremental.stats.incremental_state_initializations == 0);
+  REQUIRE(incremental.stats.incremental_eval_calls == 0);
+  REQUIRE(incremental.stats.stateless_eval_calls == incremental.stats.eval_calls);
+  REQUIRE(incremental.stats.incremental_updates == 0);
+  REQUIRE(incremental.stats.incremental_touched_instances == 0);
+  REQUIRE_FALSE(reference.stats.incremental_eval_enabled);
+  REQUIRE(reference.stats.stateless_eval_calls == reference.stats.eval_calls);
 
   const std::vector<std::uint8_t> all_phases{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
   const PhaseAwareEvaluator fully_learned{make_phase_weights(100), single_square_feature_set(),
@@ -331,6 +339,35 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(verified.score == fully_stateless.score);
   REQUIRE(verified.best_move == fully_stateless.best_move);
   REQUIRE(verified.nodes == fully_stateless.nodes);
+  REQUIRE(verified.stats.incremental_eval_enabled);
+  REQUIRE(verified.stats.incremental_state_initializations == 1);
+  REQUIRE(verified.stats.incremental_eval_calls == verified.stats.eval_calls);
+  REQUIRE(verified.stats.stateless_eval_calls == 0);
+  REQUIRE(verified.stats.incremental_updates > 0);
+  REQUIRE_FALSE(fully_stateless.stats.incremental_eval_enabled);
+  REQUIRE(fully_stateless.stats.stateless_eval_calls == fully_stateless.stats.eval_calls);
+
+  const search::SearchResult iterative = search::search_iterative(
+      board_core::initial_position(), fully_learned, search::SearchLimits{.max_depth = 3});
+  REQUIRE(iterative.stats.incremental_eval_enabled);
+  REQUIRE(iterative.stats.incremental_state_initializations == 3);
+  REQUIRE(iterative.stats.incremental_eval_calls == iterative.stats.eval_calls);
+  REQUIRE(iterative.stats.stateless_eval_calls == 0);
+
+  PatternArtifactLoadResult direct_load_result =
+      load_default_pattern_artifact(default_eval_root(source_root()));
+  REQUIRE(direct_load_result.ok());
+  LoadedPatternArtifact direct_artifact = std::move(*direct_load_result.artifact);
+  const PatternEvaluator direct_pattern{std::move(direct_artifact.weights),
+                                        std::move(direct_artifact.feature_set)};
+  const search::SearchResult direct =
+      search::search_fixed_depth(board_core::initial_position(), direct_pattern, 1);
+  REQUIRE(direct.stats.incremental_eval_enabled);
+  REQUIRE(direct.stats.incremental_state_initializations == 1);
+  REQUIRE(direct.stats.incremental_eval_calls == direct.stats.eval_calls);
+  REQUIRE(direct.stats.stateless_eval_calls == 0);
+  REQUIRE(direct.stats.incremental_updates > 0);
+  REQUIRE(direct.stats.incremental_touched_instances > 0);
 }
 
 } // namespace

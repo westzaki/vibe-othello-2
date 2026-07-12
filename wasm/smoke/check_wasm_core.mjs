@@ -126,7 +126,7 @@ const lateSearch = artifact.searchBestMove(latePosition, { maxDepth: 3 });
 assert.equal(lateSearch.score, 4);
 assert.equal(lateSearch.completedDepth, 3);
 assert.equal(lateSearch.bestMoveSquare, 48);
-assert.equal(lateSearch.nodes, 97n);
+assert.equal(lateSearch.nodes, 152n);
 
 artifact.free();
 artifact.free();
