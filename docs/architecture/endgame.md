@@ -107,6 +107,11 @@ Terminal detection comes from `board_core::is_terminal`.
 
 Position hashing comes from `board_core::hash_position`.
 
+Production endgame recursion consumes the search-internal incremental key. A
+full hash is computed once at the root, normal moves and passes update it from
+their deltas, and undo restores it. Exact-score and WLD probes always include
+their distinct `TTEntryKind`.
+
 Board-core full hash recomputation remains the source of truth.
 
 Endgame search must not manually swap `player`, `opponent`, or `side_to_move`

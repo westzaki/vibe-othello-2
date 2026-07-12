@@ -24,6 +24,8 @@ inline ResolvedSearchOptions normalize_search_options(SearchOptions options) noe
               .use_aspiration = options.use_aspiration || options.midgame.use_aspiration,
               .use_iid = options.use_iid || options.midgame.use_iid,
               .use_midgame_tt = options.use_midgame_tt || options.midgame.use_midgame_tt,
+              .pass_consumes_depth =
+                  options.pass_consumes_depth && options.midgame.pass_consumes_depth,
           },
       .ordering =
           MoveOrderingOptions{
@@ -57,6 +59,8 @@ inline ResolvedSearchOptions normalize_search_options(SearchOptions options) noe
               .selectivity_level = options.selectivity_level != 0
                                        ? options.selectivity_level
                                        : options.experimental.selectivity_level,
+              .use_legacy_search_kernel =
+                  options.use_legacy_search_kernel || options.experimental.use_legacy_search_kernel,
           },
   };
   return resolved;

@@ -182,6 +182,26 @@ TEST_CASE("PVS iterative search matches alpha-beta decisions", "[search][pvs]") 
       SearchOptions{});
 }
 
+TEST_CASE("legacy root kernel rollback switch preserves score and legal PV", "[search][pvs]") {
+  DiscDifferenceEvaluator new_evaluator;
+  DiscDifferenceEvaluator legacy_evaluator;
+  SearchOptions new_options{};
+  new_options.midgame.use_pvs = true;
+  new_options.reporting.multi_pv = 1;
+  SearchOptions legacy_options = new_options;
+  legacy_options.experimental.use_legacy_search_kernel = true;
+
+  const SearchResult current = search_iterative(board_core::initial_position(), new_evaluator,
+                                                SearchLimits{.max_depth = Depth{5}}, new_options);
+  const SearchResult legacy = search_iterative(board_core::initial_position(), legacy_evaluator,
+                                               SearchLimits{.max_depth = Depth{5}}, legacy_options);
+
+  REQUIRE(current.score == legacy.score);
+  REQUIRE(current.best_move == legacy.best_move);
+  require_replayable_pv(board_core::initial_position(), current.pv);
+  require_replayable_pv(board_core::initial_position(), legacy.pv);
+}
+
 TEST_CASE("PVS preserves iterative TT option decisions", "[search][pvs]") {
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
 

@@ -160,6 +160,8 @@ Status values:
 | Add best-only exact root reporting | done | `SearchOptions::reporting.multi_pv == 1` returns only the exact best root move; default and `reporting.multi_pv > 1` keep all-root exact reports |
 | Add WLD mode | done | Public direct `solve_wld_endgame` and explicit root-triggered `search_iterative` WLD return exact `-1/0/1` outcomes without final margins |
 | Add endgame TT probe/store with separate entry kinds | done | Exact-score endgame uses `TTEntryKind::exact_endgame_score`; WLD uses `TTEntryKind::exact_endgame_wld`; the two probe paths do not satisfy each other |
+| Reuse session TT and incremental hash | done | Direct/root APIs have session overloads; probes consume key+kind and passes retain empty count |
+| Prepare legal moves once per generic node | done | Opponent legal moves are computed only for zero-current pass/terminal nodes; ordering accepts the prepared mask |
 | Add parity ordering as ordering only | done | Uses fixed 4-neighbor empty regions and an odd-region-first hint; disabled/enabled equality covered by corpus tests |
 | Add specialized zero/one/two/three/four-empty path | done | 0/1 return through terminal or forced single-move/pass handling; 2/3/4 use direct legal-bit enumeration with board-core deltas; tested against generic solver through an internal generic-only policy |
 | Add public direct exact-score API | done | `solve_exact_endgame` bypasses the root threshold gate and respects endgame limits/options without requiring an evaluator |

@@ -514,8 +514,8 @@ struct SearchStats {
   NodeCount tt_hits;
   NodeCount tt_stores;
   NodeCount tt_cutoffs;
-  NodeCount tt_overwrites;
-  NodeCount tt_collisions;
+  NodeCount tt_replacements;
+  NodeCount tt_bucket_conflicts;
   NodeCount tt_rejected_stores;
   NodeCount tt_invalid_best_move_stores;
   NodeCount pvs_researches;
@@ -608,11 +608,19 @@ Terminal positions should return no best move.
 
 `stats.tt_cutoffs` counts transposition table cutoffs.
 
-`stats.tt_overwrites` counts transposition table stores that replace an occupied
+`stats.tt_replacements` counts transposition table stores that replace an occupied
 entry with a different key.
 
-`stats.tt_collisions` counts transposition table stores whose target bucket
+`stats.tt_bucket_conflicts` counts transposition table stores whose target bucket
 already contains a different occupied key.
+
+`stats.tt_same_key_updates` counts stores that find the same position key and
+entry kind already present. `stats.tt_replacements` is reserved for victim
+replacement, not same-key refinement.
+
+`stats.tt_probe_slots` is the total bucket slots inspected, allowing callers to
+derive average probe slots. `stats.tt_generation_age_hits` counts hits retained
+from an older root generation.
 
 `stats.tt_rejected_stores` counts transposition table stores rejected because the
 incoming entry is not useful enough for the target bucket.
@@ -1687,3 +1695,48 @@ Optimize after reference tests and benchmarks exist.
 Avoid virtual dispatch in deep recursion unless profiling shows it is harmless.
 
 Use board-core primitives rather than duplicating board rules.
+
+## Reusable Search Sessions
+
+`SearchSession` owns mutable single-thread search knowledge: the transposition
+table, history and killer ordering state, root generation, and reusable stack
+state where applicable. Compatibility entry points construct a temporary
+session. Session overloads let a caller retain knowledge across sequential
+moves without putting mutable hash state in `board_core::Position`.
+
+Session policy is explicit:
+
+* `start_new_game`, `reset`, and `clear` deterministically clear TT, generation,
+  history, and killers;
+* sequential moves in one game may retain the session;
+* unrelated analysis roots should use `prepare_analysis(clear)` unless
+  cross-root reuse is intentional;
+* one session is single-thread-only and must not serve concurrent searches.
+
+The TT accepts an entry or byte budget. Zero disables it. Allocation reports
+requested and actual bytes, entries, power-of-two buckets, entry size, enabled
+state, and allocation success. Native and WASM callers choose their own byte
+budgets; engine core does not impose one platform-wide size.
+
+Production probes use an already-maintained position key plus `TTEntryKind`.
+Search computes the full absolute-color hash once at a root, applies Zobrist
+deltas for normal moves, multiple flips, side-to-move changes, and passes, and
+restores the previous key on undo. Full `hash_position` remains the source of
+truth for tests.
+
+Normal node preparation computes the current legal mask once. Only a zero mask
+causes one opponent-mask computation to distinguish pass from terminal. Move
+ordering consumes the prepared mask. Midgame pass depth is controlled by
+`MidgameSearchOptions::pass_consumes_depth`; the compatibility default remains
+`true`. Exact endgame empties never decrease on pass.
+
+Root PVS searches the first move with a full window, later moves with a null
+window, and performs a full re-search only for a score strictly between alpha
+and beta. `multi_pv != 1` preserves exact per-move reports by re-searching only
+root reports that remain bounded.
+
+`ExperimentalSearchOptions::use_legacy_search_kernel` is the temporary rollback
+switch for the previous full-window root orchestration. It keeps the shared
+correctness, typed-TT, and hash infrastructure but disables root PVS and the new
+unconditional root-alpha carry. It is intended for A/B diagnosis and later
+removal, not as a second permanent search implementation.

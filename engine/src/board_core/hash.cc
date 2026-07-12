@@ -53,4 +53,25 @@ PositionHash hash_position(Position position) noexcept {
   return hash;
 }
 
+PositionHash hash_after_move(Position before, PositionHash hash, MoveDelta delta) noexcept {
+  // The side-to-move component changes on every normal move and pass.
+  hash ^= side_to_move_key(Color::white);
+  if (delta.move.kind == MoveKind::pass) {
+    return hash;
+  }
+
+  const auto& mover_keys = before.side_to_move == Color::black ? kBlackPieceKeys : kWhitePieceKeys;
+  const auto& opponent_keys =
+      before.side_to_move == Color::black ? kWhitePieceKeys : kBlackPieceKeys;
+  hash ^= mover_keys[static_cast<std::size_t>(delta.move.square.index)];
+
+  Bitboard flipped = delta.flipped;
+  while (flipped != 0) {
+    const std::size_t index = static_cast<std::size_t>(detail::pop_lsb_index(flipped));
+    hash ^= opponent_keys[index];
+    hash ^= mover_keys[index];
+  }
+  return hash;
+}
+
 } // namespace vibe_othello::board_core

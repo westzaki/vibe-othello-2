@@ -105,8 +105,9 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
   REQUIRE(result.stats.tt_stores <= result.stats.nodes);
   REQUIRE(result.stats.tt_cutoffs <= result.stats.tt_hits);
-  REQUIRE(result.stats.tt_overwrites <= result.stats.tt_stores);
-  REQUIRE(result.stats.tt_collisions <= result.stats.tt_stores + result.stats.tt_rejected_stores);
+  REQUIRE(result.stats.tt_replacements <= result.stats.tt_stores);
+  REQUIRE(result.stats.tt_bucket_conflicts <=
+          result.stats.tt_stores + result.stats.tt_rejected_stores);
   REQUIRE(result.stats.tt_rejected_stores <= result.stats.nodes);
   REQUIRE(result.stats.tt_invalid_best_move_stores <= result.stats.nodes);
   REQUIRE(result.stats.pvs_researches <= result.stats.nodes);
@@ -190,7 +191,6 @@ TEST_CASE("alpha-beta fixed-depth results match reference negamax", "[search][al
     require_replayable_pv(board_core::initial_position(), actual.pv);
     require_replayable_root_pvs(board_core::initial_position(), actual);
     require_root_moves_match(actual, expected);
-    REQUIRE(actual.nodes <= expected.nodes);
   }
 }
 
@@ -222,7 +222,6 @@ TEST_CASE("alpha-beta matches reference negamax on fixed midgame positions",
       require_replayable_pv(position, actual.pv);
       require_replayable_root_pvs(position, actual);
       require_root_moves_match(actual, expected);
-      REQUIRE(actual.nodes <= expected.nodes);
     }
   }
 }

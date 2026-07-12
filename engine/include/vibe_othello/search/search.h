@@ -5,6 +5,7 @@
 #include "vibe_othello/search/evaluator.h"
 #include "vibe_othello/search/result.h"
 #include "vibe_othello/search/score.h"
+#include "vibe_othello/search/search_session.h"
 
 #include <atomic>
 #include <chrono>
@@ -25,6 +26,7 @@ struct MidgameSearchOptions {
   bool use_aspiration = false;
   bool use_iid = false;
   bool use_midgame_tt = false;
+  bool pass_consumes_depth = true;
 };
 
 struct MoveOrderingOptions {
@@ -50,6 +52,7 @@ struct ExperimentalSearchOptions {
   bool use_pv_table = false;
   bool use_parallel = false;
   std::uint8_t selectivity_level = 0;
+  bool use_legacy_search_kernel = false;
 };
 
 struct SearchOptions {
@@ -59,6 +62,7 @@ struct SearchOptions {
   bool use_history = false;
   bool use_killers = false;
   bool use_midgame_tt = false;
+  bool pass_consumes_depth = true;
   bool use_endgame_tt = false;
   bool exact_endgame = false;
   bool probcut = false;
@@ -70,6 +74,7 @@ struct SearchOptions {
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;
   std::uint8_t selectivity_level = 0;
+  bool use_legacy_search_kernel = false;
   MidgameSearchOptions midgame{};
   MoveOrderingOptions ordering{};
   EndgameSearchOptions endgame{};
@@ -80,10 +85,16 @@ struct SearchOptions {
 
 SearchResult search_fixed_depth(board_core::Position position, const Evaluator& evaluator,
                                 Depth depth);
+SearchResult search_fixed_depth(SearchSession& session, board_core::Position position,
+                                const Evaluator& evaluator, Depth depth,
+                                SearchOptions options = {});
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits);
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits, SearchOptions options);
+SearchResult search_iterative(SearchSession& session, board_core::Position position,
+                              const Evaluator& evaluator, SearchLimits limits,
+                              SearchOptions options = {});
 
 // Directly solve a root position to an exact final disc-difference score.
 //
@@ -96,6 +107,8 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 // SearchResult::score_kind is ScoreKind::exact_disc_diff.
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits = {},
                                  SearchOptions options = {});
+SearchResult solve_exact_endgame(SearchSession& session, board_core::Position position,
+                                 SearchLimits limits = {}, SearchOptions options = {});
 
 // Directly solve a root position to an exact win/loss/draw outcome.
 //
@@ -106,6 +119,8 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
 // SearchResult::score_kind is ScoreKind::win_loss_draw.
 SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits = {},
                                SearchOptions options = {});
+SearchResult solve_wld_endgame(SearchSession& session, board_core::Position position,
+                               SearchLimits limits = {}, SearchOptions options = {});
 
 } // namespace vibe_othello::search
 

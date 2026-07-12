@@ -726,4 +726,20 @@ TEST_CASE("WASM adapter free_eval_artifact accepts zero", "[wasm]") {
   vibe_othello_wasm_free_eval_artifact(0);
 }
 
+TEST_CASE("WASM persistent search session is explicit and resettable", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(committed_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(committed_weights_path());
+  WasmEvalHandle artifact = load_wasm_eval_artifact(manifest_text, weights_bytes);
+
+  REQUIRE(vibe_othello_wasm_set_search_session_reuse(artifact.get(), 1) ==
+          VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(vibe_othello_wasm_reset_search_session(artifact.get()) == VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(vibe_othello_wasm_set_search_session_reuse(artifact.get(), 0) ==
+          VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE(vibe_othello_wasm_set_search_session_reuse(artifact.get(), 2) ==
+          VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT);
+  REQUIRE(vibe_othello_wasm_reset_search_session(0) ==
+          VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED);
+}
+
 } // namespace

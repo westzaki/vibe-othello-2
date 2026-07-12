@@ -63,11 +63,11 @@ std::optional<board_core::Move> probe_root_tt_best_move_with_policy(EndgameConte
 template <typename EndgamePolicy>
 MoveList root_endgame_moves_with_policy(EndgameContext* context, Depth completed_depth,
                                         std::uint8_t root_empties,
-                                        SmallEndgamePolicy small_endgame_policy) {
+                                        SmallEndgamePolicy small_endgame_policy,
+                                        board_core::Bitboard legal_moves) {
   if constexpr (EndgamePolicy::kUsesSmallEmpty) {
     if (small_endgame_policy == SmallEndgamePolicy::enabled && root_empties == 1) {
       MoveList root_moves{};
-      const board_core::Bitboard legal_moves = board_core::legal_moves(context->position);
       if (legal_moves != 0) {
         root_moves.moves[0] = first_legal_move(legal_moves);
         root_moves.size = 1;
@@ -81,9 +81,9 @@ MoveList root_endgame_moves_with_policy(EndgameContext* context, Depth completed
           probe_root_tt_best_move_with_policy<EndgamePolicy>(context, completed_depth);
     }
     return small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 4
-               ? small_empty_move_list(context->position)
+               ? move_list_from_legal_mask(legal_moves)
                : order_endgame_moves(
-                     context->position,
+                     context->position_state.position, legal_moves,
                      EndgameOrderingHints{
                          .tt_best_move = root_tt_best_move,
                          .use_parity_ordering =
@@ -93,7 +93,7 @@ MoveList root_endgame_moves_with_policy(EndgameContext* context, Depth completed
   const std::optional<board_core::Move> root_tt_best_move =
       probe_root_tt_best_move_with_policy<EndgamePolicy>(context, completed_depth);
   return order_endgame_moves(
-      context->position,
+      context->position_state.position, legal_moves,
       EndgameOrderingHints{
           .tt_best_move = root_tt_best_move,
           .use_parity_ordering = context->options.ordering.use_endgame_parity_ordering,
@@ -124,7 +124,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   const std::uint8_t root_empties = empty_count(position);
   const Depth completed_depth = static_cast<Depth>(root_empties);
   EndgameContext context{
-      .position = position,
+      .position_state = make_search_position(position),
       .limits = limits,
       .options = resolved_options,
       .transposition_table = tt,
@@ -141,9 +141,13 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
     return result;
   }
 
-  if (board_core::is_terminal(context.position)) {
+  const board_core::Bitboard root_legal_moves = legal_moves(&context.position_state);
+  const bool root_terminal =
+      root_legal_moves == 0 && opponent_legal_moves(context.position_state) == 0;
+
+  if (root_terminal) {
     ++context.stats.terminal_nodes;
-    const Score terminal = EndgamePolicy::terminal_score(context.position);
+    const Score terminal = EndgamePolicy::terminal_score(context.position_state.position);
     if (should_stop_endgame(&context)) {
       publish_stopped_result(&result,
                              StoppedRootResult{
@@ -169,7 +173,8 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   EndgameStackFrame& root_frame = context.stack[0];
   root_frame = EndgameStackFrame{};
   root_frame.moves = root_endgame_moves_with_policy<EndgamePolicy>(
-      &context, completed_depth, root_empties, small_endgame_policy);
+      &context, completed_depth, root_empties, small_endgame_policy, root_legal_moves);
+  root_frame.legal_moves = root_legal_moves;
   const MoveList root_moves = root_frame.moves;
 
   if (root_moves.size == 0) {

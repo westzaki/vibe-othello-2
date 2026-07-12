@@ -33,8 +33,11 @@ struct SearchTelemetry {
   std::uint64_t tt_hits = 0;
   std::uint64_t tt_cutoffs = 0;
   std::uint64_t tt_stores = 0;
-  std::uint64_t tt_overwrites = 0;
-  std::uint64_t tt_collisions = 0;
+  std::uint64_t tt_replacements = 0;
+  std::uint64_t tt_bucket_conflicts = 0;
+  std::uint64_t tt_same_key_updates = 0;
+  std::uint64_t tt_probe_slots = 0;
+  std::uint64_t tt_generation_age_hits = 0;
   std::uint64_t tt_rejected_stores = 0;
   std::uint64_t pvs_researches = 0;
   std::uint64_t aspiration_fail_lows = 0;
@@ -64,8 +67,11 @@ struct TelemetrySummary {
   std::uint64_t tt_hits = 0;
   std::uint64_t tt_cutoffs = 0;
   std::uint64_t tt_stores = 0;
-  std::uint64_t tt_overwrites = 0;
-  std::uint64_t tt_collisions = 0;
+  std::uint64_t tt_replacements = 0;
+  std::uint64_t tt_bucket_conflicts = 0;
+  std::uint64_t tt_same_key_updates = 0;
+  std::uint64_t tt_probe_slots = 0;
+  std::uint64_t tt_generation_age_hits = 0;
   std::uint64_t tt_rejected_stores = 0;
   std::uint64_t pvs_researches = 0;
   std::uint64_t aspiration_fail_lows = 0;

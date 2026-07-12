@@ -37,13 +37,23 @@ struct WasmEvaluationArtifact {
         weights_checksum(std::move(artifact.weights_checksum)),
         trained_phases(std::move(artifact.trained_phases)),
         evaluator(std::move(artifact.weights), std::move(artifact.feature_set), trained_phases,
-                  artifact.fallback_additive_through_phase) {}
+                  artifact.fallback_additive_through_phase),
+        search_session(vibe_othello::search::SearchSessionConfig{
+            .profile = vibe_othello::search::SearchPlatformProfile::wasm,
+            .transposition_table =
+                vibe_othello::search::TranspositionTableConfig{
+                    .capacity = 1024 * 1024,
+                    .unit = vibe_othello::search::TranspositionTableCapacityUnit::bytes,
+                },
+        }) {}
 
   std::string artifact_id;
   std::string pattern_set_id;
   std::string weights_checksum;
   std::optional<std::vector<std::uint8_t>> trained_phases;
   vibe_othello::evaluation::PhaseAwareEvaluator evaluator;
+  vibe_othello::search::SearchSession search_session;
+  bool retain_search_session = false;
 };
 
 using ArtifactRegistry = std::unordered_map<uintptr_t, std::unique_ptr<WasmEvaluationArtifact>>;
@@ -286,8 +296,11 @@ uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_positio
         .infinite = false,
         .stop_requested = nullptr,
     };
+    if (!artifact->retain_search_session) {
+      artifact->search_session.clear();
+    }
     const vibe_othello::search::SearchResult result = vibe_othello::search::search_iterative(
-        engine_position, artifact->evaluator, limits, options);
+        artifact->search_session, engine_position, artifact->evaluator, limits, options);
     return fill_search_result(result, out_result);
   } catch (...) {
     *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED);
@@ -559,6 +572,29 @@ void vibe_othello_wasm_free_eval_artifact(uintptr_t eval_handle) noexcept {
     artifact_registry().erase(eval_handle);
   } catch (...) {
   }
+}
+
+uint32_t vibe_othello_wasm_set_search_session_reuse(uintptr_t eval_handle,
+                                                    uint8_t retain) noexcept {
+  if (retain > 1) {
+    return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
+  }
+  WasmEvaluationArtifact* artifact = find_artifact(eval_handle);
+  if (artifact == nullptr) {
+    return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
+  }
+  artifact->search_session.clear();
+  artifact->retain_search_session = retain != 0;
+  return VIBE_OTHELLO_WASM_STATUS_OK;
+}
+
+uint32_t vibe_othello_wasm_reset_search_session(uintptr_t eval_handle) noexcept {
+  WasmEvaluationArtifact* artifact = find_artifact(eval_handle);
+  if (artifact == nullptr) {
+    return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
+  }
+  artifact->search_session.start_new_game();
+  return VIBE_OTHELLO_WASM_STATUS_OK;
 }
 
 uint32_t vibe_othello_wasm_evaluate_position(uintptr_t eval_handle,

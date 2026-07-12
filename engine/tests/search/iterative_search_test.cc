@@ -112,8 +112,9 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.tt_hits <= result.stats.tt_probes);
   REQUIRE(result.stats.tt_stores <= result.stats.nodes);
   REQUIRE(result.stats.tt_cutoffs <= result.stats.tt_hits);
-  REQUIRE(result.stats.tt_overwrites <= result.stats.tt_stores);
-  REQUIRE(result.stats.tt_collisions <= result.stats.tt_stores + result.stats.tt_rejected_stores);
+  REQUIRE(result.stats.tt_replacements <= result.stats.tt_stores);
+  REQUIRE(result.stats.tt_bucket_conflicts <=
+          result.stats.tt_stores + result.stats.tt_rejected_stores);
   REQUIRE(result.stats.tt_rejected_stores <= result.stats.nodes);
   REQUIRE(result.stats.tt_invalid_best_move_stores <= result.stats.nodes);
   REQUIRE(result.stats.pvs_researches <= result.stats.nodes);
@@ -796,6 +797,33 @@ TEST_CASE("iterative handles root pass like fixed-depth search", "[search][itera
   require_root_move_set_matches(actual, expected);
   require_replayable_root_pvs(pass_position, actual);
   REQUIRE(actual.nodes >= expected.nodes);
+}
+
+TEST_CASE("midgame pass depth semantics are controlled and default remains consuming",
+          "[search][iterative][pass]") {
+  constexpr board_core::Position pass_position{
+      .player = board_core::bit(board_core::square_from_file_rank(1, 0)),
+      .opponent = board_core::bit(board_core::square_from_file_rank(0, 0)),
+      .side_to_move = board_core::Color::black,
+  };
+  DiscDifferenceEvaluator default_evaluator;
+  DiscDifferenceEvaluator no_consume_evaluator;
+  DiscDifferenceEvaluator deeper_evaluator;
+  SearchOptions no_consume{};
+  no_consume.midgame.pass_consumes_depth = false;
+  SearchSession session;
+
+  const SearchResult default_result =
+      search_fixed_depth(pass_position, default_evaluator, Depth{3});
+  const SearchResult no_consume_result =
+      search_fixed_depth(session, pass_position, no_consume_evaluator, Depth{3}, no_consume);
+  const SearchResult consuming_one_deeper =
+      search_fixed_depth(pass_position, deeper_evaluator, Depth{4});
+
+  REQUIRE(default_result.best_move == board_core::make_pass());
+  REQUIRE(no_consume_result.best_move == board_core::make_pass());
+  REQUIRE(no_consume_result.score == consuming_one_deeper.score);
+  REQUIRE(no_consume_result.pv == consuming_one_deeper.pv);
 }
 
 TEST_CASE("iterative terminal root returns the fixed-depth exact result", "[search][iterative]") {

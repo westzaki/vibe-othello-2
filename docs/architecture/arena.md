@@ -70,3 +70,9 @@ configuration, failures, score complementarity, and disc-difference inversion.
 
 Generated reports, logs, and sanity output are local-only and must not be
 committed.
+
+Search-session retention is an explicit arena configuration, never an implicit
+property of the evaluator. Candidate and baseline own independent sessions.
+Sessions clear at game boundaries and may retain TT/history/killer knowledge
+only between sequential moves of that game. Reports record whether retention
+was enabled and the requested and actual TT allocation.

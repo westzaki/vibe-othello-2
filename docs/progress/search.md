@@ -110,6 +110,18 @@ The current search implementation includes:
   search plus `easy`/`normal`/`hard` preset-based bounded search through a
   loaded phase-aware evaluation artifact, with Worker and React CPU opponent
   wiring implemented separately under `apps/web`
+* caller-owned `SearchSession` overloads with deterministic clear/new-game and
+  explicit analysis reuse policy
+* entry- or byte-configured disabled/small/large TT allocation with auditable
+  actual capacity and allocation-failure fallback
+* typed key-plus-kind TT probes, protected same-key replacement, and split
+  replacement/conflict/age/probe-slot telemetry
+* root-once incremental position hashing and cached legal-mask node preparation
+* root alpha carry and root PVS with exact MultiPV/teacher report completion
+* controlled pass-depth A/B option; compatibility default still consumes depth
+* opt-in persistent session plumbing for Arena and WASM
+* temporary `experimental.use_legacy_search_kernel` rollback switch for the
+  previous full-window root orchestration
 
 Existing search tests include:
 
@@ -186,10 +198,15 @@ Status values:
 | Implement reference negamax | done | Test support reference search |
 | Implement alpha-beta | done | Production fixed-depth path |
 | Add search stack and pass handling tests | done | Covered by search tests |
-| Add transposition table | done | Direct-mapped internal table |
+| Add transposition table | done | Configurable 4-way power-of-two bucket table with typed access and allocation reporting |
+| Add reusable search session | done | Compatibility APIs use temporary sessions; caller-owned reuse is explicit |
+| Add incremental search hash | done | Full root hash plus move/pass delta updates; public Position remains unchanged |
+| Add single-movegen node preparation | done | Current mask once, opponent mask only for zero-current pass/terminal nodes |
 | Add iterative deepening | done | `search_iterative` |
 | Add aspiration windows | done | Optional root-depth orchestration |
 | Add PVS and null-window search | done | Optional PVS path and null-window primitive |
+| Add root PVS | done | First full window, later null window, qualifying full re-search, deterministic tie break |
+| Add controlled pass depth semantics | done | Default consumes depth; `midgame.pass_consumes_depth=false` is the A/B variant |
 | Add root move ordering | done | Previous root best move and deterministic ordering |
 | Add TT best-move ordering | done | Controlled by `use_tt_best_move_ordering` |
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |

@@ -53,6 +53,34 @@ constexpr Bitboard legal_moves_in_direction(Bitboard player, Bitboard opponent, 
   return shift(captured) & empty;
 }
 
+template <Shift shift>
+constexpr Bitboard legal_moves_in_direction_unrolled(Bitboard player, Bitboard opponent,
+                                                     Bitboard empty) noexcept {
+  Bitboard run = shift(player) & opponent;
+  Bitboard captured = run;
+  if (run == 0) {
+    return 0;
+  }
+  run = shift(run) & opponent;
+  captured |= run;
+  if (run != 0) {
+    run = shift(run) & opponent;
+    captured |= run;
+    if (run != 0) {
+      run = shift(run) & opponent;
+      captured |= run;
+      if (run != 0) {
+        run = shift(run) & opponent;
+        captured |= run;
+        if (run != 0) {
+          captured |= shift(run) & opponent;
+        }
+      }
+    }
+  }
+  return shift(captured) & empty;
+}
+
 constexpr bool has_legal_move_in_direction(Bitboard player, Bitboard opponent, Bitboard empty,
                                            Shift shift) noexcept {
   Bitboard run = shift(player) & opponent;
@@ -85,6 +113,59 @@ constexpr Bitboard flips_in_direction(Bitboard move, Bitboard player, Bitboard o
   }
 
   return 0;
+}
+
+template <Shift shift>
+constexpr Bitboard flips_in_direction_unrolled(Bitboard move, Bitboard player,
+                                               Bitboard opponent) noexcept {
+  Bitboard run = shift(move) & opponent;
+  Bitboard captured = run;
+  if (run == 0) {
+    return 0;
+  }
+  run = shift(run);
+  if ((run & player) != 0) {
+    return captured;
+  }
+  run &= opponent;
+  captured |= run;
+  if (run == 0) {
+    return 0;
+  }
+  run = shift(run);
+  if ((run & player) != 0) {
+    return captured;
+  }
+  run &= opponent;
+  captured |= run;
+  if (run == 0) {
+    return 0;
+  }
+  run = shift(run);
+  if ((run & player) != 0) {
+    return captured;
+  }
+  run &= opponent;
+  captured |= run;
+  if (run == 0) {
+    return 0;
+  }
+  run = shift(run);
+  if ((run & player) != 0) {
+    return captured;
+  }
+  run &= opponent;
+  captured |= run;
+  if (run == 0) {
+    return 0;
+  }
+  run = shift(run);
+  if ((run & player) != 0) {
+    return captured;
+  }
+  run &= opponent;
+  captured |= run;
+  return (shift(run) & player) != 0 ? captured : 0;
 }
 
 constexpr Position pass_position(Position position) noexcept {
@@ -223,11 +304,14 @@ void undo_move(Position* position, MoveDelta delta) noexcept {
 }
 
 Bitboard flips_for_move(Position position, Square move) noexcept {
+  return flips_for_move_unrolled(position, move);
+}
+
+Bitboard flips_for_move_reference(Position position, Square move) noexcept {
   const Bitboard move_bit = bit(move);
   if (!is_valid(position) || move_bit == 0 || (move_bit & occupied(position)) != 0) {
     return 0;
   }
-
   return flips_in_direction<shift_east>(move_bit, position.player, position.opponent) |
          flips_in_direction<shift_west>(move_bit, position.player, position.opponent) |
          flips_in_direction<shift_north>(move_bit, position.player, position.opponent) |
@@ -236,6 +320,25 @@ Bitboard flips_for_move(Position position, Square move) noexcept {
          flips_in_direction<shift_north_west>(move_bit, position.player, position.opponent) |
          flips_in_direction<shift_south_east>(move_bit, position.player, position.opponent) |
          flips_in_direction<shift_south_west>(move_bit, position.player, position.opponent);
+}
+
+Bitboard flips_for_move_unrolled(Position position, Square move) noexcept {
+  const Bitboard move_bit = bit(move);
+  if (!is_valid(position) || move_bit == 0 || (move_bit & occupied(position)) != 0) {
+    return 0;
+  }
+  return flips_in_direction_unrolled<shift_east>(move_bit, position.player, position.opponent) |
+         flips_in_direction_unrolled<shift_west>(move_bit, position.player, position.opponent) |
+         flips_in_direction_unrolled<shift_north>(move_bit, position.player, position.opponent) |
+         flips_in_direction_unrolled<shift_south>(move_bit, position.player, position.opponent) |
+         flips_in_direction_unrolled<shift_north_east>(move_bit, position.player,
+                                                       position.opponent) |
+         flips_in_direction_unrolled<shift_north_west>(move_bit, position.player,
+                                                       position.opponent) |
+         flips_in_direction_unrolled<shift_south_east>(move_bit, position.player,
+                                                       position.opponent) |
+         flips_in_direction_unrolled<shift_south_west>(move_bit, position.player,
+                                                       position.opponent);
 }
 
 bool has_legal_move(Position position) noexcept {
@@ -261,12 +364,14 @@ bool is_terminal(Position position) noexcept {
 }
 
 Bitboard legal_moves(Position position) noexcept {
+  return legal_moves_unrolled(position);
+}
+
+Bitboard legal_moves_reference(Position position) noexcept {
   if (!is_valid(position)) {
     return 0;
   }
-
   const Bitboard empty = ~occupied(position);
-
   return legal_moves_in_direction(position.player, position.opponent, empty, shift_east) |
          legal_moves_in_direction(position.player, position.opponent, empty, shift_west) |
          legal_moves_in_direction(position.player, position.opponent, empty, shift_north) |
@@ -275,6 +380,25 @@ Bitboard legal_moves(Position position) noexcept {
          legal_moves_in_direction(position.player, position.opponent, empty, shift_north_west) |
          legal_moves_in_direction(position.player, position.opponent, empty, shift_south_east) |
          legal_moves_in_direction(position.player, position.opponent, empty, shift_south_west);
+}
+
+Bitboard legal_moves_unrolled(Position position) noexcept {
+  if (!is_valid(position)) {
+    return 0;
+  }
+  const Bitboard empty = ~occupied(position);
+  return legal_moves_in_direction_unrolled<shift_east>(position.player, position.opponent, empty) |
+         legal_moves_in_direction_unrolled<shift_west>(position.player, position.opponent, empty) |
+         legal_moves_in_direction_unrolled<shift_north>(position.player, position.opponent, empty) |
+         legal_moves_in_direction_unrolled<shift_south>(position.player, position.opponent, empty) |
+         legal_moves_in_direction_unrolled<shift_north_east>(position.player, position.opponent,
+                                                             empty) |
+         legal_moves_in_direction_unrolled<shift_north_west>(position.player, position.opponent,
+                                                             empty) |
+         legal_moves_in_direction_unrolled<shift_south_east>(position.player, position.opponent,
+                                                             empty) |
+         legal_moves_in_direction_unrolled<shift_south_west>(position.player, position.opponent,
+                                                             empty);
 }
 
 } // namespace vibe_othello::board_core

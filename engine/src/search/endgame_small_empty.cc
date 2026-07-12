@@ -26,15 +26,11 @@ SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score
   require_invariant(empties == 1);
   EndgameStackFrame& frame = context->stack[ply];
   const Depth remaining_empties = static_cast<Depth>(empties);
-  if (board_core::is_terminal(context->position)) {
-    return exact_score_terminal(context, empties);
-  }
-
   if (should_stop_endgame(context)) {
     return SearchNodeResult::stopped();
   }
 
-  const board_core::Bitboard legal_moves = board_core::legal_moves(context->position);
+  const board_core::Bitboard legal_moves = frame.legal_moves;
   if (legal_moves == 0) {
     ++context->stats.pass_nodes;
     const SearchNodeResult pass = search_exact_score_endgame_child(
@@ -70,15 +66,11 @@ SearchNodeResult exact_score_direct_small_empty(EndgameContext* context, Score a
                                                 Score original_alpha, Score original_beta) {
   EndgameStackFrame& frame = context->stack[ply];
   const Depth remaining_empties = static_cast<Depth>(empties);
-  if (board_core::is_terminal(context->position)) {
-    return exact_score_terminal(context, empties);
-  }
-
   if (should_stop_endgame(context)) {
     return SearchNodeResult::stopped();
   }
 
-  board_core::Bitboard legal_moves = board_core::legal_moves(context->position);
+  board_core::Bitboard legal_moves = frame.legal_moves;
   if (legal_moves == 0) {
     ++context->stats.pass_nodes;
     const SearchNodeResult pass = search_exact_score_endgame_child(

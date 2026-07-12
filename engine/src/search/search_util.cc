@@ -65,8 +65,11 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->tt_hits += delta.tt_hits;
   total->tt_stores += delta.tt_stores;
   total->tt_cutoffs += delta.tt_cutoffs;
-  total->tt_overwrites += delta.tt_overwrites;
-  total->tt_collisions += delta.tt_collisions;
+  total->tt_replacements += delta.tt_replacements;
+  total->tt_bucket_conflicts += delta.tt_bucket_conflicts;
+  total->tt_same_key_updates += delta.tt_same_key_updates;
+  total->tt_probe_slots += delta.tt_probe_slots;
+  total->tt_generation_age_hits += delta.tt_generation_age_hits;
   total->tt_rejected_stores += delta.tt_rejected_stores;
   total->tt_invalid_best_move_stores += delta.tt_invalid_best_move_stores;
   total->pvs_researches += delta.pvs_researches;

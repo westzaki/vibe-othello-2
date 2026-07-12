@@ -8,15 +8,16 @@ bool should_use_endgame_tt(const EndgameContext& context) noexcept {
 }
 
 ExactEndgameTtProbe probe_endgame_tt_entry(const TTEntry& entry, TTEntryKind kind,
-                                           board_core::Position position, Depth remaining_empties,
-                                           Score alpha, Score beta) noexcept {
+                                           board_core::Bitboard legal_moves,
+                                           Depth remaining_empties, Score alpha,
+                                           Score beta) noexcept {
   ExactEndgameTtProbe probe{};
   if (entry.kind != kind) {
     return probe;
   }
 
   if (entry.has_best_move && entry.best_move.kind == board_core::MoveKind::normal &&
-      (board_core::legal_moves(position) & board_core::bit(entry.best_move.square)) != 0) {
+      (legal_moves & board_core::bit(entry.best_move.square)) != 0) {
     probe.best_move = entry.best_move;
   }
 
@@ -39,13 +40,13 @@ ExactEndgameTtProbe probe_endgame_tt(EndgameContext* context, TTEntryKind kind,
   }
 
   const std::optional<TTEntry> entry =
-      context->transposition_table->probe(context->position, &context->stats);
+      context->transposition_table->probe(context->position_state.key, kind, &context->stats);
   if (!entry.has_value()) {
     return {};
   }
 
-  ExactEndgameTtProbe probe =
-      probe_endgame_tt_entry(*entry, kind, context->position, remaining_empties, alpha, beta);
+  ExactEndgameTtProbe probe = probe_endgame_tt_entry(
+      *entry, kind, legal_moves(&context->position_state), remaining_empties, alpha, beta);
   if (probe.cutoff_score.has_value()) {
     ++context->stats.tt_cutoffs;
   }
@@ -61,12 +62,13 @@ std::optional<board_core::Move> probe_endgame_root_tt_best_move(EndgameContext* 
   }
 
   const std::optional<TTEntry> entry =
-      context->transposition_table->probe(context->position, &context->stats);
+      context->transposition_table->probe(context->position_state.key, kind, &context->stats);
   if (!entry.has_value()) {
     return std::nullopt;
   }
 
-  return probe_endgame_tt_entry(*entry, kind, context->position, remaining_empties, alpha, beta)
+  return probe_endgame_tt_entry(*entry, kind, legal_moves(&context->position_state),
+                                remaining_empties, alpha, beta)
       .best_move;
 }
 
@@ -78,13 +80,13 @@ void store_endgame_tt(EndgameContext* context, TTEntryKind kind, Depth remaining
   }
 
   if (best_move.has_value()) {
-    context->transposition_table->store(context->position, remaining_empties, score, bound,
-                                        *best_move, kind, &context->stats);
+    context->transposition_table->store(context->position_state.key, remaining_empties, score,
+                                        bound, *best_move, kind, &context->stats);
     return;
   }
 
-  context->transposition_table->store_value(context->position, remaining_empties, score, bound,
-                                            kind, &context->stats);
+  context->transposition_table->store_value(context->position_state.key, remaining_empties, score,
+                                            bound, kind, &context->stats);
 }
 
 } // namespace
@@ -93,15 +95,15 @@ ExactEndgameTtProbe exact_endgame_score_tt_probe(const TTEntry& entry,
                                                  board_core::Position position,
                                                  Depth remaining_empties, Score alpha,
                                                  Score beta) noexcept {
-  return probe_endgame_tt_entry(entry, TTEntryKind::exact_endgame_score, position,
-                                remaining_empties, alpha, beta);
+  return probe_endgame_tt_entry(entry, TTEntryKind::exact_endgame_score,
+                                board_core::legal_moves(position), remaining_empties, alpha, beta);
 }
 
 ExactEndgameTtProbe exact_endgame_wld_tt_probe(const TTEntry& entry, board_core::Position position,
                                                Depth remaining_empties, Score alpha,
                                                Score beta) noexcept {
-  return probe_endgame_tt_entry(entry, TTEntryKind::exact_endgame_wld, position, remaining_empties,
-                                alpha, beta);
+  return probe_endgame_tt_entry(entry, TTEntryKind::exact_endgame_wld,
+                                board_core::legal_moves(position), remaining_empties, alpha, beta);
 }
 
 std::optional<Score> exact_endgame_score_tt_cutoff_score(const TTEntry& entry,

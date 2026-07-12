@@ -144,6 +144,12 @@ vibe_othello_wasm_load_eval_artifact(const uint8_t* manifest_text, uint32_t mani
 
 void vibe_othello_wasm_free_eval_artifact(uintptr_t eval_handle) VIBE_OTHELLO_WASM_NOEXCEPT;
 
+// Persistent search knowledge is opt-in. Enabling or disabling reuse clears
+// the session first; reset should be called at a new-game boundary.
+uint32_t vibe_othello_wasm_set_search_session_reuse(uintptr_t eval_handle,
+                                                    uint8_t retain) VIBE_OTHELLO_WASM_NOEXCEPT;
+uint32_t vibe_othello_wasm_reset_search_session(uintptr_t eval_handle) VIBE_OTHELLO_WASM_NOEXCEPT;
+
 uint32_t vibe_othello_wasm_evaluate_position(uintptr_t eval_handle,
                                              const vibe_othello_wasm_position* position,
                                              int32_t* out_score) VIBE_OTHELLO_WASM_NOEXCEPT;

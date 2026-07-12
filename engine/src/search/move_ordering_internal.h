@@ -32,8 +32,14 @@ struct EndgameOrderingHints {
   bool use_parity_ordering = true;
 };
 
+MoveList move_list_from_legal_mask(board_core::Bitboard legal_moves) noexcept;
+
 MoveList order_midgame_moves(board_core::Position position, MidgameOrderingHints hints) noexcept;
+MoveList order_midgame_moves(board_core::Position position, board_core::Bitboard legal_moves,
+                             MidgameOrderingHints hints) noexcept;
 MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) noexcept;
 MoveList order_endgame_moves(board_core::Position position, EndgameOrderingHints hints) noexcept;
+MoveList order_endgame_moves(board_core::Position position, board_core::Bitboard legal_moves,
+                             EndgameOrderingHints hints) noexcept;
 
 } // namespace vibe_othello::search::internal

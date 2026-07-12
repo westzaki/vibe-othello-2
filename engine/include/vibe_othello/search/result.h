@@ -22,8 +22,11 @@ struct SearchStats {
   NodeCount tt_hits = 0;
   NodeCount tt_stores = 0;
   NodeCount tt_cutoffs = 0;
-  NodeCount tt_overwrites = 0;
-  NodeCount tt_collisions = 0;
+  NodeCount tt_replacements = 0;
+  NodeCount tt_bucket_conflicts = 0;
+  NodeCount tt_same_key_updates = 0;
+  NodeCount tt_probe_slots = 0;
+  NodeCount tt_generation_age_hits = 0;
   NodeCount tt_rejected_stores = 0;
   NodeCount tt_invalid_best_move_stores = 0;
   NodeCount pvs_researches = 0;

@@ -438,6 +438,7 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant) noexcept {
   options.ordering.use_endgame_parity_ordering = variant.use_endgame_parity;
   options.endgame.exact_endgame = variant.exact_endgame_empties > 0;
   options.endgame.endgame_exact_empties = variant.exact_endgame_empties;
+  options.reporting.multi_pv = 1;
   return options;
 }
 
@@ -1006,7 +1007,7 @@ void print_delimited_header(char delimiter) {
             << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs" << delimiter
             << "iid_searches" << delimiter << "endgame_nodes" << delimiter << "tt_probes"
             << delimiter << "tt_hits" << delimiter << "tt_stores" << delimiter << "tt_cutoffs"
-            << delimiter << "tt_overwrites" << delimiter << "tt_collisions" << delimiter
+            << delimiter << "tt_replacements" << delimiter << "tt_bucket_conflicts" << delimiter
             << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores" << delimiter
             << "elapsed_ms" << delimiter << "nps" << '\n';
 }
@@ -1047,8 +1048,8 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << timed_result.result.stats.tt_probes << delimiter << timed_result.result.stats.tt_hits
             << delimiter << timed_result.result.stats.tt_stores << delimiter
             << timed_result.result.stats.tt_cutoffs << delimiter
-            << timed_result.result.stats.tt_overwrites << delimiter
-            << timed_result.result.stats.tt_collisions << delimiter
+            << timed_result.result.stats.tt_replacements << delimiter
+            << timed_result.result.stats.tt_bucket_conflicts << delimiter
             << timed_result.result.stats.tt_rejected_stores << delimiter
             << timed_result.result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
             << std::setprecision(3) << elapsed_ms << delimiter << std::fixed << std::setprecision(0)
@@ -1116,8 +1117,8 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"tt_hits\":" << timed_result.result.stats.tt_hits;
   std::cout << ",\"tt_stores\":" << timed_result.result.stats.tt_stores;
   std::cout << ",\"tt_cutoffs\":" << timed_result.result.stats.tt_cutoffs;
-  std::cout << ",\"tt_overwrites\":" << timed_result.result.stats.tt_overwrites;
-  std::cout << ",\"tt_collisions\":" << timed_result.result.stats.tt_collisions;
+  std::cout << ",\"tt_replacements\":" << timed_result.result.stats.tt_replacements;
+  std::cout << ",\"tt_bucket_conflicts\":" << timed_result.result.stats.tt_bucket_conflicts;
   std::cout << ",\"tt_rejected_stores\":" << timed_result.result.stats.tt_rejected_stores;
   std::cout << ",\"tt_invalid_best_move_stores\":"
             << timed_result.result.stats.tt_invalid_best_move_stores;

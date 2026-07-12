@@ -3,6 +3,7 @@
 #include "move_ordering_internal.h"
 #include "search_limits_internal.h"
 #include "search_options_internal.h"
+#include "search_position_internal.h"
 #include "transposition_table_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/hash.h"
@@ -30,6 +31,8 @@ struct StackFrame {
   MoveList moves{};
   Line pv{};
   board_core::PositionHash key = 0;
+  SearchPositionUndo position_undo{};
+  board_core::Bitboard legal_moves = 0;
 };
 
 struct MidgameOrderingState {
@@ -44,7 +47,7 @@ struct MidgameOrderingState {
 };
 
 struct SearchContext {
-  board_core::Position position;
+  SearchPositionState position_state;
   const Evaluator& evaluator;
   SearchStats stats{};
   SearchLimits limits{};
