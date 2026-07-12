@@ -1,5 +1,7 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/serialization.h"
+#include "vibe_othello/evaluation/pattern_artifact.h"
+#include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/search.h"
 
 #include <array>
@@ -17,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -76,12 +79,17 @@ enum class BoolSelection {
 enum class EvalSelection {
   disc,
   simple,
+  pattern_v2_incremental,
+  pattern_v2_stateless,
+  pattern_v2_both,
   all,
 };
 
 enum class EvalMode {
   disc,
   simple,
+  pattern_v2_incremental,
+  pattern_v2_stateless,
 };
 
 enum class OutputFormat {
@@ -101,6 +109,7 @@ struct Config {
   BoolSelection killers = BoolSelection::off;
   BoolSelection iid = BoolSelection::off;
   EvalSelection eval = EvalSelection::disc;
+  std::uint32_t max_time_ms = 0;
   std::uint8_t exact_endgame_empties = 0;
   BoolSelection endgame_tt = BoolSelection::off;
   BoolSelection endgame_parity = BoolSelection::on;
@@ -130,6 +139,7 @@ struct BenchmarkVariant {
   bool use_history = false;
   bool use_killers = false;
   bool use_iid = false;
+  std::uint32_t max_time_ms = 0;
   std::uint8_t exact_endgame_empties = 0;
   bool use_endgame_tt = false;
   bool use_endgame_parity = true;
@@ -168,6 +178,20 @@ private:
     }
     return score;
   }
+};
+
+class StatelessPhaseAwareEvaluator final : public Evaluator {
+public:
+  explicit StatelessPhaseAwareEvaluator(
+      const vibe_othello::evaluation::PhaseAwareEvaluator* evaluator)
+      : evaluator_(evaluator) {}
+
+  Score evaluate(const Position& position) const noexcept override {
+    return evaluator_->evaluate_reference(position);
+  }
+
+private:
+  const vibe_othello::evaluation::PhaseAwareEvaluator* evaluator_;
 };
 
 constexpr Square square(int file, int rank) noexcept {
@@ -355,6 +379,10 @@ std::string_view eval_mode_name(EvalMode mode) noexcept {
     return "disc_difference";
   case EvalMode::simple:
     return "simple";
+  case EvalMode::pattern_v2_incremental:
+    return "pattern_v2_incremental";
+  case EvalMode::pattern_v2_stateless:
+    return "pattern_v2_stateless";
   }
 
   return "unknown";
@@ -379,6 +407,15 @@ std::optional<EvalSelection> parse_eval_selection(std::string_view value) noexce
   }
   if (value == "simple") {
     return EvalSelection::simple;
+  }
+  if (value == "pattern-v2" || value == "pattern-v2-incremental") {
+    return EvalSelection::pattern_v2_incremental;
+  }
+  if (value == "pattern-v2-stateless") {
+    return EvalSelection::pattern_v2_stateless;
+  }
+  if (value == "pattern-v2-both") {
+    return EvalSelection::pattern_v2_both;
   }
   if (value == "all") {
     return EvalSelection::all;
@@ -405,8 +442,15 @@ std::vector<EvalMode> eval_values(EvalSelection selection) {
     return {EvalMode::disc};
   case EvalSelection::simple:
     return {EvalMode::simple};
+  case EvalSelection::pattern_v2_incremental:
+    return {EvalMode::pattern_v2_incremental};
+  case EvalSelection::pattern_v2_stateless:
+    return {EvalMode::pattern_v2_stateless};
+  case EvalSelection::pattern_v2_both:
+    return {EvalMode::pattern_v2_stateless, EvalMode::pattern_v2_incremental};
   case EvalSelection::all:
-    return {EvalMode::disc, EvalMode::simple};
+    return {EvalMode::disc, EvalMode::simple, EvalMode::pattern_v2_stateless,
+            EvalMode::pattern_v2_incremental};
   }
 
   return {};
@@ -463,6 +507,8 @@ std::string variant_id(BenchmarkVariant variant) {
   id += bool_mode_name(variant.use_endgame_tt);
   id += ";endgame_parity=";
   id += bool_mode_name(variant.use_endgame_parity);
+  id += ";time_ms=";
+  id += std::to_string(variant.max_time_ms);
   return id;
 }
 
@@ -501,6 +547,7 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
                       .use_history = use_history,
                       .use_killers = use_killers,
                       .use_iid = use_iid,
+                      .max_time_ms = mode == BenchmarkMode::iterative ? config.max_time_ms : 0,
                       .exact_endgame_empties = mode == BenchmarkMode::iterative
                                                    ? config.exact_endgame_empties
                                                    : std::uint8_t{0},
@@ -524,7 +571,8 @@ void print_usage(std::ostream& output, std::string_view program) {
             " [--mode all|fixed|iterative] [--tt off|ordering|midgame|both]"
             " [--pvs off|on|both] [--aspiration off|on|both]"
             " [--history off|on|both] [--killers off|on|both] [--iid off|on|both]"
-            " [--eval disc|simple|all] [--exact-endgame N]"
+            " [--eval disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all]"
+            " [--time-ms N] [--exact-endgame N]"
             " [--endgame-tt off|on|both] [--endgame-parity off|on|both]"
             " [--corpus PATH] [--tsv|--csv|--jsonl]\n\n"
          << "Default depth range is 6..8.\n";
@@ -798,6 +846,19 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--time-ms") {
+      require_condition(index + 1 < argc, "--time-ms requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--time-ms", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> time_ms = parse_int(value);
+      require_condition(time_ms.has_value() && *time_ms >= 0, "invalid time limit");
+      config.max_time_ms = static_cast<std::uint32_t>(*time_ms);
+      continue;
+    }
+
     if (argument == "--exact-endgame") {
       require_condition(index + 1 < argc, "--exact-endgame requires a value");
       value = argv[++index];
@@ -972,19 +1033,34 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
   output << ']';
 }
 
-TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position position,
-                       Depth depth) {
+TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position position, Depth depth,
+                       const Evaluator& pattern_incremental, const Evaluator& pattern_stateless) {
   DiscDifferenceEvaluator evaluator;
   SimpleEvaluator simple_evaluator;
-  const Evaluator& selected_evaluator = variant.eval_mode == EvalMode::simple
-                                            ? static_cast<const Evaluator&>(simple_evaluator)
-                                            : static_cast<const Evaluator&>(evaluator);
+  const Evaluator* selected_evaluator = &evaluator;
+  switch (variant.eval_mode) {
+  case EvalMode::disc:
+    break;
+  case EvalMode::simple:
+    selected_evaluator = &simple_evaluator;
+    break;
+  case EvalMode::pattern_v2_incremental:
+    selected_evaluator = &pattern_incremental;
+    break;
+  case EvalMode::pattern_v2_stateless:
+    selected_evaluator = &pattern_stateless;
+    break;
+  }
   const auto start = std::chrono::steady_clock::now();
 
   SearchResult result =
       mode == BenchmarkMode::fixed
-          ? search_fixed_depth(position, selected_evaluator, depth)
-          : search_iterative(position, selected_evaluator, SearchLimits{.max_depth = depth},
+          ? search_fixed_depth(position, *selected_evaluator, depth)
+          : search_iterative(position, *selected_evaluator,
+                             SearchLimits{
+                                 .max_depth = depth,
+                                 .max_time = std::chrono::milliseconds{variant.max_time_ms},
+                             },
                              search_options_for_variant(variant));
 
   return TimedResult{
@@ -1009,7 +1085,8 @@ void print_delimited_header(char delimiter) {
             << delimiter << "tt_hits" << delimiter << "tt_stores" << delimiter << "tt_cutoffs"
             << delimiter << "tt_replacements" << delimiter << "tt_bucket_conflicts" << delimiter
             << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores" << delimiter
-            << "elapsed_ms" << delimiter << "nps" << '\n';
+            << "completed_depth" << delimiter << "stopped" << delimiter << "elapsed_ms" << delimiter
+            << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode,
@@ -1052,8 +1129,9 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << timed_result.result.stats.tt_bucket_conflicts << delimiter
             << timed_result.result.stats.tt_rejected_stores << delimiter
             << timed_result.result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
-            << std::setprecision(3) << elapsed_ms << delimiter << std::fixed << std::setprecision(0)
-            << nps << '\n';
+            << static_cast<int>(timed_result.result.completed_depth) << delimiter
+            << bool_mode_name(timed_result.result.stopped) << delimiter << std::setprecision(3)
+            << elapsed_ms << delimiter << std::fixed << std::setprecision(0) << nps << '\n';
 }
 
 void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
@@ -1094,6 +1172,8 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"endgame_parity\":";
   print_json_string(std::cout, bool_mode_name(variant.use_endgame_parity));
   std::cout << ",\"score\":" << timed_result.result.score;
+  std::cout << ",\"completed_depth\":" << static_cast<int>(timed_result.result.completed_depth);
+  std::cout << ",\"stopped\":" << (timed_result.result.stopped ? "true" : "false");
   std::cout << ",\"score_kind\":";
   print_json_string(std::cout, score_kind_name(timed_result.result.score_kind));
   std::cout << ",\"best_move\":";
@@ -1138,6 +1218,15 @@ int main(int argc, char** argv) {
   const std::vector<PositionCase> positions =
       config->corpus_path.empty() ? benchmark_positions() : load_corpus(config->corpus_path);
   const std::vector<BenchmarkMode> modes = modes_for_filter(config->mode_filter);
+  vibe_othello::evaluation::PatternArtifactLoadResult artifact_result =
+      vibe_othello::evaluation::load_default_pattern_artifact(
+          vibe_othello::evaluation::default_eval_root(VIBE_OTHELLO_SOURCE_DIR));
+  require_condition(artifact_result.ok(), "failed to load committed default artifact");
+  vibe_othello::evaluation::LoadedPatternArtifact artifact = std::move(*artifact_result.artifact);
+  const vibe_othello::evaluation::PhaseAwareEvaluator pattern_incremental{
+      std::move(artifact.weights), std::move(artifact.feature_set),
+      std::move(artifact.trained_phases), artifact.fallback_additive_through_phase};
+  const StatelessPhaseAwareEvaluator pattern_stateless{&pattern_incremental};
 
   if (config->output_format != OutputFormat::jsonl) {
     print_delimited_header(config->delimiter);
@@ -1149,7 +1238,8 @@ int main(int argc, char** argv) {
       const std::vector<BenchmarkVariant> variants = variants_for_mode(mode, *config);
       for (Depth depth : depths) {
         for (const BenchmarkVariant variant : variants) {
-          TimedResult timed_result = run_search(mode, variant, position_case.position, depth);
+          TimedResult timed_result = run_search(mode, variant, position_case.position, depth,
+                                                pattern_incremental, pattern_stateless);
           if (config->output_format == OutputFormat::jsonl) {
             print_jsonl_result(position_case, mode, variant, depth, timed_result);
           } else {

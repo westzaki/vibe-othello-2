@@ -1,6 +1,8 @@
 #include "endgame_policy_internal.h"
 #include "search_internal.h"
 
+#include <cstdlib>
+
 namespace vibe_othello::search::internal {
 
 namespace {
@@ -82,7 +84,13 @@ bool should_use_internal_exact_endgame(board_core::Position position,
 
 SearchNodeResult search_internal_exact_endgame(SearchContext* context) {
   EndgameContext endgame_context{
-      .position_state = context->position_state,
+      .position_state =
+          SearchPositionState{
+              .position = context->position_state.position,
+              .key = context->position_state.key,
+              .legal_mask = context->position_state.legal_mask,
+              .legal_mask_valid = context->position_state.legal_mask_valid,
+          },
       .limits = context->limits,
       .options = context->options,
       .transposition_table = context->transposition_table,
@@ -183,7 +191,13 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   if (depth <= 0) {
     ++context->stats.leaf_nodes;
     ++context->stats.eval_calls;
-    const Score score = context->evaluator.evaluate(context->position_state.position);
+    const Score score = evaluate_position(context->position_state, context->evaluator);
+    if (context->position_state.evaluation_state.has_value() &&
+        context->incremental_eval_verify_interval != 0 &&
+        ++context->incremental_eval_count % context->incremental_eval_verify_interval == 0 &&
+        score != evaluate_position_reference(context->position_state, context->evaluator)) {
+      std::abort();
+    }
     require_invariant(is_valid_evaluator_score(score));
     return SearchNodeResult::completed(SearchValue{
         .score = score,

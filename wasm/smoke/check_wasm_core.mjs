@@ -52,6 +52,27 @@ const weightsBytes = await readFile(
 const hasLegalMoveBit = (legalMoves, squareIndex) =>
   ((legalMoves >> BigInt(squareIndex)) & 1n) !== 0n;
 
+const parsePosition = (text) => {
+  const [board, sideToMove] = text.split(" ");
+  const rows = board.split("/");
+  let black = 0n;
+  let white = 0n;
+  for (let row = 0; row < rows.length; ++row) {
+    const rank = 7 - row;
+    for (let file = 0; file < rows[row].length; ++file) {
+      const mask = 1n << BigInt(rank * 8 + file);
+      if (rows[row][file] === "B") black |= mask;
+      if (rows[row][file] === "W") white |= mask;
+    }
+  }
+  const blackToMove = sideToMove === "b";
+  return {
+    player: blackToMove ? black : white,
+    opponent: blackToMove ? white : black,
+    sideToMove: blackToMove ? "black" : "white",
+  };
+};
+
 const artifact = core.loadEvaluationArtifact(manifestText, weightsBytes);
 assert.equal(typeof artifact.evaluatePosition(initialPosition), "number");
 assert.equal(artifact.evaluatePosition(initialPosition), 0);
@@ -94,6 +115,18 @@ assert.throws(
   () => artifact.searchBestMoveWithPreset(initialPosition, { maxDepth: 1 }, "normal", 64),
   /requires maxNodes or maxTimeMs/,
 );
+
+// Native Release parity fixture: this covered late phase exercises the
+// incremental search backend in the generated Emscripten module.
+const latePosition = parsePosition(
+  "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBBB/BBBWB.B./BBWBBB../BW.WWWWW b",
+);
+assert.equal(artifact.evaluatePosition(latePosition), -8);
+const lateSearch = artifact.searchBestMove(latePosition, { maxDepth: 3 });
+assert.equal(lateSearch.score, 4);
+assert.equal(lateSearch.completedDepth, 3);
+assert.equal(lateSearch.bestMoveSquare, 48);
+assert.equal(lateSearch.nodes, 97n);
 
 artifact.free();
 artifact.free();

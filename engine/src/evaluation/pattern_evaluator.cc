@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -462,27 +463,269 @@ PatternFeatureSet endgame_lite_pattern_feature_set() {
 }
 
 PatternEvaluator::PatternEvaluator(PatternWeights weights, PatternFeatureSet feature_set)
-    : weights_(std::move(weights)), feature_set_(std::move(feature_set)) {
-  validate_pattern_evaluator_inputs(weights_, feature_set_);
-}
+    : feature_set_(std::move(feature_set)) {
+  validate_pattern_evaluator_inputs(weights, feature_set_);
 
-search::Score PatternEvaluator::evaluate(const board_core::Position& position) const noexcept {
-  const int discs = std::popcount(board_core::occupied(position));
-  const std::uint8_t phase = weights_.phase_for_disc_count(discs);
+  const std::uint8_t phase_count = weights.phase_count();
+  score_scale_ = weights.score_scale();
+  phase_biases_.assign(weights.phase_biases().begin(), weights.phase_biases().end());
+  for (std::uint8_t discs = 0; discs < phase_by_disc_count_.size(); ++discs) {
+    phase_by_disc_count_[discs] = weights.phase_for_disc_count(discs);
+  }
 
-  std::int64_t scaled_score = weights_.phase_bias(phase);
-  for (std::size_t table_index = 0; table_index < feature_set_.tables.size(); ++table_index) {
-    for (const std::vector<board_core::Square>& squares :
-         feature_set_.tables[table_index].instances) {
-      scaled_score += weights_.weight(table_index, phase, ternary_pattern_index(position, squares));
+  const std::span<const PatternWeightTable> weight_tables = weights.tables();
+  std::size_t total_weight_count = 0;
+  for (const PatternWeightTable& table : weight_tables) {
+    total_weight_count += table.weights.size();
+  }
+  flat_weights_.reserve(total_weight_count);
+  table_phase_offsets_.resize(static_cast<std::size_t>(phase_count) * weight_tables.size());
+  for (std::size_t table_index = 0; table_index < weight_tables.size(); ++table_index) {
+    const PatternWeightTable& table = weight_tables[table_index];
+    const std::size_t table_start = flat_weights_.size();
+    const std::uint32_t table_size = pattern_size(table.pattern_length);
+    flat_weights_.insert(flat_weights_.end(), table.weights.begin(), table.weights.end());
+    for (std::uint8_t phase = 0; phase < phase_count; ++phase) {
+      table_phase_offsets_[static_cast<std::size_t>(phase) * weight_tables.size() + table_index] =
+          table_start + static_cast<std::size_t>(phase) * table_size;
     }
   }
-  const std::int64_t scale = weights_.score_scale();
+
+  std::array<std::vector<SquareContribution>, board_core::kSquareCount> contributions_by_square;
+  for (std::size_t table_index = 0; table_index < feature_set_.tables.size(); ++table_index) {
+    const PatternFeatureTable& table = feature_set_.tables[table_index];
+    for (const std::vector<board_core::Square>& squares : table.instances) {
+      const std::uint32_t instance_id = static_cast<std::uint32_t>(instances_.size());
+      instances_.push_back(InstanceDescriptor{
+          .square_offset = flat_squares_.size(),
+          .table_index = table_index,
+          .pattern_size = pattern_size(table.pattern_length),
+          .pattern_length = table.pattern_length,
+      });
+
+      std::uint32_t power = 1;
+      for (const board_core::Square square : squares) {
+        flat_squares_.push_back(square);
+        flat_powers_of_three_.push_back(power);
+        contributions_by_square[square.index].push_back(SquareContribution{
+            .instance_id = instance_id,
+            .power_of_three = power,
+        });
+        power *= 3;
+      }
+    }
+  }
+
+  instance_phase_offsets_.resize(static_cast<std::size_t>(phase_count) * instances_.size());
+  for (std::uint8_t phase = 0; phase < phase_count; ++phase) {
+    for (std::size_t instance_id = 0; instance_id < instances_.size(); ++instance_id) {
+      instance_phase_offsets_[static_cast<std::size_t>(phase) * instances_.size() + instance_id] =
+          table_phase_offsets_[static_cast<std::size_t>(phase) * weight_tables.size() +
+                               instances_[instance_id].table_index];
+    }
+  }
+
+  for (std::size_t square = 0; square < contributions_by_square.size(); ++square) {
+    square_ranges_[square] = SquareContributionRange{
+        .offset = square_contributions_.size(),
+        .count = contributions_by_square[square].size(),
+    };
+    square_contributions_.insert(square_contributions_.end(),
+                                 contributions_by_square[square].begin(),
+                                 contributions_by_square[square].end());
+  }
+}
+
+search::Score PatternEvaluator::finish_score(std::int64_t scaled_score) const noexcept {
+  const std::int64_t scale = score_scale_;
   const std::int64_t rounded =
       scaled_score >= 0 ? (scaled_score + scale / 2) / scale : (scaled_score - scale / 2) / scale;
   return static_cast<search::Score>(
       std::clamp(rounded, -static_cast<std::int64_t>(board_core::kSquareCount),
                  static_cast<std::int64_t>(board_core::kSquareCount)));
+}
+
+search::Score PatternEvaluator::evaluate(const board_core::Position& position) const noexcept {
+  const std::uint8_t discs =
+      static_cast<std::uint8_t>(std::popcount(board_core::occupied(position)));
+  const std::uint8_t phase = phase_by_disc_count_[discs];
+  const std::size_t* phase_offsets =
+      instance_phase_offsets_.data() + static_cast<std::size_t>(phase) * instances_.size();
+
+  std::int64_t scaled_score = phase_biases_[phase];
+  for (std::size_t instance_id = 0; instance_id < instances_.size(); ++instance_id) {
+    const InstanceDescriptor& instance = instances_[instance_id];
+    std::uint32_t pattern_index = 0;
+    for (std::uint8_t cell = 0; cell < instance.pattern_length; ++cell) {
+      const std::size_t offset = instance.square_offset + cell;
+      const board_core::Bitboard mask = board_core::bit(flat_squares_[offset]);
+      if ((position.player & mask) != 0) {
+        pattern_index += flat_powers_of_three_[offset];
+      } else if ((position.opponent & mask) != 0) {
+        pattern_index += 2 * flat_powers_of_three_[offset];
+      }
+    }
+    scaled_score += flat_weights_.data()[phase_offsets[instance_id] + pattern_index];
+  }
+  return finish_score(scaled_score);
+}
+
+search::Score
+PatternEvaluator::evaluate_reference(const board_core::Position& position) const noexcept {
+  const std::uint8_t discs =
+      static_cast<std::uint8_t>(std::popcount(board_core::occupied(position)));
+  const std::uint8_t phase = phase_by_disc_count_[discs];
+  std::int64_t scaled_score = phase_biases_[phase];
+  for (std::size_t table_index = 0; table_index < feature_set_.tables.size(); ++table_index) {
+    const std::size_t base =
+        table_phase_offsets_[static_cast<std::size_t>(phase) * feature_set_.tables.size() +
+                             table_index];
+    for (const std::vector<board_core::Square>& squares :
+         feature_set_.tables[table_index].instances) {
+      scaled_score += flat_weights_[base + ternary_pattern_index(position, squares)];
+    }
+  }
+  return finish_score(scaled_score);
+}
+
+PatternEvaluator::IncrementalState
+PatternEvaluator::make_incremental_state(const board_core::Position& position) const {
+  return IncrementalState{this, position};
+}
+
+search::Score
+PatternEvaluator::evaluate_indices(std::uint8_t occupied_count, board_core::Color side_to_move,
+                                   const std::uint32_t* black_indices,
+                                   const std::uint32_t* white_indices) const noexcept {
+  const std::uint8_t phase = phase_by_disc_count_[occupied_count];
+  const std::size_t* phase_offsets =
+      instance_phase_offsets_.data() + static_cast<std::size_t>(phase) * instances_.size();
+  const std::uint32_t* indices =
+      side_to_move == board_core::Color::black ? black_indices : white_indices;
+
+  std::int64_t scaled_score = phase_biases_[phase];
+  for (std::size_t instance_id = 0; instance_id < instances_.size(); ++instance_id) {
+    assert(indices[instance_id] < instances_[instance_id].pattern_size);
+    scaled_score += flat_weights_.data()[phase_offsets[instance_id] + indices[instance_id]];
+  }
+  return finish_score(scaled_score);
+}
+
+PatternEvaluator::IncrementalState::IncrementalState(const PatternEvaluator* evaluator,
+                                                     board_core::Position position)
+    : evaluator_(evaluator), black_indices_(evaluator->instances_.size()),
+      white_indices_(evaluator->instances_.size()),
+      touched_instances_(evaluator->instances_.size()),
+      touched_generation_(evaluator->instances_.size()),
+      pending_black_delta_(evaluator->instances_.size()),
+      pending_white_delta_(evaluator->instances_.size()),
+      occupied_count_(static_cast<std::uint8_t>(std::popcount(board_core::occupied(position)))),
+      side_to_move_(position.side_to_move) {
+  const board_core::Bitboard black = board_core::black_discs(position);
+  const board_core::Bitboard white = board_core::white_discs(position);
+  for (std::size_t instance_id = 0; instance_id < evaluator_->instances_.size(); ++instance_id) {
+    const InstanceDescriptor& instance = evaluator_->instances_[instance_id];
+    std::uint32_t black_index = 0;
+    std::uint32_t white_index = 0;
+    for (std::uint8_t cell = 0; cell < instance.pattern_length; ++cell) {
+      const std::size_t offset = instance.square_offset + cell;
+      const board_core::Bitboard mask = board_core::bit(evaluator_->flat_squares_[offset]);
+      const std::uint32_t power = evaluator_->flat_powers_of_three_[offset];
+      if ((black & mask) != 0) {
+        black_index += power;
+        white_index += 2 * power;
+      } else if ((white & mask) != 0) {
+        black_index += 2 * power;
+        white_index += power;
+      }
+    }
+    black_indices_[instance_id] = black_index;
+    white_indices_[instance_id] = white_index;
+  }
+}
+
+search::Score PatternEvaluator::IncrementalState::evaluate() const noexcept {
+  return evaluator_->evaluate_indices(occupied_count_, side_to_move_, black_indices_.data(),
+                                      white_indices_.data());
+}
+
+void PatternEvaluator::IncrementalState::update_normal_move(board_core::MoveDelta delta,
+                                                            board_core::Color mover,
+                                                            int direction) noexcept {
+  ++generation_;
+  if (generation_ == 0) {
+    std::fill(touched_generation_.begin(), touched_generation_.end(), 0);
+    generation_ = 1;
+  }
+  std::size_t touched_count = 0;
+
+  const auto record_square = [&](board_core::Square square, int black_digit_delta,
+                                 int white_digit_delta) {
+    const SquareContributionRange range = evaluator_->square_ranges_[square.index];
+    const SquareContribution* contributions =
+        evaluator_->square_contributions_.data() + range.offset;
+    for (std::size_t offset = 0; offset < range.count; ++offset) {
+      const SquareContribution contribution = contributions[offset];
+      const std::size_t instance_id = contribution.instance_id;
+      if (touched_generation_[instance_id] != generation_) {
+        touched_generation_[instance_id] = generation_;
+        touched_instances_[touched_count++] = contribution.instance_id;
+        pending_black_delta_[instance_id] = 0;
+        pending_white_delta_[instance_id] = 0;
+      }
+      pending_black_delta_[instance_id] +=
+          direction * black_digit_delta * static_cast<std::int32_t>(contribution.power_of_three);
+      pending_white_delta_[instance_id] +=
+          direction * white_digit_delta * static_cast<std::int32_t>(contribution.power_of_three);
+    }
+  };
+
+  if (mover == board_core::Color::black) {
+    record_square(delta.move.square, 1, 2);
+  } else {
+    record_square(delta.move.square, 2, 1);
+  }
+
+  board_core::Bitboard flipped = delta.flipped;
+  while (flipped != 0) {
+    const auto square_index = static_cast<std::uint8_t>(std::countr_zero(flipped));
+    record_square(board_core::Square{square_index}, mover == board_core::Color::black ? -1 : 1,
+                  mover == board_core::Color::black ? 1 : -1);
+    flipped &= flipped - 1;
+  }
+
+  for (std::size_t touched = 0; touched < touched_count; ++touched) {
+    const std::size_t instance_id = touched_instances_[touched];
+    const std::int64_t black_index =
+        static_cast<std::int64_t>(black_indices_[instance_id]) + pending_black_delta_[instance_id];
+    const std::int64_t white_index =
+        static_cast<std::int64_t>(white_indices_[instance_id]) + pending_white_delta_[instance_id];
+    assert(black_index >= 0);
+    assert(white_index >= 0);
+    assert(black_index < evaluator_->instances_[instance_id].pattern_size);
+    assert(white_index < evaluator_->instances_[instance_id].pattern_size);
+    black_indices_[instance_id] = static_cast<std::uint32_t>(black_index);
+    white_indices_[instance_id] = static_cast<std::uint32_t>(white_index);
+  }
+}
+
+void PatternEvaluator::IncrementalState::apply_move(board_core::MoveDelta delta) noexcept {
+  if (delta.move.kind == board_core::MoveKind::pass) {
+    side_to_move_ = board_core::opposite(side_to_move_);
+    return;
+  }
+  update_normal_move(delta, side_to_move_, 1);
+  ++occupied_count_;
+  side_to_move_ = board_core::opposite(side_to_move_);
+}
+
+void PatternEvaluator::IncrementalState::undo_move(board_core::MoveDelta delta) noexcept {
+  side_to_move_ = board_core::opposite(side_to_move_);
+  if (delta.move.kind == board_core::MoveKind::pass) {
+    return;
+  }
+  update_normal_move(delta, side_to_move_, -1);
+  --occupied_count_;
 }
 
 } // namespace vibe_othello::evaluation

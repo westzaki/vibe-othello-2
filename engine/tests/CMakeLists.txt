@@ -31,6 +31,7 @@ add_executable(
   board_core/random_play_differential_test.cc
   board_core/serialization_test.cc
   evaluation/early_midgame_heuristic_evaluator_test.cc
+  evaluation/incremental_pattern_evaluator_test.cc
   evaluation/pattern_evaluator_test.cc
   evaluation/pattern_artifact_test.cc
   evaluation/pattern_schema_test.cc

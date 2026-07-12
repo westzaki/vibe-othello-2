@@ -42,6 +42,10 @@ enum class SearchPlatformProfile : std::uint8_t {
 struct SearchSessionConfig {
   SearchPlatformProfile profile = SearchPlatformProfile::custom;
   TranspositionTableConfig transposition_table{};
+  // Debug-only parity guard. Zero disables it; a positive value recomputes the
+  // stateless reference score every N incremental leaf evaluations and aborts
+  // immediately on a mismatch.
+  std::uint32_t incremental_eval_verify_interval = 0;
 };
 
 enum class SessionReusePolicy : std::uint8_t {

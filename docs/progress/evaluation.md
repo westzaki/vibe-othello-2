@@ -22,6 +22,14 @@ weights, and evaluates the documented phase-dependent linear model:
 bias[phase] + sum(pattern weights)
 ```
 
+At construction it now compiles the dynamic feature geometry and weights into
+a flat runtime layout. It provides a flat stateless path, the prior stateless
+extraction as a parity reference, and an incremental state with paired
+black/white-perspective indices. Search binds that state once per applicable
+root and updates only instances touched by placed or flipped squares. Pass and
+undo are supported without rebuilding indices. Phase-aware fallback-only roots
+remain on the generic stateless path.
+
 `PhaseAwareEvaluator` is the artifact-facing runtime composition. It uses
 `PatternEvaluator` only in metadata-declared `trained_phases` and otherwise
 uses the small deterministic `EarlyMidgameHeuristicEvaluator`. The fallback is
@@ -93,7 +101,6 @@ Runtime evaluation still lacks:
 * an evaluation explanation API for tools and UI
 * a calibration API for display-only score views
 * broader native/WASM parity coverage beyond fixed phase-aware artifact routing
-* an incremental evaluator state path, if benchmarks later justify one
 * a separately promoted production baseline evaluator beyond the legacy static
   override
 * production-strength validation for a default artifact through Elo-style or
@@ -111,7 +118,6 @@ Keep upcoming work limited to unfinished items:
 * add explanation support outside the recursive search hot path
 * add calibration support without changing recursive search scores
 * broaden native/WASM parity checks beyond fixed phase-aware artifact fixtures
-* decide whether an incremental evaluator state is needed from benchmarks
 * define the evidence required before any learned artifact can claim production
   strength
 * document the hardened trainer and artifact-promotion workflow when that
