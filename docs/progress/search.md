@@ -41,6 +41,10 @@ Existing search public types include:
 * `ExperimentalSearchOptions`
 * `SearchOptions`
 * `SearchStats`
+* `ShadowCalibrationSample`
+* `ShadowCalibrationSink`
+* `ShadowCalibrationStats`
+* `SelectiveSearchOptionsV1`
 * `RootMoveInfo`
 * `SearchResult`
 * `Evaluator`
@@ -123,6 +127,11 @@ The current search implementation includes:
 * opt-in persistent session plumbing for Arena and WASM
 * temporary `experimental.use_legacy_search_kernel` rollback switch for the
   previous full-window root orchestration
+* default-disabled MPC shadow calibration with deterministic capped sampling,
+  compact schema-v1 samples, isolated shallow searches, raw hypothetical-cut
+  diagnostics, and telemetry separate from official `SearchStats`/nodes
+* deterministic local offline calibration analysis grouped by phase, deep and
+  shallow depth, and node type, with JSON plus Markdown reports
 
 Existing search tests include:
 
@@ -139,6 +148,9 @@ Existing search tests include:
 * legacy flat-field and typed-config option equivalence tests
 * exhaustive search option normalization tests covering defaults, legacy fields,
   typed sub-configs, and compatibility conflict rules
+* shadow disabled/on official-result parity, deterministic sampling, cap,
+  metadata, PV/pass/exact-region policy, and official-node-limit tests
+* offline analyzer determinism, invalid/malformed schema, and empty-input tests
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
 
@@ -148,7 +160,7 @@ The current implementation does not yet have:
 
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
-* ProbCut or calibrated selective pruning
+* actual ProbCut/Multi-ProbCut cutoffs or adoption of calibrated coefficients
 * parallel search
 * analysis and review-specific result adapters
 * match-bench, self-play, or production strength validation for learned
@@ -225,6 +237,7 @@ Status values:
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
+| Add MPC shadow calibration | done | Diagnostics-only reduced-depth sampling; no official cutoff or runtime coefficient |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |
 | Add analysis and review-facing result adapters | deferred | Requires consumer needs |
 

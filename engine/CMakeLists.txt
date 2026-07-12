@@ -29,6 +29,7 @@ target_sources(
           src/search/root_search.cc
           src/search/search_node_common.cc
           src/search/search_session.cc
+          src/search/shadow_calibration.cc
           src/search/search_util.cc
           src/search/transposition_table.cc
           src/version.cc)

@@ -7,6 +7,7 @@ Read only the document needed for the current task.
 | --- | --- |
 | Repository layout | `repository-layout.md` |
 | Benchmark and golden check documentation | `../engine/benchmarks/README.md` |
+| Selective-search shadow calibration workflow | `../tools/search-calibration/README.md` |
 | C++ style | `cpp-coding-style.md` |
 | Board core architecture | `architecture/board-core.md` |
 | Board core implementation status | `progress/board-core.md` |

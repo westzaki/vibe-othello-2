@@ -4,6 +4,7 @@
 #include "search_limits_internal.h"
 #include "search_options_internal.h"
 #include "search_position_internal.h"
+#include "shadow_calibration_internal.h"
 #include "transposition_table_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/hash.h"
@@ -55,6 +56,7 @@ struct SearchContext {
   TranspositionTable* transposition_table = nullptr;
   MidgameOrderingState* ordering_state = nullptr;
   SearchLimitState* limit_state = nullptr;
+  ShadowCalibrationRun* shadow_calibration = nullptr;
   std::uint32_t incremental_eval_verify_interval = 0;
   std::uint64_t incremental_eval_count = 0;
   bool in_iid = false;

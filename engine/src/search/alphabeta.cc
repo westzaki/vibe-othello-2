@@ -20,11 +20,21 @@ SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Dept
     return SearchNodeResult::stopped();
   }
 
+  std::optional<ShadowCandidate> shadow_candidate;
+  if (context->shadow_calibration != nullptr) {
+    shadow_candidate = begin_shadow_candidate(context, original_alpha, original_beta, depth, ply);
+  }
+
   const MoveOrderingHints hints =
       build_midgame_ordering_hints(*context, tt_entry, iid_best_move, ply);
   frame.moves = order_midgame_moves(context->position_state.position, frame.legal_moves, hints);
   if (frame.moves.size == 0) {
-    return search_pass_child(context, alpha, beta, depth, ply, SearchDispatch::alphabeta);
+    const SearchNodeResult result =
+        search_pass_child(context, alpha, beta, depth, ply, SearchDispatch::alphabeta);
+    if (shadow_candidate.has_value()) {
+      complete_shadow_candidate(context, *shadow_candidate, result);
+    }
+    return result;
   }
 
   SearchValue best{
@@ -52,7 +62,11 @@ SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Dept
   maybe_store_midgame_tt(context, depth, best.score,
                          classify_bound(best.score, original_alpha, original_beta), best_move);
 
-  return SearchNodeResult::completed(best);
+  const SearchNodeResult result = SearchNodeResult::completed(best);
+  if (shadow_candidate.has_value()) {
+    complete_shadow_candidate(context, *shadow_candidate, result);
+  }
+  return result;
 }
 
 SearchNodeResult null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply) {

@@ -4,6 +4,7 @@
 #include "search_context_internal.h"
 #include "search_node_internal.h"
 #include "search_util_internal.h"
+#include "shadow_calibration_internal.h"
 #include "transposition_table_internal.h"
 #include "vibe_othello/search/search.h"
 
@@ -51,13 +52,15 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           RootSearchWindow root_window = {},
                                           MidgameOrderingState* ordering_state = nullptr,
                                           SearchLimitState* limit_state = nullptr,
-                                          std::uint32_t incremental_eval_verify_interval = 0);
+                                          std::uint32_t incremental_eval_verify_interval = 0,
+                                          ShadowCalibrationRun* shadow_calibration = nullptr);
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
                                           ResolvedSearchOptions options, TranspositionTable* tt,
                                           RootSearchWindow root_window = {},
                                           MidgameOrderingState* ordering_state = nullptr,
                                           SearchLimitState* limit_state = nullptr,
-                                          std::uint32_t incremental_eval_verify_interval = 0);
+                                          std::uint32_t incremental_eval_verify_interval = 0,
+                                          ShadowCalibrationRun* shadow_calibration = nullptr);
 
 } // namespace vibe_othello::search::internal

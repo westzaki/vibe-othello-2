@@ -28,6 +28,9 @@ struct SearchSemanticFingerprint {
 inline SearchSemanticFingerprint
 make_search_semantic_fingerprint(const Evaluator* evaluator, ResolvedSearchOptions options,
                                  SearchSemanticDomain domain) noexcept {
+  // Shadow calibration is observational and must not invalidate or otherwise
+  // perturb the official-search TT when callers toggle collection metadata.
+  options.selective = {};
   return SearchSemanticFingerprint{
       .evaluator = evaluator,
       .evaluator_revision = evaluator == nullptr ? 0 : evaluator->transposition_table_revision(),

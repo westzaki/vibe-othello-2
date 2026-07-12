@@ -308,15 +308,40 @@ struct ExperimentalSearchOptions {
   std::uint8_t selectivity_level;
 };
 
+struct SelectiveSearchOptionsV1 {
+  bool enable_shadow_calibration;
+  std::uint32_t sample_rate;
+  std::uint32_t max_samples_per_search;
+  Depth minimum_deep_depth;
+  Depth shallow_depth_reduction;
+  bool include_pv_nodes;
+  bool include_pass_nodes;
+  bool include_near_exact_nodes;
+  std::uint64_t sampling_seed;
+  std::string_view repo_sha;
+  std::string_view search_config_id;
+  std::string_view evaluator_id;
+  std::string_view artifact_id;
+  ShadowCalibrationSink* sink;
+};
+
 struct SearchOptions {
   MidgameSearchOptions midgame;
   MoveOrderingOptions ordering;
   EndgameSearchOptions endgame;
   SearchReportingOptions reporting;
   ExperimentalSearchOptions experimental;
+  SelectiveSearchOptionsV1 selective;
   SearchMode mode;
 };
 ```
+
+`SelectiveSearchOptionsV1` is diagnostics-only and defaults to disabled.
+`sample_rate` is an integer millionth rate in `[0, 1'000'000]`; integer
+sampling avoids platform-dependent floating-point decisions. Enabling requires
+a non-null caller-owned sink, positive rate and cap, and a positive shallow
+depth reduction. Metadata strings and the sink must outlive the search call.
+Normal runtime and WASM presets keep the whole config at its disabled default.
 
 The public API still accepts legacy flat fields during migration:
 
@@ -344,6 +369,7 @@ struct SearchOptions {
   EndgameSearchOptions endgame;
   SearchReportingOptions reporting;
   ExperimentalSearchOptions experimental;
+  SelectiveSearchOptionsV1 selective;
   SearchMode mode;
 };
 ```
@@ -532,6 +558,17 @@ struct SearchStats {
   NodeCount selective_cuts;
 };
 
+struct ShadowCalibrationStats {
+  NodeCount shadow_candidates;
+  NodeCount shadow_samples;
+  NodeCount shadow_shallow_nodes;
+  NodeCount shadow_best_move_agreements;
+  NodeCount hypothetical_cut_highs;
+  NodeCount hypothetical_cut_lows;
+  NodeCount false_cut_high_candidates;
+  NodeCount false_cut_low_candidates;
+};
+
 struct SearchResult {
   std::optional<board_core::Move> best_move;
   Score score;
@@ -540,6 +577,7 @@ struct SearchResult {
   Depth completed_depth;
   NodeCount nodes;
   SearchStats stats;
+  ShadowCalibrationStats shadow_calibration;
   std::chrono::milliseconds elapsed;
   Line pv;
   std::vector<RootMoveInfo> root_moves;
@@ -547,6 +585,12 @@ struct SearchResult {
   bool stopped;
 };
 ```
+
+`SearchStats` and `SearchResult::nodes` account only for official search.
+Shadow candidates, emitted samples, and shallow-search nodes live exclusively
+in `SearchResult::shadow_calibration`. This separation is intentional:
+collecting calibration data must not change official node-limit accounting,
+TT statistics, result bounds, PVs, or completed depth.
 
 `best_move` must be legal unless the position is terminal.
 
@@ -1287,13 +1331,45 @@ ProbCut and Multi-ProbCut require calibrated error estimates.
 ProbCut and Multi-ProbCut are the preferred selective pruning family for
 Othello.
 
-They must be implemented as optional, calibrated, null-window verification
-searches.
+They must eventually be implemented as optional, calibrated, null-window
+verification searches.
 
 They must not be enabled in exact endgame modes.
 
-The calibration data and tuning process are outside this search architecture
-document.
+### MPC shadow calibration v1
+
+The current implementation provides calibration-only shadow mode. It never
+cuts off the official tree and does not apply fitted coefficients at runtime.
+At a deterministically sampled eligible node, it first completes the normal
+deep search, then runs a reduced-depth search in an isolated context. The
+shadow context has no official TT, no shared history/killer state, no official
+node/time budget, no exact handoff, and no nested shadow collection. Its wall
+time is excluded from the cooperative official deadline. The main search
+position is already restored before the shadow search begins.
+
+Disabled mode leaves the context shadow pointer null. The hot path then pays
+only a predictable null check at completed, expanded midgame nodes; it performs
+no hashing, allocation, metadata construction, callback, or extra search.
+
+Sampling combines the canonical side-to-move-relative position hash, root
+identity, config/artifact/evaluator identities, repository SHA, seed, window,
+depth, ply, and deterministic candidate ordinal. The per-search reservation
+count enforces the cap even when a parent candidate remains pending while
+recursive candidates complete. Given the same root, config, artifact, seed,
+and repository SHA, traversal and the emitted sample set are deterministic.
+
+By default, PV nodes, forced-pass nodes, and positions at or below the enabled
+exact-handoff threshold are excluded. They can be included independently for
+diagnostic strata. A node is recorded as `pv` for a full-window request;
+non-PV fail-high nodes are `cut`, and non-PV fail-low nodes are `all`.
+`hypothetical_cut_high` means only `shallow_score >= beta`, and
+`hypothetical_cut_low` means only `shallow_score <= alpha`. These raw window
+crossings are observations, not unverified runtime coefficients or margins.
+
+Samples contain compact scalar metadata, hashes, scores, bounds, and moves;
+they never contain a `Position`, search stack, TT, evaluator state, or PV tree.
+The JSON/JSONL contract and deterministic offline analyzer are documented in
+`tools/search-calibration/README.md`. Samples and reports are local-only.
 
 ## Time Management
 

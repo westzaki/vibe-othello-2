@@ -2,6 +2,7 @@
 #define VIBE_OTHELLO_SEARCH_RESULT_H_
 
 #include "vibe_othello/search/score.h"
+#include "vibe_othello/search/shadow_calibration.h"
 
 #include <chrono>
 #include <optional>
@@ -67,6 +68,7 @@ struct SearchResult {
   Depth completed_depth = 0;
   NodeCount nodes = 0;
   SearchStats stats{};
+  ShadowCalibrationStats shadow_calibration{};
   std::chrono::milliseconds elapsed{0};
   Line pv{};
   std::vector<RootMoveInfo> root_moves;
