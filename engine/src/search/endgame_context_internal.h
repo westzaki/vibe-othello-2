@@ -3,6 +3,7 @@
 #include "move_ordering_internal.h"
 #include "search_limits_internal.h"
 #include "search_options_internal.h"
+#include "search_position_internal.h"
 #include "transposition_table_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
@@ -17,10 +18,12 @@ struct EndgameStackFrame {
   board_core::MoveDelta delta{};
   MoveList moves{};
   Line pv{};
+  SearchPositionUndo position_undo{};
+  board_core::Bitboard legal_moves = 0;
 };
 
 struct EndgameContext {
-  board_core::Position position;
+  SearchPositionState position_state;
   SearchLimits limits{};
   ResolvedSearchOptions options{};
   TranspositionTable* transposition_table = nullptr;

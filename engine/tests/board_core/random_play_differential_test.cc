@@ -3,6 +3,7 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/serialization.h"
 
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,42 @@
 
 namespace vibe_othello::board_core {
 namespace {
+
+TEST_CASE("fast scalar board core matches retained reference on deterministic random games",
+          "[board_core][fast_path]") {
+  std::uint64_t state = 0x9E3779B97F4A7C15ULL;
+  for (int game = 0; game < 256; ++game) {
+    Position position = initial_position();
+    while (!is_terminal(position)) {
+      REQUIRE(legal_moves(position) == legal_moves_reference(position));
+      REQUIRE(legal_moves_unrolled(position) == legal_moves_reference(position));
+      for (int index = 0; index < kSquareCount; ++index) {
+        const Square candidate = square_from_index(index);
+        REQUIRE(flips_for_move(position, candidate) ==
+                flips_for_move_reference(position, candidate));
+        REQUIRE(flips_for_move_unrolled(position, candidate) ==
+                flips_for_move_reference(position, candidate));
+      }
+      const Bitboard moves = legal_moves(position);
+      Move move = make_pass();
+      if (moves != 0) {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        Bitboard selected = moves;
+        const int choice =
+            static_cast<int>((state * 2685821657736338717ULL) % std::popcount(moves));
+        for (int index = 0; index < choice; ++index) {
+          selected &= selected - 1;
+        }
+        move = make_move(square_from_index(std::countr_zero(selected)));
+      }
+      MoveDelta delta{};
+      REQUIRE(apply_move(&position, move, &delta));
+    }
+    REQUIRE(legal_moves(position) == legal_moves_reference(position));
+  }
+}
 
 using test_support::reference_apply_move;
 using test_support::reference_flips_for_move;

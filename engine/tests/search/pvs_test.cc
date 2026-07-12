@@ -2,11 +2,14 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
+#include <utility>
 
 namespace vibe_othello::search {
 namespace {
@@ -29,6 +32,30 @@ public:
     return static_cast<Score>(std::popcount(position.player)) -
            static_cast<Score>(std::popcount(position.opponent));
   }
+};
+
+class RootMoveScoreEvaluator final : public Evaluator {
+public:
+  RootMoveScoreEvaluator(board_core::Square first, Score first_score, board_core::Square second,
+                         Score second_score) noexcept
+      : first_(first), first_score_(first_score), second_(second), second_score_(second_score) {}
+
+  Score evaluate(const board_core::Position& position) const noexcept override {
+    const board_core::Bitboard occupied = position.player | position.opponent;
+    if ((occupied & board_core::bit(first_)) != 0) {
+      return first_score_;
+    }
+    if ((occupied & board_core::bit(second_)) != 0) {
+      return second_score_;
+    }
+    return 0;
+  }
+
+private:
+  board_core::Square first_{};
+  Score first_score_ = 0;
+  board_core::Square second_{};
+  Score second_score_ = 0;
 };
 
 constexpr board_core::Square square(int file, int rank) noexcept {
@@ -63,6 +90,39 @@ board_core::Position position_after_fixed_choices(std::initializer_list<std::siz
   }
 
   return position;
+}
+
+board_core::Position deterministic_playout_position(std::uint64_t seed) {
+  board_core::Position position = board_core::initial_position();
+  std::uint64_t state = seed + 0x9e3779b97f4a7c15ULL;
+  const int target_plies = 8 + static_cast<int>(seed % 32);
+  for (int ply = 0; ply < target_plies && !board_core::is_terminal(position); ++ply) {
+    board_core::Bitboard legal = board_core::legal_moves(position);
+    board_core::Move move = board_core::make_pass();
+    if (legal != 0) {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      std::size_t choice = static_cast<std::size_t>(state % std::popcount(legal));
+      while (choice > 0) {
+        legal &= legal - 1;
+        --choice;
+      }
+      move = board_core::make_move(
+          board_core::square_from_index(static_cast<int>(std::countr_zero(legal))));
+    }
+    board_core::MoveDelta delta{};
+    REQUIRE(board_core::apply_move(&position, move, &delta));
+  }
+  return position;
+}
+
+std::pair<board_core::Move, board_core::Move>
+smallest_and_largest_legal_moves(board_core::Position position) {
+  const board_core::Bitboard legal = board_core::legal_moves(position);
+  REQUIRE(std::popcount(legal) >= 2);
+  const int smallest = static_cast<int>(std::countr_zero(legal));
+  const int largest = 63 - static_cast<int>(std::countl_zero(legal));
+  return {board_core::make_move(board_core::square_from_index(smallest)),
+          board_core::make_move(board_core::square_from_index(largest))};
 }
 
 void require_replayable_pv(board_core::Position position, Line pv) {
@@ -180,6 +240,127 @@ TEST_CASE("PVS iterative search matches alpha-beta decisions", "[search][pvs]") 
   require_iterative_pvs_matches_alphabeta(
       position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}), SearchOptions{.use_pvs = true},
       SearchOptions{});
+}
+
+TEST_CASE("legacy root kernel rollback switch preserves score and legal PV", "[search][pvs]") {
+  DiscDifferenceEvaluator new_evaluator;
+  DiscDifferenceEvaluator legacy_evaluator;
+  SearchOptions new_options{};
+  new_options.midgame.use_pvs = true;
+  new_options.reporting.multi_pv = 1;
+  SearchOptions legacy_options = new_options;
+  legacy_options.experimental.use_legacy_search_kernel = true;
+
+  const SearchResult current = search_iterative(board_core::initial_position(), new_evaluator,
+                                                SearchLimits{.max_depth = Depth{5}}, new_options);
+  const SearchResult legacy = search_iterative(board_core::initial_position(), legacy_evaluator,
+                                               SearchLimits{.max_depth = Depth{5}}, legacy_options);
+
+  REQUIRE(current.score == legacy.score);
+  REQUIRE(current.best_move == legacy.best_move);
+  require_replayable_pv(board_core::initial_position(), current.pv);
+  require_replayable_pv(board_core::initial_position(), legacy.pv);
+}
+
+TEST_CASE("root PVS does not replace an exact best move with an upper-bound tie",
+          "[search][pvs][tt]") {
+  const board_core::Position position = board_core::initial_position();
+  const auto [smaller_move, larger_move] = smallest_and_largest_legal_moves(position);
+  RootMoveScoreEvaluator evaluator{larger_move.square, 10, smaller_move.square, 5};
+  internal::TranspositionTable tt{1024};
+  board_core::Position smaller_child = position;
+  board_core::MoveDelta delta{};
+  REQUIRE(board_core::apply_move(&smaller_child, smaller_move, &delta));
+  SearchStats store_stats{};
+  tt.store_value(board_core::hash_position(smaller_child), Depth{1}, Score{-10}, BoundType::lower,
+                 internal::TTEntryKind::midgame, &store_stats);
+
+  SearchOptions options{};
+  options.midgame.use_pvs = true;
+  options.midgame.use_midgame_tt = true;
+  options.reporting.multi_pv = 1;
+  const SearchResult result = internal::search_fixed_depth_with_hint(
+      position, evaluator, Depth{2}, internal::MoveOrderingHints{.root_best_move = larger_move},
+      options, &tt);
+
+  REQUIRE(result.best_move == larger_move);
+  REQUIRE(result.score == 10);
+  const auto smaller = std::find_if(
+      result.root_moves.begin(), result.root_moves.end(),
+      [smaller_move](const RootMoveInfo& root_move) { return root_move.move == smaller_move; });
+  REQUIRE(smaller != result.root_moves.end());
+  REQUIRE(smaller->score == 5);
+  REQUIRE(smaller->bound == BoundType::upper);
+}
+
+TEST_CASE("root PVS move nodes include null-window and full re-search work",
+          "[search][pvs][stats]") {
+  const board_core::Position position = board_core::initial_position();
+  const auto [smaller_move, larger_move] = smallest_and_largest_legal_moves(position);
+  RootMoveScoreEvaluator evaluator{larger_move.square, 10, smaller_move.square, 11};
+  SearchOptions options{};
+  options.midgame.use_pvs = true;
+  options.reporting.multi_pv = 1;
+  const SearchResult result = internal::search_fixed_depth_with_hint(
+      position, evaluator, Depth{2}, internal::MoveOrderingHints{.root_best_move = larger_move},
+      options, nullptr);
+
+  REQUIRE(result.stats.pvs_researches > 0);
+  NodeCount root_move_nodes = 0;
+  for (const RootMoveInfo& root_move : result.root_moves) {
+    root_move_nodes += root_move.nodes;
+  }
+  REQUIRE(result.nodes == root_move_nodes + 1);
+}
+
+TEST_CASE("new and legacy root kernels agree across persistent TT on and off corpora",
+          "[search][pvs][differential]") {
+  for (const std::size_t tt_capacity : {std::size_t{0}, std::size_t{65'536}}) {
+    SearchSession current_session{SearchSessionConfig{
+        .profile = SearchPlatformProfile::native,
+        .transposition_table = TranspositionTableConfig{.capacity = tt_capacity},
+    }};
+    SearchSession legacy_session{SearchSessionConfig{
+        .profile = SearchPlatformProfile::native,
+        .transposition_table = TranspositionTableConfig{.capacity = tt_capacity},
+    }};
+    DiscDifferenceEvaluator current_evaluator;
+    DiscDifferenceEvaluator legacy_evaluator;
+    SearchOptions current_options{};
+    current_options.midgame.use_pvs = true;
+    current_options.midgame.use_midgame_tt = true;
+    current_options.ordering.use_tt_best_move_ordering = true;
+    current_options.reporting.multi_pv = 1;
+    SearchOptions legacy_options = current_options;
+    legacy_options.experimental.use_legacy_search_kernel = true;
+
+    for (std::uint64_t seed = 0; seed < 256; ++seed) {
+      const board_core::Position position = deterministic_playout_position(seed);
+      const SearchResult current = search_fixed_depth(current_session, position, current_evaluator,
+                                                      Depth{3}, current_options);
+      const SearchResult legacy =
+          search_fixed_depth(legacy_session, position, legacy_evaluator, Depth{3}, legacy_options);
+      INFO("tt_capacity=" << tt_capacity << " seed=" << seed);
+      REQUIRE(current.score == legacy.score);
+      REQUIRE(current.best_move == legacy.best_move);
+      require_replayable_pv(position, current.pv);
+      require_replayable_pv(position, legacy.pv);
+      if (current.best_move.has_value()) {
+        REQUIRE(current.pv.size > 0);
+        REQUIRE(current.pv.moves[0] == *current.best_move);
+      }
+      if (legacy.best_move.has_value()) {
+        REQUIRE(legacy.pv.size > 0);
+        REQUIRE(legacy.pv.moves[0] == *legacy.best_move);
+      }
+      if (tt_capacity == 0) {
+        REQUIRE(current.stats.tt_probes == 0);
+        REQUIRE(current.stats.tt_stores == 0);
+        REQUIRE(legacy.stats.tt_probes == 0);
+        REQUIRE(legacy.stats.tt_stores == 0);
+      }
+    }
+  }
 }
 
 TEST_CASE("PVS preserves iterative TT option decisions", "[search][pvs]") {

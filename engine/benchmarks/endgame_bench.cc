@@ -876,10 +876,10 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
     require_condition(result.stats.tt_hits == 0, "TT hits were recorded with TT disabled");
     require_condition(result.stats.tt_cutoffs == 0, "TT cutoffs were recorded with TT disabled");
     require_condition(result.stats.tt_stores == 0, "TT stores were recorded with TT disabled");
-    require_condition(result.stats.tt_overwrites == 0,
-                      "TT overwrites were recorded with TT disabled");
-    require_condition(result.stats.tt_collisions == 0,
-                      "TT collisions were recorded with TT disabled");
+    require_condition(result.stats.tt_replacements == 0,
+                      "TT replacements were recorded with TT disabled");
+    require_condition(result.stats.tt_bucket_conflicts == 0,
+                      "TT bucket conflicts were recorded with TT disabled");
     require_condition(result.stats.tt_rejected_stores == 0,
                       "TT rejected stores were recorded with TT disabled");
     require_condition(result.stats.tt_invalid_best_move_stores == 0,
@@ -950,8 +950,8 @@ void print_delimited_header(char delimiter) {
             << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
             << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "root_moves_searched"
             << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_cutoffs"
-            << delimiter << "tt_stores" << delimiter << "tt_overwrites" << delimiter
-            << "tt_collisions" << delimiter << "tt_rejected_stores" << delimiter
+            << delimiter << "tt_stores" << delimiter << "tt_replacements" << delimiter
+            << "tt_bucket_conflicts" << delimiter << "tt_rejected_stores" << delimiter
             << "tt_invalid_best_move_stores" << delimiter << "elapsed_ms" << delimiter << "nps"
             << '\n';
 }
@@ -980,8 +980,8 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
             << result.stats.beta_cutoffs << delimiter << result.stats.alpha_updates << delimiter
             << result.stats.root_moves_searched << delimiter << result.stats.tt_probes << delimiter
             << result.stats.tt_hits << delimiter << result.stats.tt_cutoffs << delimiter
-            << result.stats.tt_stores << delimiter << result.stats.tt_overwrites << delimiter
-            << result.stats.tt_collisions << delimiter << result.stats.tt_rejected_stores
+            << result.stats.tt_stores << delimiter << result.stats.tt_replacements << delimiter
+            << result.stats.tt_bucket_conflicts << delimiter << result.stats.tt_rejected_stores
             << delimiter << result.stats.tt_invalid_best_move_stores << delimiter << std::fixed
             << std::setprecision(3) << elapsed_ms(timed_result.elapsed) << delimiter << std::fixed
             << std::setprecision(0) << nodes_per_second(timed_result) << '\n';
@@ -1038,8 +1038,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"tt_hits\":" << result.stats.tt_hits;
   std::cout << ",\"tt_cutoffs\":" << result.stats.tt_cutoffs;
   std::cout << ",\"tt_stores\":" << result.stats.tt_stores;
-  std::cout << ",\"tt_overwrites\":" << result.stats.tt_overwrites;
-  std::cout << ",\"tt_collisions\":" << result.stats.tt_collisions;
+  std::cout << ",\"tt_replacements\":" << result.stats.tt_replacements;
+  std::cout << ",\"tt_bucket_conflicts\":" << result.stats.tt_bucket_conflicts;
   std::cout << ",\"tt_rejected_stores\":" << result.stats.tt_rejected_stores;
   std::cout << ",\"tt_invalid_best_move_stores\":" << result.stats.tt_invalid_best_move_stores;
   std::cout << ",\"elapsed_ms\":" << std::setprecision(17) << elapsed_ms(timed_result.elapsed);

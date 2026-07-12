@@ -38,7 +38,7 @@ namespace evaluation = vibe_othello::evaluation;
 namespace search = vibe_othello::search;
 namespace full_arena = vibe_othello::tools::full_game_arena;
 
-constexpr std::string_view kArenaVersion = "full-game-artifact-arena-v2";
+constexpr std::string_view kArenaVersion = "full-game-artifact-arena-v3";
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
@@ -94,6 +94,8 @@ struct Args {
   int progress_every = 0;
   std::uint64_t bootstrap_seed = 0;
   std::uint32_t bootstrap_samples = 10000;
+  bool persistent_session = false;
+  std::uint64_t tt_bytes = 16 * 1024 * 1024;
 };
 
 struct SearchConfig {
@@ -102,6 +104,8 @@ struct SearchConfig {
   search::SearchOptions options;
   std::uint8_t exact_endgame_empties = 0;
   LimitMode limit_mode = LimitMode::fixed_depth;
+  bool persistent_session = false;
+  std::uint64_t tt_bytes = 0;
 };
 
 struct ArtifactIdentity {
@@ -183,7 +187,8 @@ void print_usage() {
                "[--limit-mode depth|nodes|time] [--depth 3] [--nodes 0] "
                "[--time-ms 0] [--search-preset basic|full] [--exact-endgame-empties 0] "
                "[--seed 0] [--bootstrap-seed 0] [--bootstrap-samples 10000] "
-               "[--opening-limit 0] [--minimum-opening-pairs 1] [--progress-every 0]\n";
+               "[--opening-limit 0] [--minimum-opening-pairs 1] [--progress-every 0] "
+               "[--persistent-session] [--tt-bytes 16777216]\n";
 }
 
 std::optional<int> parse_int(std::string_view text) noexcept {
@@ -387,6 +392,18 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.progress_every = *progress_every;
+    } else if (arg == "--persistent-session") {
+      args.persistent_session = true;
+    } else if (arg == "--tt-bytes") {
+      if (!next_value(&value)) {
+        return std::nullopt;
+      }
+      const std::optional<std::uint64_t> bytes = parse_u64(value);
+      if (!bytes.has_value()) {
+        std::cerr << "--tt-bytes must be a non-negative integer\n";
+        return std::nullopt;
+      }
+      args.tt_bytes = *bytes;
     } else {
       std::cerr << "unknown argument: " << arg << '\n';
       return std::nullopt;
@@ -504,12 +521,14 @@ SearchConfig make_search_config(const Args& args) {
                       .endgame_exact_empties = args.exact_endgame_empties,
                       .endgame_wld_empties = 0,
                   },
-              .reporting = search::SearchReportingOptions{},
+              .reporting = search::SearchReportingOptions{.multi_pv = 1},
               .experimental = search::ExperimentalSearchOptions{},
               .mode = search::SearchMode::move,
           },
       .exact_endgame_empties = args.exact_endgame_empties,
       .limit_mode = mode,
+      .persistent_session = args.persistent_session,
+      .tt_bytes = args.tt_bytes,
   };
 }
 
@@ -680,6 +699,16 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
   int normal_moves_after_opening = 0;
   int passes_after_opening = 0;
   std::vector<GameRecord::SearchCall> search_calls;
+  const search::SearchSessionConfig session_config{
+      .profile = search::SearchPlatformProfile::native,
+      .transposition_table =
+          search::TranspositionTableConfig{
+              .capacity = static_cast<std::size_t>(search_config.tt_bytes),
+              .unit = search::TranspositionTableCapacityUnit::bytes,
+          },
+  };
+  search::SearchSession candidate_session{session_config};
+  search::SearchSession baseline_session{session_config};
   while (!board_core::is_terminal(position)) {
     const board_core::Bitboard legal_moves = board_core::legal_moves(position);
     if (legal_moves == 0) {
@@ -699,8 +728,13 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
     const search::Evaluator& evaluator = static_cast<const search::Evaluator&>(active.evaluator);
     const int occupied_count = std::popcount(position.player) + std::popcount(position.opponent);
     const auto search_started = std::chrono::steady_clock::now();
-    const search::SearchResult result =
-        search::search_iterative(position, evaluator, search_config.limits, search_config.options);
+    search::SearchSession& active_session =
+        candidate_to_move ? candidate_session : baseline_session;
+    if (!search_config.persistent_session) {
+      active_session.clear();
+    }
+    const search::SearchResult result = search::search_iterative(
+        active_session, position, evaluator, search_config.limits, search_config.options);
     const auto measured_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now() - search_started);
     const std::uint64_t elapsed_ns =
@@ -738,8 +772,11 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
                 .tt_hits = result.stats.tt_hits,
                 .tt_cutoffs = result.stats.tt_cutoffs,
                 .tt_stores = result.stats.tt_stores,
-                .tt_overwrites = result.stats.tt_overwrites,
-                .tt_collisions = result.stats.tt_collisions,
+                .tt_replacements = result.stats.tt_replacements,
+                .tt_bucket_conflicts = result.stats.tt_bucket_conflicts,
+                .tt_same_key_updates = result.stats.tt_same_key_updates,
+                .tt_probe_slots = result.stats.tt_probe_slots,
+                .tt_generation_age_hits = result.stats.tt_generation_age_hits,
                 .tt_rejected_stores = result.stats.tt_rejected_stores,
                 .pvs_researches = result.stats.pvs_researches,
                 .aspiration_fail_lows = result.stats.aspiration_fail_lows,
@@ -982,6 +1019,27 @@ void write_search_config(std::ostream& output, const SearchConfig& config) {
   output << ", \"nodes\": " << config.limits.max_nodes;
   output << ", \"time_ms\": " << config.limits.max_time.count();
   output << ", \"exact_endgame_empties\": " << static_cast<int>(config.exact_endgame_empties);
+  output << ", \"persistent_session\": ";
+  write_bool(output, config.persistent_session);
+  output << ", \"tt_requested_bytes\": " << config.tt_bytes;
+  const search::SearchSession allocation_session{search::SearchSessionConfig{
+      .profile = search::SearchPlatformProfile::native,
+      .transposition_table =
+          search::TranspositionTableConfig{
+              .capacity = static_cast<std::size_t>(config.tt_bytes),
+              .unit = search::TranspositionTableCapacityUnit::bytes,
+          },
+  }};
+  const search::TranspositionTableAllocation allocation =
+      allocation_session.transposition_table_allocation();
+  output << ", \"tt_actual_bytes\": " << allocation.actual_bytes;
+  output << ", \"tt_entry_count\": " << allocation.entry_count;
+  output << ", \"tt_bucket_count\": " << allocation.bucket_count;
+  output << ", \"tt_entry_size\": " << allocation.entry_size;
+  output << ", \"tt_enabled\": ";
+  write_bool(output, allocation.enabled);
+  output << ", \"tt_allocation_succeeded\": ";
+  write_bool(output, allocation.allocation_succeeded);
   output << ", \"resolved_options\": ";
   write_search_options(output, config.options);
   output << "}";
@@ -1116,14 +1174,19 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   output << ", \"pass_nodes\": " << summary.pass_nodes;
   output << ", \"tt\": {\"probes\": " << summary.tt_probes << ", \"hits\": " << summary.tt_hits
          << ", \"cutoffs\": " << summary.tt_cutoffs << ", \"stores\": " << summary.tt_stores
-         << ", \"overwrites\": " << summary.tt_overwrites
-         << ", \"collisions\": " << summary.tt_collisions
+         << ", \"replacements\": " << summary.tt_replacements
+         << ", \"bucket_conflicts\": " << summary.tt_bucket_conflicts
+         << ", \"same_key_updates\": " << summary.tt_same_key_updates
+         << ", \"probe_slots\": " << summary.tt_probe_slots
+         << ", \"generation_age_hits\": " << summary.tt_generation_age_hits
          << ", \"rejected_stores\": " << summary.tt_rejected_stores << ", \"hit_rate\": ";
   write_optional_rate(output, summary.tt_hits, summary.tt_probes);
   output << ", \"cutoff_rate_per_probe\": ";
   write_optional_rate(output, summary.tt_cutoffs, summary.tt_probes);
   output << ", \"cutoff_rate_per_hit\": ";
   write_optional_rate(output, summary.tt_cutoffs, summary.tt_hits);
+  output << ", \"average_probe_slots\": ";
+  write_optional_rate(output, summary.tt_probe_slots, summary.tt_probes);
   output << "}";
   output << ", \"pvs_researches\": " << summary.pvs_researches;
   output << ", \"aspiration_fail_lows\": " << summary.aspiration_fail_lows;
@@ -1201,8 +1264,11 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   output << ", \"tt_hits\": " << record.tt_hits;
   output << ", \"tt_cutoffs\": " << record.tt_cutoffs;
   output << ", \"tt_stores\": " << record.tt_stores;
-  output << ", \"tt_overwrites\": " << record.tt_overwrites;
-  output << ", \"tt_collisions\": " << record.tt_collisions;
+  output << ", \"tt_replacements\": " << record.tt_replacements;
+  output << ", \"tt_bucket_conflicts\": " << record.tt_bucket_conflicts;
+  output << ", \"tt_same_key_updates\": " << record.tt_same_key_updates;
+  output << ", \"tt_probe_slots\": " << record.tt_probe_slots;
+  output << ", \"tt_generation_age_hits\": " << record.tt_generation_age_hits;
   output << ", \"tt_rejected_stores\": " << record.tt_rejected_stores;
   output << ", \"pvs_researches\": " << record.pvs_researches;
   output << ", \"aspiration_fail_lows\": " << record.aspiration_fail_lows;
@@ -1369,7 +1435,9 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
          << search_config.limits.max_depth << '\n'
          << search_config.limits.max_nodes << '\n'
          << search_config.limits.max_time.count() << '\n'
-         << static_cast<int>(search_config.exact_endgame_empties) << '\n';
+         << static_cast<int>(search_config.exact_endgame_empties) << '\n'
+         << search_config.persistent_session << '\n'
+         << search_config.tt_bytes << '\n';
   const search::SearchOptions& options = search_config.options;
   output << options.midgame.use_pvs << options.midgame.use_aspiration << options.midgame.use_iid
          << options.midgame.use_midgame_tt << options.ordering.use_tt_best_move_ordering
@@ -1410,8 +1478,11 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
              << telemetry.tt_hits << '\n'
              << telemetry.tt_cutoffs << '\n'
              << telemetry.tt_stores << '\n'
-             << telemetry.tt_overwrites << '\n'
-             << telemetry.tt_collisions << '\n'
+             << telemetry.tt_replacements << '\n'
+             << telemetry.tt_bucket_conflicts << '\n'
+             << telemetry.tt_same_key_updates << '\n'
+             << telemetry.tt_probe_slots << '\n'
+             << telemetry.tt_generation_age_hits << '\n'
              << telemetry.tt_rejected_stores << '\n'
              << telemetry.pvs_researches << '\n'
              << telemetry.aspiration_fail_lows << '\n'
@@ -1474,7 +1545,7 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
                             args.bootstrap_samples, args.minimum_opening_pairs, games));
   output << std::fixed << std::setprecision(6);
   output << "{\n";
-  output << "  \"schema_version\": 2,\n";
+  output << "  \"schema_version\": 3,\n";
   output << "  \"arena_version\": ";
   write_json_string(output, kArenaVersion);
   output << ",\n  \"candidate\": ";

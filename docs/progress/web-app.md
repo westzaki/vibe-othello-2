@@ -139,6 +139,7 @@ Status values:
 | Web CI with generated WASM and eval assets | done | Web job builds the Emscripten module, copies WASM runtime assets and eval runtime assets, verifies eval asset readiness, installs app dependencies, typechecks, and runs Vite build |
 | Engine in-memory evaluation artifact loader | done | Native engine API can load pattern artifacts from manifest text and weights bytes; browser/WASM consumption is wired for CPU moves |
 | Search best-move bindings | done | Legacy WASM C ABI behavior is preserved; a versioned C ABI and plain `WasmCore` expose `easy`/`normal`/`hard` preset search with independent limits and exact threshold through a loaded evaluation artifact; Worker protocol uses it through `cpuMove` |
+| WASM search session reuse | done | Each loaded evaluator owns a 1 MiB WASM-profile session; reuse is off by default and exposed through explicit set/reset C ABI and JavaScript methods |
 | Manual CPU move | done | React exposes a manual `CPU move` button when CPU opponent mode is off; Worker runs normal-preset depth 8 / 500 ms search with an 8-empty exact threshold through the copied default eval artifact and applies one move or pass |
 | CPU opponent | done | Minimal human-vs-CPU mode fixes the human to Black and CPU to White, automatically reusing the existing Worker `cpuMove` command after human moves |
 | Bounded search/evaluation display | done | CPU moves show a small search summary; continuous position evaluation display is not implemented |

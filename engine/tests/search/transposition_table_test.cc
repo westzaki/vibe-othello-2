@@ -3,6 +3,7 @@
 #include "vibe_othello/board_core/board.h"
 
 #include <array>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <initializer_list>
@@ -43,7 +44,7 @@ board_core::Position position_after_fixed_choices(std::initializer_list<std::siz
   return position;
 }
 
-std::array<board_core::Position, 6> collision_positions() {
+std::array<board_core::Position, 6> shared_bucket_positions() {
   return {
       board_core::initial_position(),
       position_after_fixed_choices({0}),
@@ -80,7 +81,8 @@ TEST_CASE("transposition table probe returns stored entries", "[search][tt]") {
   REQUIRE(stats.tt_hits == 1);
 }
 
-TEST_CASE("transposition table updates same-position entries without collision", "[search][tt]") {
+TEST_CASE("transposition table updates same-position entries without a bucket conflict",
+          "[search][tt]") {
   TranspositionTable table{4};
   SearchStats stats{};
   const board_core::Position position = board_core::initial_position();
@@ -97,8 +99,8 @@ TEST_CASE("transposition table updates same-position entries without collision",
   REQUIRE(entry->score == Score{23});
   REQUIRE(entry->bound == BoundType::exact);
   REQUIRE(stats.tt_stores == 2);
-  REQUIRE(stats.tt_collisions == 0);
-  REQUIRE(stats.tt_overwrites == 0);
+  REQUIRE(stats.tt_bucket_conflicts == 0);
+  REQUIRE(stats.tt_replacements == 0);
   REQUIRE(stats.tt_rejected_stores == 0);
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
@@ -106,7 +108,7 @@ TEST_CASE("transposition table updates same-position entries without collision",
 TEST_CASE("transposition table bucket keeps different keys up to bucket width", "[search][tt]") {
   TranspositionTable table{4};
   SearchStats stats{};
-  const std::array<board_core::Position, 6> positions = collision_positions();
+  const std::array<board_core::Position, 6> positions = shared_bucket_positions();
 
   for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
     table.store(positions[index], static_cast<Depth>(index + 1), static_cast<Score>(10 + index),
@@ -120,7 +122,7 @@ TEST_CASE("transposition table bucket keeps different keys up to bucket width", 
     REQUIRE(entry->score == static_cast<Score>(10 + index));
   }
   REQUIRE(stats.tt_stores == TranspositionTable::kBucketWidth);
-  REQUIRE(stats.tt_overwrites == 0);
+  REQUIRE(stats.tt_replacements == 0);
   REQUIRE(stats.tt_rejected_stores == 0);
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
@@ -128,7 +130,7 @@ TEST_CASE("transposition table bucket keeps different keys up to bucket width", 
 TEST_CASE("transposition table rejects shallow current-generation replacement", "[search][tt]") {
   TranspositionTable table{4};
   SearchStats stats{};
-  const std::array<board_core::Position, 6> positions = collision_positions();
+  const std::array<board_core::Position, 6> positions = shared_bucket_positions();
 
   for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
     table.store(positions[index], static_cast<Depth>(4 + index), static_cast<Score>(index),
@@ -142,14 +144,14 @@ TEST_CASE("transposition table rejects shallow current-generation replacement", 
   REQUIRE_FALSE(table.probe(positions[4], &stats).has_value());
   REQUIRE(table.probe(positions[0], &stats).has_value());
   REQUIRE(stats.tt_rejected_stores == 1);
-  REQUIRE(stats.tt_overwrites == 0);
+  REQUIRE(stats.tt_replacements == 0);
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
 TEST_CASE("transposition table prefers deeper current-generation replacement", "[search][tt]") {
   TranspositionTable table{4};
   SearchStats stats{};
-  const std::array<board_core::Position, 6> positions = collision_positions();
+  const std::array<board_core::Position, 6> positions = shared_bucket_positions();
 
   for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
     table.store(positions[index], static_cast<Depth>(4 + index), static_cast<Score>(index),
@@ -165,7 +167,7 @@ TEST_CASE("transposition table prefers deeper current-generation replacement", "
   REQUIRE(incoming->depth == Depth{8});
   REQUIRE(incoming->score == Score{99});
   REQUIRE_FALSE(table.probe(positions[0], &stats).has_value());
-  REQUIRE(stats.tt_overwrites == 1);
+  REQUIRE(stats.tt_replacements == 1);
   REQUIRE(stats.tt_rejected_stores == 0);
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
@@ -173,7 +175,7 @@ TEST_CASE("transposition table prefers deeper current-generation replacement", "
 TEST_CASE("transposition table replaces old-generation entries more readily", "[search][tt]") {
   TranspositionTable table{4};
   SearchStats stats{};
-  const std::array<board_core::Position, 6> positions = collision_positions();
+  const std::array<board_core::Position, 6> positions = shared_bucket_positions();
 
   for (std::size_t index = 0; index < TranspositionTable::kBucketWidth; ++index) {
     table.store(positions[index], Depth{8}, static_cast<Score>(index), BoundType::exact,
@@ -189,7 +191,7 @@ TEST_CASE("transposition table replaces old-generation entries more readily", "[
   REQUIRE(incoming->depth == Depth{1});
   REQUIRE(incoming->score == Score{99});
   REQUIRE(incoming->generation == 2);
-  REQUIRE(stats.tt_overwrites == 1);
+  REQUIRE(stats.tt_replacements == 1);
   REQUIRE(stats.tt_rejected_stores == 0);
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
@@ -230,7 +232,7 @@ TEST_CASE("transposition table stores value entries without best moves", "[searc
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
 }
 
-TEST_CASE("transposition table value update clears previous best move hint", "[search][tt]") {
+TEST_CASE("transposition table keeps different entry kinds independent", "[search][tt]") {
   TranspositionTable table{4};
   SearchStats stats{};
   const board_core::Position position = board_core::initial_position();
@@ -241,7 +243,8 @@ TEST_CASE("transposition table value update clears previous best move hint", "[s
   table.store_value(position, Depth{4}, Score{12}, BoundType::exact,
                     TTEntryKind::exact_endgame_score, &stats);
 
-  const std::optional<TTEntry> entry = table.probe(position, &stats);
+  const std::optional<TTEntry> entry =
+      table.probe(board_core::hash_position(position), TTEntryKind::exact_endgame_score, &stats);
   REQUIRE(entry.has_value());
   REQUIRE(entry->depth == Depth{4});
   REQUIRE(entry->score == Score{12});
@@ -250,6 +253,62 @@ TEST_CASE("transposition table value update clears previous best move hint", "[s
   REQUIRE(entry->best_move == board_core::make_pass());
   REQUIRE(stats.tt_stores == 2);
   REQUIRE(stats.tt_invalid_best_move_stores == 0);
+}
+
+TEST_CASE("typed TT probes never return another entry kind", "[search][tt]") {
+  TranspositionTable table{16};
+  SearchStats stats{};
+  const board_core::Position position = board_core::initial_position();
+  const board_core::PositionHash key = board_core::hash_position(position);
+  const board_core::Move best_move = select_legal_move(position, 0);
+
+  table.store(key, Depth{5}, Score{7}, BoundType::exact, best_move, TTEntryKind::midgame, &stats);
+  table.store_value(key, Depth{60}, Score{12}, BoundType::lower, TTEntryKind::exact_endgame_score,
+                    &stats);
+  table.store_value(key, Depth{60}, Score{1}, BoundType::upper, TTEntryKind::exact_endgame_wld,
+                    &stats);
+
+  REQUIRE(table.probe(key, TTEntryKind::midgame, &stats)->score == Score{7});
+  REQUIRE(table.probe(key, TTEntryKind::exact_endgame_score, &stats)->score == Score{12});
+  REQUIRE(table.probe(key, TTEntryKind::exact_endgame_wld, &stats)->score == Score{1});
+}
+
+TEST_CASE("same-key TT replacement protects deeper and exact information", "[search][tt]") {
+  TranspositionTable table{16};
+  SearchStats stats{};
+  const auto key = board_core::hash_position(board_core::initial_position());
+  const board_core::Move move = select_legal_move(board_core::initial_position(), 0);
+
+  table.store(key, Depth{8}, Score{21}, BoundType::exact, move, TTEntryKind::midgame, &stats);
+  table.store(key, Depth{4}, Score{99}, BoundType::lower, move, TTEntryKind::midgame, &stats);
+  REQUIRE(table.probe(key, TTEntryKind::midgame, &stats)->score == Score{21});
+
+  table.store(key, Depth{8}, Score{17}, BoundType::lower, move, TTEntryKind::midgame, &stats);
+  REQUIRE(table.probe(key, TTEntryKind::midgame, &stats)->bound == BoundType::exact);
+  REQUIRE(stats.tt_same_key_updates == 2);
+  REQUIRE(stats.tt_rejected_stores == 2);
+}
+
+TEST_CASE("TT allocation reports entries bytes disabled and power-of-two buckets", "[search][tt]") {
+  const TranspositionTable disabled{TranspositionTableConfig{.capacity = 0}};
+  REQUIRE_FALSE(disabled.enabled());
+  REQUIRE(disabled.allocation().actual_bytes == 0);
+
+  const TranspositionTable by_entries{TranspositionTableConfig{.capacity = 1000}};
+  const auto entries = by_entries.allocation();
+  REQUIRE(entries.enabled);
+  REQUIRE(std::has_single_bit(entries.bucket_count));
+  REQUIRE(entries.entry_count >= 1000);
+  REQUIRE(entries.actual_bytes > 0);
+
+  const TranspositionTable by_bytes{TranspositionTableConfig{
+      .capacity = 64 * 1024,
+      .unit = TranspositionTableCapacityUnit::bytes,
+  }};
+  const auto bytes = by_bytes.allocation();
+  REQUIRE(bytes.enabled);
+  REQUIRE(std::has_single_bit(bytes.bucket_count));
+  REQUIRE(bytes.actual_bytes <= bytes.requested_bytes);
 }
 
 TEST_CASE("TT cutoff score respects kind depth and bounds", "[search][tt]") {

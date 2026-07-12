@@ -49,9 +49,15 @@ void apply_move_delta(Position* position, MoveDelta delta) noexcept;
 bool apply_move_delta_checked(Position* position, MoveDelta delta) noexcept;
 void undo_move(Position* position, MoveDelta delta) noexcept;
 Bitboard flips_for_move(Position position, Square move) noexcept;
+// Correctness-reference scalar implementations retained for differential
+// testing of the production unrolled paths.
+Bitboard flips_for_move_reference(Position position, Square move) noexcept;
+Bitboard flips_for_move_unrolled(Position position, Square move) noexcept;
 bool has_legal_move(Position position) noexcept;
 bool is_terminal(Position position) noexcept;
 Bitboard legal_moves(Position position) noexcept;
+Bitboard legal_moves_reference(Position position) noexcept;
+Bitboard legal_moves_unrolled(Position position) noexcept;
 
 } // namespace vibe_othello::board_core
 

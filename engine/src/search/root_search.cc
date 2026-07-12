@@ -1,6 +1,7 @@
 #include "endgame_policy_internal.h"
 #include "result_builder_internal.h"
 #include "search_internal.h"
+#include "search_session_internal.h"
 
 #include <chrono>
 #include <optional>
@@ -90,20 +91,20 @@ BoundType bound_for_score(Score score, RootSearchWindow window) noexcept {
 
 void finish_depth_zero_or_terminal_result(SearchResult* result, const SearchContext& context,
                                           const SearchValue& root, RootSearchWindow root_window,
-                                          std::chrono::steady_clock::time_point start) {
-  publish_completed_root_result(result,
-                                CompletedRootResult{
-                                    .best_move = result->best_move,
-                                    .score = root.score,
-                                    .score_kind = board_core::is_terminal(context.position)
-                                                      ? ScoreKind::exact_disc_diff
-                                                      : ScoreKind::heuristic,
-                                    .bound = bound_for_score(root.score, root_window),
-                                    .completed_depth = result->completed_depth,
-                                    .pv = root.pv,
-                                    .exact = board_core::is_terminal(context.position),
-                                },
-                                metadata_from_context(context, start));
+                                          std::chrono::steady_clock::time_point start,
+                                          bool root_terminal) {
+  publish_completed_root_result(
+      result,
+      CompletedRootResult{
+          .best_move = result->best_move,
+          .score = root.score,
+          .score_kind = root_terminal ? ScoreKind::exact_disc_diff : ScoreKind::heuristic,
+          .bound = bound_for_score(root.score, root_window),
+          .completed_depth = result->completed_depth,
+          .pv = root.pv,
+          .exact = root_terminal,
+      },
+      metadata_from_context(context, start));
 }
 
 RootSearchWindow root_window_for_move(RootSearchWindow root_window, Score alpha) noexcept {
@@ -123,16 +124,17 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   StackFrame& frame = context->stack[0];
   frame = StackFrame{};
   frame.current_move = move;
-  const bool made_delta = board_core::make_move_delta(context->position, move, &frame.delta);
+  const bool made_delta =
+      board_core::make_move_delta(context->position_state.position, move, &frame.delta);
   require_invariant(made_delta);
-  board_core::apply_move_delta(&context->position, frame.delta);
+  apply_move(&context->position_state, frame.delta, &frame.position_undo);
 
   const NodeCount before_nodes = context->stats.nodes;
   const Score child_alpha = static_cast<Score>(-move_window.beta);
   const Score child_beta = static_cast<Score>(-move_window.alpha);
   const SearchNodeResult child =
       full_window_search(context, child_alpha, child_beta, static_cast<Depth>(depth - 1), Ply{1});
-  board_core::undo_move(&context->position, frame.delta);
+  undo_move(&context->position_state, frame.delta, frame.position_undo);
   if (child.is_stopped()) {
     return std::nullopt;
   }
@@ -145,6 +147,32 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
 
   return make_root_move_info(move, score, ScoreKind::heuristic, bound_for_score(score, move_window),
                              depth, context->stats.nodes - before_nodes, line, false, false);
+}
+
+std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth depth,
+                                                   board_core::Move move, Score alpha, Score beta) {
+  const NodeCount before_nodes = context->stats.nodes;
+  SearchNodeResult child =
+      search_null_window_child(context, move, static_cast<Score>(-alpha), depth, Ply{0});
+  if (child.is_stopped()) {
+    return std::nullopt;
+  }
+  Score score = child.value().score;
+  if (score > alpha && score < beta) {
+    ++context->stats.pvs_researches;
+    std::optional<RootMoveInfo> result = evaluate_root_move(
+        context, depth, move, RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true});
+    if (result.has_value()) {
+      result->nodes = context->stats.nodes - before_nodes;
+    }
+    return result;
+  }
+
+  StackFrame& frame = context->stack[0];
+  frame.pv = child.value().pv;
+  return make_root_move_info(move, score, ScoreKind::heuristic,
+                             classify_bound(score, alpha, static_cast<Score>(alpha + 1)), depth,
+                             context->stats.nodes - before_nodes, child.value().pv, false, false);
 }
 
 void update_best_root_move(const RootMoveInfo& root_move, Score* best_score, Line* best_line,
@@ -179,7 +207,6 @@ void complete_exact_root_move_reports(SearchContext* context, Depth depth, Searc
       return;
     }
     root_move = *exact_root_move;
-    ++context->stats.root_moves_searched;
     updated = true;
   }
   if (updated) {
@@ -194,10 +221,11 @@ void publish_root_move(const RootMoveInfo& root_move, SearchContext* context, Sc
   update_best_root_move(result->root_moves.back(), best_score, best_line, result);
 }
 
-bool should_complete_exact_root_reports(RootSearchWindow root_window,
-                                        BoundType result_bound) noexcept {
-  return root_window.enabled && result_bound == BoundType::exact &&
-         !is_full_score_range(root_window);
+bool should_complete_exact_root_reports(RootSearchWindow root_window, BoundType result_bound,
+                                        ResolvedSearchOptions options) noexcept {
+  return options.reporting.multi_pv != 1 ||
+         (root_window.enabled && result_bound == BoundType::exact &&
+          !is_full_score_range(root_window));
 }
 
 void maybe_store_root_midgame_tt(SearchContext* context, Depth completed_depth, Score best_score,
@@ -207,8 +235,8 @@ void maybe_store_root_midgame_tt(SearchContext* context, Depth completed_depth, 
     return;
   }
   const BoundType bound = bound_for_score(best_score, root_window);
-  context->transposition_table->store(context->position, completed_depth, best_score, bound,
-                                      *best_move, TTEntryKind::midgame, &context->stats);
+  context->transposition_table->store(context->position_state.key, completed_depth, best_score,
+                                      bound, *best_move, TTEntryKind::midgame, &context->stats);
 }
 
 void finalize_completed_root_result(SearchResult* result, const SearchContext& context,
@@ -309,7 +337,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
   MidgameOrderingState local_ordering_state{};
   SearchContext context{
-      .position = position,
+      .position_state = make_search_position(position),
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = completed_depth},
       .options = options,
@@ -322,15 +350,18 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .completed_depth = completed_depth,
   };
 
-  if (board_core::is_terminal(context.position) || completed_depth == 0) {
+  const board_core::Bitboard root_legal_moves = legal_moves(&context.position_state);
+  const bool root_terminal =
+      root_legal_moves == 0 && opponent_legal_moves(context.position_state) == 0;
+  if (root_terminal || completed_depth == 0) {
     const Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
     const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
     const SearchNodeResult root =
         full_window_search(&context, alpha, beta, completed_depth, Ply{0});
     if (root.is_stopped()) {
-      if (board_core::is_terminal(context.position)) {
+      if (root_terminal) {
         publish_terminal_result(&result, ScoreKind::exact_disc_diff,
-                                terminal_score(context.position), completed_depth,
+                                terminal_score(context.position_state.position), completed_depth,
                                 metadata_from_context(context, start));
         result.stopped = true;
       } else {
@@ -338,7 +369,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       }
       return result;
     }
-    finish_depth_zero_or_terminal_result(&result, context, root.value(), root_window, start);
+    finish_depth_zero_or_terminal_result(&result, context, root.value(), root_window, start,
+                                         root_terminal);
     return result;
   }
 
@@ -348,8 +380,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
   if (context.options.ordering.use_tt_best_move_ordering && !root_hints.tt_best_move.has_value() &&
       context.transposition_table != nullptr) {
-    const std::optional<TTEntry> root_tt_entry =
-        context.transposition_table->probe(context.position, &context.stats);
+    const std::optional<TTEntry> root_tt_entry = context.transposition_table->probe(
+        context.position_state.key, TTEntryKind::midgame, &context.stats);
     if (root_tt_entry.has_value() && root_tt_entry->kind == TTEntryKind::midgame &&
         root_tt_entry->has_best_move) {
       root_hints.tt_best_move = root_tt_entry->best_move;
@@ -364,7 +396,9 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
   StackFrame& root_frame = context.stack[0];
   root_frame = StackFrame{};
-  root_frame.moves = order_midgame_moves(context.position, root_hints);
+  root_frame.legal_moves = root_legal_moves;
+  root_frame.moves =
+      order_midgame_moves(context.position_state.position, root_legal_moves, root_hints);
   const MoveList root_moves = root_frame.moves;
   if (root_moves.size == 0) {
     if (should_stop_search(&context)) {
@@ -373,18 +407,18 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     }
     ++context.stats.pass_nodes;
     root_frame.current_move = board_core::make_pass();
-    const bool made_delta =
-        board_core::make_move_delta(context.position, root_frame.current_move, &root_frame.delta);
-    require_invariant(made_delta);
-    board_core::apply_move_delta(&context.position, root_frame.delta);
+    root_frame.delta = board_core::MoveDelta{.move = board_core::make_pass(), .flipped = 0};
+    apply_move(&context.position_state, root_frame.delta, &root_frame.position_undo);
 
     const NodeCount before_nodes = context.stats.nodes;
     const Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
     const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
-    const SearchNodeResult child =
-        full_window_search(&context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
-                           static_cast<Depth>(completed_depth - 1), Ply{1});
-    board_core::undo_move(&context.position, root_frame.delta);
+    const SearchNodeResult child = full_window_search(
+        &context, static_cast<Score>(-beta), static_cast<Score>(-alpha),
+        context.options.midgame.pass_consumes_depth ? static_cast<Depth>(completed_depth - 1)
+                                                    : completed_depth,
+        Ply{1});
+    undo_move(&context.position_state, root_frame.delta, root_frame.position_undo);
     if (child.is_stopped()) {
       publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
       return result;
@@ -417,27 +451,39 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
   Score best_score = kScoreLoss;
   Line best_line{};
-  Score alpha = root_window.alpha;
+  const bool legacy_kernel = context.options.experimental.use_legacy_search_kernel;
+  Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
+  const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
   for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
     if (should_stop_search(&context)) {
       result.stopped = true;
       break;
     }
     const board_core::Move move = root_moves.moves[move_index];
-    const RootSearchWindow move_window = root_window_for_move(root_window, alpha);
+    const RootSearchWindow move_window =
+        legacy_kernel ? root_window_for_move(root_window, alpha)
+                      : RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true};
+    Score pvs_alpha = alpha;
+    if (result.best_move.has_value() && move.kind == board_core::MoveKind::normal &&
+        result.best_move->kind == board_core::MoveKind::normal &&
+        move.square.index < result.best_move->square.index && best_score > kScoreLoss) {
+      pvs_alpha = static_cast<Score>(best_score - 1);
+    }
     const std::optional<RootMoveInfo> root_move =
-        evaluate_root_move(&context, completed_depth, move, move_window);
+        !legacy_kernel && context.options.midgame.use_pvs && move_index != 0
+            ? evaluate_root_move_pvs(&context, completed_depth, move, pvs_alpha, beta)
+            : evaluate_root_move(&context, completed_depth, move, move_window);
     if (!root_move.has_value()) {
       result.stopped = true;
       break;
     }
     const Score score = root_move->score;
     publish_root_move(*root_move, &context, &best_score, &best_line, &result);
-    if (root_window.enabled && score > alpha) {
+    if ((!legacy_kernel || root_window.enabled) && score > alpha) {
       ++context.stats.alpha_updates;
       alpha = score;
     }
-    if (root_window.enabled && alpha >= root_window.beta) {
+    if ((!legacy_kernel || root_window.enabled) && alpha >= beta) {
       ++context.stats.beta_cutoffs;
       update_midgame_ordering_on_beta_cutoff(&context, move, completed_depth, Ply{0});
       break;
@@ -461,7 +507,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   const BoundType result_bound = bound_for_score(best_score, root_window);
-  if (should_complete_exact_root_reports(root_window, result_bound)) {
+  if (should_complete_exact_root_reports(root_window, result_bound, context.options)) {
     complete_exact_root_move_reports(&context, completed_depth, &result, &best_score, &best_line);
   }
 
@@ -495,6 +541,25 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
       position, evaluator, depth, internal::MoveOrderingHints{}, SearchOptions{}, nullptr);
 }
 
+SearchResult search_fixed_depth(SearchSession& session, board_core::Position position,
+                                const Evaluator& evaluator, Depth depth, SearchOptions options) {
+  const internal::ResolvedSearchOptions resolved = internal::normalize_search_options(options);
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(&evaluator, resolved,
+                                                          internal::SearchSemanticDomain::midgame));
+  internal::TranspositionTable* tt =
+      (resolved.midgame.use_midgame_tt || resolved.ordering.use_tt_best_move_ordering ||
+       resolved.endgame.use_endgame_tt)
+          ? internal::SearchSessionAccess::transposition_table(session)
+          : nullptr;
+  internal::SearchLimitState limit_state =
+      internal::initialize_limit_state(SearchLimits{.max_depth = depth});
+  return internal::search_fixed_depth_with_hint(
+      position, evaluator, depth, internal::MoveOrderingHints{}, resolved, tt,
+      internal::RootSearchWindow{}, internal::SearchSessionAccess::ordering_state(session),
+      &limit_state);
+}
+
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits) {
   return search_iterative(position, evaluator, limits, SearchOptions{});
@@ -502,24 +567,42 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
                               SearchLimits limits, SearchOptions options) {
+  SearchSession session;
+  return search_iterative(session, position, evaluator, limits, options);
+}
+
+SearchResult search_iterative(SearchSession& session, board_core::Position position,
+                              const Evaluator& evaluator, SearchLimits limits,
+                              SearchOptions options) {
   const auto start = std::chrono::steady_clock::now();
   const Depth max_depth = limits.max_depth < 0 ? Depth{0} : limits.max_depth;
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
+  const bool use_wld_endgame = internal::should_use_wld_endgame(position, resolved_options);
+  const bool use_exact_endgame = internal::should_use_exact_endgame(position, resolved_options);
+  const internal::SearchSemanticDomain semantic_domain =
+      use_wld_endgame     ? internal::SearchSemanticDomain::wld_endgame
+      : use_exact_endgame ? internal::SearchSemanticDomain::exact_endgame
+                          : internal::SearchSemanticDomain::midgame;
+  const Evaluator* semantic_evaluator =
+      semantic_domain == internal::SearchSemanticDomain::midgame ? &evaluator : nullptr;
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(semantic_evaluator, resolved_options,
+                                                          semantic_domain));
+  internal::TranspositionTable* session_tt =
+      internal::SearchSessionAccess::transposition_table(session);
 
-  if (internal::should_use_wld_endgame(position, resolved_options)) {
-    internal::TranspositionTable tt_storage{};
+  if (use_wld_endgame) {
     internal::TranspositionTable* tt =
-        resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
+        resolved_options.endgame.use_endgame_tt ? session_tt : nullptr;
     return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
   }
 
-  if (internal::should_use_exact_endgame(position, resolved_options)) {
-    internal::TranspositionTable tt_storage{};
+  if (use_exact_endgame) {
     internal::TranspositionTable* tt =
-        resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
+        resolved_options.endgame.use_endgame_tt ? session_tt : nullptr;
     return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
   }
 
@@ -541,12 +624,12 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
   if (best_completed.exact) {
     best_completed.score = internal::terminal_score(position);
   }
-  internal::TranspositionTable tt_storage{};
   internal::TranspositionTable* tt = (resolved_options.ordering.use_tt_best_move_ordering ||
                                       resolved_options.midgame.use_midgame_tt)
-                                         ? &tt_storage
+                                         ? session_tt
                                          : nullptr;
-  internal::MidgameOrderingState ordering_state{};
+  internal::MidgameOrderingState* ordering_state =
+      internal::SearchSessionAccess::ordering_state(session);
   std::optional<board_core::Move> previous_best_move;
   std::optional<Score> previous_score;
 
@@ -562,7 +645,7 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
       break;
     }
     internal::SearchContext limit_check_context{
-        .position = position,
+        .position_state = internal::make_search_position(position),
         .evaluator = evaluator,
         .limit_state = &limit_state,
     };
@@ -571,18 +654,15 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
       break;
     }
 
-    if (tt != nullptr && depth > 1) {
-      tt->new_generation();
-    }
     const internal::MoveOrderingHints root_hints{.root_best_move = previous_best_move};
     SearchResult current =
         resolved_options.midgame.use_aspiration && depth >= 2 && previous_score.has_value()
             ? internal::search_depth_with_aspiration(position, evaluator, depth, root_hints,
                                                      resolved_options, tt, *previous_score,
-                                                     &ordering_state, &limit_state)
+                                                     ordering_state, &limit_state)
             : internal::search_fixed_depth_with_hint(
                   position, evaluator, depth, root_hints, resolved_options, tt,
-                  internal::RootSearchWindow{}, &ordering_state, &limit_state);
+                  internal::RootSearchWindow{}, ordering_state, &limit_state);
     internal::add_stats(&total_stats, current.stats);
     if (current.stopped) {
       if (best_completed.completed_depth == 0 && !best_completed.exact) {
@@ -606,27 +686,47 @@ SearchResult search_iterative(board_core::Position position, const Evaluator& ev
 
 SearchResult solve_exact_endgame(board_core::Position position, SearchLimits limits,
                                  SearchOptions options) {
+  SearchSession session;
+  return solve_exact_endgame(session, position, limits, options);
+}
+
+SearchResult solve_exact_endgame(SearchSession& session, board_core::Position position,
+                                 SearchLimits limits, SearchOptions options) {
   options.exact_endgame = true;
   options.endgame.exact_endgame = true;
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
-  internal::TranspositionTable tt_storage{};
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(
+                   nullptr, resolved_options, internal::SearchSemanticDomain::exact_endgame));
   internal::TranspositionTable* tt =
-      resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
+      resolved_options.endgame.use_endgame_tt
+          ? internal::SearchSessionAccess::transposition_table(session)
+          : nullptr;
   return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
 }
 
 SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limits,
                                SearchOptions options) {
+  SearchSession session;
+  return solve_wld_endgame(session, position, limits, options);
+}
+
+SearchResult solve_wld_endgame(SearchSession& session, board_core::Position position,
+                               SearchLimits limits, SearchOptions options) {
   options.exact_endgame = true;
   options.endgame.exact_endgame = true;
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
-  internal::TranspositionTable tt_storage{};
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(
+                   nullptr, resolved_options, internal::SearchSemanticDomain::wld_endgame));
   internal::TranspositionTable* tt =
-      resolved_options.endgame.use_endgame_tt ? &tt_storage : nullptr;
+      resolved_options.endgame.use_endgame_tt
+          ? internal::SearchSessionAccess::transposition_table(session)
+          : nullptr;
   return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
 }
 

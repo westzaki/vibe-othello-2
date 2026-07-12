@@ -174,6 +174,14 @@ export class WasmEvaluationArtifact {
     );
   }
 
+  setSearchSessionReuse(retain) {
+    this.#core.setSearchSessionReuseHandle(this.#requireHandle(), retain);
+  }
+
+  resetSearchSession() {
+    this.#core.resetSearchSessionHandle(this.#requireHandle());
+  }
+
   free() {
     if (this.#handle !== 0) {
       this.#core.freeEvaluationArtifactHandle(this.#handle);
@@ -220,6 +228,14 @@ export class WasmCore {
     this.applyPassFn = requireFunction(module, "_vibe_othello_wasm_apply_pass");
     this.loadEvalArtifactFn = requireFunction(module, "_vibe_othello_wasm_load_eval_artifact");
     this.freeEvalArtifactFn = requireFunction(module, "_vibe_othello_wasm_free_eval_artifact");
+    this.setSearchSessionReuseFn = requireFunction(
+      module,
+      "_vibe_othello_wasm_set_search_session_reuse",
+    );
+    this.resetSearchSessionFn = requireFunction(
+      module,
+      "_vibe_othello_wasm_reset_search_session",
+    );
     this.evaluatePositionFn = requireFunction(module, "_vibe_othello_wasm_evaluate_position");
     this.searchBestMoveFn = requireFunction(module, "_vibe_othello_wasm_search_best_move");
     this.searchBestMoveV2Fn = requireFunction(module, "_vibe_othello_wasm_search_best_move_v2");
@@ -428,6 +444,14 @@ export class WasmCore {
 
   freeEvaluationArtifactHandle(handle) {
     this.freeEvalArtifactFn(handle);
+  }
+
+  setSearchSessionReuseHandle(handle, retain) {
+    checkStatus(this.setSearchSessionReuseFn(handle, retain ? 1 : 0), "setSearchSessionReuse");
+  }
+
+  resetSearchSessionHandle(handle) {
+    checkStatus(this.resetSearchSessionFn(handle), "resetSearchSession");
   }
 
   apply(position, operation, call) {

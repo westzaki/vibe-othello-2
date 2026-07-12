@@ -16,6 +16,10 @@ cmake --build build-bench --config Release
 ./build-bench/engine/benchmarks/vibe_othello_search_bench
 ```
 
+The board-core output includes production and unrolled legal/flip rows plus
+full `hash_position` and incremental `hash_after_move` cost. Generated results
+remain local-only.
+
 Run benchmarks on an otherwise quiet machine and compare results from the same
 machine, compiler, build type, and command whenever possible.
 
@@ -406,7 +410,7 @@ For search benchmarks, report the depth argument and the emitted columns:
 `best_move`, `nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`,
 `beta_cutoffs`, `alpha_updates`, `pvs_researches`, `aspiration_fail_lows`,
 `aspiration_fail_highs`, `iid_searches`, `endgame_nodes`, `tt_probes`,
-`tt_hits`, `tt_stores`, `tt_cutoffs`, `tt_overwrites`, `tt_collisions`,
+`tt_hits`, `tt_stores`, `tt_cutoffs`, `tt_replacements`, `tt_bucket_conflicts`,
 `tt_rejected_stores`, `tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
@@ -415,7 +419,7 @@ For endgame benchmarks, report the max-empty cap and the emitted columns:
 `wld_result`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
 `endgame_nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
 `alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
-`tt_stores`, `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
+`tt_stores`, `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
 `tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
 
 For evaluation benchmarks, report the corpus and emitted columns: `evaluator`,
@@ -435,7 +439,7 @@ schema is:
 - `pvs_researches`, `aspiration_fail_lows`, `aspiration_fail_highs`,
   `iid_searches`, `endgame_nodes`
 - `tt_probes`, `tt_hits`, `tt_stores`, `tt_cutoffs`
-- `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
+- `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
   `tt_invalid_best_move_stores`
 - `elapsed_ns`, `nps`
 
@@ -455,7 +459,7 @@ schema is:
 - `nodes`, `endgame_nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`
 - `beta_cutoffs`, `alpha_updates`, `root_moves_searched`
 - `tt_probes`, `tt_hits`, `tt_cutoffs`, `tt_stores`
-- `tt_overwrites`, `tt_collisions`, `tt_rejected_stores`,
+- `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
   `tt_invalid_best_move_stores`
 - `elapsed_ms`, `nps`
 - `pv`

@@ -16,12 +16,15 @@ using vibe_othello::board_core::apply_move_delta;
 using vibe_othello::board_core::bit;
 using vibe_othello::board_core::Bitboard;
 using vibe_othello::board_core::flips_for_move;
+using vibe_othello::board_core::flips_for_move_unrolled;
 using vibe_othello::board_core::has_legal_move;
+using vibe_othello::board_core::hash_after_move;
 using vibe_othello::board_core::hash_position;
 using vibe_othello::board_core::initial_black_discs;
 using vibe_othello::board_core::initial_position;
 using vibe_othello::board_core::initial_white_discs;
 using vibe_othello::board_core::legal_moves;
+using vibe_othello::board_core::legal_moves_unrolled;
 using vibe_othello::board_core::make_move;
 using vibe_othello::board_core::make_move_delta;
 using vibe_othello::board_core::Move;
@@ -67,6 +70,7 @@ struct AppliedMoveCase {
   Position before;
   Position after;
   MoveDelta delta;
+  std::uint64_t before_hash = 0;
 };
 
 constexpr Position white_to_move_initial() noexcept {
@@ -164,6 +168,7 @@ std::array<AppliedMoveCase, kMoveCorpus.size()> make_applied_move_corpus() noexc
         .before = kMoveCorpus[index].position,
         .after = position,
         .delta = delta,
+        .before_hash = hash_position(kMoveCorpus[index].position),
     };
   }
   return result;
@@ -226,10 +231,26 @@ std::uint64_t bench_has_legal_move() noexcept {
   return checksum;
 }
 
+std::uint64_t bench_legal_moves_unrolled() noexcept {
+  std::uint64_t checksum = 0;
+  for (PositionCase entry : kPositionCorpus) {
+    checksum ^= legal_moves_unrolled(entry.position);
+  }
+  return checksum;
+}
+
 std::uint64_t bench_flips_for_move() noexcept {
   std::uint64_t checksum = 0;
   for (MoveCase entry : kMoveCorpus) {
     checksum ^= flips_for_move(entry.position, entry.move.square);
+  }
+  return checksum;
+}
+
+std::uint64_t bench_flips_for_move_unrolled() noexcept {
+  std::uint64_t checksum = 0;
+  for (MoveCase entry : kMoveCorpus) {
+    checksum ^= flips_for_move_unrolled(entry.position, entry.move.square);
   }
   return checksum;
 }
@@ -287,6 +308,15 @@ bench_undo_move(const std::array<AppliedMoveCase, kMoveCorpus.size()>& corpus) n
   return checksum;
 }
 
+std::uint64_t
+bench_hash_after_move(const std::array<AppliedMoveCase, kMoveCorpus.size()>& corpus) noexcept {
+  std::uint64_t checksum = 0;
+  for (AppliedMoveCase entry : corpus) {
+    checksum ^= hash_after_move(entry.before, entry.before_hash, entry.delta);
+  }
+  return checksum;
+}
+
 } // namespace
 
 int main() {
@@ -304,10 +334,14 @@ int main() {
 
   print_result(run_benchmark("legal_moves", kIterations, static_cast<int>(kPositionCorpus.size()),
                              bench_legal_moves));
+  print_result(run_benchmark("legal_unrolled", kIterations,
+                             static_cast<int>(kPositionCorpus.size()), bench_legal_moves_unrolled));
   print_result(run_benchmark("has_legal_move", kIterations,
                              static_cast<int>(kPositionCorpus.size()), bench_has_legal_move));
   print_result(run_benchmark("flips_for_move", kIterations, static_cast<int>(kMoveCorpus.size()),
                              bench_flips_for_move));
+  print_result(run_benchmark("flips_unrolled", kIterations, static_cast<int>(kMoveCorpus.size()),
+                             bench_flips_for_move_unrolled));
   print_result(run_benchmark("apply_move", kIterations, static_cast<int>(kMoveCorpus.size()),
                              bench_apply_move));
   print_result(run_benchmark("make_move_delta", kIterations, static_cast<int>(kMoveCorpus.size()),
@@ -320,6 +354,9 @@ int main() {
                     [&applied_move_corpus] { return bench_undo_move(applied_move_corpus); }));
   print_result(run_benchmark("hash_position", kIterations, static_cast<int>(kPositionCorpus.size()),
                              bench_hash_position));
+  print_result(
+      run_benchmark("hash_after_move", kIterations, static_cast<int>(kMoveCorpus.size()),
+                    [&applied_move_corpus] { return bench_hash_after_move(applied_move_corpus); }));
 
   return 0;
 }

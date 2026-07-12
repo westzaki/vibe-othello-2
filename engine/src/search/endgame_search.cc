@@ -38,16 +38,21 @@ SearchNodeResult search_endgame_child_with_policy(EndgameContext* context, board
                                                   SmallEndgamePolicy small_endgame_policy) {
   EndgameStackFrame& frame = context->stack[ply];
   frame.current_move = move;
-  const bool made_delta = board_core::make_move_delta(context->position, move, &frame.delta);
-  require_invariant(made_delta);
-  board_core::apply_move_delta(&context->position, frame.delta);
+  if (move.kind == board_core::MoveKind::pass) {
+    frame.delta = board_core::MoveDelta{.move = board_core::make_pass(), .flipped = 0};
+  } else {
+    const bool made_delta =
+        board_core::make_move_delta(context->position_state.position, move, &frame.delta);
+    require_invariant(made_delta);
+  }
+  apply_move(&context->position_state, frame.delta, &frame.position_undo);
 
   const std::uint8_t child_empties =
       move.kind == board_core::MoveKind::pass ? empties : static_cast<std::uint8_t>(empties - 1);
   const SearchNodeResult child = endgame_search_with_policy<EndgamePolicy>(
       context, static_cast<Score>(-beta), static_cast<Score>(-alpha), child_empties,
       static_cast<Ply>(ply + 1), small_endgame_policy);
-  board_core::undo_move(&context->position, frame.delta);
+  undo_move(&context->position_state, frame.delta, frame.position_undo);
 
   if (child.is_stopped()) {
     return SearchNodeResult::stopped();
@@ -65,7 +70,7 @@ SearchNodeResult search_endgame_child_with_policy(EndgameContext* context, board
 template <typename EndgamePolicy>
 SearchNodeResult endgame_terminal(EndgameContext* context, std::uint8_t empties) {
   ++context->stats.terminal_nodes;
-  const Score score = EndgamePolicy::terminal_score(context->position);
+  const Score score = EndgamePolicy::terminal_score(context->position_state.position);
   store_tt_with_policy<EndgamePolicy>(context, static_cast<Depth>(empties), score,
                                       BoundType::exact);
   return SearchNodeResult::completed(SearchValue{
@@ -91,6 +96,11 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
     return SearchNodeResult::stopped();
   }
 
+  frame.legal_moves = legal_moves(&context->position_state);
+  if (frame.legal_moves == 0 && opponent_legal_moves(context->position_state) == 0) {
+    return endgame_terminal<EndgamePolicy>(context, empties);
+  }
+
   const ExactEndgameTtProbe tt_probe =
       probe_tt_with_policy<EndgamePolicy>(context, remaining_empties, alpha, beta);
   if (tt_probe.cutoff_score.has_value()) {
@@ -108,16 +118,12 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
     }
   }
 
-  if (board_core::is_terminal(context->position)) {
-    return endgame_terminal<EndgamePolicy>(context, empties);
-  }
-
   if (should_stop_endgame(context)) {
     return SearchNodeResult::stopped();
   }
 
   frame.moves = order_endgame_moves(
-      context->position,
+      context->position_state.position, frame.legal_moves,
       EndgameOrderingHints{
           .tt_best_move = tt_probe.best_move,
           .use_parity_ordering = context->options.ordering.use_endgame_parity_ordering,

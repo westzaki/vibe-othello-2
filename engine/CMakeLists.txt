@@ -28,6 +28,7 @@ target_sources(
           src/search/result_builder_internal.cc
           src/search/root_search.cc
           src/search/search_node_common.cc
+          src/search/search_session.cc
           src/search/search_util.cc
           src/search/transposition_table.cc
           src/version.cc)

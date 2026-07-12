@@ -59,6 +59,8 @@ if(VIBE_OTHELLO_BUILD_WASM_MODULE)
     _vibe_othello_wasm_apply_pass
     _vibe_othello_wasm_load_eval_artifact
     _vibe_othello_wasm_free_eval_artifact
+    _vibe_othello_wasm_set_search_session_reuse
+    _vibe_othello_wasm_reset_search_session
     _vibe_othello_wasm_evaluate_position
     _vibe_othello_wasm_search_best_move
     _vibe_othello_wasm_search_best_move_v2

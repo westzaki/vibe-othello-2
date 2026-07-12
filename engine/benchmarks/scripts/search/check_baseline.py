@@ -59,8 +59,8 @@ OPTIONAL_INT_RESULT_FIELDS = (
     "aspiration_fail_highs",
     "iid_searches",
     "endgame_nodes",
-    "tt_overwrites",
-    "tt_collisions",
+    "tt_replacements",
+    "tt_bucket_conflicts",
     "tt_rejected_stores",
     "tt_invalid_best_move_stores",
 )

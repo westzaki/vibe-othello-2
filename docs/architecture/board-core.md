@@ -418,11 +418,17 @@ Property tests cover invariants:
 * applying a non-pass move increases occupancy by one
 * apply then undo restores the exact position
 * serialization round-trips
-* full hash recomputation matches incremental hash if incremental hashing exists
+* full hash recomputation matches incremental hash at every apply, pass, and undo
 
 Perft tests validate move trees.
 
 Benchmarks track hot-path performance.
+
+The scalar loop implementation remains the correctness and rollback reference.
+The separately named unrolled legal-move and flip paths use the same public
+position semantics and are differentially checked on deterministic random game
+corpora. Search-internal incremental hashing is implemented through
+`hash_after_move`; it does not add mutable state to `Position`.
 
 ## Performance Principles
 

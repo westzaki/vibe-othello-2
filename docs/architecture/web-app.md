@@ -147,6 +147,7 @@ Owns:
 * memory-safe input validation
 * conversion between C ABI data and engine public C++ types
 * bounded adapter-level smoke surfaces
+* evaluator-owned single-thread search sessions with explicit reuse and reset
 
 Rules:
 
@@ -155,6 +156,7 @@ Rules:
 * must not expose search internals or evaluator internals
 * browser-facing search strength selection should use a small stable preset plus
   independent limits, not individual search-option flags
+* persistent search knowledge must be opt-in and reset at a new-game boundary
 * must not duplicate board rules
 
 ### TypeScript WasmCore wrapper under wasm/ts

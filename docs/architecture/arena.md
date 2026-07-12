@@ -22,7 +22,7 @@ over opening pairs with a supplied seed.
 
 ## Search Limits
 
-The v2 CLI has explicit pure modes:
+The v3 CLI has explicit pure modes:
 
 * `--limit-mode depth --depth N`
 * `--limit-mode nodes --nodes N`
@@ -70,3 +70,17 @@ configuration, failures, score complementarity, and disc-difference inversion.
 
 Generated reports, logs, and sanity output are local-only and must not be
 committed.
+
+Search-session retention is an explicit arena configuration, never an implicit
+property of the evaluator. Candidate and baseline own independent sessions.
+Sessions clear at game boundaries and may retain TT/history/killer knowledge
+only between sequential moves of that game. Reports record whether retention
+was enabled and the requested and actual TT allocation. The configured TT byte
+budget is always bound to the session used by search; disabling persistence
+clears that session before each move instead of falling back to a default TT.
+
+Schema v3 is the first schema with split TT replacement, bucket-conflict, and
+same-key-update telemetry. This intentionally supersedes the v2 `overwrites`
+and `collisions` field names. Allocation reporting includes both enabled state
+and allocation success so an intentional zero-byte table is distinguishable
+from allocation failure.

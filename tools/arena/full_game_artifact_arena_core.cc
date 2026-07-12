@@ -49,8 +49,11 @@ void add(TelemetrySummary* summary, const SearchTelemetry& record) {
   summary->tt_hits += record.tt_hits;
   summary->tt_cutoffs += record.tt_cutoffs;
   summary->tt_stores += record.tt_stores;
-  summary->tt_overwrites += record.tt_overwrites;
-  summary->tt_collisions += record.tt_collisions;
+  summary->tt_replacements += record.tt_replacements;
+  summary->tt_bucket_conflicts += record.tt_bucket_conflicts;
+  summary->tt_same_key_updates += record.tt_same_key_updates;
+  summary->tt_probe_slots += record.tt_probe_slots;
+  summary->tt_generation_age_hits += record.tt_generation_age_hits;
   summary->tt_rejected_stores += record.tt_rejected_stores;
   summary->pvs_researches += record.pvs_researches;
   summary->aspiration_fail_lows += record.aspiration_fail_lows;

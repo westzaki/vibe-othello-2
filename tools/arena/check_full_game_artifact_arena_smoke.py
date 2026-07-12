@@ -70,7 +70,9 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
-def run_arena(exe: str, temp_dir: Path, report_name: str) -> dict[str, object]:
+def run_arena(
+    exe: str, temp_dir: Path, report_name: str, extra_args: tuple[str, ...] = ()
+) -> dict[str, object]:
     command = [
         exe,
         "--candidate-manifest",
@@ -91,6 +93,7 @@ def run_arena(exe: str, temp_dir: Path, report_name: str) -> dict[str, object]:
         "full",
         "--seed",
         "7",
+        *extra_args,
     ]
     completed = run(command)
     if completed.returncode != 0:
@@ -166,8 +169,8 @@ def assert_report(report: dict[str, object]) -> None:
         raise AssertionError(f"same-artifact sanity failed: {sanity!r}")
     if overall["candidate_score_rate"] != 0.5 or overall["average_disc_diff_candidate_perspective"] != 0.0:
         raise AssertionError(f"same artifact was not neutral: {overall!r}")
-    if report["schema_version"] != 2 or report["arena_version"] != "full-game-artifact-arena-v2":
-        raise AssertionError(f"unexpected v2 schema: {report!r}")
+    if report["schema_version"] != 3 or report["arena_version"] != "full-game-artifact-arena-v3":
+        raise AssertionError(f"unexpected v3 schema: {report!r}")
     if report["search_config"]["limit_mode"] != "fixed_depth":
         raise AssertionError(f"fixed-depth mode was not recorded: {report['search_config']!r}")
     paired = report["results"].get("paired_score")
@@ -181,7 +184,7 @@ def assert_report(report: dict[str, object]) -> None:
     if paired_sanity.get("paired_color_swap_complete") is not True or paired_sanity.get(
         "same_artifact_neutral"
     ) is not True:
-        raise AssertionError(f"v2 paired sanity failed: {paired_sanity!r}")
+        raise AssertionError(f"v3 paired sanity failed: {paired_sanity!r}")
     telemetry = report["telemetry"]
     for role in ("candidate", "baseline"):
         role_report = telemetry.get(role)
@@ -241,6 +244,31 @@ def assert_sanity_runner(exe: str, temp_dir: Path) -> None:
     summary = json.loads((output_dir / "sanity-summary.json").read_text(encoding="utf-8"))
     if not all(summary.get(key) is True for key in ("color_swap_passed", "same_artifact_passed", "argument_order_passed")):
         raise AssertionError(f"sanity summary failed: {summary!r}")
+
+
+def assert_disabled_tt_without_persistence(exe: str, temp_dir: Path) -> None:
+    report = run_arena(
+        exe,
+        temp_dir,
+        "tt-disabled.json",
+        ("--tt-bytes", "0", "--opening-limit", "1"),
+    )
+    config = report["search_config"]
+    if config["persistent_session"] is not False:
+        raise AssertionError(f"TT-off smoke unexpectedly retained sessions: {config!r}")
+    if config["tt_requested_bytes"] != 0 or config["tt_actual_bytes"] != 0:
+        raise AssertionError(f"TT-off allocation was not reported accurately: {config!r}")
+    if config["tt_enabled"] is not False or config["tt_allocation_succeeded"] is not True:
+        raise AssertionError(f"TT-off allocation state was not reported accurately: {config!r}")
+    calls = [
+        call
+        for game in report["game_records"]
+        for call in game.get("search_calls", [])
+    ]
+    if not calls:
+        raise AssertionError("TT-off smoke produced no search calls")
+    if any(call["tt_probes"] != 0 or call["tt_stores"] != 0 for call in calls):
+        raise AssertionError("--tt-bytes 0 used TT while persistent sessions were disabled")
 
 
 def assert_exact_guard(exe: str, temp_dir: Path) -> None:
@@ -340,6 +368,7 @@ def main(argv: list[str]) -> int:
             )
         assert_exact_guard(args.exe, temp_dir)
         assert_explicit_limit_modes(args.exe, temp_dir)
+        assert_disabled_tt_without_persistence(args.exe, temp_dir)
         assert_sanity_runner(args.exe, temp_dir)
     return 0
 

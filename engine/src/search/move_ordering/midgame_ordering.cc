@@ -77,7 +77,12 @@ int score_midgame_move(MoveOrderFeatures features, MidgameOrderingWeights weight
 }
 
 MoveList order_midgame_moves(board_core::Position position, MidgameOrderingHints hints) noexcept {
-  MoveList list = move_list_from_legal_mask(board_core::legal_moves(position));
+  return order_midgame_moves(position, board_core::legal_moves(position), hints);
+}
+
+MoveList order_midgame_moves(board_core::Position position, board_core::Bitboard legal_moves,
+                             MidgameOrderingHints hints) noexcept {
+  MoveList list = move_list_from_legal_mask(legal_moves);
   std::array<int, board_core::kSquareCount> scores{};
   const MidgameOrderingWeights weights{};
   for (std::uint8_t index = 0; index < list.size; ++index) {

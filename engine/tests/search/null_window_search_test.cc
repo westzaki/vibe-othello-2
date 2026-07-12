@@ -67,7 +67,7 @@ board_core::Position position_after_fixed_choices(std::initializer_list<std::siz
 SearchNodeResult run_alphabeta(board_core::Position position, const Evaluator& evaluator,
                                Depth depth) {
   SearchContext context{
-      .position = position,
+      .position_state = make_search_position(position),
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = depth},
   };
@@ -77,7 +77,7 @@ SearchNodeResult run_alphabeta(board_core::Position position, const Evaluator& e
 SearchNodeResult run_null_window(board_core::Position position, const Evaluator& evaluator,
                                  Score beta, Depth depth) {
   SearchContext context{
-      .position = position,
+      .position_state = make_search_position(position),
       .evaluator = evaluator,
       .limits = SearchLimits{.max_depth = depth},
   };

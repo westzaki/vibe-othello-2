@@ -272,7 +272,7 @@ stack used for bounded artifact evaluation. Depth, node, and time limits are
 identical per move for both artifacts. An exact-endgame threshold requires a
 node or time cap because exact root search does not use the depth cap.
 
-The versioned `full-game-artifact-arena-v2` report records every engine search
+The versioned `full-game-artifact-arena-v3` report records every engine search
 call separately for candidate and baseline: completed depth, nanosecond-resolution elapsed time,
 public node/evaluator/TT/PVS/aspiration/IID/endgame/selective counters, exact
 and stopped flags, side to move, occupied count, and runtime phase. It also
@@ -280,6 +280,13 @@ contains per-engine aggregates, phase and side-to-move buckets, depth
 percentiles, TT rates, time-budget overshoot, and a deterministic opening-pair
 cluster-bootstrap 95% interval. The confidence interval resamples opening
 pairs, never individual games.
+
+Schema v3 replaces the v2 TT `overwrites` and `collisions` fields with explicit
+`replacements`, `bucket_conflicts`, and `same_key_updates` counters. The
+configured `--tt-bytes` budget always applies to the actual search session;
+`--persistent-session` controls only whether knowledge is retained between
+moves. Allocation output includes `tt_enabled` and `tt_allocation_succeeded` so
+an intentional zero-byte table is distinguishable from allocation failure.
 
 Speed rates use the arena's `steady_clock` nanosecond measurement around each
 search call. The engine-reported integer milliseconds and their difference

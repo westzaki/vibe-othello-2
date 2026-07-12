@@ -43,7 +43,6 @@ There are no required board-core gaps for the current search foundation.
 
 Optional future work includes:
 
-* incremental hashing if profiling shows full recomputation is too expensive
 * additional benchmark baselines for new machines or compilers
 * extra corpora for unusual pass, terminal, or serialization cases
 * adapter-specific validation when new public consumers are added
@@ -73,7 +72,8 @@ Status values:
 | Unit, differential, property, random-play, and perft tests | done | Board-core test suite |
 | Board-core benchmark | done | Local benchmark coverage |
 | Checked-in board-core baseline data | done | Baseline metadata must avoid personal identifiers |
-| Incremental hashing | not started | Optional future optimization |
+| Incremental hashing | done | `hash_after_move` covers absolute colors, side-to-move, passes, and multiple flips; random apply/undo parity is checked |
+| Scalar/unrolled differential paths | done | Reference and unrolled legal/flip paths are cross-checked on deterministic random games |
 
 ## Completion Bar
 
