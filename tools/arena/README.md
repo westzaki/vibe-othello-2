@@ -263,14 +263,59 @@ build/tools/arena/vibe-othello-full-game-artifact-arena \
   --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/manifest.json" \
   --openings tools/arena/openings/smoke.txt \
   --report-out "$VIBE_OTHELLO_MEASUREMENTS/arena/full-game/arena-report.json" \
-  --search-preset full --depth 3 --nodes 200000 --exact-endgame-empties 8 \
-  --seed 0 --opening-limit 100
+  --search-preset full --limit-mode nodes --nodes 200000 --exact-endgame-empties 8 \
+  --seed 0 --opening-limit 100 --minimum-opening-pairs 100
 ```
 
 `basic` uses default search options; `full` enables the non-experimental search
 stack used for bounded artifact evaluation. Depth, node, and time limits are
 identical per move for both artifacts. An exact-endgame threshold requires a
 node or time cap because exact root search does not use the depth cap.
+
+The versioned `full-game-artifact-arena-v2` report records every engine search
+call separately for candidate and baseline: completed depth, nanosecond-resolution elapsed time,
+public node/evaluator/TT/PVS/aspiration/IID/endgame/selective counters, exact
+and stopped flags, side to move, occupied count, and runtime phase. It also
+contains per-engine aggregates, phase and side-to-move buckets, depth
+percentiles, TT rates, time-budget overshoot, and a deterministic opening-pair
+cluster-bootstrap 95% interval. The confidence interval resamples opening
+pairs, never individual games.
+
+Speed rates use the arena's `steady_clock` nanosecond measurement around each
+search call. The engine-reported integer milliseconds and their difference
+from the arena timer remain in the report as timer-accounting diagnostics.
+
+For new strength-gate measurements, select exactly one explicit limit mode:
+
+```sh
+--limit-mode depth --depth 5
+--limit-mode nodes --nodes 200000
+--limit-mode time --time-ms 250
+```
+
+Legacy combined depth/node/time commands remain runnable and are labeled
+`legacy_combined` in the report; they are not gate-eligible. Time limits are
+cooperative and may overshoot, which is measured in the report.
+
+`strength_gate.eligible` additionally requires zero failed and illegal games,
+complete opening pairs, at least `--minimum-opening-pairs`, and non-empty
+candidate and baseline telemetry. The paired interval remains available for an
+invalid run but is marked `descriptive_only`.
+
+Use the local-only sanity companion to verify same-artifact, color-swap, and
+candidate/baseline argument-order behavior:
+
+```sh
+python3 tools/arena/run_full_game_artifact_arena_sanity.py \
+  --exe build/tools/arena/vibe-othello-full-game-artifact-arena \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/manifest.json" \
+  --candidate-weights "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/weights.bin" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/manifest.json" \
+  --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/weights.bin" \
+  --openings tools/arena/openings/smoke.txt \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/arena/full-game-sanity" \
+  --limit-mode nodes --nodes 200000 --exact-endgame-empties 8 --opening-limit 100
+```
 
 The JSON-only report includes runtime artifact identities and checksums,
 resolved search options, selected openings, per-game and per-opening results,
