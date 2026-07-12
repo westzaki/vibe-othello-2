@@ -285,7 +285,8 @@ Schema v3 replaces the v2 TT `overwrites` and `collisions` fields with explicit
 `replacements`, `bucket_conflicts`, and `same_key_updates` counters. The
 configured `--tt-bytes` budget always applies to the actual search session;
 `--persistent-session` controls only whether knowledge is retained between
-moves.
+moves. Allocation output includes `tt_enabled` and `tt_allocation_succeeded` so
+an intentional zero-byte table is distinguishable from allocation failure.
 
 Speed rates use the arena's `steady_clock` nanosecond measurement around each
 search call. The engine-reported integer milliseconds and their difference

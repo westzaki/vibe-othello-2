@@ -580,19 +580,27 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
+  const bool use_wld_endgame = internal::should_use_wld_endgame(position, resolved_options);
+  const bool use_exact_endgame = internal::should_use_exact_endgame(position, resolved_options);
+  const internal::SearchSemanticDomain semantic_domain =
+      use_wld_endgame     ? internal::SearchSemanticDomain::wld_endgame
+      : use_exact_endgame ? internal::SearchSemanticDomain::exact_endgame
+                          : internal::SearchSemanticDomain::midgame;
+  const Evaluator* semantic_evaluator =
+      semantic_domain == internal::SearchSemanticDomain::midgame ? &evaluator : nullptr;
   internal::SearchSessionAccess::begin_root(
-      session, internal::make_search_semantic_fingerprint(&evaluator, resolved_options,
-                                                          internal::SearchSemanticDomain::midgame));
+      session, internal::make_search_semantic_fingerprint(semantic_evaluator, resolved_options,
+                                                          semantic_domain));
   internal::TranspositionTable* session_tt =
       internal::SearchSessionAccess::transposition_table(session);
 
-  if (internal::should_use_wld_endgame(position, resolved_options)) {
+  if (use_wld_endgame) {
     internal::TranspositionTable* tt =
         resolved_options.endgame.use_endgame_tt ? session_tt : nullptr;
     return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
   }
 
-  if (internal::should_use_exact_endgame(position, resolved_options)) {
+  if (use_exact_endgame) {
     internal::TranspositionTable* tt =
         resolved_options.endgame.use_endgame_tt ? session_tt : nullptr;
     return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);

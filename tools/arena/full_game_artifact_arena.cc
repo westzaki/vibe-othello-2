@@ -1036,6 +1036,10 @@ void write_search_config(std::ostream& output, const SearchConfig& config) {
   output << ", \"tt_entry_count\": " << allocation.entry_count;
   output << ", \"tt_bucket_count\": " << allocation.bucket_count;
   output << ", \"tt_entry_size\": " << allocation.entry_size;
+  output << ", \"tt_enabled\": ";
+  write_bool(output, allocation.enabled);
+  output << ", \"tt_allocation_succeeded\": ";
+  write_bool(output, allocation.allocation_succeeded);
   output << ", \"resolved_options\": ";
   write_search_options(output, config.options);
   output << "}";

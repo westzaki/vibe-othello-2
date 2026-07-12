@@ -61,7 +61,9 @@ struct SearchSessionAccess {
   }
 
   static void begin_root(SearchSession& session, SearchSemanticFingerprint fingerprint) noexcept {
-    if (session.impl_->semantic_fingerprint != fingerprint) {
+    if (!session.impl_->semantic_fingerprint.has_value()) {
+      session.impl_->semantic_fingerprint = fingerprint;
+    } else if (*session.impl_->semantic_fingerprint != fingerprint) {
       session.impl_->transposition_table.clear();
       session.impl_->semantic_fingerprint = fingerprint;
     }

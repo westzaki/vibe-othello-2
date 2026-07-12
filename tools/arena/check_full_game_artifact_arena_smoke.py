@@ -258,6 +258,8 @@ def assert_disabled_tt_without_persistence(exe: str, temp_dir: Path) -> None:
         raise AssertionError(f"TT-off smoke unexpectedly retained sessions: {config!r}")
     if config["tt_requested_bytes"] != 0 or config["tt_actual_bytes"] != 0:
         raise AssertionError(f"TT-off allocation was not reported accurately: {config!r}")
+    if config["tt_enabled"] is not False or config["tt_allocation_succeeded"] is not True:
+        raise AssertionError(f"TT-off allocation state was not reported accurately: {config!r}")
     calls = [
         call
         for game in report["game_records"]

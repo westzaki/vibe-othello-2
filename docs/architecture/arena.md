@@ -81,4 +81,6 @@ clears that session before each move instead of falling back to a default TT.
 
 Schema v3 is the first schema with split TT replacement, bucket-conflict, and
 same-key-update telemetry. This intentionally supersedes the v2 `overwrites`
-and `collisions` field names.
+and `collisions` field names. Allocation reporting includes both enabled state
+and allocation success so an intentional zero-byte table is distinguishable
+from allocation failure.
