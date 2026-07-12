@@ -56,6 +56,12 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->nodes += delta.nodes;
   total->leaf_nodes += delta.leaf_nodes;
   total->eval_calls += delta.eval_calls;
+  total->incremental_eval_enabled |= delta.incremental_eval_enabled;
+  total->incremental_state_initializations += delta.incremental_state_initializations;
+  total->incremental_eval_calls += delta.incremental_eval_calls;
+  total->stateless_eval_calls += delta.stateless_eval_calls;
+  total->incremental_updates += delta.incremental_updates;
+  total->incremental_touched_instances += delta.incremental_touched_instances;
   total->terminal_nodes += delta.terminal_nodes;
   total->pass_nodes += delta.pass_nodes;
   total->beta_cutoffs += delta.beta_cutoffs;

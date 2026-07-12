@@ -98,6 +98,14 @@ void require_basic_stats_invariants(const SearchResult& result) {
   REQUIRE(result.stats.root_moves_searched == result.root_moves.size());
   REQUIRE(result.stats.leaf_nodes <= result.stats.nodes);
   REQUIRE(result.stats.eval_calls <= result.stats.leaf_nodes);
+  REQUIRE(result.stats.eval_calls ==
+          result.stats.incremental_eval_calls + result.stats.stateless_eval_calls);
+  if (!result.stats.incremental_eval_enabled) {
+    REQUIRE(result.stats.incremental_state_initializations == 0);
+    REQUIRE(result.stats.incremental_eval_calls == 0);
+    REQUIRE(result.stats.incremental_updates == 0);
+    REQUIRE(result.stats.incremental_touched_instances == 0);
+  }
   REQUIRE(result.stats.terminal_nodes <= result.stats.nodes);
   REQUIRE(result.stats.pass_nodes <= result.stats.nodes);
   REQUIRE(result.stats.beta_cutoffs <= result.stats.nodes);

@@ -50,12 +50,14 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           SearchOptions options, TranspositionTable* tt,
                                           RootSearchWindow root_window = {},
                                           MidgameOrderingState* ordering_state = nullptr,
-                                          SearchLimitState* limit_state = nullptr);
+                                          SearchLimitState* limit_state = nullptr,
+                                          std::uint32_t incremental_eval_verify_interval = 0);
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
                                           Depth depth, MoveOrderingHints root_hints,
                                           ResolvedSearchOptions options, TranspositionTable* tt,
                                           RootSearchWindow root_window = {},
                                           MidgameOrderingState* ordering_state = nullptr,
-                                          SearchLimitState* limit_state = nullptr);
+                                          SearchLimitState* limit_state = nullptr,
+                                          std::uint32_t incremental_eval_verify_interval = 0);
 
 } // namespace vibe_othello::search::internal

@@ -1,6 +1,8 @@
 #include "endgame_policy_internal.h"
 #include "search_internal.h"
 
+#include <cstdlib>
+
 namespace vibe_othello::search::internal {
 
 namespace {
@@ -82,7 +84,13 @@ bool should_use_internal_exact_endgame(board_core::Position position,
 
 SearchNodeResult search_internal_exact_endgame(SearchContext* context) {
   EndgameContext endgame_context{
-      .position_state = context->position_state,
+      .position_state =
+          SearchPositionState{
+              .position = context->position_state.position,
+              .key = context->position_state.key,
+              .legal_mask = context->position_state.legal_mask,
+              .legal_mask_valid = context->position_state.legal_mask_valid,
+          },
       .limits = context->limits,
       .options = context->options,
       .transposition_table = context->transposition_table,
@@ -183,7 +191,18 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   if (depth <= 0) {
     ++context->stats.leaf_nodes;
     ++context->stats.eval_calls;
-    const Score score = context->evaluator.evaluate(context->position_state.position);
+    if (uses_incremental_evaluation(context->position_state)) {
+      ++context->stats.incremental_eval_calls;
+    } else {
+      ++context->stats.stateless_eval_calls;
+    }
+    const Score score = evaluate_position(context->position_state, context->evaluator);
+    if (context->position_state.evaluation_state.has_value() &&
+        context->incremental_eval_verify_interval != 0 &&
+        ++context->incremental_eval_count % context->incremental_eval_verify_interval == 0 &&
+        score != evaluate_position_reference(context->position_state, context->evaluator)) {
+      std::abort();
+    }
     require_invariant(is_valid_evaluator_score(score));
     return SearchNodeResult::completed(SearchValue{
         .score = score,
@@ -287,7 +306,7 @@ SearchNodeResult search_full_window_child(SearchContext* context, board_core::Mo
         board_core::make_move_delta(context->position_state.position, move, &frame.delta);
     require_invariant(made_delta);
   }
-  apply_move(&context->position_state, frame.delta, &frame.position_undo);
+  apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const Depth child_depth =
       move.kind == board_core::MoveKind::pass && !context->options.midgame.pass_consumes_depth
@@ -297,7 +316,7 @@ SearchNodeResult search_full_window_child(SearchContext* context, board_core::Mo
   const SearchNodeResult child =
       dispatch_search(context, dispatch, static_cast<Score>(-beta), static_cast<Score>(-alpha),
                       child_depth, static_cast<Ply>(ply + 1));
-  undo_move(&context->position_state, frame.delta, frame.position_undo);
+  undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
 
   return child_result(move, child);
 }
@@ -309,11 +328,11 @@ SearchNodeResult search_null_window_child(SearchContext* context, board_core::Mo
   const bool made_delta =
       board_core::make_move_delta(context->position_state.position, move, &frame.delta);
   require_invariant(made_delta);
-  apply_move(&context->position_state, frame.delta, &frame.position_undo);
+  apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const SearchNodeResult child =
       null_window_search(context, beta, static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
-  undo_move(&context->position_state, frame.delta, frame.position_undo);
+  undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
 
   return child_result(move, child);
 }

@@ -42,6 +42,12 @@ void add(TelemetrySummary* summary, const SearchTelemetry& record) {
   summary->timer_accounting_delta_ns += record.timer_accounting_delta_ns;
   summary->nodes += record.nodes;
   summary->eval_calls += record.eval_calls;
+  summary->incremental_eval_enabled_searches += record.incremental_eval_enabled ? 1U : 0U;
+  summary->incremental_state_initializations += record.incremental_state_initializations;
+  summary->incremental_eval_calls += record.incremental_eval_calls;
+  summary->stateless_eval_calls += record.stateless_eval_calls;
+  summary->incremental_updates += record.incremental_updates;
+  summary->incremental_touched_instances += record.incremental_touched_instances;
   summary->leaf_nodes += record.leaf_nodes;
   summary->terminal_nodes += record.terminal_nodes;
   summary->pass_nodes += record.pass_nodes;

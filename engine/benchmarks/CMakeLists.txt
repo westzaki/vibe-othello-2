@@ -10,3 +10,5 @@ target_link_libraries(vibe_othello_search_bench PRIVATE vibe_othello::engine)
 
 target_compile_definitions(vibe_othello_evaluation_bench
                            PRIVATE VIBE_OTHELLO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(vibe_othello_search_bench
+                           PRIVATE VIBE_OTHELLO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

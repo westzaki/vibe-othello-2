@@ -119,6 +119,20 @@ The evaluator should:
   the manifest scale
 * clamp only at the final search score boundary
 
+The production runtime also precomputes a flat immutable layout at evaluator
+construction. It contains flat instance and square descriptors, powers of
+three, direct phase/table weight offsets, and a square-to-instance reverse
+index. The stateless evaluator uses this layout without traversing the dynamic
+feature-set vectors or dividing table sizes in its lookup loop.
+
+Search may create an incremental pattern state once at a root that can reach a
+learned phase. The state stores paired black-to-move and white-to-move ternary
+indices, so the side-to-move-relative board swap does not require rebuilding
+all instances. A normal move deduplicates and updates only instances touched by
+the placed or flipped squares; pass changes only the selected perspective.
+Apply and undo are allocation-free after root initialization. The original
+stateless extraction remains available as the correctness reference.
+
 Changing a pattern definition without changing the runtime artifact contract is
 a bug. The runtime evaluator must reject incompatible loaded weights rather than
 guessing from file size or partially matching table shapes.
@@ -158,7 +172,12 @@ runtime only selects or interpolates according to the declared policy.
 
 ## Search Integration
 
-Search integrates with evaluation only through the evaluator interface.
+Public search integrates with evaluation through the evaluator interface.
+Internally, root initialization recognizes the built-in pattern and
+phase-aware implementations once and binds their incremental state to the
+search-position state. Other evaluator types keep the generic virtual
+stateless path. A phase-aware root that cannot reach a learned phase also keeps
+the generic fallback path rather than paying pattern-index update cost.
 
 Rules:
 
@@ -167,6 +186,7 @@ Rules:
 * evaluation owns heuristic scores for non-terminal cutoff positions
 * evaluation must not depend on search internals
 * runtime evaluation must not perform file I/O from recursive search
+* incremental apply, evaluate, and undo must not allocate in recursive search
 * search tests should be able to replace learned evaluation with a simple
   deterministic evaluator
 * move-ordering evaluators must not change the meaning of final search scores
@@ -231,6 +251,8 @@ Benchmarks should measure evaluator cost separately from search policy:
 * pattern index extraction cost
 * table lookup cost
 * native versus WASM score parity and latency
+* incremental root initialization and make/evaluate/undo cost
+* fallback-only, learned replacement, and fallback-plus-residual routing cost
 
 Measurements should record artifact id, compiler, build type, hardware class,
 and enabled evaluator options without committing local machine identifiers or

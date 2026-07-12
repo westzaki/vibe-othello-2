@@ -52,8 +52,13 @@ changing code:
 
 `--pvs`, `--aspiration`, `--history`, `--killers`, `--iid`, `--endgame-tt`,
 and `--endgame-parity` accept `off|on|both`. `--eval` accepts
-`disc|simple|all`; `disc` emits the existing `disc_difference` evaluator name
-for output compatibility. `--exact-endgame N` enables exact endgame cutover when
+`disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all`.
+`pattern-v2` uses the root-dispatched incremental backend and
+`pattern-v2-stateless` wraps the same committed artifact behind the generic
+reference path. `--time-ms N` adds an iterative-search wall-clock limit; output
+includes completed depth and stopped state so fixed-time comparisons are
+explicit. `disc` emits the existing `disc_difference` evaluator name for
+output compatibility. `--exact-endgame N` enables exact endgame cutover when
 `N > 0`; `0` keeps it disabled. Search-option matrix values apply to iterative
 search rows. Fixed-depth rows use the public fixed-depth API, so only the
 evaluator choice applies there.
@@ -82,11 +87,14 @@ The search fixture corpus currently covers:
 - `late_midgame`
 
 Evaluation benchmark output is TSV and measures direct evaluator calls outside
-recursive search. It loads the checked-in search corpus once, constructs the
-tiny learned fixture, `EarlyMidgameHeuristicEvaluator`, and mixed-coverage
-`PhaseAwareEvaluator` once, then times repeated calls for each fixed position.
-The corpus exercises both phase-aware branches. File I/O, TSV parsing, weight
-construction, and allocation happen before the timed loop.
+recursive search. In addition to the small compatibility fixtures, it loads
+the committed default artifact and generates one legal representative position
+for every runtime phase. Production rows cover the reference stateless path,
+flat stateless path, incremental root initialization, incremental evaluation,
+make/evaluate/undo, fallback-only routing, learned replacement, and
+fallback-plus-residual routing. File I/O, artifact parsing, and evaluator
+construction happen before timed hot loops except for the explicitly named
+root-initialization row.
 
 Use the default checked-in corpus and iteration count for a small local
 baseline:

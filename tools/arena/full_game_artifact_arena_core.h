@@ -26,6 +26,12 @@ struct SearchTelemetry {
   std::int64_t timer_accounting_delta_ns = 0;
   std::uint64_t nodes = 0;
   std::uint64_t eval_calls = 0;
+  bool incremental_eval_enabled = false;
+  std::uint64_t incremental_state_initializations = 0;
+  std::uint64_t incremental_eval_calls = 0;
+  std::uint64_t stateless_eval_calls = 0;
+  std::uint64_t incremental_updates = 0;
+  std::uint64_t incremental_touched_instances = 0;
   std::uint64_t leaf_nodes = 0;
   std::uint64_t terminal_nodes = 0;
   std::uint64_t pass_nodes = 0;
@@ -60,6 +66,12 @@ struct TelemetrySummary {
   std::int64_t timer_accounting_delta_ns = 0;
   std::uint64_t nodes = 0;
   std::uint64_t eval_calls = 0;
+  std::uint64_t incremental_eval_enabled_searches = 0;
+  std::uint64_t incremental_state_initializations = 0;
+  std::uint64_t incremental_eval_calls = 0;
+  std::uint64_t stateless_eval_calls = 0;
+  std::uint64_t incremental_updates = 0;
+  std::uint64_t incremental_touched_instances = 0;
   std::uint64_t leaf_nodes = 0;
   std::uint64_t terminal_nodes = 0;
   std::uint64_t pass_nodes = 0;

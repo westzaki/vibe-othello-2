@@ -60,6 +60,10 @@ struct SearchSessionAccess {
     return &session.impl_->ordering_state;
   }
 
+  static std::uint32_t incremental_eval_verify_interval(const SearchSession& session) noexcept {
+    return session.impl_->config.incremental_eval_verify_interval;
+  }
+
   static void begin_root(SearchSession& session, SearchSemanticFingerprint fingerprint) noexcept {
     if (!session.impl_->semantic_fingerprint.has_value()) {
       session.impl_->semantic_fingerprint = fingerprint;
