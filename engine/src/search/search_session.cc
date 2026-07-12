@@ -10,6 +10,7 @@ SearchSession& SearchSession::operator=(SearchSession&&) noexcept = default;
 void SearchSession::clear() noexcept {
   impl_->transposition_table.clear();
   impl_->ordering_state = internal::MidgameOrderingState{};
+  impl_->semantic_fingerprint.reset();
 }
 
 void SearchSession::reset() noexcept {

@@ -160,8 +160,12 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
   Score score = child.value().score;
   if (score > alpha && score < beta) {
     ++context->stats.pvs_researches;
-    return evaluate_root_move(context, depth, move,
-                              RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true});
+    std::optional<RootMoveInfo> result = evaluate_root_move(
+        context, depth, move, RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true});
+    if (result.has_value()) {
+      result->nodes = context->stats.nodes - before_nodes;
+    }
+    return result;
   }
 
   StackFrame& frame = context->stack[0];
@@ -459,9 +463,15 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     const RootSearchWindow move_window =
         legacy_kernel ? root_window_for_move(root_window, alpha)
                       : RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true};
+    Score pvs_alpha = alpha;
+    if (result.best_move.has_value() && move.kind == board_core::MoveKind::normal &&
+        result.best_move->kind == board_core::MoveKind::normal &&
+        move.square.index < result.best_move->square.index && best_score > kScoreLoss) {
+      pvs_alpha = static_cast<Score>(best_score - 1);
+    }
     const std::optional<RootMoveInfo> root_move =
         !legacy_kernel && context.options.midgame.use_pvs && move_index != 0
-            ? evaluate_root_move_pvs(&context, completed_depth, move, alpha, beta)
+            ? evaluate_root_move_pvs(&context, completed_depth, move, pvs_alpha, beta)
             : evaluate_root_move(&context, completed_depth, move, move_window);
     if (!root_move.has_value()) {
       result.stopped = true;
@@ -533,8 +543,10 @@ SearchResult search_fixed_depth(board_core::Position position, const Evaluator& 
 
 SearchResult search_fixed_depth(SearchSession& session, board_core::Position position,
                                 const Evaluator& evaluator, Depth depth, SearchOptions options) {
-  internal::SearchSessionAccess::begin_root(session);
   const internal::ResolvedSearchOptions resolved = internal::normalize_search_options(options);
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(&evaluator, resolved,
+                                                          internal::SearchSemanticDomain::midgame));
   internal::TranspositionTable* tt =
       (resolved.midgame.use_midgame_tt || resolved.ordering.use_tt_best_move_ordering ||
        resolved.endgame.use_endgame_tt)
@@ -568,7 +580,9 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
-  internal::SearchSessionAccess::begin_root(session);
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(&evaluator, resolved_options,
+                                                          internal::SearchSemanticDomain::midgame));
   internal::TranspositionTable* session_tt =
       internal::SearchSessionAccess::transposition_table(session);
 
@@ -675,7 +689,9 @@ SearchResult solve_exact_endgame(SearchSession& session, board_core::Position po
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
-  internal::SearchSessionAccess::begin_root(session);
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(
+                   nullptr, resolved_options, internal::SearchSemanticDomain::exact_endgame));
   internal::TranspositionTable* tt =
       resolved_options.endgame.use_endgame_tt
           ? internal::SearchSessionAccess::transposition_table(session)
@@ -696,7 +712,9 @@ SearchResult solve_wld_endgame(SearchSession& session, board_core::Position posi
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
-  internal::SearchSessionAccess::begin_root(session);
+  internal::SearchSessionAccess::begin_root(
+      session, internal::make_search_semantic_fingerprint(
+                   nullptr, resolved_options, internal::SearchSemanticDomain::wld_endgame));
   internal::TranspositionTable* tt =
       resolved_options.endgame.use_endgame_tt
           ? internal::SearchSessionAccess::transposition_table(session)

@@ -27,6 +27,9 @@ struct MidgameSearchOptions {
   bool use_iid = false;
   bool use_midgame_tt = false;
   bool pass_consumes_depth = true;
+
+  friend constexpr bool operator==(const MidgameSearchOptions&,
+                                   const MidgameSearchOptions&) = default;
 };
 
 struct MoveOrderingOptions {
@@ -34,6 +37,9 @@ struct MoveOrderingOptions {
   bool use_history = false;
   bool use_killers = false;
   bool use_endgame_parity_ordering = true;
+
+  friend constexpr bool operator==(const MoveOrderingOptions&,
+                                   const MoveOrderingOptions&) = default;
 };
 
 struct EndgameSearchOptions {
@@ -41,10 +47,16 @@ struct EndgameSearchOptions {
   bool use_endgame_tt = false;
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;
+
+  friend constexpr bool operator==(const EndgameSearchOptions&,
+                                   const EndgameSearchOptions&) = default;
 };
 
 struct SearchReportingOptions {
   std::uint8_t multi_pv = 0;
+
+  friend constexpr bool operator==(const SearchReportingOptions&,
+                                   const SearchReportingOptions&) = default;
 };
 
 struct ExperimentalSearchOptions {
@@ -53,6 +65,9 @@ struct ExperimentalSearchOptions {
   bool use_parallel = false;
   std::uint8_t selectivity_level = 0;
   bool use_legacy_search_kernel = false;
+
+  friend constexpr bool operator==(const ExperimentalSearchOptions&,
+                                   const ExperimentalSearchOptions&) = default;
 };
 
 struct SearchOptions {

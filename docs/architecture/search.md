@@ -1713,6 +1713,13 @@ Session policy is explicit:
   cross-root reuse is intentional;
 * one session is single-thread-only and must not serve concurrent searches.
 
+Every root binds the session TT to the evaluator object identity, the
+evaluator's `transposition_table_revision()`, normalized pass/endgame/mode and
+experimental semantics, and the direct-search domain. A binding change clears
+the TT before probing. Mutable evaluators must increment their revision whenever
+their scoring behavior changes in place. Ordering state is safe to retain across
+an automatic semantic rebind because it does not supply cutoff values.
+
 The TT accepts an entry or byte budget. Zero disables it. Allocation reports
 requested and actual bytes, entries, power-of-two buckets, entry size, enabled
 state, and allocation success. Native and WASM callers choose their own byte

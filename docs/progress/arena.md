@@ -12,7 +12,7 @@ The persistent full-game artifact arena provides:
 * deterministic opening-pair cluster-bootstrap confidence intervals
 * explicit run-level strength-gate eligibility and descriptive-only invalid runs
 * same-artifact, color-swap, and argument-order sanity support
-* input and build fingerprints in `full-game-artifact-arena-v2` reports
+* input and build fingerprints in `full-game-artifact-arena-v3` reports
 * opt-in `--persistent-session` with caller-selected `--tt-bytes`
 * requested/actual TT allocation and split same-key, bucket-conflict,
   replacement, probe-slot, and generation-age telemetry
@@ -25,4 +25,5 @@ diagnostics and are not an Elo or promotion gate by themselves.
 
 Persistent sessions remain opt-in. Each engine gets an independent session and
 each game starts from a fresh session; retention occurs only between sequential
-moves of that game.
+moves of that game. The selected TT allocation is used in both persistent and
+non-persistent modes.

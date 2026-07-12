@@ -38,7 +38,7 @@ namespace evaluation = vibe_othello::evaluation;
 namespace search = vibe_othello::search;
 namespace full_arena = vibe_othello::tools::full_game_arena;
 
-constexpr std::string_view kArenaVersion = "full-game-artifact-arena-v2";
+constexpr std::string_view kArenaVersion = "full-game-artifact-arena-v3";
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
@@ -730,12 +730,11 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
     const auto search_started = std::chrono::steady_clock::now();
     search::SearchSession& active_session =
         candidate_to_move ? candidate_session : baseline_session;
-    const search::SearchResult result =
-        search_config.persistent_session
-            ? search::search_iterative(active_session, position, evaluator, search_config.limits,
-                                       search_config.options)
-            : search::search_iterative(position, evaluator, search_config.limits,
-                                       search_config.options);
+    if (!search_config.persistent_session) {
+      active_session.clear();
+    }
+    const search::SearchResult result = search::search_iterative(
+        active_session, position, evaluator, search_config.limits, search_config.options);
     const auto measured_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now() - search_started);
     const std::uint64_t elapsed_ns =
@@ -1542,7 +1541,7 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
                             args.bootstrap_samples, args.minimum_opening_pairs, games));
   output << std::fixed << std::setprecision(6);
   output << "{\n";
-  output << "  \"schema_version\": 2,\n";
+  output << "  \"schema_version\": 3,\n";
   output << "  \"arena_version\": ";
   write_json_string(output, kArenaVersion);
   output << ",\n  \"candidate\": ";

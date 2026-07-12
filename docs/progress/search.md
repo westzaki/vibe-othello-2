@@ -111,7 +111,8 @@ The current search implementation includes:
   loaded phase-aware evaluation artifact, with Worker and React CPU opponent
   wiring implemented separately under `apps/web`
 * caller-owned `SearchSession` overloads with deterministic clear/new-game and
-  explicit analysis reuse policy
+  explicit analysis reuse policy plus automatic evaluator/search-semantics TT
+  invalidation
 * entry- or byte-configured disabled/small/large TT allocation with auditable
   actual capacity and allocation-failure fallback
 * typed key-plus-kind TT probes, protected same-key replacement, and split

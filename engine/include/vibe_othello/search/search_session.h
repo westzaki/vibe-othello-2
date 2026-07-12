@@ -51,7 +51,8 @@ enum class SessionReusePolicy : std::uint8_t {
 
 // Mutable, deterministic single-thread search state. One session may be
 // retained across sequential moves in one game, but must not be used by
-// concurrent searches.
+// concurrent searches. Root entry points automatically clear TT contents when
+// evaluator identity/revision or normalized search semantics change.
 class SearchSession {
 public:
   explicit SearchSession(SearchSessionConfig config = {});

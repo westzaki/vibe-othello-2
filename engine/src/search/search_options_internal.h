@@ -11,6 +11,9 @@ struct ResolvedSearchOptions {
   EndgameSearchOptions endgame{};
   SearchReportingOptions reporting{};
   ExperimentalSearchOptions experimental{};
+
+  friend constexpr bool operator==(const ResolvedSearchOptions&,
+                                   const ResolvedSearchOptions&) = default;
 };
 
 inline ResolvedSearchOptions normalize_search_options(SearchOptions options) noexcept {
