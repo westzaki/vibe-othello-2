@@ -96,4 +96,15 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_artifact_arena_matrix_smoke.py
             --helper ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_artifact_arena_matrix.py)
+
+  add_test(
+    NAME vibe_othello_fixed_time_artifact_strength_campaign_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_fixed_time_artifact_strength_campaign_smoke.py
+      --exe $<TARGET_FILE:vibe_othello_full_game_artifact_arena>
+      --runner ${CMAKE_CURRENT_SOURCE_DIR}/run_fixed_time_artifact_strength_campaign.py
+      --schema-checker
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_fixed_time_artifact_strength_decision.py
+      --artifact-fixture ${CMAKE_CURRENT_SOURCE_DIR}/check_full_game_artifact_arena_smoke.py)
 endif()

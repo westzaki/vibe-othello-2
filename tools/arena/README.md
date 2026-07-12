@@ -339,6 +339,65 @@ This is a local strength-gate foundation, not Elo,
 artifact promotion, or a production-strength claim; generated reports and local
 artifacts must not be committed.
 
+## Fixed-Time Artifact Strength Campaign
+
+`run_fixed_time_artifact_strength_campaign.py` orchestrates a reproducible,
+local-only fixed-wall-time matrix over the persistent full-game arena. It never
+reads the default artifact pointer: both manifest and weights paths are required
+for the candidate and baseline.
+
+The default matrix is 50, 100, and 500 ms per move crossed with exact-endgame
+thresholds 8, 10, and 12. It uses a 16 MiB TT and persistent search sessions by
+default. Every cell runs candidate-versus-baseline, the reversed argument order,
+and candidate/candidate plus baseline/baseline sanity matches. The full-game
+arena supplies paired candidate-Black/candidate-White games and deterministic
+opening selection.
+
+```sh
+python3 tools/arena/run_fixed_time_artifact_strength_campaign.py \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/manifest.json" \
+  --candidate-weights "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/weights.bin" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/manifest.json" \
+  --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/weights.bin" \
+  --opening-corpus "$VIBE_OTHELLO_CORPORA/<campaign>/openings.txt" \
+  --arena-executable build/tools/arena/vibe-othello-full-game-artifact-arena \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/arena/fixed-time/<campaign>" \
+  --campaign-seed 227 --opening-count 100 \
+  --time-limits-ms 50,100,500 --exact-thresholds 8,10,12 \
+  --tt-bytes 16777216 --persistent-session \
+  --bootstrap-iterations 10000 --confidence-level 0.95
+```
+
+Pass `--holdout-opening-corpus` (and optionally
+`--holdout-opening-count`) to repeat the complete matrix on an independent
+corpus. When present, the holdout primary cell drives the suggested decision.
+The default primary cell is the largest configured time limit and exact
+threshold; `--primary-time-ms` and `--primary-exact-threshold` override it.
+
+The output directory contains `decision.json`, `summary.md`,
+`arena-report-inventory.json`, `campaign-manifest.json`,
+`campaign.resume.json`, and per-stage reports and resume sidecars under
+`runs/`. Resume validates the full campaign config, command, input and artifact
+checksums, repository SHA and dirty state, runner and executable identity, and
+report checksum before skipping a stage. Any missing or mismatched metadata is
+an error.
+
+The suggested decision distinguishes `promote`, `continue_validation`,
+`reject_strength`, `reject_correctness`, and `inconclusive`. The default
+promotion gate requires clean games, neutral same-artifact results, consistent
+argument reversal, a primary configured-confidence lower bound above 0.5, a
+primary score rate above 0.5, no material p50 completed-depth regression, and
+at least two eligible cells. The report always includes a separate 95% paired
+bootstrap interval. The suggestion is local evidence only: this runner does not
+promote artifacts, change weights, or update the default pointer.
+
+Validate a completed decision report independently with:
+
+```sh
+python3 tools/arena/check_fixed_time_artifact_strength_decision.py \
+  --decision "$VIBE_OTHELLO_MEASUREMENTS/arena/fixed-time/<campaign>/decision.json"
+```
+
 ## Openings
 
 Opening files are plain text:
