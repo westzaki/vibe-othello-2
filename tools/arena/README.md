@@ -272,6 +272,40 @@ stack used for bounded artifact evaluation. Depth, node, and time limits are
 identical per move for both artifacts. An exact-endgame threshold requires a
 node or time cap because exact root search does not use the depth cap.
 
+The versioned `full-game-artifact-arena-v2` report records every engine search
+call separately for candidate and baseline: completed depth, elapsed time,
+public node/evaluator/TT/PVS/aspiration/IID/endgame/selective counters, exact
+and stopped flags, side to move, occupied count, and runtime phase. It also
+contains per-engine aggregates, phase and side-to-move buckets, depth
+percentiles, TT rates, time-budget overshoot, and a deterministic opening-pair
+cluster-bootstrap 95% interval. The confidence interval resamples opening
+pairs, never individual games.
+
+For new strength-gate measurements, select exactly one explicit limit mode:
+
+```sh
+--limit-mode depth --depth 5
+--limit-mode nodes --nodes 200000
+--limit-mode time --time-ms 250
+```
+
+Legacy combined depth/node/time commands remain runnable and are labeled
+`legacy_combined` in the report; they are not gate-eligible. Time limits are
+cooperative and may overshoot, which is measured in the report.
+
+Use the local-only sanity companion to verify same-artifact, color-swap, and
+candidate/baseline argument-order behavior:
+
+```sh
+python3 tools/arena/run_full_game_artifact_arena_sanity.py \
+  --exe build/tools/arena/vibe-othello-full-game-artifact-arena \
+  --candidate-manifest "$VIBE_OTHELLO_MEASUREMENTS/<candidate>/manifest.json" \
+  --baseline-manifest "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/manifest.json" \
+  --openings tools/arena/openings/smoke.txt \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/arena/full-game-sanity" \
+  --limit-mode depth --depth 3
+```
+
 The JSON-only report includes runtime artifact identities and checksums,
 resolved search options, selected openings, per-game and per-opening results,
 color-assignment buckets, pass/failure/illegal counts, elapsed time, and

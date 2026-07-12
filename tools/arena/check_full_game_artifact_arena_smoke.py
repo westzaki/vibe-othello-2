@@ -120,6 +120,10 @@ def assert_report(report: dict[str, object]) -> None:
         "same_artifact_sanity",
         "report_checksum",
         "non_claim_notes",
+        "inputs",
+        "telemetry",
+        "paired_sanity",
+        "selected_openings_checksum",
     }
     missing = sorted(expected - set(report))
     if missing:
@@ -161,6 +165,58 @@ def assert_report(report: dict[str, object]) -> None:
         raise AssertionError(f"same-artifact sanity failed: {sanity!r}")
     if overall["candidate_score_rate"] != 0.5 or overall["average_disc_diff_candidate_perspective"] != 0.0:
         raise AssertionError(f"same artifact was not neutral: {overall!r}")
+    if report["schema_version"] != 2 or report["arena_version"] != "full-game-artifact-arena-v2":
+        raise AssertionError(f"unexpected v2 schema: {report!r}")
+    if report["search_config"]["limit_mode"] != "fixed_depth":
+        raise AssertionError(f"fixed-depth mode was not recorded: {report['search_config']!r}")
+    paired = report["results"].get("paired_score")
+    if not isinstance(paired, dict) or paired.get("method") != "deterministic-cluster-bootstrap-opening-pair":
+        raise AssertionError(f"paired bootstrap missing: {paired!r}")
+    if paired.get("opening_pair_count") != 4 or paired.get("game_count") != 8:
+        raise AssertionError(f"wrong pair accounting: {paired!r}")
+    paired_sanity = report["paired_sanity"]
+    if paired_sanity.get("paired_color_swap_complete") is not True or paired_sanity.get(
+        "same_artifact_neutral"
+    ) is not True:
+        raise AssertionError(f"v2 paired sanity failed: {paired_sanity!r}")
+    telemetry = report["telemetry"]
+    for role in ("candidate", "baseline"):
+        role_report = telemetry.get(role)
+        if not isinstance(role_report, dict) or role_report["overall"]["search_calls"] <= 0:
+            raise AssertionError(f"missing {role} telemetry: {role_report!r}")
+        if not role_report["by_phase"] or not role_report["by_side_to_move"]:
+            raise AssertionError(f"missing {role} telemetry buckets: {role_report!r}")
+    if any(not game.get("search_calls") for game in report["game_records"]):
+        raise AssertionError("game record lacks per-search telemetry")
+
+
+def assert_sanity_runner(exe: str, temp_dir: Path) -> None:
+    helper = Path(__file__).with_name("run_full_game_artifact_arena_sanity.py")
+    output_dir = temp_dir / "sanity"
+    command = [
+        sys.executable,
+        str(helper),
+        "--exe",
+        exe,
+        "--candidate-manifest",
+        str(temp_dir / "candidate.manifest.json"),
+        "--baseline-manifest",
+        str(temp_dir / "baseline.manifest.json"),
+        "--openings",
+        str(temp_dir / "openings.txt"),
+        "--output-dir",
+        str(output_dir),
+        "--limit-mode",
+        "depth",
+        "--depth",
+        "1",
+    ]
+    completed = run(command)
+    if completed.returncode != 0:
+        raise AssertionError(f"sanity runner failed:\n{completed.stdout}\n{completed.stderr}")
+    summary = json.loads((output_dir / "sanity-summary.json").read_text(encoding="utf-8"))
+    if not all(summary.get(key) is True for key in ("color_swap_passed", "same_artifact_passed", "argument_order_passed")):
+        raise AssertionError(f"sanity summary failed: {summary!r}")
 
 
 def assert_exact_guard(exe: str, temp_dir: Path) -> None:
@@ -184,6 +240,46 @@ def assert_exact_guard(exe: str, temp_dir: Path) -> None:
         raise AssertionError("depth-only exact endgame request unexpectedly succeeded")
     if "requires --nodes or --time-ms" not in completed.stderr:
         raise AssertionError(f"exact guard error missing:\n{completed.stderr}")
+
+
+def assert_explicit_limit_modes(exe: str, temp_dir: Path) -> None:
+    base = [
+        exe,
+        "--candidate-manifest",
+        str(temp_dir / "candidate.manifest.json"),
+        "--baseline-manifest",
+        str(temp_dir / "baseline.manifest.json"),
+        "--openings",
+        str(temp_dir / "openings.txt"),
+        "--opening-limit",
+        "1",
+        "--search-preset",
+        "basic",
+    ]
+    cases = (
+        ("depth", "--depth", "1", "fixed_depth", False),
+        ("nodes", "--nodes", "1", "fixed_nodes", True),
+        ("time", "--time-ms", "1", "fixed_wall_time", True),
+    )
+    for mode, flag, value, expected_mode, expected_infinite in cases:
+        report_path = temp_dir / f"{mode}.json"
+        completed = run(
+            [
+                *base,
+                "--report-out",
+                str(report_path),
+                "--limit-mode",
+                mode,
+                flag,
+                value,
+            ]
+        )
+        if completed.returncode != 0:
+            raise AssertionError(f"{mode} mode failed:\n{completed.stdout}\n{completed.stderr}")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        config = report["search_config"]
+        if config["limit_mode"] != expected_mode or config["infinite"] is not expected_infinite:
+            raise AssertionError(f"incorrect {mode} mode config: {config!r}")
 
 
 def main(argv: list[str]) -> int:
@@ -212,6 +308,8 @@ def main(argv: list[str]) -> int:
                 f"{second['report_checksum']!r}"
             )
         assert_exact_guard(args.exe, temp_dir)
+        assert_explicit_limit_modes(args.exe, temp_dir)
+        assert_sanity_runner(args.exe, temp_dir)
     return 0
 
 

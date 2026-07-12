@@ -20,6 +20,8 @@ Read only the document needed for the current task.
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation artifact architecture | `architecture/evaluation-artifacts.md` |
 | Evaluation current status | `progress/evaluation.md` |
+| Arena and strength-gate architecture | `architecture/arena.md` |
+| Arena and strength-gate implementation status | `progress/arena.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
 | Pattern learning implementation status | `progress/pattern-learning.md` |
 | Pattern learning corpus data policy | `../data/corpora/README.md` |
