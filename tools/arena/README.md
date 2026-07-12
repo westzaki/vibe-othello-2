@@ -365,7 +365,9 @@ python3 tools/arena/run_fixed_time_artifact_strength_campaign.py \
   --campaign-seed 227 --opening-count 100 \
   --time-limits-ms 50,100,500 --exact-thresholds 8,10,12 \
   --tt-bytes 16777216 --persistent-session \
-  --bootstrap-iterations 10000 --confidence-level 0.95
+  --bootstrap-iterations 10000 --confidence-level 0.95 \
+  --minimum-promotion-opening-pairs 100 \
+  --minimum-promotion-time-limits 2
 ```
 
 Pass `--holdout-opening-corpus` (and optionally
@@ -380,15 +382,31 @@ The output directory contains `decision.json`, `summary.md`,
 `runs/`. Resume validates the full campaign config, command, input and artifact
 checksums, repository SHA and dirty state, runner and executable identity, and
 report checksum before skipping a stage. Any missing or mismatched metadata is
-an error.
+an error. Each completed arena report is additionally bound back to its
+requested preset, time, exact threshold, persistence mode, TT budget, runtime
+artifact identities, executable, opening corpus, selected count, seed, and
+bootstrap config before the campaign accepts it.
 
 The suggested decision distinguishes `promote`, `continue_validation`,
 `reject_strength`, `reject_correctness`, and `inconclusive`. The default
-promotion gate requires clean games, neutral same-artifact results, consistent
-argument reversal, a primary configured-confidence lower bound above 0.5, a
-primary score rate above 0.5, no material p50 completed-depth regression, and
-at least two eligible cells. The report always includes a separate 95% paired
-bootstrap interval. The suggestion is local evidence only: this runner does not
+promotion gate requires clean games and at least 100 opening pairs in every
+counted cell. Each counted cell must have score rate above 0.5, a fixed 95%
+paired-bootstrap lower bound above 0.5, and no material p50 completed-depth
+regression. At least two distinct time limits must pass all of those gates;
+multiple exact thresholds at one time limit do not satisfy that breadth
+requirement. `--confidence-level` controls only a supplementary displayed
+interval and cannot weaken the fixed 95% promotion contract.
+`--minimum-promotion-opening-pairs` may raise the sample floor but cannot lower
+it below 100.
+
+Forward and reversed argument-order results are converted to the original
+candidate perspective and averaged by opening before computing each cell's
+strength interval. Exact fixed-time same-artifact neutrality and exact
+forward/reverse complementarity remain visible as timing-sensitive diagnostics,
+but they are not correctness rejection gates. Failed or illegal games remain
+correctness failures. The heterogeneous matrix aggregate is descriptive only
+and intentionally has no confidence interval because the same openings repeat
+across conditions. The suggestion is local evidence only: this runner does not
 promote artifacts, change weights, or update the default pointer.
 
 Validate a completed decision report independently with:

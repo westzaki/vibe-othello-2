@@ -24,6 +24,16 @@ VARIANTS = (
     "same_candidate",
     "same_baseline",
 )
+ARTIFACT_ROLE_PAIRS = {
+    "candidate_vs_baseline": ("candidate", "baseline"),
+    "baseline_vs_candidate": ("baseline", "candidate"),
+    "same_candidate": ("candidate", "candidate"),
+    "same_baseline": ("baseline", "baseline"),
+}
+FNV1A64_OFFSET_BASIS = 14695981039346656037
+FNV1A64_PRIME = 1099511628211
+MINIMUM_ALLOWED_PROMOTION_OPENING_PAIRS = 100
+ChecksumCache = dict[tuple[str, Path], str]
 
 
 class CampaignError(RuntimeError):
@@ -36,6 +46,27 @@ def stable_json(value: Any) -> str:
 
 def sha256_text(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def fnv1a64_bytes(value: bytes) -> str:
+    checksum = FNV1A64_OFFSET_BASIS
+    for byte in value:
+        checksum ^= byte
+        checksum = (checksum * FNV1A64_PRIME) & 0xFFFFFFFFFFFFFFFF
+    return f"fnv1a64:{checksum:016x}"
+
+
+def fnv1a64_file(path: Path, cache: ChecksumCache | None = None) -> str:
+    cache_key = ("fnv1a64", path.resolve())
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+    try:
+        value = fnv1a64_bytes(path.read_bytes())
+    except OSError as error:
+        raise CampaignError(f"cannot checksum {path}: {error}") from error
+    if cache is not None:
+        cache[cache_key] = value
+    return value
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -52,10 +83,11 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def sha256_file(path: Path, cache: dict[Path, str] | None = None) -> str:
+def sha256_file(path: Path, cache: ChecksumCache | None = None) -> str:
     resolved = path.resolve()
-    if cache is not None and resolved in cache:
-        return cache[resolved]
+    cache_key = ("sha256", resolved)
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
     digest = hashlib.sha256()
     try:
         with path.open("rb") as handle:
@@ -65,7 +97,7 @@ def sha256_file(path: Path, cache: dict[Path, str] | None = None) -> str:
         raise CampaignError(f"cannot checksum {path}: {error}") from error
     value = f"sha256:{digest.hexdigest()}"
     if cache is not None:
-        cache[resolved] = value
+        cache[cache_key] = value
     return value
 
 
@@ -142,7 +174,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--promotion-score-threshold", type=float, default=0.5)
     parser.add_argument("--promotion-ci-lower-threshold", type=float, default=0.5)
     parser.add_argument("--minimum-completed-depth-ratio", type=float, default=0.9)
-    parser.add_argument("--minimum-promotion-cells", type=int, default=2)
+    parser.add_argument("--minimum-promotion-opening-pairs", type=int, default=100)
+    parser.add_argument(
+        "--minimum-promotion-time-limits",
+        "--minimum-promotion-cells",
+        dest="minimum_promotion_time_limits",
+        type=int,
+        default=2,
+    )
     parser.add_argument("--search-preset", choices=("basic", "full"), default="full")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
@@ -167,8 +206,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.error("--promotion-ci-lower-threshold must be in [0, 1]")
     if not 0.0 < args.minimum_completed_depth_ratio <= 1.0:
         parser.error("--minimum-completed-depth-ratio must be in (0, 1]")
-    if args.minimum_promotion_cells < 2:
-        parser.error("--minimum-promotion-cells must be at least 2")
+    if args.minimum_promotion_opening_pairs < MINIMUM_ALLOWED_PROMOTION_OPENING_PAIRS:
+        parser.error(
+            "--minimum-promotion-opening-pairs must be at least "
+            f"{MINIMUM_ALLOWED_PROMOTION_OPENING_PAIRS}"
+        )
+    if args.minimum_promotion_time_limits < 2:
+        parser.error("--minimum-promotion-time-limits must be at least 2")
     args.primary_time_ms = args.primary_time_ms or max(args.time_limits_ms)
     args.primary_exact_threshold = (
         args.primary_exact_threshold
@@ -189,24 +233,57 @@ def require_file(path: Path, label: str) -> None:
         raise CampaignError(f"missing {label}: {path}")
 
 
-def file_identity(path: Path, role: str, cache: dict[Path, str]) -> dict[str, Any]:
+def file_identity(path: Path, role: str, cache: ChecksumCache) -> dict[str, Any]:
     require_file(path, role)
     return {
         "role": role,
         "path": display_path(path, role),
         "size_bytes": path.stat().st_size,
         "sha256": sha256_file(path, cache),
+        "fnv1a64": fnv1a64_file(path, cache),
     }
 
 
 def artifact_identity(
-    manifest_path: Path, weights_path: Path, role: str, cache: dict[Path, str]
+    manifest_path: Path, weights_path: Path, role: str, cache: ChecksumCache
 ) -> dict[str, Any]:
     manifest = load_json(manifest_path)
     for field in ("pattern_set_id", "weights_checksum"):
         if not isinstance(manifest.get(field), str) or not manifest[field]:
             raise CampaignError(f"{role} manifest missing string {field}: {manifest_path}")
     require_file(weights_path, f"{role} weights")
+    trained_phases = manifest.get("trained_phases")
+    if "trained_phases" in manifest and not isinstance(trained_phases, list):
+        raise CampaignError(f"{role} manifest trained_phases must be an array: {manifest_path}")
+    trained_phases_reported = isinstance(trained_phases, list)
+    trained_phase_values = trained_phases if trained_phases_reported else []
+    if any(type(phase) is not int or phase < 0 or phase > 12 for phase in trained_phase_values):
+        raise CampaignError(
+            f"{role} manifest trained_phases must contain integers in [0, 12]: {manifest_path}"
+        )
+    fallback_phase = manifest.get("fallback_additive_through_phase")
+    if fallback_phase is not None and (
+        type(fallback_phase) is not int or fallback_phase < 0 or fallback_phase > 12
+    ):
+        raise CampaignError(
+            f"{role} manifest fallback_additive_through_phase must be in [0, 12]: "
+            f"{manifest_path}"
+        )
+    evaluator_policy = (
+        "phase-aware-covered-phases-with-fallback-residual"
+        if type(fallback_phase) is int
+        else "phase-aware-covered-phases"
+        if trained_phases_reported
+        else "phase-aware-legacy-all-phase-learned"
+    )
+    runtime_payload = (
+        f"{manifest['pattern_set_id']}\n"
+        f"{manifest['weights_checksum']}\n"
+        f"{evaluator_policy}\n"
+        f"{'1' if trained_phases_reported else '0'}\n"
+        f"{fallback_phase if type(fallback_phase) is int else 'none'}"
+        + "".join(f",{int(phase)}" for phase in trained_phase_values)
+    )
     return {
         "role": role,
         "manifest_path": display_path(manifest_path, f"{role}-manifest"),
@@ -216,6 +293,9 @@ def artifact_identity(
         "manifest_weights_checksum": manifest["weights_checksum"],
         "manifest_sha256": sha256_file(manifest_path, cache),
         "weights_sha256": sha256_file(weights_path, cache),
+        "manifest_content_checksum": fnv1a64_file(manifest_path, cache),
+        "weights_file_checksum": fnv1a64_file(weights_path, cache),
+        "runtime_identity_checksum": fnv1a64_bytes(runtime_payload.encode("utf-8")),
     }
 
 
@@ -278,13 +358,7 @@ def arena_command(
         "candidate": (args.candidate_manifest, args.candidate_weights),
         "baseline": (args.baseline_manifest, args.baseline_weights),
     }
-    role_pairs = {
-        "candidate_vs_baseline": ("candidate", "baseline"),
-        "baseline_vs_candidate": ("baseline", "candidate"),
-        "same_candidate": ("candidate", "candidate"),
-        "same_baseline": ("baseline", "baseline"),
-    }
-    candidate_role, baseline_role = role_pairs[variant]
+    candidate_role, baseline_role = ARTIFACT_ROLE_PAIRS[variant]
     candidate_manifest, candidate_weights = artifacts[candidate_role]
     baseline_manifest, baseline_weights = artifacts[baseline_role]
     command = [
@@ -338,7 +412,58 @@ def require_mapping(mapping: dict[str, Any], field: str, context: str) -> dict[s
     return value
 
 
-def validate_arena_report(report: dict[str, Any], path: Path) -> None:
+def expected_report_binding(
+    args: argparse.Namespace,
+    opening_set: str,
+    opening_count: int,
+    opening_seed: int,
+    time_ms: int,
+    exact: int,
+    variant: str,
+    shared: dict[str, Any],
+) -> dict[str, Any]:
+    candidate_role, baseline_role = ARTIFACT_ROLE_PAIRS[variant]
+    candidate = shared["artifacts"][candidate_role]
+    baseline = shared["artifacts"][baseline_role]
+    return {
+        "search_config": {
+            "preset": args.search_preset,
+            "limit_mode": "fixed_wall_time",
+            "time_ms": time_ms,
+            "exact_endgame_empties": exact,
+            "persistent_session": args.persistent_session,
+            "tt_requested_bytes": args.tt_bytes,
+        },
+        "candidate_name": candidate_role,
+        "baseline_name": baseline_role,
+        "candidate_runtime_identity_checksum": candidate["runtime_identity_checksum"],
+        "baseline_runtime_identity_checksum": baseline["runtime_identity_checksum"],
+        "candidate_manifest_checksum": candidate["manifest_content_checksum"],
+        "candidate_weights_checksum": candidate["weights_file_checksum"],
+        "baseline_manifest_checksum": baseline["manifest_content_checksum"],
+        "baseline_weights_checksum": baseline["weights_file_checksum"],
+        "executable_checksum": shared["executable_identity"]["fnv1a64"],
+        "opening_source_checksum": shared["opening_corpora"][opening_set]["fnv1a64"],
+        "opening_count": opening_count,
+        "opening_limit": opening_count,
+        "seed": opening_seed,
+        "bootstrap_seed": args.campaign_seed,
+        "bootstrap_samples": args.bootstrap_iterations,
+        "minimum_opening_pairs": opening_count,
+    }
+
+
+def require_equal(actual: Any, expected: Any, field: str, path: Path) -> None:
+    if actual != expected:
+        raise CampaignError(
+            f"arena report binding mismatch for {field}: expected {expected!r}, "
+            f"got {actual!r}: {path}"
+        )
+
+
+def validate_arena_report(
+    report: dict[str, Any], path: Path, expected: dict[str, Any]
+) -> None:
     required = {
         "candidate",
         "baseline",
@@ -367,11 +492,61 @@ def validate_arena_report(report: dict[str, Any], path: Path) -> None:
         for field in ("overall", "by_phase", "by_side_to_move"):
             require_mapping(role_data, field, f"{path}.telemetry.{role}")
     search = require_mapping(report, "search_config", str(path))
-    if search.get("limit_mode") != "fixed_wall_time":
-        raise CampaignError(f"arena report is not fixed-wall-time: {path}")
+    for field, expected_value in expected["search_config"].items():
+        require_equal(search.get(field), expected_value, f"search_config.{field}", path)
     paired = require_mapping(report, "paired_sanity", str(path))
     if paired.get("paired_color_swap_complete") is not True:
         raise CampaignError(f"arena report lacks complete candidate Black/White pairs: {path}")
+    candidate = require_mapping(report, "candidate", str(path))
+    baseline = require_mapping(report, "baseline", str(path))
+    require_equal(candidate.get("name"), expected["candidate_name"], "candidate.name", path)
+    require_equal(baseline.get("name"), expected["baseline_name"], "baseline.name", path)
+    require_equal(
+        candidate.get("runtime_identity_checksum"),
+        expected["candidate_runtime_identity_checksum"],
+        "candidate.runtime_identity_checksum",
+        path,
+    )
+    require_equal(
+        baseline.get("runtime_identity_checksum"),
+        expected["baseline_runtime_identity_checksum"],
+        "baseline.runtime_identity_checksum",
+        path,
+    )
+    inputs = require_mapping(report, "inputs", str(path))
+    for field in (
+        "candidate_manifest_checksum",
+        "candidate_weights_checksum",
+        "baseline_manifest_checksum",
+        "baseline_weights_checksum",
+    ):
+        require_equal(inputs.get(field), expected[field], f"inputs.{field}", path)
+    executable = require_mapping(inputs, "executable", f"{path}.inputs")
+    require_equal(
+        executable.get("checksum"),
+        expected["executable_checksum"],
+        "inputs.executable.checksum",
+        path,
+    )
+    for field in ("opening_source_checksum", "opening_count", "opening_limit", "seed"):
+        require_equal(report.get(field), expected[field], field, path)
+    paired_score = require_mapping(results, "paired_score", f"{path}.results")
+    require_equal(
+        paired_score.get("bootstrap_seed"), expected["bootstrap_seed"], "bootstrap_seed", path
+    )
+    require_equal(
+        paired_score.get("bootstrap_samples"),
+        expected["bootstrap_samples"],
+        "bootstrap_samples",
+        path,
+    )
+    gate = require_mapping(report, "strength_gate", str(path))
+    require_equal(
+        gate.get("minimum_opening_pairs"),
+        expected["minimum_opening_pairs"],
+        "strength_gate.minimum_opening_pairs",
+        path,
+    )
 
 
 def expected_resume(
@@ -409,7 +584,7 @@ def run_stage(
     exact: int,
     variant: str,
     shared: dict[str, Any],
-    cache: dict[Path, str],
+    cache: ChecksumCache,
 ) -> tuple[dict[str, Any], str, Path]:
     report_path, sidecar_path = stage_paths(args.output_dir, opening_set, time_ms, exact, variant)
     command = arena_command(
@@ -431,10 +606,19 @@ def run_stage(
         shared["artifacts"],
         shared["campaign_config"],
     )
+    report_binding = expected_report_binding(
+        args,
+        opening_set,
+        opening_count,
+        opening_seed,
+        time_ms,
+        exact,
+        variant,
+        shared,
+    )
     if args.resume:
         if report_path.exists() and sidecar_path.exists():
             report = load_json(report_path)
-            validate_arena_report(report, report_path)
             current = dict(expected)
             current["outputs"] = [file_identity(report_path, "arena-report", cache)]
             mismatch = first_mismatch(current, load_json(sidecar_path))
@@ -442,6 +626,7 @@ def run_stage(
                 raise CampaignError(
                     f"resume metadata mismatch for {opening_set}/{time_ms}/{exact}/{variant} at {mismatch}"
                 )
+            validate_arena_report(report, report_path, report_binding)
             return report, "skipped-resume-validated", report_path
         if report_path.exists() or sidecar_path.exists():
             raise CampaignError(
@@ -463,7 +648,7 @@ def run_stage(
     if not report_path.is_file():
         raise CampaignError(f"arena stage did not write report: {report_path}")
     report = load_json(report_path)
-    validate_arena_report(report, report_path)
+    validate_arena_report(report, report_path, report_binding)
     complete = dict(expected)
     complete["outputs"] = [file_identity(report_path, "arena-report", cache)]
     write_json(sidecar_path, complete)
@@ -488,14 +673,18 @@ def candidate_score(result: Any) -> float:
 
 
 def opening_pair_scores(report: dict[str, Any]) -> list[float]:
+    return list(opening_pair_score_map(report).values())
+
+
+def opening_pair_score_map(report: dict[str, Any]) -> dict[str, float]:
     by_opening = require_mapping(require_mapping(report, "results", "report"), "by_opening", "results")
-    scores: list[float] = []
+    scores: dict[str, float] = {}
     for opening, bucket_value in sorted(by_opening.items()):
         if not isinstance(bucket_value, dict):
             raise CampaignError(f"opening bucket is not an object: {opening}")
         if bucket_value.get("games") != 2:
             raise CampaignError(f"opening pair is incomplete: {opening}")
-        scores.append(numeric(bucket_value, "candidate_score_rate", f"opening {opening}"))
+        scores[opening] = numeric(bucket_value, "candidate_score_rate", f"opening {opening}")
     if not scores:
         raise CampaignError("arena report contains no opening pair scores")
     return scores
@@ -531,25 +720,58 @@ def bootstrap_interval(
     }
 
 
-def overall_result(reports: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def argument_order_observations(
+    forward: dict[str, Any], reverse: dict[str, Any]
+) -> list[float]:
+    forward_scores = opening_pair_score_map(forward)
+    reverse_scores = opening_pair_score_map(reverse)
+    if forward_scores.keys() != reverse_scores.keys():
+        raise CampaignError("candidate/baseline argument-order reports used different openings")
+    return [
+        (forward_scores[key] + (1.0 - reverse_scores[key])) / 2.0
+        for key in sorted(forward_scores)
+    ]
+
+
+def argument_order_overall(
+    forward: dict[str, Any], reverse: dict[str, Any]
+) -> dict[str, Any]:
+    result = oriented_overall(((forward, False), (reverse, True)))
+    result["descriptive_only"] = False
+    return result
+
+
+def oriented_overall(
+    reports: Iterable[tuple[dict[str, Any], bool]]
+) -> dict[str, Any]:
     wins = losses = draws = failed = illegal = 0
     disc_diffs: list[int] = []
-    games = 0
-    for report in reports:
-        bucket = require_mapping(require_mapping(report, "results", "report"), "overall", "results")
-        wins += int(numeric(bucket, "candidate_wins", "results.overall"))
-        losses += int(numeric(bucket, "candidate_losses", "results.overall"))
-        draws += int(numeric(bucket, "draws", "results.overall"))
+    for report, reverse_perspective in reports:
         failed += int(numeric(report, "failed_games", "report"))
         illegal += int(numeric(report, "illegal_games", "report"))
         records = report.get("game_records")
         if not isinstance(records, list):
             raise CampaignError("arena report game_records must be an array")
         for record in records:
-            if not isinstance(record, dict) or not isinstance(record.get("candidate_disc_diff"), int):
+            if not isinstance(record, dict) or not isinstance(
+                record.get("candidate_disc_diff"), int
+            ):
                 raise CampaignError("arena game record missing integer candidate_disc_diff")
-            disc_diffs.append(record["candidate_disc_diff"])
-        games += int(numeric(bucket, "games", "results.overall"))
+            score = candidate_score(record.get("candidate_result"))
+            if reverse_perspective:
+                score = 1.0 - score
+            if score == 1.0:
+                wins += 1
+            elif score == 0.5:
+                draws += 1
+            else:
+                losses += 1
+            disc_diffs.append(
+                -record["candidate_disc_diff"]
+                if reverse_perspective
+                else record["candidate_disc_diff"]
+            )
+    games = wins + losses + draws
     return {
         "games": games,
         "candidate_wins": wins,
@@ -560,6 +782,8 @@ def overall_result(reports: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "median_disc_difference": statistics.median(disc_diffs) if disc_diffs else None,
         "failed_games": failed,
         "illegal_games": illegal,
+        "descriptive_only": True,
+        "argument_orders_combined": True,
     }
 
 
@@ -657,10 +881,12 @@ def exposure_score_rates(reports: Iterable[dict[str, Any]]) -> tuple[dict[str, A
     return summarize(phases), summarize(sides)
 
 
-def same_artifact_passes(report: dict[str, Any]) -> bool:
+def same_artifact_diagnostic(
+    report: dict[str, Any], seed: int, iterations: int
+) -> dict[str, Any]:
     paired = require_mapping(report, "paired_sanity", "report")
     overall = require_mapping(require_mapping(report, "results", "report"), "overall", "results")
-    return (
+    exact_neutral = (
         report.get("failed_games") == 0
         and report.get("illegal_games") == 0
         and paired.get("same_artifact_neutral") is True
@@ -668,13 +894,24 @@ def same_artifact_passes(report: dict[str, Any]) -> bool:
         and abs(numeric(overall, "average_disc_diff_candidate_perspective", "results.overall"))
         <= 1.0e-12
     )
+    interval = bootstrap_interval(opening_pair_scores(report), seed, iterations, 0.95)
+    return {
+        "diagnostic_only": True,
+        "clean": report.get("failed_games") == 0 and report.get("illegal_games") == 0,
+        "exactly_neutral": exact_neutral,
+        "bootstrap_95_ci": interval,
+        "ci95_includes_neutral": interval["lower"] <= 0.5 <= interval["upper"],
+    }
 
 
-def swap_passes(forward: dict[str, Any], reverse: dict[str, Any]) -> bool:
+def swap_diagnostic(forward: dict[str, Any], reverse: dict[str, Any]) -> dict[str, Any]:
     forward_overall = require_mapping(require_mapping(forward, "results", "forward"), "overall", "results")
     reverse_overall = require_mapping(require_mapping(reverse, "results", "reverse"), "overall", "results")
-    return (
+    selected_openings_match = (
         forward.get("selected_openings_checksum") == reverse.get("selected_openings_checksum")
+    )
+    exactly_complementary = (
+        selected_openings_match
         and forward.get("failed_games") == 0
         and forward.get("illegal_games") == 0
         and reverse.get("failed_games") == 0
@@ -699,48 +936,99 @@ def swap_passes(forward: dict[str, Any], reverse: dict[str, Any]) -> bool:
         )
         <= 1.0e-9
     )
+    return {
+        "diagnostic_only": True,
+        "selected_openings_match": selected_openings_match,
+        "exactly_complementary": exactly_complementary,
+        "forward_score_rate": numeric(
+            forward_overall, "candidate_score_rate", "forward.overall"
+        ),
+        "reverse_score_rate": numeric(
+            reverse_overall, "candidate_score_rate", "reverse.overall"
+        ),
+    }
 
 
-def depth_ratio(report: dict[str, Any]) -> float | None:
+def completed_depth_p50(report: dict[str, Any], role: str) -> float | None:
     telemetry = require_mapping(report, "telemetry", "report")
-    values: dict[str, float] = {}
-    for role in ("candidate", "baseline"):
-        overall = require_mapping(require_mapping(telemetry, role, "telemetry"), "overall", role)
-        percentiles = require_mapping(overall, "completed_depth_percentiles", f"telemetry.{role}")
-        value = percentiles.get("p50")
-        if not isinstance(value, (int, float)):
-            return None
-        values[role] = float(value)
-    if values["baseline"] == 0.0:
-        return 1.0 if values["candidate"] >= 0.0 else None
-    return values["candidate"] / values["baseline"]
+    overall = require_mapping(require_mapping(telemetry, role, "telemetry"), "overall", role)
+    percentiles = require_mapping(overall, "completed_depth_percentiles", f"telemetry.{role}")
+    value = percentiles.get("p50")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def ratio_or_none(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator is None:
+        return None
+    if denominator == 0.0:
+        return 1.0 if numerator >= 0.0 else None
+    return numerator / denominator
+
+
+def argument_order_depth_ratio(
+    forward: dict[str, Any], reverse: dict[str, Any]
+) -> float | None:
+    forward_ratio = ratio_or_none(
+        completed_depth_p50(forward, "candidate"),
+        completed_depth_p50(forward, "baseline"),
+    )
+    reverse_ratio = ratio_or_none(
+        completed_depth_p50(reverse, "baseline"),
+        completed_depth_p50(reverse, "candidate"),
+    )
+    if forward_ratio is None or reverse_ratio is None:
+        return None
+    return min(forward_ratio, reverse_ratio)
+
+
+def promotion_cell_assessment(
+    *,
+    strength_gate_eligible: bool,
+    score_rate: float,
+    ci95: dict[str, Any],
+    completed_depth_ratio: float | None,
+    opening_pair_count: int,
+    score_threshold: float,
+    ci_lower_threshold: float,
+    minimum_completed_depth_ratio: float,
+    minimum_opening_pairs: int,
+) -> dict[str, Any]:
+    checks = {
+        "strength_gate_eligible": strength_gate_eligible,
+        "score_rate_passed": score_rate > score_threshold,
+        "ci95_lower_bound_passed": ci95["lower"] > ci_lower_threshold,
+        "completed_depth_passed": completed_depth_ratio is not None
+        and completed_depth_ratio >= minimum_completed_depth_ratio,
+        "minimum_opening_pairs_passed": opening_pair_count >= minimum_opening_pairs,
+    }
+    return {**checks, "promotion_passed": all(checks.values())}
 
 
 def suggest_decision(checks: dict[str, Any]) -> dict[str, Any]:
     reasons: list[str] = []
     if checks["failed_games"] or checks["illegal_games"]:
-        reasons.append("failed or illegal games are present")
-    if not checks["same_artifact_neutral"]:
-        reasons.append("same-artifact sanity is not neutral")
-    if not checks["swap_passed"]:
-        reasons.append("candidate/baseline argument-order swap sanity failed")
-    if reasons:
-        return {"category": "reject_correctness", "reasons": reasons}
-    if not checks["primary_eligible"]:
+        return {
+            "category": "reject_correctness",
+            "reasons": ["failed or illegal games are present"],
+        }
+    if not checks["primary_strength_gate_eligible"]:
         return {"category": "inconclusive", "reasons": ["primary fixed-time cell is not eligible"]}
-    if checks["primary_ci_upper"] < checks["score_threshold"]:
+    if not checks["primary_minimum_opening_pairs_passed"]:
+        return {
+            "category": "continue_validation",
+            "reasons": ["primary fixed-time cell has too few opening pairs for promotion"],
+        }
+    if checks["primary_ci95_upper"] < checks["ci_lower_threshold"]:
         return {
             "category": "reject_strength",
-            "reasons": ["primary fixed-time confidence interval is wholly below the score threshold"],
+            "reasons": [
+                "primary fixed-time 95% confidence interval is wholly below the score threshold"
+            ],
         }
-    if checks["eligible_cell_count"] < checks["minimum_promotion_cells"]:
-        reasons.append("too few eligible matrix cells for promotion")
-    if checks["primary_score_rate"] <= checks["score_threshold"]:
-        reasons.append("primary candidate score rate does not exceed the configured threshold")
-    if checks["primary_ci_lower"] <= checks["ci_lower_threshold"]:
-        reasons.append("primary confidence interval lower bound does not exceed the configured threshold")
-    if not checks["depth_regression_passed"]:
-        reasons.append("primary completed-depth ratio indicates a material regression")
+    if not checks["primary_promotion_passed"]:
+        reasons.append("primary cell did not pass score, fixed-95%-CI, depth, and sample gates")
+    if checks["promotion_time_limit_count"] < checks["minimum_promotion_time_limits"]:
+        reasons.append("too few distinct fixed-time limits passed every promotion gate")
     if reasons:
         return {"category": "continue_validation", "reasons": reasons}
     return {
@@ -755,9 +1043,7 @@ def build_decision(
     reports: dict[tuple[str, int, int, str], dict[str, Any]],
 ) -> dict[str, Any]:
     decision_set = "holdout" if args.holdout_opening_corpus is not None else "primary"
-    forward_keys = sorted(
-        key for key in reports if key[3] == "candidate_vs_baseline"
-    )
+    forward_keys = sorted(key for key in reports if key[3] == "candidate_vs_baseline")
     forward_reports = [reports[key] for key in forward_keys]
     primary_key = (
         decision_set,
@@ -766,28 +1052,13 @@ def build_decision(
         "candidate_vs_baseline",
     )
     primary = reports[primary_key]
-    overall = overall_result(forward_reports)
-    observations = [score for report in forward_reports for score in opening_pair_scores(report)]
-    configured_ci = bootstrap_interval(
-        observations, args.campaign_seed, args.bootstrap_iterations, args.confidence_level
-    )
-    ci_95 = bootstrap_interval(observations, args.campaign_seed, args.bootstrap_iterations, 0.95)
-    primary_observations = opening_pair_scores(primary)
-    primary_ci = bootstrap_interval(
-        primary_observations,
-        args.campaign_seed,
-        args.bootstrap_iterations,
-        args.confidence_level,
-    )
-    primary_ci_95 = bootstrap_interval(
-        primary_observations, args.campaign_seed, args.bootstrap_iterations, 0.95
-    )
     phase_scores, side_scores = exposure_score_rates(forward_reports)
     telemetry = combined_telemetry(forward_reports)
 
     cells: list[dict[str, Any]] = []
-    same_passed = True
-    swaps_passed = True
+    same_diagnostics: list[dict[str, Any]] = []
+    swap_diagnostics: list[dict[str, Any]] = []
+    oriented_reports: list[tuple[dict[str, Any], bool]] = []
     all_failed = all_illegal = 0
     for opening_set in sorted({key[0] for key in reports}):
         for time_ms in args.time_limits_ms:
@@ -797,21 +1068,66 @@ def build_decision(
                 }
                 forward = cell_reports["candidate_vs_baseline"]
                 reverse = cell_reports["baseline_vs_candidate"]
-                same = same_artifact_passes(cell_reports["same_candidate"]) and same_artifact_passes(
-                    cell_reports["same_baseline"]
-                )
-                swap = swap_passes(forward, reverse)
-                same_passed = same_passed and same
-                swaps_passed = swaps_passed and swap
+                oriented_reports.extend(((forward, False), (reverse, True)))
+                same_candidate = {
+                    "opening_set": opening_set,
+                    "time_limit_ms": time_ms,
+                    "exact_threshold": exact,
+                    "artifact": "candidate",
+                    **same_artifact_diagnostic(
+                        cell_reports["same_candidate"],
+                        args.campaign_seed,
+                        args.bootstrap_iterations,
+                    ),
+                }
+                same_baseline = {
+                    "opening_set": opening_set,
+                    "time_limit_ms": time_ms,
+                    "exact_threshold": exact,
+                    "artifact": "baseline",
+                    **same_artifact_diagnostic(
+                        cell_reports["same_baseline"],
+                        args.campaign_seed,
+                        args.bootstrap_iterations,
+                    ),
+                }
+                swap = {
+                    "opening_set": opening_set,
+                    "time_limit_ms": time_ms,
+                    "exact_threshold": exact,
+                    **swap_diagnostic(forward, reverse),
+                }
+                same_diagnostics.extend((same_candidate, same_baseline))
+                swap_diagnostics.append(swap)
                 for report in cell_reports.values():
                     all_failed += int(report["failed_games"])
                     all_illegal += int(report["illegal_games"])
-                cell_overall = overall_result([forward])
-                cell_ci = bootstrap_interval(
-                    opening_pair_scores(forward),
+                cell_overall = argument_order_overall(forward, reverse)
+                observations = argument_order_observations(forward, reverse)
+                configured_ci = bootstrap_interval(
+                    observations,
                     args.campaign_seed,
                     args.bootstrap_iterations,
                     args.confidence_level,
+                )
+                ci95 = bootstrap_interval(
+                    observations, args.campaign_seed, args.bootstrap_iterations, 0.95
+                )
+                completed_depth_ratio = argument_order_depth_ratio(forward, reverse)
+                strength_gate_eligible = (
+                    forward["strength_gate"].get("eligible") is True
+                    and reverse["strength_gate"].get("eligible") is True
+                )
+                promotion = promotion_cell_assessment(
+                    strength_gate_eligible=strength_gate_eligible,
+                    score_rate=cell_overall["candidate_score_rate"],
+                    ci95=ci95,
+                    completed_depth_ratio=completed_depth_ratio,
+                    opening_pair_count=len(observations),
+                    score_threshold=args.promotion_score_threshold,
+                    ci_lower_threshold=args.promotion_ci_lower_threshold,
+                    minimum_completed_depth_ratio=args.minimum_completed_depth_ratio,
+                    minimum_opening_pairs=args.minimum_promotion_opening_pairs,
                 )
                 cells.append(
                     {
@@ -819,39 +1135,69 @@ def build_decision(
                         "time_limit_ms": time_ms,
                         "exact_threshold": exact,
                         "selected_opening_checksum": forward["selected_openings_checksum"],
+                        "opening_pair_count": len(observations),
                         "overall": cell_overall,
-                        "bootstrap_confidence_interval": cell_ci,
-                        "completed_depth_ratio_p50": depth_ratio(forward),
-                        "same_artifact_neutral": same,
-                        "swap_consistency_passed": swap,
-                        "strength_gate_eligible": forward["strength_gate"].get("eligible") is True,
+                        "bootstrap_95_ci": ci95,
+                        "bootstrap_confidence_interval": configured_ci,
+                        "completed_depth_ratio_p50": completed_depth_ratio,
+                        "same_artifact_diagnostics": {
+                            "candidate": same_candidate,
+                            "baseline": same_baseline,
+                        },
+                        "argument_order_diagnostic": swap,
+                        "strength_gate": {
+                            "eligible": strength_gate_eligible,
+                            "forward": forward["strength_gate"],
+                            "reverse": reverse["strength_gate"],
+                        },
+                        "promotion_checks": promotion,
+                        "promotion_passed": promotion["promotion_passed"],
                     }
                 )
 
-    primary_overall = overall_result([primary])
-    primary_ratio = depth_ratio(primary)
-    eligible_cell_count = sum(
-        1
-        for cell in cells
-        if cell["opening_set"] == decision_set and cell["strength_gate_eligible"]
+    overall = oriented_overall(oriented_reports)
+    overall["heterogeneous_matrix_aggregate"] = True
+    overall["confidence_interval"] = None
+    overall["confidence_interval_reason"] = (
+        "not reported because repeated openings across heterogeneous matrix cells are not "
+        "independent observations"
     )
+    primary_cell = next(
+        cell
+        for cell in cells
+        if cell["opening_set"] == decision_set
+        and cell["time_limit_ms"] == args.primary_time_ms
+        and cell["exact_threshold"] == args.primary_exact_threshold
+    )
+    promotion_cells = [
+        cell
+        for cell in cells
+        if cell["opening_set"] == decision_set and cell["promotion_passed"]
+    ]
+    promotion_time_limits = sorted({cell["time_limit_ms"] for cell in promotion_cells})
+    primary_promotion = primary_cell["promotion_checks"]
     checks = {
         "failed_games": all_failed,
         "illegal_games": all_illegal,
-        "same_artifact_neutral": same_passed,
-        "swap_passed": swaps_passed,
-        "primary_eligible": primary["strength_gate"].get("eligible") is True,
-        "primary_score_rate": primary_overall["candidate_score_rate"],
-        "primary_ci_lower": primary_ci["lower"],
-        "primary_ci_upper": primary_ci["upper"],
+        "primary_strength_gate_eligible": primary_cell["strength_gate"]["eligible"],
+        "primary_opening_pair_count": primary_cell["opening_pair_count"],
+        "minimum_promotion_opening_pairs": args.minimum_promotion_opening_pairs,
+        "primary_minimum_opening_pairs_passed": primary_promotion[
+            "minimum_opening_pairs_passed"
+        ],
+        "primary_score_rate": primary_cell["overall"]["candidate_score_rate"],
+        "primary_ci95_lower": primary_cell["bootstrap_95_ci"]["lower"],
+        "primary_ci95_upper": primary_cell["bootstrap_95_ci"]["upper"],
         "score_threshold": args.promotion_score_threshold,
         "ci_lower_threshold": args.promotion_ci_lower_threshold,
-        "depth_regression_passed": primary_ratio is not None
-        and primary_ratio >= args.minimum_completed_depth_ratio,
-        "completed_depth_ratio_p50": primary_ratio,
+        "primary_completed_depth_ratio_p50": primary_cell["completed_depth_ratio_p50"],
+        "primary_completed_depth_passed": primary_promotion["completed_depth_passed"],
         "minimum_completed_depth_ratio": args.minimum_completed_depth_ratio,
-        "eligible_cell_count": eligible_cell_count,
-        "minimum_promotion_cells": args.minimum_promotion_cells,
+        "primary_promotion_passed": primary_cell["promotion_passed"],
+        "promotion_passed_cell_count": len(promotion_cells),
+        "promotion_passed_time_limits": promotion_time_limits,
+        "promotion_time_limit_count": len(promotion_time_limits),
+        "minimum_promotion_time_limits": args.minimum_promotion_time_limits,
     }
     config = campaign_config(args, decision_set)
     return {
@@ -866,25 +1212,32 @@ def build_decision(
         "selected_opening_checksum": primary["selected_openings_checksum"],
         "campaign_config": config,
         "overall": overall,
-        "bootstrap_95_ci": ci_95,
-        "bootstrap_confidence_interval": configured_ci,
         "phase_score_rate": phase_scores,
         "side_to_move_score_rate": side_scores,
         "telemetry": telemetry,
         "failed_games": all_failed,
         "illegal_games": all_illegal,
-        "same_artifact_sanity": {"neutral": same_passed},
-        "candidate_baseline_swap_consistency": {"passed": swaps_passed},
-        "primary_fixed_time_cell": {
-            "opening_set": decision_set,
-            "time_limit_ms": args.primary_time_ms,
-            "exact_threshold": args.primary_exact_threshold,
-            "overall": primary_overall,
-            "bootstrap_95_ci": primary_ci_95,
-            "bootstrap_confidence_interval": primary_ci,
-            "completed_depth_ratio_p50": primary_ratio,
-            "strength_gate": primary["strength_gate"],
+        "same_artifact_sanity": {
+            "diagnostic_only": True,
+            "all_exactly_neutral": all(
+                diagnostic["exactly_neutral"] for diagnostic in same_diagnostics
+            ),
+            "all_ci95_include_neutral": all(
+                diagnostic["ci95_includes_neutral"] for diagnostic in same_diagnostics
+            ),
+            "checks": same_diagnostics,
         },
+        "candidate_baseline_swap_consistency": {
+            "diagnostic_only": True,
+            "all_selected_openings_match": all(
+                diagnostic["selected_openings_match"] for diagnostic in swap_diagnostics
+            ),
+            "all_exactly_complementary": all(
+                diagnostic["exactly_complementary"] for diagnostic in swap_diagnostics
+            ),
+            "checks": swap_diagnostics,
+        },
+        "primary_fixed_time_cell": primary_cell,
         "promotion_checks": checks,
         "cells": cells,
         "suggested_decision": suggest_decision(checks),
@@ -917,8 +1270,10 @@ def campaign_config(args: argparse.Namespace, decision_set: str) -> dict[str, An
         "promotion": {
             "score_threshold": args.promotion_score_threshold,
             "ci_lower_threshold": args.promotion_ci_lower_threshold,
+            "confidence_level": 0.95,
             "minimum_completed_depth_ratio": args.minimum_completed_depth_ratio,
-            "minimum_promotion_cells": args.minimum_promotion_cells,
+            "minimum_opening_pairs": args.minimum_promotion_opening_pairs,
+            "minimum_distinct_time_limits": args.minimum_promotion_time_limits,
         },
     }
 
@@ -950,9 +1305,7 @@ def write_summary(path: Path, decision: dict[str, Any]) -> None:
         f"- candidate score rate: {overall['candidate_score_rate']:.6f}",
         "- average / median disc difference: "
         f"{overall['average_disc_difference']:.3f} / {overall['median_disc_difference']:.3f}",
-        "- bootstrap 95% CI: "
-        f"[{decision['bootstrap_95_ci']['lower']:.6f}, "
-        f"{decision['bootstrap_95_ci']['upper']:.6f}]",
+        "- confidence interval: not reported for the heterogeneous matrix aggregate",
         f"- failed / illegal games: {decision['failed_games']} / {decision['illegal_games']}",
         "",
         "## Primary cell",
@@ -964,11 +1317,19 @@ def write_summary(path: Path, decision: dict[str, Any]) -> None:
         f"[{primary['bootstrap_95_ci']['lower']:.6f}, "
         f"{primary['bootstrap_95_ci']['upper']:.6f}]",
         f"- candidate/baseline p50 completed-depth ratio: {primary['completed_depth_ratio_p50']}",
+        f"- opening pairs: {primary['opening_pair_count']}",
+        f"- promotion passed: {primary['promotion_passed']}",
+        "- passing distinct time limits: "
+        f"{decision['promotion_checks']['promotion_passed_time_limits']}",
         "",
-        "## Sanity",
+        "## Fixed-time diagnostics",
         "",
-        f"- same-artifact neutral: {decision['same_artifact_sanity']['neutral']}",
-        f"- candidate/baseline swap consistency: {decision['candidate_baseline_swap_consistency']['passed']}",
+        "These timing-sensitive checks are diagnostics and are not correctness rejection gates.",
+        "",
+        "- all same-artifact 95% CIs include neutral: "
+        f"{decision['same_artifact_sanity']['all_ci95_include_neutral']}",
+        "- all argument-order selected openings match: "
+        f"{decision['candidate_baseline_swap_consistency']['all_selected_openings_match']}",
         "",
         "Individual reports are listed in `arena-report-inventory.json`. Generated output "
         "remains local-only and must not be committed.",
@@ -979,7 +1340,7 @@ def write_summary(path: Path, decision: dict[str, Any]) -> None:
 def main(argv: list[str]) -> int:
     try:
         args = parse_args(argv)
-        cache: dict[Path, str] = {}
+        cache: ChecksumCache = {}
         args.output_dir.mkdir(parents=True, exist_ok=True)
         candidate = artifact_identity(
             args.candidate_manifest, args.candidate_weights, "candidate", cache

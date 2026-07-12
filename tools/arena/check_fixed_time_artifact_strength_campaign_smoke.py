@@ -87,10 +87,12 @@ def campaign_command(
 
 
 def assert_decision(decision: dict[str, Any]) -> None:
-    if decision["same_artifact_sanity"] != {"neutral": True}:
-        raise AssertionError(f"same-artifact sanity was not neutral: {decision!r}")
-    if decision["candidate_baseline_swap_consistency"] != {"passed": True}:
-        raise AssertionError(f"candidate/baseline swap sanity failed: {decision!r}")
+    same = decision["same_artifact_sanity"]
+    if same["diagnostic_only"] is not True or same["all_ci95_include_neutral"] is not True:
+        raise AssertionError(f"same-artifact fixed-time diagnostic failed: {decision!r}")
+    swap = decision["candidate_baseline_swap_consistency"]
+    if swap["diagnostic_only"] is not True or swap["all_selected_openings_match"] is not True:
+        raise AssertionError(f"candidate/baseline argument-order diagnostic failed: {decision!r}")
     if decision["failed_games"] != 0 or decision["illegal_games"] != 0:
         raise AssertionError(f"campaign contains failed or illegal games: {decision!r}")
     if decision["campaign_config"]["persistent_session"] is not True:
@@ -99,8 +101,19 @@ def assert_decision(decision: dict[str, Any]) -> None:
         raise AssertionError("campaign did not retain explicit TT byte config")
     if decision["campaign_config"]["primary_opening_set"] != "holdout":
         raise AssertionError("independent holdout did not drive the primary decision cell")
+    promotion_config = decision["campaign_config"]["promotion"]
+    if promotion_config["confidence_level"] != 0.95:
+        raise AssertionError("promotion confidence level is not fixed at 95%")
+    if promotion_config["minimum_opening_pairs"] != 100:
+        raise AssertionError("default promotion sample floor is not 100 opening pairs")
     if decision["suggested_decision"]["category"] == "promote":
         raise AssertionError("neutral tiny smoke campaign must not suggest promotion")
+    if decision["overall"]["confidence_interval"] is not None:
+        raise AssertionError("heterogeneous matrix aggregate unexpectedly reports a CI")
+    if "bootstrap_95_ci" in decision:
+        raise AssertionError("decision exposes a pseudo-replicated matrix aggregate CI")
+    if any(cell["promotion_passed"] for cell in decision["cells"]):
+        raise AssertionError("one-opening smoke cell passed the promotion sample floor")
     for role in ("candidate", "baseline"):
         telemetry = decision["telemetry"][role]
         for field in (
@@ -123,32 +136,157 @@ def assert_promotion_guards(runner_module: Any) -> None:
     passing = {
         "failed_games": 0,
         "illegal_games": 0,
-        "same_artifact_neutral": True,
-        "swap_passed": True,
-        "primary_eligible": True,
-        "primary_score_rate": 0.6,
-        "primary_ci_lower": 0.51,
-        "primary_ci_upper": 0.7,
+        "primary_strength_gate_eligible": True,
+        "primary_minimum_opening_pairs_passed": True,
+        "primary_ci95_upper": 0.7,
         "score_threshold": 0.5,
         "ci_lower_threshold": 0.5,
-        "depth_regression_passed": True,
-        "eligible_cell_count": 2,
-        "minimum_promotion_cells": 2,
+        "primary_promotion_passed": True,
+        "promotion_time_limit_count": 2,
+        "minimum_promotion_time_limits": 2,
     }
     if runner_module.suggest_decision(passing)["category"] != "promote":
         raise AssertionError("synthetic passing campaign was not promotable")
+    timing_noisy = dict(
+        passing,
+        fixed_time_same_artifact_exactly_neutral=False,
+        fixed_time_argument_order_exactly_complementary=False,
+    )
+    if runner_module.suggest_decision(timing_noisy)["category"] != "promote":
+        raise AssertionError("fixed-time symmetry noise was treated as a correctness failure")
     failed = dict(passing, failed_games=1)
     if runner_module.suggest_decision(failed)["category"] != "reject_correctness":
         raise AssertionError("failed game did not reject promotion for correctness")
     illegal = dict(passing, illegal_games=1)
     if runner_module.suggest_decision(illegal)["category"] != "reject_correctness":
         raise AssertionError("illegal game did not reject promotion for correctness")
-    weak_ci = dict(passing, primary_ci_lower=0.5)
+    weak_ci = dict(passing, primary_promotion_passed=False, primary_ci95_upper=0.7)
     if runner_module.suggest_decision(weak_ci)["category"] == "promote":
-        raise AssertionError("CI lower bound at 50% did not reject promotion")
-    single_cell = dict(passing, eligible_cell_count=1)
+        raise AssertionError("95% CI lower bound at 50% did not reject promotion")
+    observations = [1.0] * 7 + [0.0] * 3
+    configured_ci = runner_module.bootstrap_interval(observations, 17, 10000, 0.60)
+    fixed_ci95 = runner_module.bootstrap_interval(observations, 17, 10000, 0.95)
+    if configured_ci["lower"] <= 0.5 or fixed_ci95["lower"] > 0.5:
+        raise AssertionError("60%-versus-95% confidence fixture does not straddle the gate")
+    fixed_ci_assessment = runner_module.promotion_cell_assessment(
+        strength_gate_eligible=True,
+        score_rate=0.7,
+        ci95=fixed_ci95,
+        completed_depth_ratio=1.0,
+        opening_pair_count=100,
+        score_threshold=0.5,
+        ci_lower_threshold=0.5,
+        minimum_completed_depth_ratio=0.9,
+        minimum_opening_pairs=100,
+    )
+    if fixed_ci_assessment["promotion_passed"] is not False:
+        raise AssertionError("promotion assessment used the passing 60% CI instead of fixed 95%")
+    configured_60_passes_but_95_fails = dict(
+        passing,
+        primary_promotion_passed=False,
+        primary_configured_ci_lower=configured_ci["lower"],
+        primary_ci95_lower=fixed_ci95["lower"],
+        primary_ci95_upper=fixed_ci95["upper"],
+    )
+    if (
+        runner_module.suggest_decision(configured_60_passes_but_95_fails)["category"]
+        == "promote"
+    ):
+        raise AssertionError("a passing 60% CI bypassed the fixed 95% promotion gate")
+    single_cell = dict(passing, promotion_time_limit_count=1)
     if runner_module.suggest_decision(single_cell)["category"] == "promote":
-        raise AssertionError("single-cell campaign unexpectedly suggested promotion")
+        raise AssertionError("single-time-limit campaign unexpectedly suggested promotion")
+
+    losing_secondary = runner_module.promotion_cell_assessment(
+        strength_gate_eligible=True,
+        score_rate=0.4,
+        ci95={"lower": 0.3, "upper": 0.49},
+        completed_depth_ratio=1.0,
+        opening_pair_count=100,
+        score_threshold=0.5,
+        ci_lower_threshold=0.5,
+        minimum_completed_depth_ratio=0.9,
+        minimum_opening_pairs=100,
+    )
+    if losing_secondary["promotion_passed"] is not False:
+        raise AssertionError("a clean but losing secondary cell passed promotion")
+
+    tiny_sample = runner_module.promotion_cell_assessment(
+        strength_gate_eligible=True,
+        score_rate=1.0,
+        ci95={"lower": 1.0, "upper": 1.0},
+        completed_depth_ratio=1.0,
+        opening_pair_count=1,
+        score_threshold=0.5,
+        ci_lower_threshold=0.5,
+        minimum_completed_depth_ratio=0.9,
+        minimum_opening_pairs=100,
+    )
+    if tiny_sample["promotion_passed"] is not False:
+        raise AssertionError("a one-opening cell bypassed the promotion sample floor")
+
+
+def assert_report_binding_guard(runner_module: Any, report_path: Path) -> None:
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    search = report["search_config"]
+    inputs = report["inputs"]
+    paired = report["results"]["paired_score"]
+    expected = {
+        "search_config": {
+            field: search[field]
+            for field in (
+                "preset",
+                "limit_mode",
+                "time_ms",
+                "exact_endgame_empties",
+                "persistent_session",
+                "tt_requested_bytes",
+            )
+        },
+        "candidate_name": report["candidate"]["name"],
+        "baseline_name": report["baseline"]["name"],
+        "candidate_runtime_identity_checksum": report["candidate"][
+            "runtime_identity_checksum"
+        ],
+        "baseline_runtime_identity_checksum": report["baseline"][
+            "runtime_identity_checksum"
+        ],
+        "candidate_manifest_checksum": inputs["candidate_manifest_checksum"],
+        "candidate_weights_checksum": inputs["candidate_weights_checksum"],
+        "baseline_manifest_checksum": inputs["baseline_manifest_checksum"],
+        "baseline_weights_checksum": inputs["baseline_weights_checksum"],
+        "executable_checksum": inputs["executable"]["checksum"],
+        "opening_source_checksum": report["opening_source_checksum"],
+        "opening_count": report["opening_count"],
+        "opening_limit": report["opening_limit"],
+        "seed": report["seed"],
+        "bootstrap_seed": paired["bootstrap_seed"],
+        "bootstrap_samples": paired["bootstrap_samples"],
+        "minimum_opening_pairs": report["strength_gate"]["minimum_opening_pairs"],
+    }
+    mutations = (
+        ("search_config.time_ms", lambda value: value["search_config"].__setitem__("time_ms", 99)),
+        (
+            "candidate.runtime_identity_checksum",
+            lambda value: value["candidate"].__setitem__("runtime_identity_checksum", "wrong"),
+        ),
+        ("opening_count", lambda value: value.__setitem__("opening_count", 99)),
+        ("seed", lambda value: value.__setitem__("seed", 99)),
+    )
+    for expected_field, mutate in mutations:
+        mismatched = json.loads(json.dumps(report))
+        mutate(mismatched)
+        try:
+            runner_module.validate_arena_report(mismatched, report_path, expected)
+        except runner_module.CampaignError as error:
+            if expected_field not in str(error):
+                raise AssertionError(
+                    f"report binding mismatch was not explicit: {error}"
+                ) from error
+        else:
+            raise AssertionError(
+                f"arena report with mismatched {expected_field} passed config binding"
+            )
 
 
 def main(argv: list[str]) -> int:
@@ -179,6 +317,11 @@ def main(argv: list[str]) -> int:
 
         first_dir = root / "first"
         first_command = campaign_command(args.runner, args.exe, root, first_dir)
+        sample_floor = run(
+            [*first_command, "--minimum-promotion-opening-pairs", "99"], success=False
+        )
+        if "must be at least 100" not in sample_floor.stderr:
+            raise AssertionError(f"promotion sample floor was not enforced: {sample_floor.stderr}")
         run(first_command)
         for name in (
             "decision.json",
@@ -218,6 +361,9 @@ def main(argv: list[str]) -> int:
             raise AssertionError(
                 f"matrix variants did not reuse deterministic opening selections: {selected_by_set!r}"
             )
+        assert_report_binding_guard(
+            runner_module, first_dir / inventory["reports"][0]["path"]
+        )
 
         resume = run([*first_command, "--resume"])
         if "skipped-resume-validated" not in (
@@ -246,6 +392,27 @@ def main(argv: list[str]) -> int:
         )
         if "missing fields" not in rejected.stderr:
             raise AssertionError(f"schema checker did not reject missing field: {rejected.stderr}")
+
+        invalid_promote = json.loads(json.dumps(first))
+        invalid_promote["suggested_decision"] = {
+            "category": "promote",
+            "reasons": ["invalid tiny sample"],
+        }
+        invalid_promote_path = root / "invalid-tiny-promote.json"
+        invalid_promote_path.write_text(json.dumps(invalid_promote), encoding="utf-8")
+        rejected = run(
+            [
+                sys.executable,
+                str(args.schema_checker),
+                "--decision",
+                str(invalid_promote_path),
+            ],
+            success=False,
+        )
+        if "without satisfying fixed promotion gates" not in rejected.stderr:
+            raise AssertionError(
+                f"schema checker accepted a one-opening promote decision: {rejected.stderr}"
+            )
     return 0
 
 

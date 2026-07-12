@@ -93,18 +93,30 @@ campaign does not resolve the default artifact pointer. An optional independent
 holdout corpus repeats the complete matrix and becomes the decision-driving
 opening set when supplied.
 
-The campaign aggregates game outcomes, paired-opening bootstrap intervals,
-disc differences, phase and side-to-move game-result exposures, and per-role
-search telemetry into one decision report. Promotion is only a suggested local
-category and requires correctness sanity, a positive primary-cell confidence
-lower bound and score rate, sufficient matrix breadth, and no material p50
-completed-depth regression. The runner does not mutate artifacts or defaults.
+The campaign converts the reversed argument-order result back to the original
+candidate perspective and averages both orders by opening before producing each
+cell's strength interval. It aggregates game outcomes, cell-level paired-opening
+bootstrap intervals, disc differences, phase and side-to-move game-result
+exposures, and per-role search telemetry into one decision report. Conditions
+from different matrix cells are not independent, so the heterogeneous aggregate
+is descriptive and has no confidence interval.
+
+Promotion is only a suggested local category. The promotion contract always
+uses a fixed 95% cell interval regardless of the optional displayed confidence
+level. It also requires a configurable opening-pair floor, positive score and
+95% lower bound, no material p50 completed-depth regression, and passing cells
+at multiple distinct time limits. Same-artifact exact neutrality and exact
+argument-order complementarity under fixed wall time are timing-sensitive
+diagnostics, not correctness rejection gates. Failed or illegal games remain
+correctness failures. The runner does not mutate artifacts or defaults.
 
 Each arena stage owns a resume sidecar. A stage is reusable only when its full
 campaign config and command, input content, artifact identity, repository
 identity, runner and executable identity, and output content all match. Missing,
 partial, or mismatched resume state is rejected instead of silently mixing
-campaigns.
+campaigns. Independently of resume, every arena report is checked against the
+requested search config, runtime artifact identities, executable, opening
+source, selected count, and seed before it can enter the decision report.
 
 Search-session retention is an explicit arena configuration, never an implicit
 property of the evaluator. Candidate and baseline own independent sessions.
