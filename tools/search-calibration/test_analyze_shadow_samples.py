@@ -28,7 +28,7 @@ def sample(index: int = 0) -> dict[str, object]:
     alpha = -20
     beta = 20
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "repo_sha": "0123456789abcdef",
         "search_config_id": "tiny-v1",
         "evaluator_id": "fixture-eval",
@@ -39,6 +39,7 @@ def sample(index: int = 0) -> dict[str, object]:
         "occupied_count": 20,
         "empties": 44,
         "ply": index,
+        "search_role": "pv",
         "node_type": "pv",
         "pv_node": True,
         "cut_node": False,
@@ -69,6 +70,35 @@ def sample(index: int = 0) -> dict[str, object]:
     }
 
 
+def non_pv_scout(row: dict[str, object]) -> dict[str, object]:
+    row = dict(row)
+    alpha = 0
+    beta = 1
+    deep = int(row["official_deep_score"])
+    result = "fail_low" if deep <= alpha else "fail_high"
+    node_type = "all" if result == "fail_low" else "cut"
+    shallow = int(row["shallow_verification_score"])
+    verified_deep = int(row["deep_verification_score"])
+    row.update(
+        {
+            "search_role": "non_pv_scout",
+            "node_type": node_type,
+            "pv_node": False,
+            "cut_node": node_type == "cut",
+            "all_node": node_type == "all",
+            "official_alpha": alpha,
+            "official_beta": beta,
+            "official_deep_bound": "upper" if result == "fail_low" else "lower",
+            "actual_official_deep_result": result,
+            "hypothetical_cut_high": shallow >= beta,
+            "hypothetical_cut_low": shallow <= alpha,
+            "false_cut_high_candidate": shallow >= beta and verified_deep < beta,
+            "false_cut_low_candidate": shallow <= alpha and verified_deep > alpha,
+        }
+    )
+    return row
+
+
 class AnalyzerTests(unittest.TestCase):
     analyzer_path: Path
 
@@ -91,7 +121,10 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(report["sample_count"], 6)
             self.assertEqual(report["exact_pair_count"], 6)
             self.assertEqual(report["group_count"], 1)
-            self.assertEqual(report["groups"][0]["linear_regression"], {"a": 1.0, "b": 2.0})
+            self.assertEqual(
+                report["groups"][0]["linear_regression"],
+                {"intercept": 1.0, "slope": 2.0},
+            )
             self.assertTrue(report["groups"][0]["insufficient_samples"])
             self.assertFalse(report["groups"][0]["recommendation_eligible"])
             self.assertIsNone(report["groups"][0]["recommended_conservative_margin"])
@@ -118,15 +151,15 @@ class AnalyzerTests(unittest.TestCase):
             self.analyzer.validate_sample(bad, "fixture")
 
     def test_bound_observations_do_not_change_value_regression(self) -> None:
-        exact_rows = [self.analyzer.validate_sample(sample(index), f"exact[{index}]") for index in range(6)]
-        fail_high = sample(100)
+        exact_rows = [
+            self.analyzer.validate_sample(non_pv_scout(sample(index)), f"exact[{index}]")
+            for index in range(6)
+        ]
+        fail_high = non_pv_scout(sample(100))
         fail_high.update(
             {
                 "canonical_position_hash": "0000000000000100",
                 "ply": 10,
-                "official_deep_score": 0,
-                "official_deep_bound": "exact",
-                "actual_official_deep_result": "exact",
                 "shallow_verification_score": 30_000,
                 "deep_verification_score": 30_000,
                 "shallow_verification_bound": "lower",
@@ -137,14 +170,11 @@ class AnalyzerTests(unittest.TestCase):
                 "false_cut_low_candidate": False,
             }
         )
-        fail_low = sample(101)
+        fail_low = non_pv_scout(sample(101))
         fail_low.update(
             {
                 "canonical_position_hash": "0000000000000101",
                 "ply": 11,
-                "official_deep_score": 0,
-                "official_deep_bound": "exact",
-                "actual_official_deep_result": "exact",
                 "shallow_verification_score": -30_000,
                 "deep_verification_score": -30_000,
                 "shallow_verification_bound": "upper",
@@ -185,6 +215,7 @@ class AnalyzerTests(unittest.TestCase):
             row.update(
                 {
                     "node_type": "cut",
+                    "search_role": "non_pv_scout",
                     "pv_node": False,
                     "cut_node": True,
                     "all_node": False,
@@ -205,12 +236,31 @@ class AnalyzerTests(unittest.TestCase):
 
         report = self.analyzer.build_report(rows, "c" * 64, 1, 4)
         group = report["groups"][0]
-        self.assertEqual(group["node_type"], "cut")
+        self.assertEqual(group["search_role"], "non_pv_scout")
         self.assertEqual(group["sample_count"], 6)
         self.assertEqual(group["exact_pair_count"], 6)
         self.assertEqual(group["bound_observation_count"], 0)
         self.assertTrue(group["recommendation_eligible"])
-        self.assertEqual(group["linear_regression"], {"a": 1.0, "b": 2.0})
+        self.assertEqual(
+            group["linear_regression"], {"intercept": 1.0, "slope": 2.0}
+        )
+
+    def test_probcut_group_includes_scout_fail_high_and_fail_low(self) -> None:
+        rows = [
+            self.analyzer.validate_sample(non_pv_scout(sample(index)), f"scout[{index}]")
+            for index in range(6)
+        ]
+        report = self.analyzer.build_report(rows, "d" * 64, 1, 2)
+        group = report["groups"][0]
+        self.assertEqual(group["search_role"], "non_pv_scout")
+        self.assertEqual(group["sample_count"], 6)
+        self.assertTrue(group["recommendation_eligible"])
+        diagnostic_types = {
+            item["node_type"]: item["sample_count"]
+            for item in report["result_node_type_groups"]
+        }
+        self.assertGreater(diagnostic_types["cut"], 0)
+        self.assertGreater(diagnostic_types["all"], 0)
 
     def test_mixed_collection_policy_is_rejected(self) -> None:
         first = self.analyzer.validate_sample(sample(0), "first")

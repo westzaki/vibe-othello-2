@@ -3,6 +3,7 @@
 
 #include "vibe_othello/board_core/position.h"
 #include "vibe_othello/search/evaluator.h"
+#include "vibe_othello/search/probcut.h"
 #include "vibe_othello/search/result.h"
 #include "vibe_othello/search/score.h"
 #include "vibe_othello/search/search_session.h"
@@ -97,6 +98,7 @@ struct SearchOptions {
   SearchReportingOptions reporting{};
   ExperimentalSearchOptions experimental{};
   SelectiveSearchOptionsV1 selective{};
+  ProbCutOptionsV1 probcut_options{};
   SearchMode mode = SearchMode::move;
 };
 

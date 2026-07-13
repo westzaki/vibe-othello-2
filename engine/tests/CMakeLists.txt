@@ -48,6 +48,7 @@ add_executable(
   search/move_ordering_test.cc
   search/null_window_search_test.cc
   search/pvs_test.cc
+  search/probcut_test.cc
   search/reference_search_test.cc
   search/search_result_invariant_test.cc
   search/search_session_test.cc

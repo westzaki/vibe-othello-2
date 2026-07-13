@@ -4,6 +4,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <utility>
@@ -28,6 +29,59 @@ public:
 
   std::vector<ShadowCalibrationSample> samples;
 };
+
+constexpr std::string_view kProbCutTestChecksum =
+    "0000000000000000000000000000000000000000000000000000000000000000";
+
+std::array<ProbCutCalibrationEntryV1, 13> probcut_entries(Depth deep_depth, Depth shallow_depth) {
+  std::array<ProbCutCalibrationEntryV1, 13> entries{};
+  for (std::uint8_t phase = 0; phase < entries.size(); ++phase) {
+    entries[phase] = ProbCutCalibrationEntryV1{
+        .phase = phase,
+        .deep_depth = deep_depth,
+        .shallow_depth = shallow_depth,
+        .regression_slope = 1.0,
+        .intercept = 100.0,
+        .residual_sigma = 1.0,
+        .confidence_multiplier = 1.0,
+        .minimum_shallow_score = -200,
+        .maximum_shallow_score = 200,
+        .minimum_beta = -200,
+        .maximum_beta = 200,
+    };
+  }
+  return entries;
+}
+
+template <std::size_t Size>
+ProbCutCalibrationProfileV1
+probcut_profile(const std::array<ProbCutCalibrationEntryV1, Size>& entries) {
+  return ProbCutCalibrationProfileV1{
+      .profile_id = "shadow-isolation-fixture-v1",
+      .source_calibration_report_checksum_sha256 = kProbCutTestChecksum,
+      .evaluator_family = "synthetic-disc-difference",
+      .artifact_family = "none",
+      .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
+      .entries = entries,
+  };
+}
+
+ProbCutOptionsV1 probcut_options(const ProbCutCalibrationProfileV1* profile, bool shadow_verify) {
+  return ProbCutOptionsV1{
+      .use_probcut = true,
+      .minimum_depth = 3,
+      .shallow_depth_reduction = 2,
+      .confidence_multiplier = 1.0,
+      .minimum_margin = 0,
+      .maximum_margin = 10,
+      .non_pv_only = true,
+      .beta_only = true,
+      .disable_near_exact = true,
+      .shadow_verify = shadow_verify,
+      .calibration_profile_id = profile->profile_id,
+      .calibration_profile = profile,
+  };
+}
 
 SelectiveSearchOptionsV1 enabled_shadow(Collector* collector) {
   return SelectiveSearchOptionsV1{
@@ -170,6 +224,7 @@ TEST_CASE("shadow sampling is deterministic and metadata is complete",
     REQUIRE(sample.official_alpha < sample.official_beta);
     REQUIRE(sample.sampling_seed == 42);
     REQUIRE(sample.search_identity.size() == 16);
+    REQUIRE(sample.pv_node == (sample.search_role == ShadowSearchRole::pv));
     const ShadowWindowResult expected_official_result =
         sample.official_deep_score <= sample.official_alpha
             ? ShadowWindowResult::fail_low
@@ -206,6 +261,7 @@ TEST_CASE("non-PV null-window samples have exact full-window verification pairs"
   REQUIRE(result.shadow_calibration.shadow_deep_verification_nodes > 0);
   for (const ShadowCalibrationSample& sample : collector.samples) {
     REQUIRE_FALSE(sample.pv_node);
+    REQUIRE(sample.search_role == ShadowSearchRole::non_pv_scout);
     REQUIRE(sample.official_beta == sample.official_alpha + 1);
     REQUIRE(sample.official_deep_bound != BoundType::exact);
     REQUIRE(sample.shallow_verification_bound == BoundType::exact);
@@ -280,8 +336,75 @@ TEST_CASE("PV nodes are excluded or included by policy", "[search][shadow_calibr
   REQUIRE(included_result.shadow_calibration.shadow_samples == included.samples.size());
   for (const ShadowCalibrationSample& sample : included.samples) {
     REQUIRE(sample.pv_node);
+    REQUIRE(sample.search_role == ShadowSearchRole::pv);
     REQUIRE(sample.node_type == ShadowNodeType::pv);
   }
+}
+
+TEST_CASE("ProbCut shallow and MPC verification are mutually isolated",
+          "[search][shadow_calibration][probcut]") {
+  const auto entries = probcut_entries(Depth{3}, Depth{1});
+  const ProbCutCalibrationProfileV1 profile = probcut_profile(entries);
+
+  Collector baseline_collector;
+  SearchOptions baseline{};
+  baseline.midgame.use_pvs = true;
+  baseline.selective = enabled_shadow(&baseline_collector);
+  baseline.selective.max_samples_per_search = 32;
+
+  Collector combined_collector;
+  SearchOptions combined = baseline;
+  combined.selective.sink = &combined_collector;
+  combined.probcut_options = probcut_options(&profile, true);
+
+  const SearchResult expected = run_fixed(board_core::initial_position(), Depth{5}, baseline);
+  const SearchResult actual = run_fixed(board_core::initial_position(), Depth{5}, combined);
+
+  REQUIRE(actual.best_move == expected.best_move);
+  REQUIRE(actual.score == expected.score);
+  REQUIRE(actual.bound == expected.bound);
+  REQUIRE(actual.pv == expected.pv);
+  REQUIRE(actual.root_moves.size() == expected.root_moves.size());
+  REQUIRE(actual.stats.probcut_attempts > 0);
+  REQUIRE(actual.stats.probcut_successes > 0);
+  REQUIRE(actual.stats.probcut_beta_cutoffs == 0);
+  REQUIRE(actual.shadow_calibration.shadow_candidates ==
+          expected.shadow_calibration.shadow_candidates);
+  REQUIRE(combined_collector.samples == baseline_collector.samples);
+  REQUIRE(actual.shadow_calibration.shadow_verification_probcut_attempts == 0);
+  REQUIRE(actual.shadow_calibration.shadow_verification_probcut_beta_cutoffs == 0);
+}
+
+TEST_CASE("ProbCut shallow search never records MPC shadow samples",
+          "[search][shadow_calibration][probcut]") {
+  const std::array entries{probcut_entries(Depth{4}, Depth{2})[0]};
+  const ProbCutCalibrationProfileV1 profile = probcut_profile(entries);
+  Collector collector;
+  SelectiveSearchOptionsV1 selective = enabled_shadow(&collector);
+  std::optional<internal::ShadowCalibrationRun> shadow_run =
+      internal::make_shadow_calibration_run(board_core::initial_position(), selective);
+  REQUIRE(shadow_run.has_value());
+
+  DiscDifferenceEvaluator evaluator;
+  SearchOptions options{};
+  options.midgame.use_pvs = true;
+  options.selective = selective;
+  options.probcut_options = probcut_options(&profile, false);
+  options.probcut_options.minimum_depth = 4;
+  internal::SearchContext context{
+      .position_state = internal::make_search_position(board_core::initial_position()),
+      .evaluator = evaluator,
+      .options = internal::normalize_search_options(options),
+      .shadow_calibration = &*shadow_run,
+  };
+
+  const internal::SearchNodeResult result =
+      internal::null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+  REQUIRE(result.is_complete());
+  REQUIRE(result.is_selective());
+  REQUIRE(context.stats.probcut_beta_cutoffs == 1);
+  REQUIRE(shadow_run->stats.shadow_candidates == 0);
+  REQUIRE(collector.samples.empty());
 }
 
 std::pair<ShadowCalibrationStats, std::vector<ShadowCalibrationSample>>

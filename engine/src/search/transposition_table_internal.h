@@ -28,6 +28,7 @@ struct TTEntry {
   bool has_best_move = false;
   std::uint8_t generation = 0;
   TTEntryKind kind = TTEntryKind::midgame;
+  bool selective = false;
   bool occupied = false;
 };
 
@@ -53,12 +54,12 @@ public:
   void store(board_core::PositionHash key, Depth depth, Score score, BoundType bound,
              board_core::Move best_move, TTEntryKind kind, SearchStats* stats) noexcept;
   void store_value(board_core::PositionHash key, Depth depth, Score score, BoundType bound,
-                   TTEntryKind kind, SearchStats* stats) noexcept;
+                   TTEntryKind kind, SearchStats* stats, bool selective = false) noexcept;
 
   void store(board_core::Position position, Depth depth, Score score, BoundType bound,
              board_core::Move best_move, TTEntryKind kind, SearchStats* stats) noexcept;
   void store_value(board_core::Position position, Depth depth, Score score, BoundType bound,
-                   TTEntryKind kind, SearchStats* stats) noexcept;
+                   TTEntryKind kind, SearchStats* stats, bool selective = false) noexcept;
 
   bool enabled() const noexcept;
   std::uint8_t generation() const noexcept;
@@ -71,8 +72,8 @@ private:
 
   std::size_t index_for(board_core::PositionHash key) const noexcept;
   void store_entry(board_core::PositionHash key, Depth depth, Score score, BoundType bound,
-                   std::optional<board_core::Move> best_move, TTEntryKind kind,
-                   SearchStats* stats) noexcept;
+                   std::optional<board_core::Move> best_move, TTEntryKind kind, SearchStats* stats,
+                   bool selective = false) noexcept;
 
   std::vector<TTBucket> buckets_;
   std::uint8_t generation_ = 1;

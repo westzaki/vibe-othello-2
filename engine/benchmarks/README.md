@@ -3,12 +3,12 @@
 Engine benchmarks are small local executables for tracking hot-path performance.
 They are not correctness tests and are not a CI pass/fail gate.
 
-ProbCut/Multi-ProbCut shadow sample collection and offline fitting are separate
+ProbCut/Multi-ProbCut sample collection and offline fitting are separate
 local-only diagnostics. See `tools/search-calibration/README.md`; neither the
-normal search benchmark nor fixed-time Arena enables shadow calibration. The
-offline analyzer fits only isolated full-window verification exact/exact score
-pairs—including non-PV cut/all groups—and rejects mixed campaign provenance or
-collection policy.
+default search benchmark nor fixed-time Arena enables sample collection or
+runtime ProbCut. The search benchmark can explicitly compare runtime off,
+cut-free verification shadow, and real cut-high modes using an external
+reviewed profile. No production profile is committed.
 
 ## Running
 
@@ -62,13 +62,61 @@ and `--endgame-parity` accept `off|on|both`. `--eval` accepts
 `disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all`.
 `pattern-v2` uses the root-dispatched incremental backend and
 `pattern-v2-stateless` wraps the same committed artifact behind the generic
-reference path. `--time-ms N` adds an iterative-search wall-clock limit; output
-includes completed depth and stopped state so fixed-time comparisons are
-explicit. `disc` emits the existing `disc_difference` evaluator name for
+reference path. `--time-ms N` adds an iterative-search wall-clock limit and
+`--nodes N` adds an iterative-search node limit; output includes completed
+depth and stopped state so fixed-time/fixed-node comparisons are explicit.
+`disc` emits the existing `disc_difference` evaluator name for
 output compatibility. `--exact-endgame N` enables exact endgame cutover when
-`N > 0`; `0` keeps it disabled. Search-option matrix values apply to iterative
-search rows. Fixed-depth rows use the public fixed-depth API, so only the
-evaluator choice applies there.
+`N > 0`; `0` keeps it disabled. Search-option matrix values normally apply to
+iterative rows. Fixed-depth rows use the public fixed-depth session API; when a
+ProbCut matrix is requested they also honor `--pvs` and the ProbCut mode so the
+same fixed depth can be compared fairly.
+
+### Local ProbCut comparison
+
+Runtime comparison requires a reviewed profile TSV outside the repository and
+an explicit positive maximum confidence margin. The TSV schema and adoption
+rules, including the report-to-TSV converter and required
+`non_pv_scout_beta_only` node class, are in
+`tools/search-calibration/README.md`. `--probcut all` expands each
+variant to `off`, `shadow`, and `on`; `--pvs on` is required because the first
+implementation only attempts cut-node-equivalent PVS scout entries.
+
+Fixed-depth comparison:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_search_bench \
+  --mode fixed --depth 8 --pvs on \
+  --probcut all \
+  --probcut-profile "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv" \
+  --probcut-maximum-margin "$PROBCUT_MAXIMUM_MARGIN" \
+  --corpus engine/fixtures/search/positions.tsv --jsonl
+```
+
+Fixed-node comparison uses iterative search with the same maximum depth and
+node budget:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_search_bench \
+  --mode iterative --depth 64 --nodes 100000 --pvs on \
+  --probcut all \
+  --probcut-profile "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv" \
+  --probcut-maximum-margin "$PROBCUT_MAXIMUM_MARGIN" --jsonl
+```
+
+For fixed time, replace `--nodes` with `--time-ms`. Set
+`PROBCUT_MAXIMUM_MARGIN` to the reviewed value for the selected profile; this
+repository does not provide a fallback. `--probcut-minimum-margin` can only
+raise the applied margin.
+`--probcut-confidence 0` uses the profile multiplier; a positive value can only
+raise it because runtime uses the maximum of profile and option multipliers.
+
+Output includes root phase, requested ProbCut mode, profile ID and source
+checksum, node/time limits, nodes, completed depth, score/best move, attempts,
+successes, shallow-node overhead, rejection reasons, real beta cutoffs, and
+shadow false-cut counts. Estimated saved nodes are emitted as unavailable and
+zero rather than guessed. Aggregate by `phase` for phase-specific review.
+Long strength or Arena matrices stay local and must not run in CI.
 
 Use `--corpus engine/fixtures/search/positions.tsv` to run the checked-in search
 corpus. If `--corpus` is omitted, the executable uses the built-in corpus for

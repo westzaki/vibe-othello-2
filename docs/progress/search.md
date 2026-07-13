@@ -128,13 +128,16 @@ The current search implementation includes:
 * temporary `experimental.use_legacy_search_kernel` rollback switch for the
   previous full-window root orchestration
 * default-disabled MPC shadow calibration with deterministic capped sampling,
-  compact schema-v3 samples, isolated shallow/deep full-window verification,
-  automatically identified collection policy, raw hypothetical-cut diagnostics,
-  and telemetry separate from official `SearchStats`/nodes
+  compact schema-v4 samples, result-independent PV/scout/other roles, isolated
+  ProbCut-free shallow/deep full-window verification, automatically identified
+  collection policy, raw hypothetical-cut diagnostics, and telemetry separate
+  from official `SearchStats`/nodes
 * deterministic local offline calibration analysis grouped by phase, deep and
-  shallow depth, and node type, with verification exact-pair regression that is
-  available to non-PV cut/all groups, strict provenance isolation, small-sample
-  guards, and JSON plus Markdown reports
+  shallow depth, and result-independent search role; only the full
+  `non_pv_scout` population is adoption-eligible, while post-result cut/all
+  groups remain diagnostics; strict provenance isolation, small-sample guards,
+  explicit slope/intercept keys, JSON plus Markdown reports, and a checked
+  report-to-profile converter
 
 Existing search tests include:
 
@@ -166,7 +169,8 @@ The current implementation does not yet have:
 
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
-* actual ProbCut/Multi-ProbCut cutoffs or adoption of calibrated coefficients
+* reviewed production ProbCut profile adoption and default enablement
+* cut-low or Multi-ProbCut/multiple-depth-pair support
 * parallel search
 * analysis and review-specific result adapters
 * match-bench, self-play, or production strength validation for learned
@@ -197,7 +201,9 @@ hard real-time deadline.
 Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 
 Remaining unimplemented search options are expected to remain safe no-ops until
-each option is implemented. `midgame.use_iid` now enables ordering-only shallow
+each option is implemented. The legacy flat/experimental `probcut` flags remain
+safe no-ops; only the typed, profile-backed `probcut_options` can enable the
+new conservative cut-high path. `midgame.use_iid` enables ordering-only shallow
 midgame searches, and `endgame.exact_endgame` is no longer a no-op when the root
 threshold is met.
 
@@ -242,8 +248,9 @@ Status values:
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` compares temp-only v0a/v0b learned artifacts under explicitly configured deterministic depth-1 search and emits a checksum-stable JSON report; this is local smoke coverage for evaluator signal propagation, not a production benchmark or strength claim |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
-| Add optional selective pruning after calibration | deferred | `probcut` currently safe no-op |
+| Add conservative non-PV beta ProbCut | done | Typed profile-backed option; exact `non_pv_scout_beta_only` population and phase/depth match, mutually isolated MPC verification, subtree-local selective TT provenance, off by default, no production profile committed |
 | Add MPC shadow calibration | done | Diagnostics-only reduced-depth sampling; no official cutoff or runtime coefficient |
+| Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, holdout audit, and local off/shadow/on measurements; no default or preset enablement |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |
 | Add analysis and review-facing result adapters | deferred | Requires consumer needs |
 

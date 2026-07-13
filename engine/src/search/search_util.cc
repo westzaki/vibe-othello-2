@@ -84,6 +84,20 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->iid_searches += delta.iid_searches;
   total->endgame_nodes += delta.endgame_nodes;
   total->selective_cuts += delta.selective_cuts;
+  total->probcut_attempts += delta.probcut_attempts;
+  total->probcut_shallow_nodes += delta.probcut_shallow_nodes;
+  total->probcut_successes += delta.probcut_successes;
+  total->probcut_rejected_by_phase += delta.probcut_rejected_by_phase;
+  total->probcut_rejected_by_depth += delta.probcut_rejected_by_depth;
+  total->probcut_rejected_near_exact += delta.probcut_rejected_near_exact;
+  total->probcut_rejected_pass += delta.probcut_rejected_pass;
+  total->probcut_rejected_confidence += delta.probcut_rejected_confidence;
+  total->probcut_beta_cutoffs += delta.probcut_beta_cutoffs;
+  total->probcut_shadow_candidates += delta.probcut_shadow_candidates;
+  total->probcut_shadow_verifications += delta.probcut_shadow_verifications;
+  total->probcut_shadow_false_cuts += delta.probcut_shadow_false_cuts;
+  total->probcut_estimated_saved_nodes += delta.probcut_estimated_saved_nodes;
+  total->probcut_estimated_saved_nodes_available |= delta.probcut_estimated_saved_nodes_available;
 }
 
 SearchLimitState initialize_limit_state(SearchLimits limits) {

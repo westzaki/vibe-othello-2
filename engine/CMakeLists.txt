@@ -25,8 +25,10 @@ target_sources(
           src/search/move_ordering/parity_ordering.cc
           src/search/move_ordering/static_othello_ordering.cc
           src/search/pvs.cc
+          src/search/probcut.cc
           src/search/result_builder_internal.cc
           src/search/root_search.cc
+          src/search/search_options.cc
           src/search/search_node_common.cc
           src/search/search_session.cc
           src/search/shadow_calibration.cc
