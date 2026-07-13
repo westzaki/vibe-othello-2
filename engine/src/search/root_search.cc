@@ -130,6 +130,7 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const NodeCount before_nodes = context->stats.nodes;
+  const NodeCount before_selective_cuts = context->stats.selective_cuts;
   const Score child_alpha = static_cast<Score>(-move_window.beta);
   const Score child_beta = static_cast<Score>(-move_window.alpha);
   const SearchNodeResult child =
@@ -146,12 +147,14 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   frame.pv = line;
 
   return make_root_move_info(move, score, ScoreKind::heuristic, bound_for_score(score, move_window),
-                             depth, context->stats.nodes - before_nodes, line, false, false);
+                             depth, context->stats.nodes - before_nodes, line, false,
+                             context->stats.selective_cuts > before_selective_cuts);
 }
 
 std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth depth,
                                                    board_core::Move move, Score alpha, Score beta) {
   const NodeCount before_nodes = context->stats.nodes;
+  const NodeCount before_selective_cuts = context->stats.selective_cuts;
   SearchNodeResult child =
       search_null_window_child(context, move, static_cast<Score>(-alpha), depth, Ply{0});
   if (child.is_stopped()) {
@@ -164,6 +167,7 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
         context, depth, move, RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true});
     if (result.has_value()) {
       result->nodes = context->stats.nodes - before_nodes;
+      result->selective = context->stats.selective_cuts > before_selective_cuts;
     }
     return result;
   }
@@ -172,7 +176,8 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
   frame.pv = child.value().pv;
   return make_root_move_info(move, score, ScoreKind::heuristic,
                              classify_bound(score, alpha, static_cast<Score>(alpha + 1)), depth,
-                             context->stats.nodes - before_nodes, child.value().pv, false, false);
+                             context->stats.nodes - before_nodes, child.value().pv, false,
+                             context->stats.selective_cuts > before_selective_cuts);
 }
 
 void update_best_root_move(const RootMoveInfo& root_move, Score* best_score, Line* best_line,
@@ -232,6 +237,9 @@ void maybe_store_root_midgame_tt(SearchContext* context, Depth completed_depth, 
                                  RootSearchWindow root_window,
                                  std::optional<board_core::Move> best_move) noexcept {
   if (context->transposition_table == nullptr || !best_move.has_value()) {
+    return;
+  }
+  if (context->probcut_cut_occurred) {
     return;
   }
   const BoundType bound = bound_for_score(best_score, root_window);

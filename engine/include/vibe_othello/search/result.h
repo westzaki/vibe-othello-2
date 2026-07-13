@@ -42,6 +42,20 @@ struct SearchStats {
   NodeCount iid_searches = 0;
   NodeCount endgame_nodes = 0;
   NodeCount selective_cuts = 0;
+  NodeCount probcut_attempts = 0;
+  NodeCount probcut_shallow_nodes = 0;
+  NodeCount probcut_successes = 0;
+  NodeCount probcut_rejected_by_phase = 0;
+  NodeCount probcut_rejected_by_depth = 0;
+  NodeCount probcut_rejected_near_exact = 0;
+  NodeCount probcut_rejected_pass = 0;
+  NodeCount probcut_rejected_confidence = 0;
+  NodeCount probcut_beta_cutoffs = 0;
+  NodeCount probcut_shadow_candidates = 0;
+  NodeCount probcut_shadow_verifications = 0;
+  NodeCount probcut_shadow_false_cuts = 0;
+  NodeCount probcut_estimated_saved_nodes = 0;
+  bool probcut_estimated_saved_nodes_available = false;
 
   friend bool operator==(const SearchStats&, const SearchStats&) = default;
 };

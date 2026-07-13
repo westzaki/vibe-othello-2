@@ -325,6 +325,21 @@ struct SelectiveSearchOptionsV1 {
   ShadowCalibrationSink* sink;
 };
 
+struct ProbCutOptionsV1 {
+  bool use_probcut;
+  Depth minimum_depth;
+  Depth shallow_depth_reduction;
+  double confidence_multiplier;
+  Score minimum_margin;
+  Score maximum_margin;
+  bool non_pv_only;
+  bool beta_only;
+  bool disable_near_exact;
+  bool shadow_verify;
+  std::string_view calibration_profile_id;
+  const ProbCutCalibrationProfileV1* calibration_profile;
+};
+
 struct SearchOptions {
   MidgameSearchOptions midgame;
   MoveOrderingOptions ordering;
@@ -332,6 +347,7 @@ struct SearchOptions {
   SearchReportingOptions reporting;
   ExperimentalSearchOptions experimental;
   SelectiveSearchOptionsV1 selective;
+  ProbCutOptionsV1 probcut_options;
   SearchMode mode;
 };
 ```
@@ -342,6 +358,17 @@ sampling avoids platform-dependent floating-point decisions. Enabling requires
 a non-null caller-owned sink, positive rate and cap, and a positive shallow
 depth reduction. Metadata strings and the sink must outlive the search call.
 Normal runtime and WASM presets keep the whole config at its disabled default.
+
+`ProbCutOptionsV1` is the typed runtime option. It also defaults disabled. The
+legacy flat `probcut` and `experimental.probcut` flags remain compatibility
+placeholders and do not enable pruning. Runtime normalization enables the typed
+option only when its caller-owned profile is complete and internally valid,
+the profile ID matches, the report checksum is a lowercase SHA-256, the
+one-depth-pair entries are finite and non-duplicated, all conservative scope
+flags remain true, margins are ordered, and the legacy kernel is disabled.
+Invalid or incomplete configuration normalizes to disabled; it never invents a
+coefficient or fallback margin. Profile storage, entries, and strings must
+outlive the search call.
 
 The public API still accepts legacy flat fields during migration:
 
@@ -370,6 +397,7 @@ struct SearchOptions {
   SearchReportingOptions reporting;
   ExperimentalSearchOptions experimental;
   SelectiveSearchOptionsV1 selective;
+  ProbCutOptionsV1 probcut_options;
   SearchMode mode;
 };
 ```
@@ -1068,7 +1096,8 @@ A transposition table stores search results for positions.
 Only fields compatible with `TTEntryKind` are valid.
 
 The current implementation stores `key`, `depth`, `score`, `bound`,
-`best_move`, `has_best_move`, `generation`, `kind`, and `occupied`.
+`best_move`, `has_best_move`, `generation`, `kind`, `selective`, and
+`occupied`.
 
 The midgame table uses a search-internal default capacity. Public search
 defaults do not enable TT cutoff or TT ordering, and no public capacity option is
@@ -1102,10 +1131,11 @@ Midgame cutoff requires `entry.kind == TTEntryKind::midgame` and
 
 TT entries store side-to-move-relative scores.
 
-The current implementation uses a simplified `midgame` entry kind. Future
-selective TT support may split it into separate `heuristic_midgame` and
-`selective_midgame` kinds if selective results need different compatibility
-rules.
+The current implementation uses a simplified `midgame` entry kind. A selective
+bit distinguishes a ProbCut lower bound from a non-selective bound. A selective
+TT cutoff propagates selective provenance to its ancestors so they cannot
+store a derived exact bound. A future layout may split this into separate
+`heuristic_midgame` and `selective_midgame` kinds.
 
 For `midgame`, `exact_endgame_score`, and `exact_endgame_wld`, `score` is valid
 within that entry kind's score semantics. WLD-specific scores are kept distinct
@@ -1130,6 +1160,7 @@ struct TTEntry {
   bool has_best_move;
   std::uint8_t generation;
   TTEntryKind kind;
+  bool selective;
   bool occupied;
 };
 ```
@@ -1310,16 +1341,15 @@ They should be added only after the generic solver is correct.
 
 ## Selective Search
 
-Selective search may reduce tree size at the cost of risk.
-
-Selective search is optional advanced work.
+Selective search may reduce tree size at the cost of risk and is optional.
 
 Selective search must never be used in exact solving mode.
 
 Selective search must be marked in transposition table entries and result
 metadata.
 
-Selective search should be introduced only after:
+Default enablement and production-strength claims for selective search should be
+introduced only after:
 
 * fixed-depth search is correct
 * evaluation score scale is stable
@@ -1332,10 +1362,76 @@ ProbCut and Multi-ProbCut require calibrated error estimates.
 ProbCut and Multi-ProbCut are the preferred selective pruning family for
 Othello.
 
-They must eventually be implemented as optional, calibrated, null-window
-verification searches.
+The first runtime implementation is the deliberately narrower one-direction
+ProbCut described below. Multi-ProbCut and cut-low remain deferred.
 
 They must not be enabled in exact endgame modes.
+
+### Conservative non-PV ProbCut
+
+Runtime ProbCut is off by default and has no built-in production calibration
+profile. Its default depths and margins are zero/invalid as an additional guard;
+callers must supply every runtime value from a reviewed profile and adoption
+decision. It is attempted only at an explicit PVS scout/null-window entry marked
+as cut-node-equivalent. Plain PV/full-window nodes, recursive alpha-beta nodes
+without that marker, IID work, the legacy kernel, terminal nodes, pass nodes,
+depths below `minimum_depth`, unsupported phase/depth pairs, sentinel-adjacent
+windows, and positions at or below the configured exact threshold cannot cut.
+Only beta-direction cut-high is implemented. Normal/hard WASM presets leave
+`probcut_options` at its disabled default.
+
+Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
+source calibration report SHA-256, evaluator family, artifact family, and one
+reviewed deep/shallow depth pair. Entries are keyed by phase and contain slope
+`a`, intercept `b`, residual sigma, audited confidence multiplier, and inclusive
+shallow-score/beta validity ranges. Missing phase/depth entries are rejections;
+the engine never extrapolates. Multiple depth pairs are rejected in this first
+version.
+
+For an eligible node, a full-window shallow search produces integer score `s`.
+The profile condition is:
+
+```text
+predicted_deep = a * s + b
+k_effective = max(profile_k, option_k)
+margin = max(ceil(k_effective * residual_sigma), minimum_margin)
+lower = floor(predicted_deep) - margin
+cut-high iff lower >= beta
+```
+
+`maximum_margin` is an eligibility ceiling: a larger computed margin rejects
+the candidate instead of clamping it downward. All floating inputs must be
+finite. The implementation computes prediction and margin in wider types,
+checks conversion ranges before integer conversion, floors prediction, and
+keeps shallow score, beta, and the resulting lower confidence bound away from
+`kScoreLoss`/`kScoreWin`. Terminal exact disc differences never reach the gate,
+and the shallow search temporarily disables exact handoff, so the fitted
+heuristic domain is not mixed with exact score kinds.
+
+The shallow search shares the official stop flag, deadline, node limit, node
+counter, TT probe state, and evaluator state. Its nodes therefore contribute to
+`SearchResult::nodes`; `probcut_shallow_nodes` is a subset for overhead review.
+Nested ProbCut and IID are disabled during that shallow search. A stopped
+shallow search always propagates stop and never cuts.
+
+A successful real cut returns exactly `beta` with an empty continuation: it is
+a heuristic lower bound, not an exact value or invented PV. The TT may store
+that lower bound with `selective=true` and no fabricated best move. Once a real
+or TT-reused selective cutoff contributes to a subtree, exact midgame stores at
+its ancestors and root are suppressed. Root move metadata stays heuristic,
+non-exact, bounded, and marked selective where the cut occurred.
+
+With `shadow_verify=true`, the same high-confidence candidate does not cut.
+Normal deep search continues, after which `deep_score < beta` increments the
+false-cut counter. Shadow verification is intended for unit tests and local
+profile audit. Unlike the separate sample-collection facility below, its
+shallow overhead is official work and consumes the same node/time budget.
+
+Telemetry includes attempts, shallow nodes, confidence successes, rejections
+by phase/depth/near-exact/pass/confidence, real beta cutoffs, shadow candidates,
+shadow verifications, and shadow false cuts. Estimated saved nodes remain
+unavailable (`probcut_estimated_saved_nodes_available=false`); the engine does
+not publish a guessed saving.
 
 ### MPC shadow calibration
 
@@ -1528,6 +1624,9 @@ Recommended counters:
 * IID calls
 * selective pruning attempts
 * selective pruning cutoffs
+* ProbCut shallow nodes and beta cutoffs
+* ProbCut rejection reason counts
+* ProbCut shadow verifications and false cuts
 * endgame nodes
 * pass nodes
 * split points

@@ -218,6 +218,10 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
     const std::optional<Score> cutoff = midgame_tt_cutoff_score(**tt_entry, depth, alpha, beta);
     if (cutoff.has_value()) {
       ++context->stats.tt_cutoffs;
+      if ((*tt_entry)->selective) {
+        context->probcut_cut_occurred = true;
+        ++context->stats.selective_cuts;
+      }
       return SearchNodeResult::completed(SearchValue{
           .score = *cutoff,
           .pv = {},
@@ -257,8 +261,8 @@ std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context,
                                                          const std::optional<TTEntry>& tt_entry,
                                                          bool* stopped) {
   *stopped = false;
-  if (!context->options.midgame.use_iid || context->in_iid || depth < kIidMinDepth ||
-      alpha + 1 >= beta || ply >= kMaxPly) {
+  if (!context->options.midgame.use_iid || context->in_iid || context->in_probcut_shallow ||
+      depth < kIidMinDepth || alpha + 1 >= beta || ply >= kMaxPly) {
     return std::nullopt;
   }
 
@@ -385,7 +389,8 @@ void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::
 
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
                             std::optional<board_core::Move> best_move) noexcept {
-  if (context->transposition_table != nullptr && best_move.has_value()) {
+  if (context->transposition_table != nullptr && best_move.has_value() &&
+      !context->in_probcut_shallow && !context->probcut_cut_occurred) {
     context->transposition_table->store(context->position_state.key, depth, score, bound,
                                         *best_move, TTEntryKind::midgame, &context->stats);
   }

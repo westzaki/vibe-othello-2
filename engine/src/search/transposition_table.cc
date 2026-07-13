@@ -48,7 +48,7 @@ bool bound_is_stronger(const TTEntry& incoming, const TTEntry& existing) noexcep
 
 TTEntry make_entry(board_core::PositionHash key, Depth depth, Score score, BoundType bound,
                    std::optional<board_core::Move> best_move, TTEntryKind kind,
-                   std::uint8_t generation) noexcept {
+                   std::uint8_t generation, bool selective) noexcept {
   return TTEntry{
       .key = key,
       .depth = depth,
@@ -58,6 +58,7 @@ TTEntry make_entry(board_core::PositionHash key, Depth depth, Score score, Bound
       .has_best_move = best_move.has_value(),
       .generation = generation,
       .kind = kind,
+      .selective = selective,
       .occupied = true,
   };
 }
@@ -202,9 +203,9 @@ void TranspositionTable::store(board_core::PositionHash key, Depth depth, Score 
 }
 
 void TranspositionTable::store_value(board_core::PositionHash key, Depth depth, Score score,
-                                     BoundType bound, TTEntryKind kind,
-                                     SearchStats* stats) noexcept {
-  store_entry(key, depth, score, bound, std::nullopt, kind, stats);
+                                     BoundType bound, TTEntryKind kind, SearchStats* stats,
+                                     bool selective) noexcept {
+  store_entry(key, depth, score, bound, std::nullopt, kind, stats, selective);
 }
 
 void TranspositionTable::store(board_core::Position position, Depth depth, Score score,
@@ -218,20 +219,22 @@ void TranspositionTable::store(board_core::Position position, Depth depth, Score
 }
 
 void TranspositionTable::store_value(board_core::Position position, Depth depth, Score score,
-                                     BoundType bound, TTEntryKind kind,
-                                     SearchStats* stats) noexcept {
-  store_entry(board_core::hash_position(position), depth, score, bound, std::nullopt, kind, stats);
+                                     BoundType bound, TTEntryKind kind, SearchStats* stats,
+                                     bool selective) noexcept {
+  store_entry(board_core::hash_position(position), depth, score, bound, std::nullopt, kind, stats,
+              selective);
 }
 
 void TranspositionTable::store_entry(board_core::PositionHash key, Depth depth, Score score,
                                      BoundType bound, std::optional<board_core::Move> best_move,
-                                     TTEntryKind kind, SearchStats* stats) noexcept {
+                                     TTEntryKind kind, SearchStats* stats,
+                                     bool selective) noexcept {
   if (buckets_.empty()) {
     ++stats->tt_rejected_stores;
     return;
   }
   TTBucket& bucket = buckets_[index_for(key)];
-  TTEntry incoming = make_entry(key, depth, score, bound, best_move, kind, generation_);
+  TTEntry incoming = make_entry(key, depth, score, bound, best_move, kind, generation_, selective);
 
   for (TTEntry& entry : bucket.entries) {
     if (!entry.occupied || entry.key != key || entry.kind != kind) {

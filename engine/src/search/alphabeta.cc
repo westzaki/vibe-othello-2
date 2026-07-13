@@ -2,7 +2,8 @@
 
 namespace vibe_othello::search::internal {
 
-SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply) {
+SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
+                           bool cut_node) {
   const Score original_alpha = alpha;
   const Score original_beta = beta;
   std::optional<TTEntry> tt_entry;
@@ -10,6 +11,13 @@ SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Dept
       prepare_search_node(context, alpha, beta, depth, ply, &tt_entry);
   if (node_result.has_value()) {
     return *node_result;
+  }
+
+  std::optional<ProbCutShadowCandidate> probcut_shadow_candidate;
+  const std::optional<SearchNodeResult> probcut_result =
+      maybe_probcut(context, alpha, beta, depth, ply, cut_node, &probcut_shadow_candidate);
+  if (probcut_result.has_value()) {
+    return *probcut_result;
   }
 
   StackFrame& frame = context->stack[ply];
@@ -63,6 +71,9 @@ SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Dept
                          classify_bound(best.score, original_alpha, original_beta), best_move);
 
   const SearchNodeResult result = SearchNodeResult::completed(best);
+  if (probcut_shadow_candidate.has_value()) {
+    complete_probcut_shadow(context, *probcut_shadow_candidate, result);
+  }
   if (shadow_candidate.has_value()) {
     complete_shadow_candidate(context, *shadow_candidate, result);
   }
@@ -72,7 +83,7 @@ SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Dept
 SearchNodeResult null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply) {
   require_invariant(beta > kScoreLoss);
   require_invariant(beta <= kScoreWin);
-  return alphabeta(context, static_cast<Score>(beta - 1), beta, depth, ply);
+  return alphabeta(context, static_cast<Score>(beta - 1), beta, depth, ply, true);
 }
 
 } // namespace vibe_othello::search::internal

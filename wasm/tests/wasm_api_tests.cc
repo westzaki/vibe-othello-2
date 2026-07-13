@@ -475,6 +475,7 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE_FALSE(normal.experimental.probcut);
   REQUIRE_FALSE(normal.experimental.use_pv_table);
   REQUIRE_FALSE(normal.experimental.use_parallel);
+  REQUIRE_FALSE(normal.probcut_options.use_probcut);
 
   const vibe_othello::search::SearchOptions hard =
       vibe_othello::wasm_adapter::internal::search_options_for_preset(
@@ -489,6 +490,7 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE(hard.ordering.use_endgame_parity_ordering == normal.ordering.use_endgame_parity_ordering);
   REQUIRE(hard.endgame.exact_endgame == normal.endgame.exact_endgame);
   REQUIRE(hard.endgame.use_endgame_tt == normal.endgame.use_endgame_tt);
+  REQUIRE_FALSE(hard.probcut_options.use_probcut);
 }
 
 TEST_CASE("WASM search preset API returns legal moves for every preset", "[wasm][search]") {

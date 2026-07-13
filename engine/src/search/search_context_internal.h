@@ -1,6 +1,7 @@
 #pragma once
 
 #include "move_ordering_internal.h"
+#include "probcut_internal.h"
 #include "search_limits_internal.h"
 #include "search_options_internal.h"
 #include "search_position_internal.h"
@@ -60,6 +61,8 @@ struct SearchContext {
   std::uint32_t incremental_eval_verify_interval = 0;
   std::uint64_t incremental_eval_count = 0;
   bool in_iid = false;
+  bool in_probcut_shallow = false;
+  bool probcut_cut_occurred = false;
   std::array<StackFrame, kMaxPly> stack{};
 };
 

@@ -6,8 +6,10 @@
 
 #include <array>
 #include <bit>
+#include <cerrno>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -43,6 +45,10 @@ using vibe_othello::search::BoundType;
 using vibe_othello::search::Depth;
 using vibe_othello::search::Evaluator;
 using vibe_othello::search::Line;
+using vibe_othello::search::NodeCount;
+using vibe_othello::search::ProbCutCalibrationEntryV1;
+using vibe_othello::search::ProbCutCalibrationProfileV1;
+using vibe_othello::search::ProbCutOptionsV1;
 using vibe_othello::search::RootMoveInfo;
 using vibe_othello::search::Score;
 using vibe_othello::search::ScoreKind;
@@ -74,6 +80,19 @@ enum class BoolSelection {
   off,
   on,
   both,
+};
+
+enum class ProbCutSelection {
+  off,
+  shadow,
+  on,
+  all,
+};
+
+enum class ProbCutMode {
+  off,
+  shadow,
+  on,
 };
 
 enum class EvalSelection {
@@ -110,10 +129,16 @@ struct Config {
   BoolSelection iid = BoolSelection::off;
   EvalSelection eval = EvalSelection::disc;
   std::uint32_t max_time_ms = 0;
+  NodeCount max_nodes = 0;
   std::uint8_t exact_endgame_empties = 0;
   BoolSelection endgame_tt = BoolSelection::off;
   BoolSelection endgame_parity = BoolSelection::on;
   OutputFormat output_format = OutputFormat::tsv;
+  ProbCutSelection probcut = ProbCutSelection::off;
+  std::string probcut_profile_path;
+  Score probcut_minimum_margin = 0;
+  Score probcut_maximum_margin = 0;
+  double probcut_confidence_multiplier = 0.0;
   bool depths_overridden = false;
   char delimiter = '\t';
 };
@@ -140,9 +165,35 @@ struct BenchmarkVariant {
   bool use_killers = false;
   bool use_iid = false;
   std::uint32_t max_time_ms = 0;
+  NodeCount max_nodes = 0;
   std::uint8_t exact_endgame_empties = 0;
   bool use_endgame_tt = false;
   bool use_endgame_parity = true;
+  ProbCutMode probcut_mode = ProbCutMode::off;
+  Score probcut_minimum_margin = 0;
+  Score probcut_maximum_margin = 0;
+  double probcut_confidence_multiplier = 0.0;
+  bool probcut_matrix = false;
+};
+
+struct LoadedProbCutProfile {
+  std::uint32_t schema_version = 0;
+  std::string profile_id;
+  std::string source_checksum;
+  std::string evaluator_family;
+  std::string artifact_family;
+  std::vector<ProbCutCalibrationEntryV1> entries;
+
+  ProbCutCalibrationProfileV1 view() const noexcept {
+    return ProbCutCalibrationProfileV1{
+        .schema_version = schema_version,
+        .profile_id = profile_id,
+        .source_calibration_report_checksum_sha256 = source_checksum,
+        .evaluator_family = evaluator_family,
+        .artifact_family = artifact_family,
+        .entries = entries,
+    };
+  }
 };
 
 class DiscDifferenceEvaluator final : public Evaluator {
@@ -373,6 +424,48 @@ std::string_view bool_mode_name(bool enabled) noexcept {
   return enabled ? "on" : "off";
 }
 
+std::string_view probcut_mode_name(ProbCutMode mode) noexcept {
+  switch (mode) {
+  case ProbCutMode::off:
+    return "off";
+  case ProbCutMode::shadow:
+    return "shadow";
+  case ProbCutMode::on:
+    return "on";
+  }
+  return "unknown";
+}
+
+std::optional<ProbCutSelection> parse_probcut_selection(std::string_view value) noexcept {
+  if (value == "off") {
+    return ProbCutSelection::off;
+  }
+  if (value == "shadow") {
+    return ProbCutSelection::shadow;
+  }
+  if (value == "on") {
+    return ProbCutSelection::on;
+  }
+  if (value == "all") {
+    return ProbCutSelection::all;
+  }
+  return std::nullopt;
+}
+
+std::vector<ProbCutMode> probcut_values(ProbCutSelection selection) {
+  switch (selection) {
+  case ProbCutSelection::off:
+    return {ProbCutMode::off};
+  case ProbCutSelection::shadow:
+    return {ProbCutMode::shadow};
+  case ProbCutSelection::on:
+    return {ProbCutMode::on};
+  case ProbCutSelection::all:
+    return {ProbCutMode::off, ProbCutMode::shadow, ProbCutMode::on};
+  }
+  return {};
+}
+
 std::string_view eval_mode_name(EvalMode mode) noexcept {
   switch (mode) {
   case EvalMode::disc:
@@ -462,7 +555,8 @@ bool uses_pattern_evaluator(EvalSelection selection) noexcept {
          selection == EvalSelection::pattern_v2_both || selection == EvalSelection::all;
 }
 
-SearchOptions search_options_for_variant(BenchmarkVariant variant) noexcept {
+SearchOptions search_options_for_variant(BenchmarkVariant variant,
+                                         const ProbCutCalibrationProfileV1* profile) noexcept {
   SearchOptions options{};
   switch (variant.tt_mode) {
   case TTMode::off:
@@ -489,6 +583,23 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant) noexcept {
   options.endgame.exact_endgame = variant.exact_endgame_empties > 0;
   options.endgame.endgame_exact_empties = variant.exact_endgame_empties;
   options.reporting.multi_pv = 1;
+  if (variant.probcut_mode != ProbCutMode::off && profile != nullptr && !profile->entries.empty()) {
+    const ProbCutCalibrationEntryV1& first = profile->entries.front();
+    options.probcut_options = ProbCutOptionsV1{
+        .use_probcut = true,
+        .minimum_depth = first.deep_depth,
+        .shallow_depth_reduction = static_cast<Depth>(first.deep_depth - first.shallow_depth),
+        .confidence_multiplier = variant.probcut_confidence_multiplier,
+        .minimum_margin = variant.probcut_minimum_margin,
+        .maximum_margin = variant.probcut_maximum_margin,
+        .non_pv_only = true,
+        .beta_only = true,
+        .disable_near_exact = true,
+        .shadow_verify = variant.probcut_mode == ProbCutMode::shadow,
+        .calibration_profile_id = profile->profile_id,
+        .calibration_profile = profile,
+    };
+  }
   return options;
 }
 
@@ -515,6 +626,14 @@ std::string variant_id(BenchmarkVariant variant) {
   id += bool_mode_name(variant.use_endgame_parity);
   id += ";time_ms=";
   id += std::to_string(variant.max_time_ms);
+  if (variant.max_nodes != 0) {
+    id += ";nodes=";
+    id += std::to_string(variant.max_nodes);
+  }
+  if (variant.probcut_mode != ProbCutMode::off) {
+    id += ";probcut=";
+    id += probcut_mode_name(variant.probcut_mode);
+  }
   return id;
 }
 
@@ -522,7 +641,9 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
   std::vector<BenchmarkVariant> variants;
   const std::vector<EvalMode> eval_modes = eval_values(config.eval);
   const std::vector<bool> pvs_values =
-      mode == BenchmarkMode::iterative ? bool_values(config.pvs) : std::vector<bool>{false};
+      mode == BenchmarkMode::iterative || config.probcut != ProbCutSelection::off
+          ? bool_values(config.pvs)
+          : std::vector<bool>{false};
   const std::vector<bool> aspiration_values =
       mode == BenchmarkMode::iterative ? bool_values(config.aspiration) : std::vector<bool>{false};
   const std::vector<bool> history_values =
@@ -536,6 +657,7 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
   const std::vector<bool> endgame_parity_values = mode == BenchmarkMode::iterative
                                                       ? bool_values(config.endgame_parity)
                                                       : std::vector<bool>{true};
+  const std::vector<ProbCutMode> probcut_modes = probcut_values(config.probcut);
 
   for (const EvalMode eval_mode : eval_modes) {
     for (const bool use_pvs : pvs_values) {
@@ -545,21 +667,29 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
             for (const bool use_iid : iid_values) {
               for (const bool use_endgame_tt : endgame_tt_values) {
                 for (const bool use_endgame_parity : endgame_parity_values) {
-                  variants.push_back(BenchmarkVariant{
-                      .eval_mode = eval_mode,
-                      .tt_mode = mode == BenchmarkMode::iterative ? config.tt_mode : TTMode::off,
-                      .use_pvs = use_pvs,
-                      .use_aspiration = use_aspiration,
-                      .use_history = use_history,
-                      .use_killers = use_killers,
-                      .use_iid = use_iid,
-                      .max_time_ms = mode == BenchmarkMode::iterative ? config.max_time_ms : 0,
-                      .exact_endgame_empties = mode == BenchmarkMode::iterative
-                                                   ? config.exact_endgame_empties
-                                                   : std::uint8_t{0},
-                      .use_endgame_tt = use_endgame_tt,
-                      .use_endgame_parity = use_endgame_parity,
-                  });
+                  for (const ProbCutMode probcut_mode : probcut_modes) {
+                    variants.push_back(BenchmarkVariant{
+                        .eval_mode = eval_mode,
+                        .tt_mode = mode == BenchmarkMode::iterative ? config.tt_mode : TTMode::off,
+                        .use_pvs = use_pvs,
+                        .use_aspiration = use_aspiration,
+                        .use_history = use_history,
+                        .use_killers = use_killers,
+                        .use_iid = use_iid,
+                        .max_time_ms = mode == BenchmarkMode::iterative ? config.max_time_ms : 0,
+                        .max_nodes = mode == BenchmarkMode::iterative ? config.max_nodes : 0,
+                        .exact_endgame_empties = mode == BenchmarkMode::iterative
+                                                     ? config.exact_endgame_empties
+                                                     : std::uint8_t{0},
+                        .use_endgame_tt = use_endgame_tt,
+                        .use_endgame_parity = use_endgame_parity,
+                        .probcut_mode = probcut_mode,
+                        .probcut_minimum_margin = config.probcut_minimum_margin,
+                        .probcut_maximum_margin = config.probcut_maximum_margin,
+                        .probcut_confidence_multiplier = config.probcut_confidence_multiplier,
+                        .probcut_matrix = config.probcut != ProbCutSelection::off,
+                    });
+                  }
                 }
               }
             }
@@ -578,8 +708,11 @@ void print_usage(std::ostream& output, std::string_view program) {
             " [--pvs off|on|both] [--aspiration off|on|both]"
             " [--history off|on|both] [--killers off|on|both] [--iid off|on|both]"
             " [--eval disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all]"
-            " [--time-ms N] [--exact-endgame N]"
+            " [--time-ms N] [--nodes N] [--exact-endgame N]"
             " [--endgame-tt off|on|both] [--endgame-parity off|on|both]"
+            " [--probcut off|shadow|on|all] [--probcut-profile PATH]"
+            " [--probcut-minimum-margin N] [--probcut-maximum-margin N]"
+            " [--probcut-confidence K]"
             " [--corpus PATH] [--tsv|--csv|--jsonl]\n\n"
          << "Default depth range is 6..8.\n";
 }
@@ -608,6 +741,34 @@ std::optional<int> parse_int(std::string_view value) noexcept {
     return std::nullopt;
   }
   return result;
+}
+
+std::optional<NodeCount> parse_node_count(std::string_view value) noexcept {
+  if (value.empty()) {
+    return std::nullopt;
+  }
+  NodeCount result = 0;
+  const char* begin = value.data();
+  const char* end = value.data() + value.size();
+  const std::from_chars_result parsed = std::from_chars(begin, end, result);
+  if (parsed.ec != std::errc{} || parsed.ptr != end) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+std::optional<double> parse_double(std::string_view value) {
+  if (value.empty()) {
+    return std::nullopt;
+  }
+  const std::string owned{value};
+  char* end = nullptr;
+  errno = 0;
+  const double parsed = std::strtod(owned.c_str(), &end);
+  if (errno != 0 || end != owned.c_str() + owned.size() || !std::isfinite(parsed)) {
+    return std::nullopt;
+  }
+  return parsed;
 }
 
 std::optional<std::vector<Depth>> parse_depths(std::string_view value) {
@@ -654,6 +815,123 @@ std::vector<std::string_view> split_tabs(std::string_view line) {
     begin = tab + 1;
   }
   return fields;
+}
+
+LoadedProbCutProfile load_probcut_profile(std::string_view path) {
+  std::ifstream input{std::string(path)};
+  require_condition(input.is_open(), "failed to open ProbCut profile");
+  LoadedProbCutProfile profile;
+  std::string line;
+  bool saw_header = false;
+  while (std::getline(input, line)) {
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+    const std::vector<std::string_view> fields = split_tabs(line);
+    if (!saw_header) {
+      const std::array<std::string_view, 16> expected{
+          "schema_version",
+          "profile_id",
+          "source_checksum_sha256",
+          "evaluator_family",
+          "artifact_family",
+          "phase",
+          "deep_depth",
+          "shallow_depth",
+          "regression_slope",
+          "intercept",
+          "residual_sigma",
+          "confidence_multiplier",
+          "minimum_shallow_score",
+          "maximum_shallow_score",
+          "minimum_beta",
+          "maximum_beta",
+      };
+      require_condition(fields.size() == expected.size() &&
+                            std::equal(fields.begin(), fields.end(), expected.begin()),
+                        "invalid ProbCut profile header");
+      saw_header = true;
+      continue;
+    }
+    require_condition(fields.size() == 16, "invalid ProbCut profile row");
+    const std::optional<int> schema_version = parse_int(fields[0]);
+    const std::optional<int> phase = parse_int(fields[5]);
+    const std::optional<int> deep_depth = parse_int(fields[6]);
+    const std::optional<int> shallow_depth = parse_int(fields[7]);
+    const std::optional<double> slope = parse_double(fields[8]);
+    const std::optional<double> intercept = parse_double(fields[9]);
+    const std::optional<double> sigma = parse_double(fields[10]);
+    const std::optional<double> confidence = parse_double(fields[11]);
+    const std::optional<int> minimum_shallow = parse_int(fields[12]);
+    const std::optional<int> maximum_shallow = parse_int(fields[13]);
+    const std::optional<int> minimum_beta = parse_int(fields[14]);
+    const std::optional<int> maximum_beta = parse_int(fields[15]);
+    require_condition(
+        schema_version.has_value() && *schema_version > 0 && phase.has_value() && *phase >= 0 &&
+            *phase <= 12 && deep_depth.has_value() && *deep_depth > 0 &&
+            *deep_depth <= std::numeric_limits<Depth>::max() && shallow_depth.has_value() &&
+            *shallow_depth > 0 && *shallow_depth <= std::numeric_limits<Depth>::max() &&
+            slope.has_value() && intercept.has_value() && sigma.has_value() &&
+            confidence.has_value() && minimum_shallow.has_value() && maximum_shallow.has_value() &&
+            minimum_beta.has_value() && maximum_beta.has_value(),
+        "invalid ProbCut profile value");
+
+    if (profile.entries.empty()) {
+      profile.schema_version = static_cast<std::uint32_t>(*schema_version);
+      profile.profile_id = fields[1];
+      profile.source_checksum = fields[2];
+      profile.evaluator_family = fields[3];
+      profile.artifact_family = fields[4];
+    } else {
+      require_condition(
+          profile.schema_version == static_cast<std::uint32_t>(*schema_version) &&
+              profile.profile_id == fields[1] && profile.source_checksum == fields[2] &&
+              profile.evaluator_family == fields[3] && profile.artifact_family == fields[4],
+          "mixed ProbCut profile identity");
+    }
+    profile.entries.push_back(ProbCutCalibrationEntryV1{
+        .phase = static_cast<std::uint8_t>(*phase),
+        .deep_depth = static_cast<Depth>(*deep_depth),
+        .shallow_depth = static_cast<Depth>(*shallow_depth),
+        .regression_slope = *slope,
+        .intercept = *intercept,
+        .residual_sigma = *sigma,
+        .confidence_multiplier = *confidence,
+        .minimum_shallow_score = static_cast<Score>(*minimum_shallow),
+        .maximum_shallow_score = static_cast<Score>(*maximum_shallow),
+        .minimum_beta = static_cast<Score>(*minimum_beta),
+        .maximum_beta = static_cast<Score>(*maximum_beta),
+    });
+  }
+  require_condition(saw_header, "missing ProbCut profile header");
+  require_condition(!profile.entries.empty(), "empty ProbCut profile");
+  require_condition(profile.schema_version ==
+                            vibe_othello::search::kProbCutCalibrationProfileSchemaVersion &&
+                        !profile.profile_id.empty() && !profile.evaluator_family.empty() &&
+                        !profile.artifact_family.empty() && profile.source_checksum.size() == 64,
+                    "invalid ProbCut profile identity");
+  require_condition(std::all_of(profile.source_checksum.begin(), profile.source_checksum.end(),
+                                [](char character) {
+                                  return (character >= '0' && character <= '9') ||
+                                         (character >= 'a' && character <= 'f');
+                                }),
+                    "invalid ProbCut source checksum");
+  const Depth deep_depth = profile.entries.front().deep_depth;
+  const Depth shallow_depth = profile.entries.front().shallow_depth;
+  for (std::size_t index = 0; index < profile.entries.size(); ++index) {
+    const ProbCutCalibrationEntryV1& entry = profile.entries[index];
+    require_condition(entry.deep_depth == deep_depth && entry.shallow_depth == shallow_depth &&
+                          entry.deep_depth > entry.shallow_depth && entry.regression_slope > 0.0 &&
+                          entry.residual_sigma >= 0.0 && entry.confidence_multiplier > 0.0 &&
+                          entry.minimum_shallow_score <= entry.maximum_shallow_score &&
+                          entry.minimum_beta <= entry.maximum_beta,
+                      "unsupported ProbCut profile entry");
+    for (std::size_t previous = 0; previous < index; ++previous) {
+      require_condition(profile.entries[previous].phase != entry.phase,
+                        "duplicate ProbCut profile phase");
+    }
+  }
+  return profile;
 }
 
 std::vector<PositionCase> load_corpus(std::string_view path) {
@@ -865,6 +1143,83 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--nodes") {
+      require_condition(index + 1 < argc, "--nodes requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--nodes", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<NodeCount> nodes = parse_node_count(value);
+      require_condition(nodes.has_value(), "invalid node limit");
+      config.max_nodes = *nodes;
+      continue;
+    }
+
+    if (argument == "--probcut") {
+      require_condition(index + 1 < argc, "--probcut requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--probcut", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<ProbCutSelection> selection = parse_probcut_selection(value);
+      require_condition(selection.has_value(), "unknown ProbCut mode");
+      config.probcut = *selection;
+      continue;
+    }
+
+    if (argument == "--probcut-profile") {
+      require_condition(index + 1 < argc, "--probcut-profile requires a value");
+      config.probcut_profile_path = argv[++index];
+      continue;
+    }
+    if (parse_argument_with_value(argument, "--probcut-profile", &value)) {
+      require_condition(!value.empty(), "--probcut-profile requires a value");
+      config.probcut_profile_path = std::string(value);
+      continue;
+    }
+
+    if (argument == "--probcut-minimum-margin") {
+      require_condition(index + 1 < argc, "--probcut-minimum-margin requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--probcut-minimum-margin", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> margin = parse_int(value);
+      require_condition(margin.has_value() && *margin >= 0, "invalid ProbCut minimum margin");
+      config.probcut_minimum_margin = static_cast<Score>(*margin);
+      continue;
+    }
+
+    if (argument == "--probcut-maximum-margin") {
+      require_condition(index + 1 < argc, "--probcut-maximum-margin requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--probcut-maximum-margin", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> margin = parse_int(value);
+      require_condition(margin.has_value() && *margin >= 0, "invalid ProbCut maximum margin");
+      config.probcut_maximum_margin = static_cast<Score>(*margin);
+      continue;
+    }
+
+    if (argument == "--probcut-confidence") {
+      require_condition(index + 1 < argc, "--probcut-confidence requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--probcut-confidence", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<double> confidence = parse_double(value);
+      require_condition(confidence.has_value() && *confidence >= 0.0,
+                        "invalid ProbCut confidence multiplier");
+      config.probcut_confidence_multiplier = *confidence;
+      continue;
+    }
+
     if (argument == "--exact-endgame") {
       require_condition(index + 1 < argc, "--exact-endgame requires a value");
       value = argv[++index];
@@ -911,6 +1266,15 @@ std::optional<Config> parse_config(int argc, char** argv) {
     std::exit(2);
   }
 
+  if (config.probcut != ProbCutSelection::off) {
+    require_condition(!config.probcut_profile_path.empty(),
+                      "ProbCut modes require --probcut-profile");
+    require_condition(config.probcut_maximum_margin > 0 &&
+                          config.probcut_maximum_margin >= config.probcut_minimum_margin,
+                      "ProbCut modes require a valid positive --probcut-maximum-margin");
+    require_condition(config.pvs != BoolSelection::off,
+                      "ProbCut benchmark modes require --pvs on or --pvs both");
+  }
   return config;
 }
 
@@ -1040,7 +1404,8 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
 }
 
 TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position position, Depth depth,
-                       const Evaluator* pattern_incremental, const Evaluator* pattern_stateless) {
+                       const Evaluator* pattern_incremental, const Evaluator* pattern_stateless,
+                       const ProbCutCalibrationProfileV1* probcut_profile) {
   DiscDifferenceEvaluator evaluator;
   SimpleEvaluator simple_evaluator;
   const Evaluator* selected_evaluator = &evaluator;
@@ -1060,16 +1425,23 @@ TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position po
     break;
   }
   const auto start = std::chrono::steady_clock::now();
+  const SearchOptions options = search_options_for_variant(variant, probcut_profile);
 
-  SearchResult result =
-      mode == BenchmarkMode::fixed
-          ? search_fixed_depth(position, *selected_evaluator, depth)
-          : search_iterative(position, *selected_evaluator,
-                             SearchLimits{
-                                 .max_depth = depth,
-                                 .max_time = std::chrono::milliseconds{variant.max_time_ms},
-                             },
-                             search_options_for_variant(variant));
+  SearchResult result;
+  if (mode == BenchmarkMode::fixed && !variant.probcut_matrix) {
+    result = search_fixed_depth(position, *selected_evaluator, depth);
+  } else if (mode == BenchmarkMode::fixed) {
+    vibe_othello::search::SearchSession session;
+    result = search_fixed_depth(session, position, *selected_evaluator, depth, options);
+  } else {
+    result = search_iterative(position, *selected_evaluator,
+                              SearchLimits{
+                                  .max_depth = depth,
+                                  .max_nodes = variant.max_nodes,
+                                  .max_time = std::chrono::milliseconds{variant.max_time_ms},
+                              },
+                              options);
+  }
 
   return TimedResult{
       .result = result,
@@ -1078,31 +1450,53 @@ TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position po
   };
 }
 
+std::uint8_t position_phase(Position position) noexcept {
+  const int occupied = std::popcount(vibe_othello::board_core::occupied(position));
+  return static_cast<std::uint8_t>(std::min(12, (std::max(0, occupied - 4) * 13) / 60));
+}
+
+std::string_view profile_id_for(BenchmarkVariant variant,
+                                const ProbCutCalibrationProfileV1* profile) noexcept {
+  static_cast<void>(variant);
+  return profile == nullptr ? "none" : profile->profile_id;
+}
+
 void print_delimited_header(char delimiter) {
   std::cout << "position_name" << delimiter << "mode" << delimiter << "variant_id" << delimiter
-            << "tt_mode" << delimiter << "evaluator" << delimiter << "pvs" << delimiter
-            << "aspiration" << delimiter << "history" << delimiter << "killers" << delimiter
-            << "iid" << delimiter << "exact_endgame" << delimiter << "endgame_exact_empties"
-            << delimiter << "endgame_tt" << delimiter << "endgame_parity" << delimiter << "depth"
-            << delimiter << "score" << delimiter << "score_kind" << delimiter << "best_move"
-            << delimiter << "nodes" << delimiter << "eval_calls" << delimiter
-            << "incremental_eval_enabled" << delimiter << "incremental_state_initializations"
-            << delimiter << "incremental_eval_calls" << delimiter << "stateless_eval_calls"
-            << delimiter << "incremental_updates" << delimiter << "incremental_touched_instances"
-            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
-            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "pvs_researches"
-            << delimiter << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs"
-            << delimiter << "iid_searches" << delimiter << "endgame_nodes" << delimiter
-            << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_stores" << delimiter
-            << "tt_cutoffs" << delimiter << "tt_replacements" << delimiter << "tt_bucket_conflicts"
-            << delimiter << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores"
-            << delimiter << "completed_depth" << delimiter << "stopped" << delimiter << "elapsed_ms"
-            << delimiter << "nps" << '\n';
+            << "tt_mode" << delimiter << "evaluator" << delimiter << "phase" << delimiter
+            << "probcut_mode" << delimiter << "probcut_profile_id" << delimiter
+            << "probcut_source_checksum_sha256" << delimiter << "node_limit" << delimiter
+            << "time_limit_ms" << delimiter << "pvs" << delimiter << "aspiration" << delimiter
+            << "history" << delimiter << "killers" << delimiter << "iid" << delimiter
+            << "exact_endgame" << delimiter << "endgame_exact_empties" << delimiter << "endgame_tt"
+            << delimiter << "endgame_parity" << delimiter << "depth" << delimiter << "score"
+            << delimiter << "score_kind" << delimiter << "best_move" << delimiter << "nodes"
+            << delimiter << "eval_calls" << delimiter << "incremental_eval_enabled" << delimiter
+            << "incremental_state_initializations" << delimiter << "incremental_eval_calls"
+            << delimiter << "stateless_eval_calls" << delimiter << "incremental_updates"
+            << delimiter << "incremental_touched_instances" << delimiter << "terminal_nodes"
+            << delimiter << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter
+            << "alpha_updates" << delimiter << "pvs_researches" << delimiter
+            << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs" << delimiter
+            << "iid_searches" << delimiter << "endgame_nodes" << delimiter << "probcut_attempts"
+            << delimiter << "probcut_shallow_nodes" << delimiter << "probcut_successes" << delimiter
+            << "probcut_rejected_by_phase" << delimiter << "probcut_rejected_by_depth" << delimiter
+            << "probcut_rejected_near_exact" << delimiter << "probcut_rejected_pass" << delimiter
+            << "probcut_rejected_confidence" << delimiter << "probcut_beta_cutoffs" << delimiter
+            << "probcut_shadow_candidates" << delimiter << "probcut_shadow_verifications"
+            << delimiter << "probcut_shadow_false_cuts" << delimiter
+            << "probcut_estimated_saved_nodes" << delimiter
+            << "probcut_estimated_saved_nodes_available" << delimiter << "tt_probes" << delimiter
+            << "tt_hits" << delimiter << "tt_stores" << delimiter << "tt_cutoffs" << delimiter
+            << "tt_replacements" << delimiter << "tt_bucket_conflicts" << delimiter
+            << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores" << delimiter
+            << "completed_depth" << delimiter << "stopped" << delimiter << "elapsed_ms" << delimiter
+            << "nps" << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, BenchmarkMode mode,
                             BenchmarkVariant variant, Depth depth, TimedResult timed_result,
-                            char delimiter) {
+                            const ProbCutCalibrationProfileV1* probcut_profile, char delimiter) {
   const double elapsed_ms = std::chrono::duration<double, std::milli>(timed_result.elapsed).count();
   const double elapsed_seconds = std::chrono::duration<double>(timed_result.elapsed).count();
   const double nps = elapsed_seconds > 0.0
@@ -1112,7 +1506,14 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
 
   std::cout << position_case.id << delimiter << mode_name(mode) << delimiter << id << delimiter
             << tt_mode_name(variant.tt_mode) << delimiter << eval_mode_name(variant.eval_mode)
-            << delimiter << bool_mode_name(variant.use_pvs) << delimiter
+            << delimiter << static_cast<int>(position_phase(position_case.position)) << delimiter
+            << probcut_mode_name(variant.probcut_mode) << delimiter
+            << profile_id_for(variant, probcut_profile) << delimiter
+            << (probcut_profile == nullptr
+                    ? std::string_view{"none"}
+                    : probcut_profile->source_calibration_report_checksum_sha256)
+            << delimiter << variant.max_nodes << delimiter << variant.max_time_ms << delimiter
+            << bool_mode_name(variant.use_pvs) << delimiter
             << bool_mode_name(variant.use_aspiration) << delimiter
             << bool_mode_name(variant.use_history) << delimiter
             << bool_mode_name(variant.use_killers) << delimiter << bool_mode_name(variant.use_iid)
@@ -1139,9 +1540,23 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << timed_result.result.stats.aspiration_fail_highs << delimiter
             << timed_result.result.stats.iid_searches << delimiter
             << timed_result.result.stats.endgame_nodes << delimiter
-            << timed_result.result.stats.tt_probes << delimiter << timed_result.result.stats.tt_hits
-            << delimiter << timed_result.result.stats.tt_stores << delimiter
-            << timed_result.result.stats.tt_cutoffs << delimiter
+            << timed_result.result.stats.probcut_attempts << delimiter
+            << timed_result.result.stats.probcut_shallow_nodes << delimiter
+            << timed_result.result.stats.probcut_successes << delimiter
+            << timed_result.result.stats.probcut_rejected_by_phase << delimiter
+            << timed_result.result.stats.probcut_rejected_by_depth << delimiter
+            << timed_result.result.stats.probcut_rejected_near_exact << delimiter
+            << timed_result.result.stats.probcut_rejected_pass << delimiter
+            << timed_result.result.stats.probcut_rejected_confidence << delimiter
+            << timed_result.result.stats.probcut_beta_cutoffs << delimiter
+            << timed_result.result.stats.probcut_shadow_candidates << delimiter
+            << timed_result.result.stats.probcut_shadow_verifications << delimiter
+            << timed_result.result.stats.probcut_shadow_false_cuts << delimiter
+            << timed_result.result.stats.probcut_estimated_saved_nodes << delimiter
+            << bool_mode_name(timed_result.result.stats.probcut_estimated_saved_nodes_available)
+            << delimiter << timed_result.result.stats.tt_probes << delimiter
+            << timed_result.result.stats.tt_hits << delimiter << timed_result.result.stats.tt_stores
+            << delimiter << timed_result.result.stats.tt_cutoffs << delimiter
             << timed_result.result.stats.tt_replacements << delimiter
             << timed_result.result.stats.tt_bucket_conflicts << delimiter
             << timed_result.result.stats.tt_rejected_stores << delimiter
@@ -1152,7 +1567,8 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
 }
 
 void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
-                        BenchmarkVariant variant, Depth depth, TimedResult timed_result) {
+                        BenchmarkVariant variant, Depth depth, TimedResult timed_result,
+                        const ProbCutCalibrationProfileV1* probcut_profile) {
   const double elapsed_seconds = std::chrono::duration<double>(timed_result.elapsed).count();
   const double nps = elapsed_seconds > 0.0
                          ? static_cast<double>(timed_result.result.nodes) / elapsed_seconds
@@ -1172,6 +1588,17 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"depth\":" << depth;
   std::cout << ",\"evaluator\":";
   print_json_string(std::cout, eval_mode_name(variant.eval_mode));
+  std::cout << ",\"phase\":" << static_cast<int>(position_phase(position_case.position));
+  std::cout << ",\"probcut_mode\":";
+  print_json_string(std::cout, probcut_mode_name(variant.probcut_mode));
+  std::cout << ",\"probcut_profile_id\":";
+  print_json_string(std::cout, profile_id_for(variant, probcut_profile));
+  std::cout << ",\"probcut_source_checksum_sha256\":";
+  print_json_string(std::cout, probcut_profile == nullptr
+                                   ? std::string_view{"none"}
+                                   : probcut_profile->source_calibration_report_checksum_sha256);
+  std::cout << ",\"node_limit\":" << variant.max_nodes;
+  std::cout << ",\"time_limit_ms\":" << variant.max_time_ms;
   std::cout << ",\"pvs\":";
   print_json_string(std::cout, bool_mode_name(variant.use_pvs));
   std::cout << ",\"aspiration\":";
@@ -1219,6 +1646,30 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"aspiration_fail_highs\":" << timed_result.result.stats.aspiration_fail_highs;
   std::cout << ",\"iid_searches\":" << timed_result.result.stats.iid_searches;
   std::cout << ",\"endgame_nodes\":" << timed_result.result.stats.endgame_nodes;
+  std::cout << ",\"probcut_attempts\":" << timed_result.result.stats.probcut_attempts;
+  std::cout << ",\"probcut_shallow_nodes\":" << timed_result.result.stats.probcut_shallow_nodes;
+  std::cout << ",\"probcut_successes\":" << timed_result.result.stats.probcut_successes;
+  std::cout << ",\"probcut_rejected_by_phase\":"
+            << timed_result.result.stats.probcut_rejected_by_phase;
+  std::cout << ",\"probcut_rejected_by_depth\":"
+            << timed_result.result.stats.probcut_rejected_by_depth;
+  std::cout << ",\"probcut_rejected_near_exact\":"
+            << timed_result.result.stats.probcut_rejected_near_exact;
+  std::cout << ",\"probcut_rejected_pass\":" << timed_result.result.stats.probcut_rejected_pass;
+  std::cout << ",\"probcut_rejected_confidence\":"
+            << timed_result.result.stats.probcut_rejected_confidence;
+  std::cout << ",\"probcut_beta_cutoffs\":" << timed_result.result.stats.probcut_beta_cutoffs;
+  std::cout << ",\"probcut_shadow_candidates\":"
+            << timed_result.result.stats.probcut_shadow_candidates;
+  std::cout << ",\"probcut_shadow_verifications\":"
+            << timed_result.result.stats.probcut_shadow_verifications;
+  std::cout << ",\"probcut_shadow_false_cuts\":"
+            << timed_result.result.stats.probcut_shadow_false_cuts;
+  std::cout << ",\"probcut_estimated_saved_nodes\":"
+            << timed_result.result.stats.probcut_estimated_saved_nodes;
+  std::cout << ",\"probcut_estimated_saved_nodes_available\":"
+            << (timed_result.result.stats.probcut_estimated_saved_nodes_available ? "true"
+                                                                                  : "false");
   std::cout << ",\"tt_probes\":" << timed_result.result.stats.tt_probes;
   std::cout << ",\"tt_hits\":" << timed_result.result.stats.tt_hits;
   std::cout << ",\"tt_stores\":" << timed_result.result.stats.tt_stores;
@@ -1244,6 +1695,12 @@ int main(int argc, char** argv) {
   const std::vector<PositionCase> positions =
       config->corpus_path.empty() ? benchmark_positions() : load_corpus(config->corpus_path);
   const std::vector<BenchmarkMode> modes = modes_for_filter(config->mode_filter);
+  std::optional<LoadedProbCutProfile> loaded_probcut_profile;
+  std::optional<ProbCutCalibrationProfileV1> probcut_profile;
+  if (!config->probcut_profile_path.empty()) {
+    loaded_probcut_profile.emplace(load_probcut_profile(config->probcut_profile_path));
+    probcut_profile.emplace(loaded_probcut_profile->view());
+  }
   std::optional<vibe_othello::evaluation::PhaseAwareEvaluator> pattern_incremental;
   std::optional<StatelessPhaseAwareEvaluator> pattern_stateless;
   if (uses_pattern_evaluator(config->eval)) {
@@ -1271,11 +1728,14 @@ int main(int argc, char** argv) {
           TimedResult timed_result =
               run_search(mode, variant, position_case.position, depth,
                          pattern_incremental ? &*pattern_incremental : nullptr,
-                         pattern_stateless ? &*pattern_stateless : nullptr);
+                         pattern_stateless ? &*pattern_stateless : nullptr,
+                         probcut_profile ? &*probcut_profile : nullptr);
           if (config->output_format == OutputFormat::jsonl) {
-            print_jsonl_result(position_case, mode, variant, depth, timed_result);
+            print_jsonl_result(position_case, mode, variant, depth, timed_result,
+                               probcut_profile ? &*probcut_profile : nullptr);
           } else {
             print_delimited_result(position_case, mode, variant, depth, timed_result,
+                                   probcut_profile ? &*probcut_profile : nullptr,
                                    config->delimiter);
           }
         }

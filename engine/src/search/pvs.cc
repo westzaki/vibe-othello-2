@@ -2,7 +2,8 @@
 
 namespace vibe_othello::search::internal {
 
-SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply) {
+SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
+                     bool cut_node) {
   const Score original_alpha = alpha;
   const Score original_beta = beta;
   std::optional<TTEntry> tt_entry;
@@ -10,6 +11,13 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
       prepare_search_node(context, alpha, beta, depth, ply, &tt_entry);
   if (node_result.has_value()) {
     return *node_result;
+  }
+
+  std::optional<ProbCutShadowCandidate> probcut_shadow_candidate;
+  const std::optional<SearchNodeResult> probcut_result =
+      maybe_probcut(context, alpha, beta, depth, ply, cut_node, &probcut_shadow_candidate);
+  if (probcut_result.has_value()) {
+    return *probcut_result;
   }
 
   StackFrame& frame = context->stack[ply];
@@ -77,6 +85,9 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
                          classify_bound(best.score, original_alpha, original_beta), best_move);
 
   const SearchNodeResult result = SearchNodeResult::completed(best);
+  if (probcut_shadow_candidate.has_value()) {
+    complete_probcut_shadow(context, *probcut_shadow_candidate, result);
+  }
   if (shadow_candidate.has_value()) {
     complete_shadow_candidate(context, *shadow_candidate, result);
   }
@@ -86,9 +97,9 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
 SearchNodeResult full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
                                     Ply ply) {
   if (context->options.midgame.use_pvs) {
-    return pvs(context, alpha, beta, depth, ply);
+    return pvs(context, alpha, beta, depth, ply, false);
   }
-  return alphabeta(context, alpha, beta, depth, ply);
+  return alphabeta(context, alpha, beta, depth, ply, false);
 }
 
 } // namespace vibe_othello::search::internal

@@ -31,6 +31,10 @@ make_search_semantic_fingerprint(const Evaluator* evaluator, ResolvedSearchOptio
   // Shadow calibration is observational and must not invalidate or otherwise
   // perturb the official-search TT when callers toggle collection metadata.
   options.selective = {};
+  // The caller-owned profile may not outlive this call. Its complete audited
+  // semantics are retained by probcut_profile_semantic_fingerprint instead.
+  options.probcut.calibration_profile_id = {};
+  options.probcut.calibration_profile = nullptr;
   return SearchSemanticFingerprint{
       .evaluator = evaluator,
       .evaluator_revision = evaluator == nullptr ? 0 : evaluator->transposition_table_revision(),

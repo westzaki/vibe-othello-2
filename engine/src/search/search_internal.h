@@ -40,9 +40,11 @@ void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
                             std::optional<board_core::Move> best_move) noexcept;
 
-SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
+SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
+                           bool cut_node = false);
 SearchNodeResult null_window_search(SearchContext* context, Score beta, Depth depth, Ply ply);
-SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply);
+SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
+                     bool cut_node = false);
 SearchNodeResult full_window_search(SearchContext* context, Score alpha, Score beta, Depth depth,
                                     Ply ply);
 

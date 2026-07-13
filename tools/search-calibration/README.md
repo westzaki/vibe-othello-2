@@ -1,8 +1,10 @@
 # Selective Search Shadow Calibration
 
-This directory owns the local-only MPC/ProbCut calibration workflow. The
-engine can collect reduced-depth versus deep-search observations, but it does
-not perform a ProbCut, change a search cutoff, or load any fitted coefficient.
+This directory owns the local-only MPC/ProbCut calibration workflow. The engine
+can collect reduced-depth versus deep-search observations. Runtime search also
+has a separate conservative, typed, caller-supplied ProbCut path, but the
+repository contains no production profile or coefficient and enables nothing
+by default. A generated analyzer report is not itself runtime authorization.
 
 ## Collection contract
 
@@ -74,8 +76,10 @@ diagnostic callback is running. Deep verification is intentionally expensive;
 control it with sample rate and the per-search cap.
 
 Normal C++ defaults, runtime presets, WASM `easy`/`normal`/`hard` presets,
-benchmarks, and Arena runs remain disabled. Long collection runs belong under a
-local measurement root outside the repository, for example:
+default benchmark runs, and Arena runs remain disabled. The search benchmark
+can opt in only when an external reviewed profile TSV is explicitly supplied.
+Long collection runs belong under a local measurement root outside the
+repository, for example:
 
 ```sh
 export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$HOME/vibe-othello-local/measurements}"
@@ -136,3 +140,50 @@ aggregation, reports contain no timestamp, and JSON keys/group ordering are
 stable. The recommended margin is an in-sample, report-only diagnostic. Before
 runtime adoption, coefficients and margins require validation against a
 separate seed or holdout campaign and a separate measured search change.
+
+## Runtime profile adoption
+
+Do not copy a regression group into runtime merely because
+`recommendation_eligible` is true. Review the source report and holdout result,
+then create a versioned `ProbCutCalibrationProfileV1` that records:
+
+- profile ID and schema version
+- exact analyzer `input_checksum_sha256`
+- evaluator and artifact families
+- phase and the single supported deep/shallow depth pair
+- regression slope/intercept and residual sigma
+- audited confidence multiplier
+- inclusive shallow-score and beta validity ranges
+
+The first runtime version rejects multiple depth pairs, duplicate groups,
+invalid identity/checksum data, non-finite coefficients, and every missing
+phase/depth pair. It never fills a missing group from an adjacent phase or
+depth. The caller must ensure that the profile evaluator/artifact family names
+describe the actual evaluator supplied to search.
+
+The one-sided integer condition is:
+
+```text
+predicted_deep = slope * shallow_score + intercept
+k = max(profile_confidence_multiplier, option_confidence_multiplier)
+margin = max(ceil(k * residual_sigma), minimum_margin)
+cut-high only if floor(predicted_deep) - margin >= beta
+```
+
+If `margin > maximum_margin`, the candidate is rejected; the maximum is never
+used to reduce a confidence margin. Scores and bounds near search sentinels are
+also rejected. `shadow_verify=true` applies the same eligibility and shallow
+search but does not cut; normal deep search classifies a candidate as false
+when its result is below beta.
+
+For local benchmark input, use a TSV outside the repository with this exact
+header (one row per supported phase):
+
+```text
+schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	phase	deep_depth	shallow_depth	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+```
+
+The benchmark requires an explicit positive `--probcut-maximum-margin`; it does
+not infer one from the report. Keep the TSV, source report, samples, and run
+outputs under the local measurement root. Do not commit them as generated
+reports or calibration raw data.
