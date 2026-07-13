@@ -4,14 +4,16 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/score.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
 namespace vibe_othello::search {
 
-inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 4;
+inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 5;
 inline constexpr std::uint32_t kShadowCalibrationSampleRateScale = 1'000'000;
 
 enum class ShadowNodeType : std::uint8_t {
@@ -35,6 +37,14 @@ enum class ShadowWindowResult : std::uint8_t {
   fail_high,
 };
 
+struct ShadowCalibrationDepthPairV1 {
+  Depth deep_depth = 0;
+  Depth shallow_depth = 0;
+
+  friend constexpr bool operator==(const ShadowCalibrationDepthPairV1&,
+                                   const ShadowCalibrationDepthPairV1&) = default;
+};
+
 struct ShadowCalibrationSample {
   std::uint32_t schema_version = kShadowCalibrationSchemaVersion;
   std::string repo_sha;
@@ -52,6 +62,10 @@ struct ShadowCalibrationSample {
   bool pv_node = false;
   bool cut_node = false;
   bool all_node = false;
+  std::uint16_t collection_pair_index = 0;
+  std::uint16_t collection_pair_count = 0;
+  std::uint16_t same_deep_pair_index = 0;
+  std::uint16_t same_deep_pair_count = 0;
   Depth deep_depth = 0;
   Depth shallow_depth = 0;
   Score official_alpha = 0;
@@ -67,6 +81,10 @@ struct ShadowCalibrationSample {
   bool verification_best_move_agreement = false;
   bool pass_state = false;
   bool terminal_state = false;
+  SearchMode search_mode = SearchMode::move;
+  bool exact_handoff_enabled = false;
+  std::uint8_t exact_handoff_threshold = 0;
+  std::uint8_t exact_handoff_distance = 0;
   bool exact_handoff_eligible = false;
   ShadowWindowResult actual_official_deep_result = ShadowWindowResult::exact;
   bool hypothetical_cut_high = false;
@@ -98,8 +116,9 @@ struct SelectiveSearchOptionsV1 {
   bool enable_shadow_calibration = false;
   std::uint32_t sample_rate = 0;
   std::uint32_t max_samples_per_search = 0;
-  Depth minimum_deep_depth = 4;
-  Depth shallow_depth_reduction = 2;
+  // The reviewed order is preserved in collection_config_id and in every
+  // sample's pair indices. Storage must outlive the search call.
+  std::span<const ShadowCalibrationDepthPairV1> ordered_depth_pairs;
   bool include_pv_nodes = false;
   bool include_pass_nodes = false;
   bool include_near_exact_nodes = false;
@@ -110,8 +129,27 @@ struct SelectiveSearchOptionsV1 {
   std::string_view artifact_id;
   ShadowCalibrationSink* sink = nullptr;
 
-  friend constexpr bool operator==(const SelectiveSearchOptionsV1&,
-                                   const SelectiveSearchOptionsV1&) = default;
+  friend constexpr bool operator==(const SelectiveSearchOptionsV1& lhs,
+                                   const SelectiveSearchOptionsV1& rhs) noexcept {
+    if (lhs.enable_shadow_calibration != rhs.enable_shadow_calibration ||
+        lhs.sample_rate != rhs.sample_rate ||
+        lhs.max_samples_per_search != rhs.max_samples_per_search ||
+        lhs.ordered_depth_pairs.size() != rhs.ordered_depth_pairs.size() ||
+        lhs.include_pv_nodes != rhs.include_pv_nodes ||
+        lhs.include_pass_nodes != rhs.include_pass_nodes ||
+        lhs.include_near_exact_nodes != rhs.include_near_exact_nodes ||
+        lhs.sampling_seed != rhs.sampling_seed || lhs.repo_sha != rhs.repo_sha ||
+        lhs.search_config_id != rhs.search_config_id || lhs.evaluator_id != rhs.evaluator_id ||
+        lhs.artifact_id != rhs.artifact_id || lhs.sink != rhs.sink) {
+      return false;
+    }
+    for (std::size_t index = 0; index < lhs.ordered_depth_pairs.size(); ++index) {
+      if (lhs.ordered_depth_pairs[index] != rhs.ordered_depth_pairs[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
 
 // Shadow work is deliberately excluded from SearchStats and official nodes.
@@ -120,6 +158,8 @@ struct ShadowCalibrationStats {
   NodeCount shadow_samples = 0;
   NodeCount shadow_shallow_nodes = 0;
   NodeCount shadow_deep_verification_nodes = 0;
+  NodeCount shadow_shallow_verification_searches = 0;
+  NodeCount shadow_deep_verification_searches = 0;
   NodeCount shadow_verification_probcut_attempts = 0;
   NodeCount shadow_verification_probcut_beta_cutoffs = 0;
   NodeCount shadow_best_move_agreements = 0;

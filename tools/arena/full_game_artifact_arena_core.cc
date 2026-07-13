@@ -67,6 +67,44 @@ void add(TelemetrySummary* summary, const SearchTelemetry& record) {
   summary->iid_searches += record.iid_searches;
   summary->endgame_nodes += record.endgame_nodes;
   summary->selective_cuts += record.selective_cuts;
+  summary->probcut_attempts += record.probcut_attempts;
+  summary->probcut_shallow_nodes += record.probcut_shallow_nodes;
+  summary->probcut_successes += record.probcut_successes;
+  summary->probcut_confidence_rejections += record.probcut_confidence_rejections;
+  summary->probcut_unsupported_profile += record.probcut_unsupported_profile;
+  summary->probcut_near_exact_rejections += record.probcut_near_exact_rejections;
+  summary->probcut_pass_rejections += record.probcut_pass_rejections;
+  summary->probcut_pv_rejections += record.probcut_pv_rejections;
+  summary->probcut_beta_cuts += record.probcut_beta_cuts;
+  summary->probcut_cut_low_attempts += record.probcut_cut_low_attempts;
+  summary->probcut_shadow_false_cuts += record.probcut_shadow_false_cuts;
+  for (const ProbCutPairTelemetry& incoming : record.probcut_by_phase_depth_pair) {
+    auto existing = std::find_if(summary->probcut_by_phase_depth_pair.begin(),
+                                 summary->probcut_by_phase_depth_pair.end(),
+                                 [&incoming](const ProbCutPairTelemetry& value) {
+                                   return value.phase == incoming.phase &&
+                                          value.deep_depth == incoming.deep_depth &&
+                                          value.shallow_depth == incoming.shallow_depth;
+                                 });
+    if (existing == summary->probcut_by_phase_depth_pair.end()) {
+      summary->probcut_by_phase_depth_pair.push_back(incoming);
+      continue;
+    }
+    existing->attempts += incoming.attempts;
+    existing->shallow_nodes += incoming.shallow_nodes;
+    existing->successes += incoming.successes;
+    existing->confidence_rejections += incoming.confidence_rejections;
+    existing->unsupported_profile += incoming.unsupported_profile;
+    existing->near_exact_rejections += incoming.near_exact_rejections;
+    existing->pass_rejections += incoming.pass_rejections;
+    existing->pv_rejections += incoming.pv_rejections;
+    existing->root_rejections += incoming.root_rejections;
+    existing->beta_cuts += incoming.beta_cuts;
+    existing->cut_low_attempts += incoming.cut_low_attempts;
+    existing->shadow_candidates += incoming.shadow_candidates;
+    existing->shadow_verifications += incoming.shadow_verifications;
+    existing->shadow_false_cuts += incoming.shadow_false_cuts;
+  }
   summary->stopped_searches += record.stopped ? 1U : 0U;
   summary->exact_handoff_uses += record.exact_handoff_used ? 1U : 0U;
   summary->exact_root_searches += record.exact_root_search ? 1U : 0U;

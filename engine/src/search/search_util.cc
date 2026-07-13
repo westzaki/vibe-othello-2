@@ -2,6 +2,7 @@
 #include "search_limits_internal.h"
 #include "search_util_internal.h"
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cassert>
@@ -52,7 +53,7 @@ void prepend_move(board_core::Move move, const Line& child, Line* line) noexcept
   line->size = static_cast<std::uint8_t>(line->size + copy_count);
 }
 
-void add_stats(SearchStats* total, SearchStats delta) noexcept {
+void add_stats(SearchStats* total, const SearchStats& delta) {
   total->nodes += delta.nodes;
   total->leaf_nodes += delta.leaf_nodes;
   total->eval_calls += delta.eval_calls;
@@ -87,17 +88,50 @@ void add_stats(SearchStats* total, SearchStats delta) noexcept {
   total->probcut_attempts += delta.probcut_attempts;
   total->probcut_shallow_nodes += delta.probcut_shallow_nodes;
   total->probcut_successes += delta.probcut_successes;
+  total->probcut_unsupported_profile += delta.probcut_unsupported_profile;
   total->probcut_rejected_by_phase += delta.probcut_rejected_by_phase;
   total->probcut_rejected_by_depth += delta.probcut_rejected_by_depth;
   total->probcut_rejected_near_exact += delta.probcut_rejected_near_exact;
   total->probcut_rejected_pass += delta.probcut_rejected_pass;
+  total->probcut_rejected_pv += delta.probcut_rejected_pv;
+  total->probcut_rejected_root += delta.probcut_rejected_root;
+  total->probcut_rejected_overhead += delta.probcut_rejected_overhead;
+  total->probcut_probe_limit_reached += delta.probcut_probe_limit_reached;
   total->probcut_rejected_confidence += delta.probcut_rejected_confidence;
   total->probcut_beta_cutoffs += delta.probcut_beta_cutoffs;
+  total->probcut_cut_low_attempts += delta.probcut_cut_low_attempts;
   total->probcut_shadow_candidates += delta.probcut_shadow_candidates;
   total->probcut_shadow_verifications += delta.probcut_shadow_verifications;
   total->probcut_shadow_false_cuts += delta.probcut_shadow_false_cuts;
   total->probcut_estimated_saved_nodes += delta.probcut_estimated_saved_nodes;
   total->probcut_estimated_saved_nodes_available |= delta.probcut_estimated_saved_nodes_available;
+  for (const ProbCutDepthPairStats& incoming : delta.probcut_by_phase_depth_pair) {
+    auto existing = std::find_if(total->probcut_by_phase_depth_pair.begin(),
+                                 total->probcut_by_phase_depth_pair.end(),
+                                 [&incoming](const ProbCutDepthPairStats& value) {
+                                   return value.phase == incoming.phase &&
+                                          value.deep_depth == incoming.deep_depth &&
+                                          value.shallow_depth == incoming.shallow_depth;
+                                 });
+    if (existing == total->probcut_by_phase_depth_pair.end()) {
+      total->probcut_by_phase_depth_pair.push_back(incoming);
+      continue;
+    }
+    existing->attempts += incoming.attempts;
+    existing->shallow_nodes += incoming.shallow_nodes;
+    existing->successes += incoming.successes;
+    existing->confidence_rejections += incoming.confidence_rejections;
+    existing->unsupported_profile += incoming.unsupported_profile;
+    existing->near_exact_rejections += incoming.near_exact_rejections;
+    existing->pass_rejections += incoming.pass_rejections;
+    existing->pv_rejections += incoming.pv_rejections;
+    existing->root_rejections += incoming.root_rejections;
+    existing->beta_cuts += incoming.beta_cuts;
+    existing->cut_low_attempts += incoming.cut_low_attempts;
+    existing->shadow_candidates += incoming.shadow_candidates;
+    existing->shadow_verifications += incoming.shadow_verifications;
+    existing->shadow_false_cuts += incoming.shadow_false_cuts;
+  }
 }
 
 SearchLimitState initialize_limit_state(SearchLimits limits) {

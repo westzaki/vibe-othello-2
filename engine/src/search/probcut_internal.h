@@ -10,6 +10,9 @@ struct SearchContext;
 
 struct ProbCutShadowCandidate {
   Score beta = 0;
+  std::uint8_t phase = 0;
+  Depth deep_depth = 0;
+  Depth shallow_depth = 0;
 };
 
 // A result is present only for an actual beta cutoff or a stopped shallow

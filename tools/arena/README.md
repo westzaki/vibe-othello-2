@@ -272,7 +272,7 @@ stack used for bounded artifact evaluation. Depth, node, and time limits are
 identical per move for both artifacts. An exact-endgame threshold requires a
 node or time cap because exact root search does not use the depth cap.
 
-The versioned `full-game-artifact-arena-v3` report records every engine search
+The versioned `full-game-artifact-arena-v4` report records every engine search
 call separately for candidate and baseline: completed depth, nanosecond-resolution elapsed time,
 public node/evaluator/TT/PVS/aspiration/IID/endgame/selective counters, exact
 and stopped flags, side to move, occupied count, and runtime phase. It also
@@ -281,12 +281,19 @@ percentiles, TT rates, time-budget overshoot, and a deterministic opening-pair
 cluster-bootstrap 95% interval. The confidence interval resamples opening
 pairs, never individual games.
 
-Schema v3 replaces the v2 TT `overwrites` and `collisions` fields with explicit
+Schema v4 retains the v3 split TT telemetry and adds independently resolved
+candidate/baseline ProbCut policies plus global and phase/depth-pair MPC
+telemetry. Schema v3 replaced the v2 TT `overwrites` and `collisions` fields with explicit
 `replacements`, `bucket_conflicts`, and `same_key_updates` counters. The
 configured `--tt-bytes` budget always applies to the actual search session;
 `--persistent-session` controls only whether knowledge is retained between
 moves. Allocation output includes `tt_enabled` and `tt_allocation_succeeded` so
 an intentional zero-byte table is distinguishable from allocation failure.
+For ProbCut, `candidate_requested_probcut_mode` and requested prefix/probe
+fields record the command, while `effective_enabled`,
+`effective_ordered_depth_pairs`, and `effective_maximum_probes_per_node` record
+the shared runtime resolution. Arena exits before playing or writing a report
+if any requested non-off policy resolves to disabled.
 
 Speed rates use the arena's `steady_clock` nanosecond measurement around each
 search call. The engine-reported integer milliseconds and their difference
@@ -338,6 +345,52 @@ compared directly.
 This is a local strength-gate foundation, not Elo,
 artifact promotion, or a production-strength claim; generated reports and local
 artifacts must not be committed.
+
+## Multi-ProbCut Strength Campaign
+
+`run_multi_probcut_strength_campaign.py` runs the same reviewed calibration
+profile and artifact through MPC off, separately audited first-pair ProbCut, ordered
+Multi-ProbCut, and shadow Multi-ProbCut. In addition to each policy versus off,
+the matrix directly runs multi versus single and swaps every policy assignment.
+It covers fixed depth, fixed nodes, and 50/100/500 ms by default, repeats
+multiple seeds and opening corpora, and includes an off/off same-config sanity
+cell. Artifact, opening, exact threshold, TT budget, and persistent-session
+policy are held constant within each comparison.
+
+```sh
+python3 tools/arena/run_multi_probcut_strength_campaign.py \
+  --artifact-manifest "$VIBE_OTHELLO_MEASUREMENTS/<artifact>/manifest.json" \
+  --artifact-weights "$VIBE_OTHELLO_MEASUREMENTS/<artifact>/weights.bin" \
+  --openings "$VIBE_OTHELLO_CORPORA/<campaign>/openings-a.txt" \
+  --openings "$VIBE_OTHELLO_CORPORA/<campaign>/openings-b.txt" \
+  --probcut-profile "$VIBE_OTHELLO_MEASUREMENTS/<calibration>/reviewed-profile.tsv" \
+  --maximum-margin "$PROBCUT_MAXIMUM_MARGIN" \
+  --maximum-probes 2 \
+  --maximum-shallow-overhead-ratio 0.20 \
+  --seeds 0,1 \
+  --output-dir "$VIBE_OTHELLO_MEASUREMENTS/arena/mpc/<campaign>" \
+  --resume
+```
+
+The profile evaluator/artifact families, training checksum, joint holdout
+checksum, per-prefix/probe/domain scheduler evidence, ordered pairs, and reviewed probe cap must match
+the resolved Arena options. The runner also binds requested node/depth/time
+limits, bootstrap settings, opening checksum/count, artifact runtime identity,
+TT/session settings, and Arena strength-gate eligibility. Primary 500-ms cells
+are accepted only when both sides' effective policies match the requested
+off/single/multi/shadow assignment; a raw single request normalized to off
+cannot enter a multi-versus-single result. They are ineligible below 100
+opening pairs. Automatic checks require multi to beat
+off with a lower 95% bound above 0.5, remain non-degraded versus single, avoid a
+large 100-ms reversal, exercise and cut with a later pair, and pass joint shadow
+false-cut auditing. Fixed-depth/fixed-node same-config runs require exact
+neutrality; fixed-time sanity is reported statistically because scheduling can
+change completed depth. It intentionally leaves
+`production_enablement_authorized=false`: fixed-depth differential correctness
+and exact holdouts still require review. Generated reports remain local and
+must not be committed.
+No reviewed profile is shipped, so this command is opt-in tooling and does not
+enable any preset.
 
 ## Fixed-Time Artifact Strength Campaign
 

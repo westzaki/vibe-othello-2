@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-SAMPLE_SCHEMA_VERSION = 4
-REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v4"
+SAMPLE_SCHEMA_VERSION = 5
+REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v5"
 DEFAULT_MINIMUM_EXACT_PAIRS = 30
+DOMAIN_BUCKET_WIDTH = 4
 VERIFICATION_ALPHA = -30_000
 VERIFICATION_BETA = 30_000
 HEX64 = re.compile(r"^[0-9a-f]{16}$")
@@ -40,6 +41,10 @@ REQUIRED_FIELDS = {
     "pv_node",
     "cut_node",
     "all_node",
+    "collection_pair_index",
+    "collection_pair_count",
+    "same_deep_pair_index",
+    "same_deep_pair_count",
     "deep_depth",
     "shallow_depth",
     "official_alpha",
@@ -55,6 +60,10 @@ REQUIRED_FIELDS = {
     "verification_best_move_agreement",
     "pass_state",
     "terminal_state",
+    "search_mode",
+    "exact_handoff_enabled",
+    "exact_handoff_threshold",
+    "exact_handoff_distance",
     "exact_handoff_eligible",
     "actual_official_deep_result",
     "hypothetical_cut_high",
@@ -115,8 +124,8 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
     )
     for field, lower, upper in (
         ("phase", 0, 12),
-        ("occupied_count", 0, 64),
-        ("empties", 0, 64),
+        ("occupied_count", 4, 64),
+        ("empties", 0, 60),
         ("ply", 0, 127),
     ):
         _require(_is_int(sample[field]) and lower <= sample[field] <= upper, location, f"{field} is out of range")
@@ -135,6 +144,7 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
         "verification_best_move_agreement",
         "pass_state",
         "terminal_state",
+        "exact_handoff_enabled",
         "exact_handoff_eligible",
         "hypothetical_cut_high",
         "hypothetical_cut_low",
@@ -150,6 +160,64 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
         location,
         "pv_node disagrees with search_role",
     )
+    _require(
+        sample["search_mode"] in ("move", "analyze", "exact_score", "win_loss_draw"),
+        location,
+        "invalid search_mode",
+    )
+    for field in (
+        "collection_pair_index",
+        "collection_pair_count",
+        "same_deep_pair_index",
+        "same_deep_pair_count",
+        "exact_handoff_threshold",
+        "exact_handoff_distance",
+    ):
+        _require(_is_int(sample[field]), location, f"{field} must be an integer")
+    _require(
+        0 < sample["collection_pair_count"] <= 65_535
+        and 0 <= sample["collection_pair_index"] < sample["collection_pair_count"],
+        location,
+        "collection pair index/count is invalid",
+    )
+    _require(
+        0 < sample["same_deep_pair_count"] <= sample["collection_pair_count"]
+        and 0 <= sample["same_deep_pair_index"] < sample["same_deep_pair_count"],
+        location,
+        "same-deep pair index/count is invalid",
+    )
+    _require(
+        0 <= sample["exact_handoff_threshold"] <= 60
+        and 0 <= sample["exact_handoff_distance"] <= 60,
+        location,
+        "exact handoff threshold/distance is out of range",
+    )
+    if sample["exact_handoff_enabled"]:
+        _require(
+            sample["exact_handoff_threshold"] > 0,
+            location,
+            "enabled exact handoff requires a positive threshold",
+        )
+        expected_distance = max(0, sample["empties"] - sample["exact_handoff_threshold"])
+        _require(
+            sample["exact_handoff_distance"] == expected_distance,
+            location,
+            "exact_handoff_distance disagrees with empties/threshold",
+        )
+        _require(
+            sample["exact_handoff_eligible"]
+            == (sample["empties"] <= sample["exact_handoff_threshold"]),
+            location,
+            "exact_handoff_eligible disagrees with empties/threshold",
+        )
+    else:
+        _require(
+            sample["exact_handoff_threshold"] == 0
+            and sample["exact_handoff_distance"] == 0
+            and sample["exact_handoff_eligible"] is False,
+            location,
+            "disabled exact handoff must use zero threshold/distance and be ineligible",
+        )
 
     for field in (
         "deep_depth",
@@ -322,7 +390,7 @@ def load_samples(paths: Sequence[Path]) -> tuple[list[dict[str, Any]], str, int]
                 samples.append(validate_sample(sample, f"{path}:samples[{index}]"))
 
     checksum = hashlib.sha256()
-    checksum.update(b"mpc-shadow-input-v4\0")
+    checksum.update(b"mpc-shadow-input-v5\0")
     for digest in sorted(content_digests):
         checksum.update(digest)
     return samples, checksum.hexdigest(), len(files)
@@ -350,8 +418,34 @@ def ratio(numerator: int, denominator: int) -> float:
     return clean_float(numerator / denominator) if denominator else 0.0
 
 
+def value_bucket(value: int) -> tuple[int, int]:
+    minimum = (value // DOMAIN_BUCKET_WIDTH) * DOMAIN_BUCKET_WIDTH
+    return minimum, min(60, minimum + DOMAIN_BUCKET_WIDTH - 1)
+
+
+def analysis_key(sample: dict[str, Any], classification_field: str) -> tuple[Any, ...]:
+    empties_minimum, empties_maximum = value_bucket(sample["empties"])
+    if sample["exact_handoff_enabled"]:
+        distance_minimum, distance_maximum = value_bucket(sample["exact_handoff_distance"])
+    else:
+        distance_minimum, distance_maximum = 0, 0
+    return (
+        sample["phase"],
+        sample["deep_depth"],
+        sample["shallow_depth"],
+        sample[classification_field],
+        sample["search_mode"],
+        sample["exact_handoff_enabled"],
+        sample["exact_handoff_threshold"],
+        empties_minimum,
+        empties_maximum,
+        distance_minimum,
+        distance_maximum,
+    )
+
+
 def analyze_group(
-    key: tuple[int, int, int, str],
+    key: tuple[Any, ...],
     rows: Sequence[dict[str, Any]],
     minimum_exact_pairs: int,
     classification_field: str,
@@ -455,12 +549,43 @@ def analyze_group(
                 }
             )
 
-    phase, deep_depth, shallow_depth, classification = key
+    (
+        phase,
+        deep_depth,
+        shallow_depth,
+        classification,
+        search_mode,
+        exact_handoff_enabled,
+        exact_handoff_threshold,
+        minimum_empties,
+        maximum_empties,
+        minimum_handoff_distance,
+        maximum_handoff_distance,
+    ) = key
+    observed_empties = sorted({int(row["empties"]) for row in ordered})
+    observed_handoff_distances = sorted(
+        {int(row["exact_handoff_distance"]) for row in ordered}
+    )
     return {
         "phase": phase,
         "deep_depth": deep_depth,
         "shallow_depth": shallow_depth,
         classification_field: classification,
+        "search_mode": search_mode,
+        "exact_handoff_enabled": exact_handoff_enabled,
+        "exact_handoff_threshold": exact_handoff_threshold,
+        "observed_domain": {
+            "empties_bucket": {
+                "minimum": minimum_empties,
+                "maximum": maximum_empties,
+                "observed_values": observed_empties,
+            },
+            "exact_handoff_distance_bucket": {
+                "minimum": minimum_handoff_distance,
+                "maximum": maximum_handoff_distance,
+                "observed_values": observed_handoff_distances,
+            },
+        },
         "sample_count": len(ordered),
         "exact_pair_count": len(exact_pairs),
         "bound_observation_count": len(ordered) - len(exact_pairs),
@@ -505,6 +630,125 @@ def _inventory(
     ]
 
 
+def scheduler_node_key(sample: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        sample["canonical_position_hash"],
+        sample["phase"],
+        sample["occupied_count"],
+        sample["empties"],
+        sample["ply"],
+        sample["search_role"],
+        sample["deep_depth"],
+        sample["official_alpha"],
+        sample["official_beta"],
+        sample["search_mode"],
+        sample["exact_handoff_enabled"],
+        sample["exact_handoff_threshold"],
+        sample["exact_handoff_distance"],
+    )
+
+
+def validate_pair_population(samples: Sequence[dict[str, Any]]) -> list[dict[str, int]]:
+    if not samples:
+        return []
+    pair_counts = {int(sample["collection_pair_count"]) for sample in samples}
+    _require(len(pair_counts) == 1, "inputs", "collection_pair_count must be consistent")
+    pair_count = next(iter(pair_counts))
+    indexed_pairs: dict[int, tuple[int, int]] = {}
+    for sample in samples:
+        index = int(sample["collection_pair_index"])
+        pair = (int(sample["deep_depth"]), int(sample["shallow_depth"]))
+        previous = indexed_pairs.get(index)
+        _require(
+            previous is None or previous == pair,
+            "inputs",
+            f"collection pair index {index} maps to multiple depth pairs",
+        )
+        indexed_pairs[index] = pair
+    _require(
+        sorted(indexed_pairs) == list(range(pair_count)),
+        "inputs",
+        "not every ordered collection depth pair was observed",
+    )
+
+    nodes: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+    for sample in samples:
+        nodes[scheduler_node_key(sample)].append(sample)
+    for key, rows in nodes.items():
+        expected_count = int(rows[0]["same_deep_pair_count"])
+        indices = [int(row["same_deep_pair_index"]) for row in rows]
+        _require(
+            len(rows) == expected_count and sorted(indices) == list(range(expected_count)),
+            "inputs",
+            f"sampled node {key[0]} does not contain its complete same-deep pair population",
+        )
+        _require(
+            len(set(indices)) == len(indices),
+            "inputs",
+            f"sampled node {key[0]} contains a duplicate pair observation",
+        )
+        for field in (
+            "official_deep_score",
+            "official_deep_bound",
+            "deep_verification_score",
+            "deep_verification_bound",
+            "deep_verification_best_move",
+        ):
+            _require(
+                len({json.dumps(row[field], sort_keys=True) for row in rows}) == 1,
+                "inputs",
+                f"sampled node {key[0]} has inconsistent shared deep verification field {field}",
+            )
+    return [
+        {
+            "pair_index": index,
+            "deep_depth": indexed_pairs[index][0],
+            "shallow_depth": indexed_pairs[index][1],
+        }
+        for index in range(pair_count)
+    ]
+
+
+def scheduler_observations(samples: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    nodes: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+    for sample in samples:
+        if sample["search_role"] == "non_pv_scout":
+            nodes[scheduler_node_key(sample)].append(sample)
+    result: list[dict[str, Any]] = []
+    for key in sorted(nodes):
+        rows = sorted(nodes[key], key=lambda row: int(row["same_deep_pair_index"]))
+        first = rows[0]
+        identity_payload = json.dumps(key, separators=(",", ":"), ensure_ascii=True)
+        result.append(
+            {
+                "node_id": hashlib.sha256(identity_payload.encode("utf-8")).hexdigest(),
+                "phase": first["phase"],
+                "empties": first["empties"],
+                "search_mode": first["search_mode"],
+                "exact_handoff_enabled": first["exact_handoff_enabled"],
+                "exact_handoff_threshold": first["exact_handoff_threshold"],
+                "exact_handoff_distance": first["exact_handoff_distance"],
+                "deep_depth": first["deep_depth"],
+                "official_alpha": first["official_alpha"],
+                "official_beta": first["official_beta"],
+                "deep_verification_score": first["deep_verification_score"],
+                "deep_verification_bound": first["deep_verification_bound"],
+                "pairs": [
+                    {
+                        "collection_pair_index": row["collection_pair_index"],
+                        "same_deep_pair_index": row["same_deep_pair_index"],
+                        "deep_depth": row["deep_depth"],
+                        "shallow_depth": row["shallow_depth"],
+                        "shallow_verification_score": row["shallow_verification_score"],
+                        "shallow_verification_bound": row["shallow_verification_bound"],
+                    }
+                    for row in rows
+                ],
+            }
+        )
+    return result
+
+
 def build_report(
     samples: Sequence[dict[str, Any]],
     checksum: str,
@@ -525,22 +769,13 @@ def build_report(
         "inputs",
         "mixed collection_config_id values are not allowed; analyze each collection policy separately",
     )
-    groups: dict[tuple[int, int, int, str], list[dict[str, Any]]] = defaultdict(list)
-    result_groups: dict[tuple[int, int, int, str], list[dict[str, Any]]] = defaultdict(list)
+    collection_depth_pairs = validate_pair_population(samples)
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+    result_groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for sample in samples:
-        key = (
-            sample["phase"],
-            sample["deep_depth"],
-            sample["shallow_depth"],
-            sample["search_role"],
-        )
+        key = analysis_key(sample, "search_role")
         groups[key].append(sample)
-        result_key = (
-            sample["phase"],
-            sample["deep_depth"],
-            sample["shallow_depth"],
-            sample["node_type"],
-        )
+        result_key = analysis_key(sample, "node_type")
         result_groups[result_key].append(sample)
     analyzed = [
         analyze_group(
@@ -581,12 +816,34 @@ def build_report(
         "insufficient_group_count": insufficient_group_count,
         "provenance_inventory": provenance_inventory,
         "collection_config_inventory": collection_config_inventory,
-        "group_by": ["phase", "deep_depth", "shallow_depth", "search_role"],
+        "collection_depth_pairs": collection_depth_pairs,
+        "group_by": [
+            "phase",
+            "deep_depth",
+            "shallow_depth",
+            "search_role",
+            "search_mode",
+            "exact_handoff_enabled",
+            "exact_handoff_threshold",
+            "empties_bucket",
+            "exact_handoff_distance_bucket",
+        ],
         "group_count": len(analyzed),
         "groups": analyzed,
-        "result_diagnostic_group_by": ["phase", "deep_depth", "shallow_depth", "node_type"],
+        "result_diagnostic_group_by": [
+            "phase",
+            "deep_depth",
+            "shallow_depth",
+            "node_type",
+            "search_mode",
+            "exact_handoff_enabled",
+            "exact_handoff_threshold",
+            "empties_bucket",
+            "exact_handoff_distance_bucket",
+        ],
         "result_diagnostic_group_count": len(result_diagnostics),
         "result_node_type_groups": result_diagnostics,
+        "scheduler_observations": scheduler_observations(samples),
         "notes": [
             "diagnostic only; no coefficient or margin is applied by runtime search",
             "value regression uses only rows where shallow_verification_bound and deep_verification_bound are both exact",

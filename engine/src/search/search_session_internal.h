@@ -33,6 +33,9 @@ make_search_semantic_fingerprint(const Evaluator* evaluator, ResolvedSearchOptio
   options.selective = {};
   // The caller-owned profile may not outlive this call. Its complete audited
   // semantics are retained by probcut_profile_semantic_fingerprint instead.
+  options.probcut.ordered_depth_pairs = {};
+  options.probcut.evaluator_family = {};
+  options.probcut.artifact_family = {};
   options.probcut.calibration_profile_id = {};
   options.probcut.calibration_profile = nullptr;
   return SearchSemanticFingerprint{

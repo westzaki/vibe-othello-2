@@ -25,7 +25,6 @@ struct ShadowCandidate {
   Score alpha = 0;
   Score beta = 0;
   Depth deep_depth = 0;
-  Depth shallow_depth = 0;
   Ply ply = 0;
   std::uint8_t occupied_count = 0;
   std::uint8_t empties = 0;
@@ -33,6 +32,10 @@ struct ShadowCandidate {
   bool pv_node = false;
   bool pass_state = false;
   bool terminal_state = false;
+  SearchMode search_mode = SearchMode::move;
+  bool exact_handoff_enabled = false;
+  std::uint8_t exact_handoff_threshold = 0;
+  std::uint8_t exact_handoff_distance = 0;
   bool exact_handoff_eligible = false;
 };
 

@@ -128,16 +128,24 @@ The current search implementation includes:
 * temporary `experimental.use_legacy_search_kernel` rollback switch for the
   previous full-window root orchestration
 * default-disabled MPC shadow calibration with deterministic capped sampling,
-  compact schema-v4 samples, result-independent PV/scout/other roles, isolated
-  ProbCut-free shallow/deep full-window verification, automatically identified
+  compact schema-v5 samples, ordered same-deep pair populations, one shared deep
+  and per-pair shallow verification, result-independent PV/scout/other roles,
+  observed search-mode/empties/exact-handoff metadata, automatically identified
   collection policy, raw hypothetical-cut diagnostics, and telemetry separate
   from official `SearchStats`/nodes
-* deterministic local offline calibration analysis grouped by phase, deep and
-  shallow depth, and result-independent search role; only the full
-  `non_pv_scout` population is adoption-eligible, while post-result cut/all
-  groups remain diagnostics; strict provenance isolation, small-sample guards,
-  explicit slope/intercept keys, JSON plus Markdown reports, and a checked
-  report-to-profile converter
+* deterministic local offline calibration analysis grouped by phase, depth
+  pair, result-independent role, search mode, observed empties bucket, and
+  exact-handoff-distance bucket; strict same-node pair completeness and
+  provenance isolation; a checked converter that requires a disjoint holdout
+  report and replays the ordered first-success scheduler for each
+  prefix/probe/exact-domain combination before emitting joint false-cut evidence
+* off-by-default Multi-ProbCut cut-high capability with exact phase, empties,
+  deep/shallow pair, node-class, search mode, exact-handoff threshold/proximity,
+  evaluator-family, and artifact-family selection; only a pair-order
+  prefix/probe/domain combination with explicit passing evidence is accepted;
+  a shared effective-configuration resolver is used by engine/Arena/benchmark;
+  cumulative overhead gate;
+  isolated shallow TT/ordering state; and phase/pair telemetry
 
 Existing search tests include:
 
@@ -157,9 +165,14 @@ Existing search tests include:
 * shadow disabled/on official-result parity, deterministic sampling, cap,
   metadata, non-PV full-window verification, PV/pass/exact-region policy, and
   official-node-limit tests
-* offline analyzer determinism, bound exclusion from regression, mixed
-  provenance/policy rejection, small-sample guards, invalid/malformed schema,
-  and empty-input tests
+* offline analyzer determinism, same-deep multi-pair completeness, observed
+  domain separation, bound exclusion from regression, mixed provenance/policy
+  rejection, small-sample guards, invalid/malformed schema, and empty-input tests
+* Multi-ProbCut exact profile selection, unsupported fallback, pair ordering,
+  first-success stop, probe/overhead limits, shallow recursion and TT isolation,
+  bound/PV/pass/root/exact/stopped-search safety, deterministic pair telemetry,
+  prefix/probe/exact-domain evidence enforcement, joint holdout conversion, strength
+  campaign matrix/gate coverage, and session semantic invalidation
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
 
@@ -170,7 +183,7 @@ The current implementation does not yet have:
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
 * reviewed production ProbCut profile adoption and default enablement
-* cut-low or Multi-ProbCut/multiple-depth-pair support
+* cut-low support
 * parallel search
 * analysis and review-specific result adapters
 * match-bench, self-play, or production strength validation for learned
@@ -203,7 +216,7 @@ Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 Remaining unimplemented search options are expected to remain safe no-ops until
 each option is implemented. The legacy flat/experimental `probcut` flags remain
 safe no-ops; only the typed, profile-backed `probcut_options` can enable the
-new conservative cut-high path. `midgame.use_iid` enables ordering-only shallow
+conservative single- or multi-pair cut-high path. `midgame.use_iid` enables ordering-only shallow
 midgame searches, and `endgame.exact_endgame` is no longer a no-op when the root
 threshold is met.
 
@@ -249,8 +262,9 @@ Status values:
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add conservative non-PV beta ProbCut | done | Typed profile-backed option; exact `non_pv_scout_beta_only` population and phase/depth match, mutually isolated MPC verification, subtree-local selective TT provenance, off by default, no production profile committed |
-| Add MPC shadow calibration | done | Diagnostics-only reduced-depth sampling; no official cutoff or runtime coefficient |
-| Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, holdout audit, and local off/shadow/on measurements; no default or preset enablement |
+| Extend cut-high to bounded Multi-ProbCut | done | Multiple reviewed depth pairs, exact observed-domain matching, per-prefix/probe/domain first-success holdout evidence, isolated shallow state, semantic fingerprinting, benchmark/Arena telemetry, and multi-vs-single/shadow strength gates; still off by default |
+| Add MPC shadow calibration | done | Diagnostics-only ordered multi-pair sampling with one deep verification per node; no official cutoff or runtime coefficient |
+| Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, false-cut/fixed-depth/exact holdouts, and local off/single/multi fixed-time strength evidence; no default or preset enablement |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |
 | Add analysis and review-facing result adapters | deferred | Requires consumer needs |
 

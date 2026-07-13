@@ -10,8 +10,9 @@ by default. A generated analyzer report is not itself runtime authorization.
 
 Configure `SearchOptions::selective` with `SelectiveSearchOptionsV1`. Collection
 is active only when `enable_shadow_calibration` is true, the integer
-`sample_rate` is positive, `max_samples_per_search` is positive, the depth
-reduction is positive, and a caller-owned `ShadowCalibrationSink` is present.
+`sample_rate` is positive, `max_samples_per_search` is positive,
+`ordered_depth_pairs` is a non-empty unique list of valid deep/shallow pairs,
+and a caller-owned `ShadowCalibrationSink` is present.
 All four identity strings must also be non-empty.
 The rate scale is `kShadowCalibrationSampleRateScale == 1'000'000`.
 
@@ -28,15 +29,16 @@ serialize one object per line. Serialize enums and moves as:
 - `canonical_position_hash`: 16 lowercase hexadecimal characters
 
 JSON field names match the C++ member names exactly. Every JSON/JSONL sample
-must contain all schema-v4 fields validated by `analyze_shadow_samples.py`.
+must contain all schema-v5 fields validated by `analyze_shadow_samples.py`.
 `repo_sha`, `search_config_id`, `evaluator_id`, and `artifact_id` must identify
 the actual run; `repo_sha` is a 7-64 character lowercase hexadecimal Git SHA.
 Use `artifact_id: "none"` only for an evaluator with no
 artifact. Do not insert a path, hostname, or user name into identity fields.
 
 The engine derives `collection_config_id` from the effective sample rate,
-sample cap, minimum deep depth, shallow reduction, PV/pass/near-exact inclusion
-flags, and sample schema version. This ID is stored in every sample and mixed
+sample cap, the entire ordered depth-pair list, PV/pass/near-exact inclusion
+flags, and sample schema version. Pair order and subset therefore belong to one
+population identity. This ID is stored in every sample and mixed
 into `search_identity`, so changing collection policy changes the population
 identity without relying on caller metadata. The analyzer rejects mixed
 collection IDs.
@@ -51,10 +53,15 @@ store key. Phase v1 uses
 At official node entry, `search_role` is assigned without using the result:
 `pv` for PV/full-window work, `non_pv_scout` for an explicit PVS scout
 candidate, and `other` otherwise. This is the ProbCut calibration population.
-After the official search completes at a sampled node, collection runs two
-isolated searches over `[kScoreLoss, kScoreWin]`: one at `shallow_depth` and one
-at `deep_depth`. Schema v4 separates their exact value observations from the
-official window result:
+After the official search completes at a sampled node, collection runs one
+isolated deep verification over `[kScoreLoss, kScoreWin]`, then one isolated
+shallow verification for every configured pair whose deep depth matches that
+node. The whole same-deep pair set is reserved against the sample cap, and no
+partial node population is emitted if any verification stops. Schema v5 stores
+`collection_pair_index/count` and `same_deep_pair_index/count` so the analyzer
+can enforce completeness. It also records `search_mode`,
+`exact_handoff_enabled`, `exact_handoff_threshold`, and the derived
+`exact_handoff_distance`; these observations define the calibrated domain.
 
 - `official_alpha`, `official_beta`, `official_deep_score`, and
   `official_deep_bound` retain the official result for `pv`/`cut`/`all`
@@ -120,7 +127,9 @@ The JSON report retains both inventories and their sample counts. Empty inputs
 produce a valid deterministic report with zero samples and groups.
 
 The analyzer's adoptable groups are keyed by phase, deep depth, shallow depth,
-and result-independent search role. Only `non_pv_scout` is recommendation
+result-independent search role, search mode, exact-handoff enablement and
+threshold, four-empties bucket, and four-distance bucket. Each group carries
+the exact observed empties and distance inventory. Only `non_pv_scout` is recommendation
 eligible, and its fit includes both eventual fail-high and fail-low outcomes.
 Separate post-result `pv`/`cut`/`all` groups remain in
 `result_node_type_groups` for diagnostics only. Each group reports:
@@ -152,6 +161,13 @@ stable. The recommended margin is an in-sample, report-only diagnostic. Before
 runtime adoption, coefficients and margins require validation against a
 separate seed or holdout campaign and a separate measured search change.
 
+The report also retains the collection pair order and per-node
+`scheduler_observations`. A report is rejected when a sampled node is missing
+one of its same-deep pairs or maps one collection index to multiple pairs.
+CTest includes a synthetic same-deep two-pair pipeline test through analyzer,
+converter, and the native Arena loader. That fixture checks the evidence chain;
+it is not calibration or strength evidence.
+
 ## Runtime profile adoption
 
 Do not copy a regression group into runtime merely because
@@ -160,19 +176,33 @@ then create a versioned `ProbCutCalibrationProfileV1` that records:
 
 - profile ID and schema version
 - SHA-256 of the exact reviewed analyzer report file
+- SHA-256 of an independent joint holdout report
 - evaluator and artifact families
 - exact node class `non_pv_scout_beta_only`
-- phase and the single supported deep/shallow depth pair
+- `validated_pair_order` and `validated_maximum_probes_per_node`
+- full-scheduler joint false-cut count, cut-candidate count, and Wilson 95% upper bound
+- per-prefix/per-probe/per-exact-domain holdout node count, cut-candidate count,
+  false-cut count, and Wilson 95% upper bound
+- exact phase/search mode, inclusive empties range, and exact-handoff
+  enabled/threshold/distance domain
 - regression slope/intercept and residual sigma
 - audited confidence multiplier
 - inclusive shallow-score and beta validity ranges
 
-The first runtime version rejects any other or missing node class, multiple
-depth pairs, duplicate groups, invalid identity/checksum data, non-finite
-coefficients, and every missing phase/depth pair. It never fills a missing
-group from an adjacent phase or depth. The caller must ensure that the profile
-evaluator/artifact family names describe the actual evaluator supplied to
-search.
+Runtime rejects any other or missing node class, incomplete/duplicate pair
+preferences, overlapping domains, invalid identity/checksum data, non-finite
+coefficients, and every missing complete match. It never fills a missing group
+from an adjacent phase, empties range, depth, handoff proximity, evaluator, or
+artifact. Arena binds evaluator family to the loaded artifact `pattern_set_id`
+and artifact family to `artifact_id`; benchmark callers must provide the same
+actual identity.
+Runtime `ordered_depth_pairs` may only be an identical prefix of
+`validated_pair_order`, and `maximum_probes_per_node` may not exceed the
+reviewed maximum. That structural match is not sufficient: the exact prefix
+length and probe count must have passing evidence for every profile domain
+enabled by that prefix. Reordering, suffix-only selection, an unreviewed extra
+probe, or a prefix/domain combination missing from the evidence inventory
+disables MPC during option normalization.
 
 Do not manually translate analyzer coefficient names. Create a local reviewed
 adoption specification containing only the explicit decisions that the report
@@ -183,25 +213,42 @@ then run the checked converter:
 python3 tools/search-calibration/convert_probcut_profile.py \
   "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/report.json" \
   "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/adoption.json" \
+  --joint-holdout-report "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/holdout-report.json" \
   --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv"
 ```
 
-The adoption file uses `schema_version: "probcut-profile-adoption-v1"`, exact
+The adoption file uses `schema_version: "probcut-profile-adoption-v3"`, exact
 report `evaluator_id`/`artifact_id` values as `evaluator_family` and
-`artifact_family`, `node_class: "non_pv_scout_beta_only"`, and an `entries`
-array. Each entry selects `phase`, `deep_depth`, and `shallow_depth` and supplies
-`confidence_multiplier`, `minimum_shallow_score`, `maximum_shallow_score`,
-`minimum_beta`, and `maximum_beta`. The converter selects exactly one eligible
+`artifact_family`, `node_class: "non_pv_scout_beta_only"`, an explicit unique
+`validated_pair_order` array, `validated_maximum_probes_per_node`,
+`minimum_joint_cut_candidates`, `maximum_joint_false_cut_rate_upper_bound`, and
+an `entries` array. Each entry selects `phase`, `search_mode`, `deep_depth`, and
+`shallow_depth`; declares `minimum_empties`, `maximum_empties`,
+`exact_handoff_enabled`, `exact_handoff_threshold`,
+`minimum_exact_handoff_distance`, and `maximum_exact_handoff_distance`; and
+supplies `confidence_multiplier`, `minimum_shallow_score`,
+`maximum_shallow_score`, `minimum_beta`, and `maximum_beta`. These domains are
+review decisions constrained by the report: every integer in an adopted
+empties/distance range must occur in that group's observed inventory. The
+converter selects exactly one eligible
 `non_pv_scout` group, maps `.slope` to `regression_slope` and `.intercept` to
-`intercept`, copies residual sigma, rejects multiple depth pairs, and records
-the SHA-256 of the exact report file bytes. It never derives confidence or
-validity ranges.
+`intercept`, copies residual sigma, verifies that the preference exactly matches
+the collected pair order, and records both report SHA-256 values. Training and
+holdout provenance/collection policy must match and their sampled-node
+identities must be disjoint. The converter replays the runtime scheduler—pair
+1, then pair 2 after a rejection, stopping at the first success—for every pair
+prefix, probe cap, and exact profile domain. Only combinations meeting the
+candidate minimum and reviewed false-cut upper bound are stored. The full
+validated scheduler must pass every enabled domain or conversion fails; an
+optional prefix that fails remains absent and cannot be selected at runtime.
+Pair-local margins and a global aggregate alone cannot authorize a
+Multi-ProbCut profile.
 
 The one-sided integer condition is:
 
 ```text
 predicted_deep = slope * shallow_score + intercept
-k = max(profile_confidence_multiplier, option_confidence_multiplier)
+k = max(profile_confidence_multiplier, option_confidence_multiplier, minimum_confidence)
 margin = max(ceil(k * residual_sigma), minimum_margin)
 cut-high only if floor(predicted_deep) - margin >= beta
 ```
@@ -213,13 +260,28 @@ search but does not cut; normal deep search classifies a candidate as false
 when its result is below beta.
 
 For local benchmark input, use a TSV outside the repository with this exact
-header (one row per supported phase):
+header. Row order carries the reviewed first-occurrence pair preference; rows
+within a pair are ordered by the converter's exact domain key:
 
 ```text
-schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	node_class	phase	deep_depth	shallow_depth	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+schema_version	profile_id	source_checksum_sha256	joint_holdout_checksum_sha256	evaluator_family	artifact_family	node_class	validated_maximum_probes_per_node	joint_false_cut_count	joint_cut_candidate_count	joint_false_cut_rate_upper_bound	scheduler_domain_evidence	phase	search_mode	minimum_empties	maximum_empties	deep_depth	shallow_depth	exact_handoff_enabled	exact_handoff_threshold	minimum_exact_handoff_distance	maximum_exact_handoff_distance	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+```
+
+Profile schema v3 serializes each scheduler evidence record in the repeated
+`scheduler_domain_evidence` field as colon-separated values, with records
+separated by semicolons:
+
+```text
+prefix_length:maximum_probes:phase:search_mode:min_empties:max_empties:deep_depth:exact_enabled:exact_threshold:min_distance:max_distance:holdout_nodes:false_cuts:cut_candidates:wilson95_upper
 ```
 
 The benchmark requires an explicit positive `--probcut-maximum-margin`; it does
 not infer one from the report. Keep the TSV, source report, samples, and run
 outputs under the local measurement root. Do not commit them as generated
 reports or calibration raw data.
+
+The repository intentionally contains no reviewed calibration TSV. Multi-pair
+runtime capability therefore remains off in C++ defaults, native presets,
+teacher generation, and every WASM/Web preset. A calibration report authorizes
+neither a preset change nor a strength claim; use the separate same-artifact
+fixed-time campaign and review its holdouts before enablement.

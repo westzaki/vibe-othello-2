@@ -66,6 +66,12 @@ enables exact-score endgame search at or below that empty-square threshold and
 requires `maxNodes` or `maxTimeMs`: exact root search intentionally ignores a
 depth limit.
 
+All WASM presets leave ProbCut and Multi-ProbCut disabled. `normal` remains
+disabled by policy; `hard` must also remain disabled until a reviewed matching
+calibration profile and a WASM fixed-time strength/overhead gate both pass.
+The C++ runtime capability is not exposed as a browser option, and no profile is
+embedded in the module.
+
 ## Native adapter build
 
 The normal repository build compiles the C ABI adapter as a native static
