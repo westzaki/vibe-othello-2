@@ -165,7 +165,8 @@ BoundType verification_bound_for(Score score) noexcept {
 
 SearchNodeResult run_verification_search(board_core::Position position, Depth depth,
                                          const Evaluator& evaluator,
-                                         const ResolvedSearchOptions& options, NodeCount* nodes) {
+                                         const ResolvedSearchOptions& options,
+                                         SearchStats* verification_stats) {
   MidgameOrderingState ordering_state{};
   SearchContext verification_context{
       .position_state = make_search_position(position, &evaluator, depth),
@@ -180,7 +181,7 @@ SearchNodeResult run_verification_search(board_core::Position position, Depth de
   }
   SearchNodeResult result =
       full_window_search(&verification_context, kScoreLoss, kScoreWin, depth, Ply{0});
-  *nodes = verification_context.stats.nodes;
+  *verification_stats = verification_context.stats;
   return result;
 }
 
@@ -237,17 +238,24 @@ std::optional<ShadowCalibrationRun> make_shadow_calibration_run(board_core::Posi
 }
 
 std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Score alpha,
-                                                      Score beta, Depth depth, Ply ply) {
+                                                      Score beta, Depth depth, Ply ply,
+                                                      bool cut_node) {
   if (context == nullptr || context->shadow_calibration == nullptr) {
     return std::nullopt;
   }
   ShadowCalibrationRun& run = *context->shadow_calibration;
-  if (context->in_iid || depth < run.options.minimum_deep_depth ||
+  if (context->in_iid || context->in_probcut_shallow || depth < run.options.minimum_deep_depth ||
       depth <= run.options.shallow_depth_reduction) {
     return std::nullopt;
   }
 
-  const bool pv_node = static_cast<int>(beta) - static_cast<int>(alpha) > 1;
+  const bool null_window = static_cast<std::int64_t>(beta) - alpha == 1;
+  const ShadowSearchRole search_role =
+      cut_node && null_window
+          ? ShadowSearchRole::non_pv_scout
+          : (static_cast<std::int64_t>(beta) - alpha > 1 ? ShadowSearchRole::pv
+                                                         : ShadowSearchRole::other);
+  const bool pv_node = search_role == ShadowSearchRole::pv;
   if (pv_node && !run.options.include_pv_nodes) {
     return std::nullopt;
   }
@@ -283,6 +291,7 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
       .ply = ply,
       .occupied_count = occupied_count,
       .empties = empties,
+      .search_role = search_role,
       .pv_node = pv_node,
       .pass_state = pass_state,
       .terminal_state = terminal_state,
@@ -309,21 +318,26 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
 
   ResolvedSearchOptions shadow_options = context->options;
   shadow_options.selective = {};
+  shadow_options.probcut = {};
+  shadow_options.probcut_profile_semantic_fingerprint = 0;
   shadow_options.endgame.exact_endgame = false;
   shadow_options.endgame.endgame_exact_empties = 0;
-  NodeCount shallow_nodes = 0;
+  SearchStats shallow_stats{};
   const SearchNodeResult shallow_verification =
       run_verification_search(candidate.position, candidate.shallow_depth, context->evaluator,
-                              shadow_options, &shallow_nodes);
-  run.stats.shadow_shallow_nodes += shallow_nodes;
+                              shadow_options, &shallow_stats);
+  run.stats.shadow_shallow_nodes += shallow_stats.nodes;
+  run.stats.shadow_verification_probcut_attempts += shallow_stats.probcut_attempts;
+  run.stats.shadow_verification_probcut_beta_cutoffs += shallow_stats.probcut_beta_cutoffs;
   if (!shallow_verification.is_complete()) {
     return;
   }
-  NodeCount deep_verification_nodes = 0;
-  const SearchNodeResult deep_verification =
-      run_verification_search(candidate.position, candidate.deep_depth, context->evaluator,
-                              shadow_options, &deep_verification_nodes);
-  run.stats.shadow_deep_verification_nodes += deep_verification_nodes;
+  SearchStats deep_stats{};
+  const SearchNodeResult deep_verification = run_verification_search(
+      candidate.position, candidate.deep_depth, context->evaluator, shadow_options, &deep_stats);
+  run.stats.shadow_deep_verification_nodes += deep_stats.nodes;
+  run.stats.shadow_verification_probcut_attempts += deep_stats.probcut_attempts;
+  run.stats.shadow_verification_probcut_beta_cutoffs += deep_stats.probcut_beta_cutoffs;
   if (!deep_verification.is_complete()) {
     return;
   }
@@ -358,6 +372,7 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
       .occupied_count = candidate.occupied_count,
       .empties = candidate.empties,
       .ply = candidate.ply,
+      .search_role = candidate.search_role,
       .node_type = node_type,
       .pv_node = candidate.pv_node,
       .cut_node = node_type == ShadowNodeType::cut,

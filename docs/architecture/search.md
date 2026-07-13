@@ -363,8 +363,9 @@ Normal runtime and WASM presets keep the whole config at its disabled default.
 legacy flat `probcut` and `experimental.probcut` flags remain compatibility
 placeholders and do not enable pruning. Runtime normalization enables the typed
 option only when its caller-owned profile is complete and internally valid,
-the profile ID matches, the report checksum is a lowercase SHA-256, the
-one-depth-pair entries are finite and non-duplicated, all conservative scope
+the profile ID matches, the report checksum is a lowercase SHA-256, the profile
+node class is exactly `non_pv_scout_beta_only`, the one-depth-pair entries are
+finite and non-duplicated, all conservative scope
 flags remain true, margins are ordered, and the legacy kernel is disabled.
 Invalid or incomplete configuration normalizes to disabled; it never invents a
 coefficient or fallback margin. Profile storage, entries, and strings must
@@ -1133,8 +1134,10 @@ TT entries store side-to-move-relative scores.
 
 The current implementation uses a simplified `midgame` entry kind. A selective
 bit distinguishes a ProbCut lower bound from a non-selective bound. A selective
-TT cutoff propagates selective provenance to its ancestors so they cannot
-store a derived exact bound. A future layout may split this into separate
+TT cutoff propagates selective provenance through its `SearchNodeResult`, so
+only that result's ancestors cannot store a derived exact bound. Unrelated
+sibling subtrees continue normal TT storage. A future layout may split this
+into separate
 `heuristic_midgame` and `selective_midgame` kinds.
 
 For `midgame`, `exact_endgame_score`, and `exact_endgame_wld`, `score` is valid
@@ -1381,8 +1384,11 @@ Only beta-direction cut-high is implemented. Normal/hard WASM presets leave
 `probcut_options` at its disabled default.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
-source calibration report SHA-256, evaluator family, artifact family, and one
-reviewed deep/shallow depth pair. Entries are keyed by phase and contain slope
+source calibration report SHA-256, evaluator family, artifact family,
+`node_class = non_pv_scout_beta_only`, and one reviewed deep/shallow depth
+pair. Runtime requires this node class to match the explicit PVS scout role;
+post-result `cut` groups are not an adoption population. Entries are keyed by
+phase and contain slope
 `a`, intercept `b`, residual sigma, audited confidence multiplier, and inclusive
 shallow-score/beta validity ranges. Missing phase/depth entries are rejections;
 the engine never extrapolates. Multiple depth pairs are rejected in this first
@@ -1411,8 +1417,8 @@ heuristic domain is not mixed with exact score kinds.
 The shallow search shares the official stop flag, deadline, node limit, node
 counter, TT probe state, and evaluator state. Its nodes therefore contribute to
 `SearchResult::nodes`; `probcut_shallow_nodes` is a subset for overhead review.
-Nested ProbCut and IID are disabled during that shallow search. A stopped
-shallow search always propagates stop and never cuts.
+Nested ProbCut, IID, and MPC shadow collection are disabled during that shallow
+search. A stopped shallow search always propagates stop and never cuts.
 
 A successful real cut returns exactly `beta` with an empty continuation: it is
 a heuristic lower bound, not an exact value or invented PV. The TT may store
@@ -1441,7 +1447,8 @@ At a deterministically sampled eligible node, it first completes the normal
 deep search, then runs reduced-depth and deep-depth full-window verification
 searches in separate isolated contexts over `[kScoreLoss, kScoreWin]`. The
 verification contexts have no official TT, no shared history/killer state, no
-official node/time budget, no exact handoff, and no nested shadow collection.
+official node/time budget, no exact handoff, no ProbCut, and no nested shadow
+collection.
 Their wall time is excluded from the cooperative official deadline. The main
 search position is already restored before verification begins.
 
@@ -1457,16 +1464,20 @@ recursive candidates complete. Given the same root, config, artifact, seed,
 and repository SHA, traversal and the emitted sample set are deterministic.
 The engine also derives `collection_config_id` from the effective sampling
 rate, cap, depth requirements and PV/pass/near-exact inclusion flags plus the
-sample schema version. It is persisted in each schema-v3 sample and mixed into
+sample schema version. It is persisted in each schema-v4 sample and mixed into
 `search_identity`; a collection-policy change therefore creates a distinct
 population identity without relying on a caller-maintained config string.
 
 By default, PV nodes, forced-pass nodes, and positions at or below the enabled
 exact-handoff threshold are excluded. They can be included independently for
-diagnostic strata. A node is recorded as `pv` for a full-window request;
-non-PV fail-high nodes are `cut`, and non-PV fail-low nodes are `all`.
-Schema v3 preserves the official alpha/beta, score, bound, and result for this
-classification. It separately records shallow and deep full-window
+diagnostic strata. Schema v4 assigns a result-independent `search_role` at
+node entry: `pv`, explicit `non_pv_scout`, or `other`. The analyzer fits
+ProbCut candidates only from the complete `non_pv_scout` population, including
+both eventual fail-high and fail-low results. After official search, the
+existing result diagnostic `node_type` remains `pv`, non-PV `cut` for
+fail-high, or non-PV `all` otherwise. Schema v4 preserves the official
+alpha/beta, score, bound, and result for this classification. It separately
+records shallow and deep full-window
 verification scores, bounds, and best moves. `hypothetical_cut_high` means the
 shallow verification score crossed the official beta; `_low` means it crossed
 the official alpha. False-cut candidates compare that crossing with the deep
@@ -1476,9 +1487,9 @@ Samples contain compact scalar metadata, hashes, scores, bounds, and moves;
 they never contain a `Position`, search stack, TT, evaluator state, or PV tree.
 Offline value OLS uses only exact/exact shallow/deep verification pairs. The
 official null-window bound is not a regression teacher, but it remains usable
-for cut/all classification and window diagnostics. Consequently non-PV
-cut/all groups can accumulate their own exact value pairs rather than borrowing
-PV coefficients. The analyzer rejects mixed repository/search
+for cut/all classification and window diagnostics. Result-conditioned
+`cut`/`all` groups are diagnostics only and cannot produce an adoptable
+profile. The analyzer rejects mixed repository/search
 config/evaluator/artifact provenance and mixed collection policy, records the
 accepted inventories, and withholds margins from under-threshold groups.
 Separate-seed or holdout validation remains mandatory before any coefficient

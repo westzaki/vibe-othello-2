@@ -56,6 +56,7 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
       profile->profile_id.empty() || profile->profile_id != options.calibration_profile_id ||
       !valid_sha256(profile->source_calibration_report_checksum_sha256) ||
       profile->evaluator_family.empty() || profile->artifact_family.empty() ||
+      profile->node_class != ProbCutNodeClassV1::non_pv_scout_beta_only ||
       profile->entries.empty()) {
     return false;
   }
@@ -92,6 +93,7 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
   mix_string(profile->source_calibration_report_checksum_sha256, &hash);
   mix_string(profile->evaluator_family, &hash);
   mix_string(profile->artifact_family, &hash);
+  mix_integer(static_cast<std::uint8_t>(profile->node_class), &hash);
   mix_integer(static_cast<std::uint64_t>(profile->entries.size()), &hash);
   for (const ProbCutCalibrationEntryV1& entry : profile->entries) {
     mix_integer(entry.phase, &hash);

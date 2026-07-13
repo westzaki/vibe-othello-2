@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-SAMPLE_SCHEMA_VERSION = 3
-REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v3"
+SAMPLE_SCHEMA_VERSION = 4
+REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v4"
 DEFAULT_MINIMUM_EXACT_PAIRS = 30
 VERIFICATION_ALPHA = -30_000
 VERIFICATION_BETA = 30_000
@@ -35,6 +35,7 @@ REQUIRED_FIELDS = {
     "occupied_count",
     "empties",
     "ply",
+    "search_role",
     "node_type",
     "pv_node",
     "cut_node",
@@ -121,6 +122,11 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
         _require(_is_int(sample[field]) and lower <= sample[field] <= upper, location, f"{field} is out of range")
     _require(sample["occupied_count"] + sample["empties"] == 64, location, "occupied_count + empties must equal 64")
 
+    _require(
+        sample["search_role"] in ("pv", "non_pv_scout", "other"),
+        location,
+        "invalid search_role",
+    )
     _require(sample["node_type"] in ("pv", "cut", "all"), location, "invalid node_type")
     for field in (
         "pv_node",
@@ -139,6 +145,11 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
     _require(sample["pv_node"] == (sample["node_type"] == "pv"), location, "pv_node disagrees with node_type")
     _require(sample["cut_node"] == (sample["node_type"] == "cut"), location, "cut_node disagrees with node_type")
     _require(sample["all_node"] == (sample["node_type"] == "all"), location, "all_node disagrees with node_type")
+    _require(
+        sample["pv_node"] == (sample["search_role"] == "pv"),
+        location,
+        "pv_node disagrees with search_role",
+    )
 
     for field in (
         "deep_depth",
@@ -156,6 +167,12 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
         location,
         "official_alpha must be less than official_beta",
     )
+    if sample["search_role"] == "non_pv_scout":
+        _require(
+            sample["official_beta"] - sample["official_alpha"] == 1,
+            location,
+            "non_pv_scout must use an integer null window",
+        )
     official_score = sample["official_deep_score"]
     if official_score <= sample["official_alpha"]:
         expected_official_result = "fail_low"
@@ -305,7 +322,7 @@ def load_samples(paths: Sequence[Path]) -> tuple[list[dict[str, Any]], str, int]
                 samples.append(validate_sample(sample, f"{path}:samples[{index}]"))
 
     checksum = hashlib.sha256()
-    checksum.update(b"mpc-shadow-input-v3\0")
+    checksum.update(b"mpc-shadow-input-v4\0")
     for digest in sorted(content_digests):
         checksum.update(digest)
     return samples, checksum.hexdigest(), len(files)
@@ -337,6 +354,8 @@ def analyze_group(
     key: tuple[int, int, int, str],
     rows: Sequence[dict[str, Any]],
     minimum_exact_pairs: int,
+    classification_field: str,
+    allow_recommendation: bool,
 ) -> dict[str, Any]:
     ordered = sorted(rows, key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")))
     exact_pairs = [
@@ -370,7 +389,10 @@ def analyze_group(
                 sum((value - residual_mean) ** 2 for value in residuals) / len(residuals)
             )
             absolute = [abs(value) for value in residuals]
-            regression = {"a": clean_float(intercept), "b": clean_float(slope)}
+            regression = {
+                "intercept": clean_float(intercept),
+                "slope": clean_float(slope),
+            }
             residual_mean = clean_float(residual_mean)
             residual_stddev = clean_float(residual_stddev)
             mae = clean_float(sum(absolute) / len(absolute))
@@ -397,7 +419,9 @@ def analyze_group(
     agreements = sum(bool(row["verification_best_move_agreement"]) for row in ordered)
 
     insufficient_samples = len(exact_pairs) < minimum_exact_pairs
-    recommendation_eligible = not insufficient_samples and regression is not None
+    recommendation_eligible = (
+        allow_recommendation and not insufficient_samples and regression is not None
+    )
     confidence_coverage = []
     if recommendation_eligible:
         for confidence in (0.90, 0.95, 0.99):
@@ -431,12 +455,12 @@ def analyze_group(
                 }
             )
 
-    phase, deep_depth, shallow_depth, node_type = key
+    phase, deep_depth, shallow_depth, classification = key
     return {
         "phase": phase,
         "deep_depth": deep_depth,
         "shallow_depth": shallow_depth,
-        "node_type": node_type,
+        classification_field: classification,
         "sample_count": len(ordered),
         "exact_pair_count": len(exact_pairs),
         "bound_observation_count": len(ordered) - len(exact_pairs),
@@ -502,13 +526,46 @@ def build_report(
         "mixed collection_config_id values are not allowed; analyze each collection policy separately",
     )
     groups: dict[tuple[int, int, int, str], list[dict[str, Any]]] = defaultdict(list)
+    result_groups: dict[tuple[int, int, int, str], list[dict[str, Any]]] = defaultdict(list)
     for sample in samples:
-        key = (sample["phase"], sample["deep_depth"], sample["shallow_depth"], sample["node_type"])
+        key = (
+            sample["phase"],
+            sample["deep_depth"],
+            sample["shallow_depth"],
+            sample["search_role"],
+        )
         groups[key].append(sample)
-    analyzed = [analyze_group(key, groups[key], minimum_exact_pairs) for key in sorted(groups)]
+        result_key = (
+            sample["phase"],
+            sample["deep_depth"],
+            sample["shallow_depth"],
+            sample["node_type"],
+        )
+        result_groups[result_key].append(sample)
+    analyzed = [
+        analyze_group(
+            key,
+            groups[key],
+            minimum_exact_pairs,
+            "search_role",
+            key[3] == "non_pv_scout",
+        )
+        for key in sorted(groups)
+    ]
+    result_diagnostics = [
+        analyze_group(
+            key,
+            result_groups[key],
+            minimum_exact_pairs,
+            "node_type",
+            False,
+        )
+        for key in sorted(result_groups)
+    ]
     exact_pair_count = sum(group["exact_pair_count"] for group in analyzed)
     eligible_group_count = sum(bool(group["recommendation_eligible"]) for group in analyzed)
-    insufficient_group_count = sum(bool(group["insufficient_samples"]) for group in analyzed)
+    probcut_groups = [group for group in analyzed if group["search_role"] == "non_pv_scout"]
+    insufficient_group_count = sum(bool(group["insufficient_samples"]) for group in probcut_groups)
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "sample_schema_version": SAMPLE_SCHEMA_VERSION,
@@ -518,19 +575,24 @@ def build_report(
         "exact_pair_count": exact_pair_count,
         "minimum_exact_pairs_per_group": minimum_exact_pairs,
         "verification_window": {"alpha": VERIFICATION_ALPHA, "beta": VERIFICATION_BETA},
-        "insufficient_samples": not analyzed or insufficient_group_count > 0,
+        "insufficient_samples": not probcut_groups or insufficient_group_count > 0,
         "recommendation_eligible": eligible_group_count > 0,
         "eligible_group_count": eligible_group_count,
         "insufficient_group_count": insufficient_group_count,
         "provenance_inventory": provenance_inventory,
         "collection_config_inventory": collection_config_inventory,
-        "group_by": ["phase", "deep_depth", "shallow_depth", "node_type"],
+        "group_by": ["phase", "deep_depth", "shallow_depth", "search_role"],
         "group_count": len(analyzed),
         "groups": analyzed,
+        "result_diagnostic_group_by": ["phase", "deep_depth", "shallow_depth", "node_type"],
+        "result_diagnostic_group_count": len(result_diagnostics),
+        "result_node_type_groups": result_diagnostics,
         "notes": [
             "diagnostic only; no coefficient or margin is applied by runtime search",
             "value regression uses only rows where shallow_verification_bound and deep_verification_bound are both exact",
             "official bounds are retained only for node classification and window/cut diagnostics",
+            "ProbCut recommendations are fitted only to the result-independent non_pv_scout population, including fail-high and fail-low outcomes",
+            "pv/other search roles and post-result pv/cut/all groups are diagnostic only",
             "verification scores are collected by isolated full-window searches",
             "recommended_conservative_margin is null below the exact-pair threshold",
             "recommendations are in-sample diagnostics and require separate-seed or holdout validation before runtime adoption",
@@ -571,14 +633,14 @@ def markdown_summary(report: dict[str, Any]) -> str:
         return "\n".join(lines)
     lines.extend(
         [
-            "| Phase | Deep | Shallow | Node | N | Exact | a | b | RMSE | Move agree | Hyp. cuts | False-cut est. | Margin |",
+            "| Phase | Deep | Shallow | Search role | N | Exact | Intercept | Slope | RMSE | Move agree | Hyp. cuts | False-cut est. | Margin |",
             "| ---: | ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for group in report["groups"]:
         regression = group["linear_regression"]
-        intercept = f"{regression['a']:.4f}" if regression is not None else "—"
-        slope = f"{regression['b']:.4f}" if regression is not None else "—"
+        intercept = f"{regression['intercept']:.4f}" if regression is not None else "—"
+        slope = f"{regression['slope']:.4f}" if regression is not None else "—"
         rmse = f"{group['rmse']:.4f}" if group["rmse"] is not None else "—"
         margin = (
             str(group["recommended_conservative_margin"])
@@ -586,10 +648,27 @@ def markdown_summary(report: dict[str, Any]) -> str:
             else "—"
         )
         lines.append(
-            f"| {group['phase']} | {group['deep_depth']} | {group['shallow_depth']} | {group['node_type']} "
+            f"| {group['phase']} | {group['deep_depth']} | {group['shallow_depth']} | {group['search_role']} "
             f"| {group['sample_count']} | {group['exact_pair_count']} | {intercept} | {slope} | {rmse} "
             f"| {group['best_move_agreement']['rate']:.3f} | {group['hypothetical_cuts']['count']} "
             f"| {group['false_cut_estimate']['rate']:.3f} | {margin} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Post-result node-type diagnostics",
+            "",
+            "These `pv`/`cut`/`all` groups are diagnostic only and are never profile-adoption inputs.",
+            "",
+            "| Phase | Deep | Shallow | Node type | N | Exact | False-cut est. |",
+            "| ---: | ---: | ---: | :--- | ---: | ---: | ---: |",
+        ]
+    )
+    for group in report["result_node_type_groups"]:
+        lines.append(
+            f"| {group['phase']} | {group['deep_depth']} | {group['shallow_depth']} "
+            f"| {group['node_type']} | {group['sample_count']} | {group['exact_pair_count']} "
+            f"| {group['false_cut_estimate']['rate']:.3f} |"
         )
     lines.extend(
         [

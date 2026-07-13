@@ -11,13 +11,22 @@
 
 namespace vibe_othello::search {
 
-inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 3;
+inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 4;
 inline constexpr std::uint32_t kShadowCalibrationSampleRateScale = 1'000'000;
 
 enum class ShadowNodeType : std::uint8_t {
   pv,
   cut,
   all,
+};
+
+// Result-independent role assigned when the official node is entered. This is
+// the population key for ProbCut calibration; ShadowNodeType remains a
+// post-result diagnostic classification.
+enum class ShadowSearchRole : std::uint8_t {
+  pv,
+  non_pv_scout,
+  other,
 };
 
 enum class ShadowWindowResult : std::uint8_t {
@@ -38,6 +47,7 @@ struct ShadowCalibrationSample {
   std::uint8_t occupied_count = 0;
   std::uint8_t empties = 0;
   Ply ply = 0;
+  ShadowSearchRole search_role = ShadowSearchRole::other;
   ShadowNodeType node_type = ShadowNodeType::all;
   bool pv_node = false;
   bool cut_node = false;
@@ -110,6 +120,8 @@ struct ShadowCalibrationStats {
   NodeCount shadow_samples = 0;
   NodeCount shadow_shallow_nodes = 0;
   NodeCount shadow_deep_verification_nodes = 0;
+  NodeCount shadow_verification_probcut_attempts = 0;
+  NodeCount shadow_verification_probcut_beta_cutoffs = 0;
   NodeCount shadow_best_move_agreements = 0;
   NodeCount hypothetical_cut_highs = 0;
   NodeCount hypothetical_cut_lows = 0;

@@ -128,13 +128,16 @@ The current search implementation includes:
 * temporary `experimental.use_legacy_search_kernel` rollback switch for the
   previous full-window root orchestration
 * default-disabled MPC shadow calibration with deterministic capped sampling,
-  compact schema-v3 samples, isolated shallow/deep full-window verification,
-  automatically identified collection policy, raw hypothetical-cut diagnostics,
-  and telemetry separate from official `SearchStats`/nodes
+  compact schema-v4 samples, result-independent PV/scout/other roles, isolated
+  ProbCut-free shallow/deep full-window verification, automatically identified
+  collection policy, raw hypothetical-cut diagnostics, and telemetry separate
+  from official `SearchStats`/nodes
 * deterministic local offline calibration analysis grouped by phase, deep and
-  shallow depth, and node type, with verification exact-pair regression that is
-  available to non-PV cut/all groups, strict provenance isolation, small-sample
-  guards, and JSON plus Markdown reports
+  shallow depth, and result-independent search role; only the full
+  `non_pv_scout` population is adoption-eligible, while post-result cut/all
+  groups remain diagnostics; strict provenance isolation, small-sample guards,
+  explicit slope/intercept keys, JSON plus Markdown reports, and a checked
+  report-to-profile converter
 
 Existing search tests include:
 
@@ -245,7 +248,7 @@ Status values:
 | Add learned artifact fixed-position search smoke | done | `vibe_othello_pattern_search_bench_smoke` compares temp-only v0a/v0b learned artifacts under explicitly configured deterministic depth-1 search and emits a checksum-stable JSON report; this is local smoke coverage for evaluator signal propagation, not a production benchmark or strength claim |
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
-| Add conservative non-PV beta ProbCut | done | Typed profile-backed option; one reviewed depth pair, exact phase match, off by default, no production profile committed |
+| Add conservative non-PV beta ProbCut | done | Typed profile-backed option; exact `non_pv_scout_beta_only` population and phase/depth match, mutually isolated MPC verification, subtree-local selective TT provenance, off by default, no production profile committed |
 | Add MPC shadow calibration | done | Diagnostics-only reduced-depth sampling; no official cutoff or runtime coefficient |
 | Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, holdout audit, and local off/shadow/on measurements; no default or preset enablement |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |

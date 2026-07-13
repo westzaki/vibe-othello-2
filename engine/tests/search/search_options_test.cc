@@ -56,6 +56,7 @@ TEST_CASE("ProbCut normalization requires a complete reviewed profile identity",
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       .evaluator_family = "synthetic",
       .artifact_family = "none",
+      .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
       .entries = std::span<const ProbCutCalibrationEntryV1>{&entry, 1},
   };
   SearchOptions options{};
@@ -74,6 +75,15 @@ TEST_CASE("ProbCut normalization requires a complete reviewed profile identity",
   REQUIRE(resolved.probcut == options.probcut_options);
   REQUIRE(resolved.probcut_profile_semantic_fingerprint != 0);
 
+  ProbCutCalibrationProfileV1 wrong_node_class = profile;
+  wrong_node_class.node_class = ProbCutNodeClassV1::unspecified;
+  options.probcut_options.calibration_profile = &wrong_node_class;
+  const internal::ResolvedSearchOptions wrong_population =
+      internal::normalize_search_options(options);
+  REQUIRE_FALSE(wrong_population.probcut.use_probcut);
+  REQUIRE(wrong_population.probcut_profile_semantic_fingerprint == 0);
+
+  options.probcut_options.calibration_profile = &profile;
   options.probcut_options.calibration_profile_id = "unreviewed-mismatch";
   const internal::ResolvedSearchOptions rejected = internal::normalize_search_options(options);
   REQUIRE_FALSE(rejected.probcut.use_probcut);

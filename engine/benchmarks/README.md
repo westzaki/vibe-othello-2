@@ -76,7 +76,9 @@ same fixed depth can be compared fairly.
 
 Runtime comparison requires a reviewed profile TSV outside the repository and
 an explicit positive maximum confidence margin. The TSV schema and adoption
-rules are in `tools/search-calibration/README.md`. `--probcut all` expands each
+rules, including the report-to-TSV converter and required
+`non_pv_scout_beta_only` node class, are in
+`tools/search-calibration/README.md`. `--probcut all` expands each
 variant to `off`, `shadow`, and `on`; `--pvs on` is required because the first
 implementation only attempts cut-node-equivalent PVS scout entries.
 

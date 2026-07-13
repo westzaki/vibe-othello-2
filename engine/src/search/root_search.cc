@@ -3,6 +3,7 @@
 #include "search_internal.h"
 #include "search_session_internal.h"
 
+#include <algorithm>
 #include <chrono>
 #include <optional>
 
@@ -130,7 +131,6 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
   apply_move(&context->position_state, frame.delta, &frame.position_undo, &context->stats);
 
   const NodeCount before_nodes = context->stats.nodes;
-  const NodeCount before_selective_cuts = context->stats.selective_cuts;
   const Score child_alpha = static_cast<Score>(-move_window.beta);
   const Score child_beta = static_cast<Score>(-move_window.alpha);
   const SearchNodeResult child =
@@ -148,13 +148,12 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
 
   return make_root_move_info(move, score, ScoreKind::heuristic, bound_for_score(score, move_window),
                              depth, context->stats.nodes - before_nodes, line, false,
-                             context->stats.selective_cuts > before_selective_cuts);
+                             child.is_selective());
 }
 
 std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth depth,
                                                    board_core::Move move, Score alpha, Score beta) {
   const NodeCount before_nodes = context->stats.nodes;
-  const NodeCount before_selective_cuts = context->stats.selective_cuts;
   SearchNodeResult child =
       search_null_window_child(context, move, static_cast<Score>(-alpha), depth, Ply{0});
   if (child.is_stopped()) {
@@ -167,7 +166,6 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
         context, depth, move, RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true});
     if (result.has_value()) {
       result->nodes = context->stats.nodes - before_nodes;
-      result->selective = context->stats.selective_cuts > before_selective_cuts;
     }
     return result;
   }
@@ -177,7 +175,7 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
   return make_root_move_info(move, score, ScoreKind::heuristic,
                              classify_bound(score, alpha, static_cast<Score>(alpha + 1)), depth,
                              context->stats.nodes - before_nodes, child.value().pv, false,
-                             context->stats.selective_cuts > before_selective_cuts);
+                             child.is_selective());
 }
 
 void update_best_root_move(const RootMoveInfo& root_move, Score* best_score, Line* best_line,
@@ -235,11 +233,12 @@ bool should_complete_exact_root_reports(RootSearchWindow root_window, BoundType 
 
 void maybe_store_root_midgame_tt(SearchContext* context, Depth completed_depth, Score best_score,
                                  RootSearchWindow root_window,
-                                 std::optional<board_core::Move> best_move) noexcept {
+                                 std::optional<board_core::Move> best_move,
+                                 bool subtree_selective) noexcept {
   if (context->transposition_table == nullptr || !best_move.has_value()) {
     return;
   }
-  if (context->probcut_cut_occurred) {
+  if (subtree_selective) {
     return;
   }
   const BoundType bound = bound_for_score(best_score, root_window);
@@ -448,10 +447,10 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     Line pass_line{};
     prepend_move(board_core::make_pass(), child_value.pv, &pass_line);
     root_frame.pv = pass_line;
-    result.root_moves.push_back(
-        make_root_move_info(board_core::make_pass(), pass_score, ScoreKind::heuristic,
-                            bound_for_score(pass_score, root_window), completed_depth,
-                            context.stats.nodes - before_nodes, pass_line, false, false));
+    result.root_moves.push_back(make_root_move_info(
+        board_core::make_pass(), pass_score, ScoreKind::heuristic,
+        bound_for_score(pass_score, root_window), completed_depth,
+        context.stats.nodes - before_nodes, pass_line, false, child.is_selective()));
     context.stats.root_moves_searched = 1;
 
     publish_completed_root_result(&result,
@@ -546,7 +545,10 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     return result;
   }
 
-  maybe_store_root_midgame_tt(&context, completed_depth, best_score, root_window, result.best_move);
+  const bool root_selective = std::any_of(result.root_moves.begin(), result.root_moves.end(),
+                                          [](const RootMoveInfo& move) { return move.selective; });
+  maybe_store_root_midgame_tt(&context, completed_depth, best_score, root_window, result.best_move,
+                              root_selective);
 
   finalize_completed_root_result(&result, context, best_score, best_line, root_window, start);
   return result;

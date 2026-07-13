@@ -48,6 +48,7 @@ using vibe_othello::search::Line;
 using vibe_othello::search::NodeCount;
 using vibe_othello::search::ProbCutCalibrationEntryV1;
 using vibe_othello::search::ProbCutCalibrationProfileV1;
+using vibe_othello::search::ProbCutNodeClassV1;
 using vibe_othello::search::ProbCutOptionsV1;
 using vibe_othello::search::RootMoveInfo;
 using vibe_othello::search::Score;
@@ -182,6 +183,7 @@ struct LoadedProbCutProfile {
   std::string source_checksum;
   std::string evaluator_family;
   std::string artifact_family;
+  ProbCutNodeClassV1 node_class = ProbCutNodeClassV1::unspecified;
   std::vector<ProbCutCalibrationEntryV1> entries;
 
   ProbCutCalibrationProfileV1 view() const noexcept {
@@ -191,6 +193,7 @@ struct LoadedProbCutProfile {
         .source_calibration_report_checksum_sha256 = source_checksum,
         .evaluator_family = evaluator_family,
         .artifact_family = artifact_family,
+        .node_class = node_class,
         .entries = entries,
     };
   }
@@ -829,12 +832,13 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
     }
     const std::vector<std::string_view> fields = split_tabs(line);
     if (!saw_header) {
-      const std::array<std::string_view, 16> expected{
+      const std::array<std::string_view, 17> expected{
           "schema_version",
           "profile_id",
           "source_checksum_sha256",
           "evaluator_family",
           "artifact_family",
+          "node_class",
           "phase",
           "deep_depth",
           "shallow_depth",
@@ -853,19 +857,19 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
       saw_header = true;
       continue;
     }
-    require_condition(fields.size() == 16, "invalid ProbCut profile row");
+    require_condition(fields.size() == 17, "invalid ProbCut profile row");
     const std::optional<int> schema_version = parse_int(fields[0]);
-    const std::optional<int> phase = parse_int(fields[5]);
-    const std::optional<int> deep_depth = parse_int(fields[6]);
-    const std::optional<int> shallow_depth = parse_int(fields[7]);
-    const std::optional<double> slope = parse_double(fields[8]);
-    const std::optional<double> intercept = parse_double(fields[9]);
-    const std::optional<double> sigma = parse_double(fields[10]);
-    const std::optional<double> confidence = parse_double(fields[11]);
-    const std::optional<int> minimum_shallow = parse_int(fields[12]);
-    const std::optional<int> maximum_shallow = parse_int(fields[13]);
-    const std::optional<int> minimum_beta = parse_int(fields[14]);
-    const std::optional<int> maximum_beta = parse_int(fields[15]);
+    const std::optional<int> phase = parse_int(fields[6]);
+    const std::optional<int> deep_depth = parse_int(fields[7]);
+    const std::optional<int> shallow_depth = parse_int(fields[8]);
+    const std::optional<double> slope = parse_double(fields[9]);
+    const std::optional<double> intercept = parse_double(fields[10]);
+    const std::optional<double> sigma = parse_double(fields[11]);
+    const std::optional<double> confidence = parse_double(fields[12]);
+    const std::optional<int> minimum_shallow = parse_int(fields[13]);
+    const std::optional<int> maximum_shallow = parse_int(fields[14]);
+    const std::optional<int> minimum_beta = parse_int(fields[15]);
+    const std::optional<int> maximum_beta = parse_int(fields[16]);
     require_condition(
         schema_version.has_value() && *schema_version > 0 && phase.has_value() && *phase >= 0 &&
             *phase <= 12 && deep_depth.has_value() && *deep_depth > 0 &&
@@ -882,11 +886,14 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
       profile.source_checksum = fields[2];
       profile.evaluator_family = fields[3];
       profile.artifact_family = fields[4];
+      require_condition(fields[5] == "non_pv_scout_beta_only", "unsupported ProbCut node class");
+      profile.node_class = ProbCutNodeClassV1::non_pv_scout_beta_only;
     } else {
       require_condition(
           profile.schema_version == static_cast<std::uint32_t>(*schema_version) &&
               profile.profile_id == fields[1] && profile.source_checksum == fields[2] &&
-              profile.evaluator_family == fields[3] && profile.artifact_family == fields[4],
+              profile.evaluator_family == fields[3] && profile.artifact_family == fields[4] &&
+              fields[5] == "non_pv_scout_beta_only",
           "mixed ProbCut profile identity");
     }
     profile.entries.push_back(ProbCutCalibrationEntryV1{
@@ -908,7 +915,9 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
   require_condition(profile.schema_version ==
                             vibe_othello::search::kProbCutCalibrationProfileSchemaVersion &&
                         !profile.profile_id.empty() && !profile.evaluator_family.empty() &&
-                        !profile.artifact_family.empty() && profile.source_checksum.size() == 64,
+                        !profile.artifact_family.empty() &&
+                        profile.node_class == ProbCutNodeClassV1::non_pv_scout_beta_only &&
+                        profile.source_checksum.size() == 64,
                     "invalid ProbCut profile identity");
   require_condition(std::all_of(profile.source_checksum.begin(), profile.source_checksum.end(),
                                 [](char character) {

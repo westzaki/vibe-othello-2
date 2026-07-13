@@ -38,7 +38,8 @@ bool update_alpha_and_check_cutoff(SearchContext* context, Score score, Score* a
 void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::Move move,
                                             Depth depth, Ply ply) noexcept;
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
-                            std::optional<board_core::Move> best_move) noexcept;
+                            std::optional<board_core::Move> best_move,
+                            bool subtree_selective) noexcept;
 
 SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Depth depth, Ply ply,
                            bool cut_node = false);

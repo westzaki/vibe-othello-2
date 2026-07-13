@@ -47,22 +47,26 @@ struct ScopedProbCutShallow {
   explicit ScopedProbCutShallow(SearchContext* search_context) noexcept
       : context(search_context), previous_in_probcut(search_context->in_probcut_shallow),
         previous_exact_endgame(search_context->options.endgame.exact_endgame),
-        previous_exact_empties(search_context->options.endgame.endgame_exact_empties) {
+        previous_exact_empties(search_context->options.endgame.endgame_exact_empties),
+        previous_shadow_calibration(search_context->shadow_calibration) {
     context->in_probcut_shallow = true;
     context->options.endgame.exact_endgame = false;
     context->options.endgame.endgame_exact_empties = 0;
+    context->shadow_calibration = nullptr;
   }
 
   ~ScopedProbCutShallow() noexcept {
     context->in_probcut_shallow = previous_in_probcut;
     context->options.endgame.exact_endgame = previous_exact_endgame;
     context->options.endgame.endgame_exact_empties = previous_exact_empties;
+    context->shadow_calibration = previous_shadow_calibration;
   }
 
   SearchContext* context;
   bool previous_in_probcut;
   bool previous_exact_endgame;
   std::uint8_t previous_exact_empties;
+  ShadowCalibrationRun* previous_shadow_calibration;
 };
 
 bool confidence_accepts(const ProbCutOptionsV1& options, const ProbCutCalibrationEntryV1& entry,
@@ -122,7 +126,9 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
 
   const ProbCutOptionsV1& options = context->options.probcut;
   if (static_cast<std::int64_t>(beta) - alpha != 1 || !options.non_pv_only || !options.beta_only ||
-      context->options.experimental.use_legacy_search_kernel) {
+      context->options.experimental.use_legacy_search_kernel ||
+      options.calibration_profile == nullptr ||
+      options.calibration_profile->node_class != ProbCutNodeClassV1::non_pv_scout_beta_only) {
     return std::nullopt;
   }
   if (depth < options.minimum_depth || depth <= options.shallow_depth_reduction) {
@@ -197,16 +203,17 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
   ++context->stats.probcut_beta_cutoffs;
   ++context->stats.beta_cutoffs;
   ++context->stats.selective_cuts;
-  context->probcut_cut_occurred = true;
   if (context->transposition_table != nullptr && context->options.midgame.use_midgame_tt) {
     context->transposition_table->store_value(context->position_state.key, depth, beta,
                                               BoundType::lower, TTEntryKind::midgame,
                                               &context->stats, true);
   }
-  return SearchNodeResult::completed(SearchValue{
-      .score = beta,
-      .pv = {},
-  });
+  return SearchNodeResult::completed(
+      SearchValue{
+          .score = beta,
+          .pv = {},
+      },
+      true);
 }
 
 void complete_probcut_shadow(SearchContext* context, const ProbCutShadowCandidate& candidate,

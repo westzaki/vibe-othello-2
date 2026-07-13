@@ -62,7 +62,6 @@ struct SearchContext {
   std::uint64_t incremental_eval_count = 0;
   bool in_iid = false;
   bool in_probcut_shallow = false;
-  bool probcut_cut_occurred = false;
   std::array<StackFrame, kMaxPly> stack{};
 };
 

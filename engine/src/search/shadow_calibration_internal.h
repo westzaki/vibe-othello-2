@@ -29,6 +29,7 @@ struct ShadowCandidate {
   Ply ply = 0;
   std::uint8_t occupied_count = 0;
   std::uint8_t empties = 0;
+  ShadowSearchRole search_role = ShadowSearchRole::other;
   bool pv_node = false;
   bool pass_state = false;
   bool terminal_state = false;
@@ -39,7 +40,8 @@ std::optional<ShadowCalibrationRun> make_shadow_calibration_run(board_core::Posi
                                                                 SelectiveSearchOptionsV1 options);
 
 std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Score alpha,
-                                                      Score beta, Depth depth, Ply ply);
+                                                      Score beta, Depth depth, Ply ply,
+                                                      bool cut_node);
 
 void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& candidate,
                                const SearchNodeResult& official_deep_result);

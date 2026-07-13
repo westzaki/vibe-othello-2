@@ -72,6 +72,7 @@ ProbCutCalibrationProfileV1 profile_for(const std::array<ProbCutCalibrationEntry
       .source_calibration_report_checksum_sha256 = kTestChecksum,
       .evaluator_family = "synthetic-disc-difference",
       .artifact_family = "none",
+      .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
       .entries = entries,
   };
 }
@@ -99,7 +100,6 @@ SearchOptions options_for(const ProbCutCalibrationProfileV1* profile, Depth mini
 struct DirectRun {
   SearchNodeResult result;
   SearchStats stats;
-  bool probcut_cut_occurred = false;
 };
 
 DirectRun run_null_window(board_core::Position position, Score beta, Depth depth,
@@ -117,7 +117,6 @@ DirectRun run_null_window(board_core::Position position, Score beta, Depth depth
   return DirectRun{
       .result = result,
       .stats = context.stats,
-      .probcut_cut_occurred = context.probcut_cut_occurred,
   };
 }
 
@@ -316,7 +315,7 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
   REQUIRE(context.stats.probcut_successes == 1);
   REQUIRE(context.stats.probcut_beta_cutoffs == 1);
   REQUIRE(context.stats.selective_cuts == 1);
-  REQUIRE(context.probcut_cut_occurred);
+  REQUIRE(result.is_selective());
 
   SearchStats probe_stats{};
   const std::optional<TTEntry> stored =
@@ -339,7 +338,7 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
   REQUIRE(reused_context.stats.tt_cutoffs == 1);
   REQUIRE(reused_context.stats.probcut_attempts == 0);
   REQUIRE(reused_context.stats.selective_cuts == 1);
-  REQUIRE(reused_context.probcut_cut_occurred);
+  REQUIRE(reused.is_selective());
 }
 
 TEST_CASE("shadow verification detects a false cut without changing the deep result",
@@ -483,10 +482,49 @@ TEST_CASE("ProbCut descendant prevents an exact TT store at its ancestor",
       full_window_search(&context, kScoreLoss, kScoreWin, Depth{4}, Ply{0});
   REQUIRE(result.is_complete());
   REQUIRE(context.stats.probcut_beta_cutoffs > 0);
-  REQUIRE(context.probcut_cut_occurred);
+  REQUIRE(result.is_selective());
   SearchStats probe_stats{};
   const std::optional<TTEntry> root_entry = tt.probe(root_key, TTEntryKind::midgame, &probe_stats);
   REQUIRE_FALSE(root_entry.has_value());
+}
+
+TEST_CASE("selective TT suppression does not leak into an unrelated subtree",
+          "[search][probcut][tt]") {
+  const std::array entries{entry(0, Depth{4}, Depth{2})};
+  const ProbCutCalibrationProfileV1 profile = profile_for(entries);
+  SearchOptions options = options_for(&profile, Depth{4}, Depth{2});
+  options.midgame.use_midgame_tt = true;
+  DiscDifferenceEvaluator evaluator;
+  TranspositionTable tt;
+  SearchContext context{
+      .position_state = make_search_position(board_core::initial_position()),
+      .evaluator = evaluator,
+      .options = normalize_search_options(options),
+      .transposition_table = &tt,
+  };
+
+  const SearchNodeResult selective = null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+  REQUIRE(selective.is_selective());
+
+  board_core::Position sibling = board_core::initial_position();
+  board_core::MoveDelta delta{};
+  REQUIRE(board_core::apply_move(
+      &sibling, board_core::make_move(board_core::square_from_file_rank(3, 2)), &delta));
+  context.position_state = make_search_position(sibling);
+  context.options.probcut = {};
+  context.options.probcut_profile_semantic_fingerprint = 0;
+  context.stack = {};
+  const board_core::PositionHash sibling_key = context.position_state.key;
+
+  const SearchNodeResult exact =
+      full_window_search(&context, kScoreLoss, kScoreWin, Depth{2}, Ply{0});
+  REQUIRE(exact.is_complete());
+  REQUIRE_FALSE(exact.is_selective());
+  SearchStats probe_stats{};
+  const std::optional<TTEntry> stored = tt.probe(sibling_key, TTEntryKind::midgame, &probe_stats);
+  REQUIRE(stored.has_value());
+  REQUIRE(stored->bound == BoundType::exact);
+  REQUIRE_FALSE(stored->selective);
 }
 
 TEST_CASE("ProbCut shadow combines with aspiration IID and PVS and preserves the root result",

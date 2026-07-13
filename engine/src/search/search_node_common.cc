@@ -67,7 +67,7 @@ SearchNodeResult child_result(board_core::Move move, const SearchNodeResult& chi
       .pv = {},
   };
   prepend_move(move, child_value.pv, &result.pv);
-  return SearchNodeResult::completed(result);
+  return SearchNodeResult::completed(result, child.is_selective());
 }
 
 std::uint8_t internal_exact_endgame_threshold(ResolvedSearchOptions options) noexcept {
@@ -105,10 +105,11 @@ SearchNodeResult search_internal_exact_endgame(SearchContext* context) {
 
 } // namespace
 
-SearchNodeResult SearchNodeResult::completed(SearchValue value) noexcept {
+SearchNodeResult SearchNodeResult::completed(SearchValue value, bool selective) noexcept {
   SearchNodeResult result;
   result.status_ = SearchNodeStatus::complete;
   result.value_ = value;
+  result.selective_ = selective;
   return result;
 }
 
@@ -122,6 +123,10 @@ bool SearchNodeResult::is_complete() const noexcept {
 
 bool SearchNodeResult::is_stopped() const noexcept {
   return status_ == SearchNodeStatus::stopped;
+}
+
+bool SearchNodeResult::is_selective() const noexcept {
+  return is_complete() && selective_;
 }
 
 const SearchValue& SearchNodeResult::value() const noexcept {
@@ -219,13 +224,14 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
     if (cutoff.has_value()) {
       ++context->stats.tt_cutoffs;
       if ((*tt_entry)->selective) {
-        context->probcut_cut_occurred = true;
         ++context->stats.selective_cuts;
       }
-      return SearchNodeResult::completed(SearchValue{
-          .score = *cutoff,
-          .pv = {},
-      });
+      return SearchNodeResult::completed(
+          SearchValue{
+              .score = *cutoff,
+              .pv = {},
+          },
+          (*tt_entry)->selective);
     }
   }
 
@@ -388,9 +394,10 @@ void update_midgame_ordering_on_beta_cutoff(SearchContext* context, board_core::
 }
 
 void maybe_store_midgame_tt(SearchContext* context, Depth depth, Score score, BoundType bound,
-                            std::optional<board_core::Move> best_move) noexcept {
+                            std::optional<board_core::Move> best_move,
+                            bool subtree_selective) noexcept {
   if (context->transposition_table != nullptr && best_move.has_value() &&
-      !context->in_probcut_shallow && !context->probcut_cut_occurred) {
+      !context->in_probcut_shallow && !subtree_selective) {
     context->transposition_table->store(context->position_state.key, depth, score, bound,
                                         *best_move, TTEntryKind::midgame, &context->stats);
   }

@@ -19,6 +19,7 @@ The sink receives a const reference to a `ShadowCalibrationSample` whose string
 fields own their values. A local collector may copy it for retention or
 serialize one object per line. Serialize enums and moves as:
 
+- `search_role`: `pv`, `non_pv_scout`, or `other`
 - `node_type`: `pv`, `cut`, or `all`
 - `official_deep_bound`, `shallow_verification_bound`, and
   `deep_verification_bound`: `upper`, `exact`, or `lower`
@@ -27,7 +28,7 @@ serialize one object per line. Serialize enums and moves as:
 - `canonical_position_hash`: 16 lowercase hexadecimal characters
 
 JSON field names match the C++ member names exactly. Every JSON/JSONL sample
-must contain all schema-v3 fields validated by `analyze_shadow_samples.py`.
+must contain all schema-v4 fields validated by `analyze_shadow_samples.py`.
 `repo_sha`, `search_config_id`, `evaluator_id`, and `artifact_id` must identify
 the actual run; `repo_sha` is a 7-64 character lowercase hexadecimal Git SHA.
 Use `artifact_id: "none"` only for an evaluator with no
@@ -47,9 +48,12 @@ store key. Phase v1 uses
 `min(12, floor(max(0, occupied_count - 4) * 13 / 60))`; it matches the current
 13-phase artifact layout.
 
+At official node entry, `search_role` is assigned without using the result:
+`pv` for PV/full-window work, `non_pv_scout` for an explicit PVS scout
+candidate, and `other` otherwise. This is the ProbCut calibration population.
 After the official search completes at a sampled node, collection runs two
 isolated searches over `[kScoreLoss, kScoreWin]`: one at `shallow_depth` and one
-at `deep_depth`. Schema v3 separates their exact value observations from the
+at `deep_depth`. Schema v4 separates their exact value observations from the
 official window result:
 
 - `official_alpha`, `official_beta`, `official_deep_score`, and
@@ -68,6 +72,9 @@ the deep verification score.
 
 Verification searches use isolated TT and ordering state and never contribute to
 official `SearchStats`, `SearchResult::nodes`, root move nodes, or node limits.
+They explicitly disable both ProbCut and nested MPC collection. Conversely,
+ProbCut shallow searches temporarily detach MPC collection, so neither feature
+can contaminate the other's calibration tree.
 The dedicated counters are in `SearchResult::shadow_calibration`, including
 separate shallow and deep-verification node counts. Fixed-time deadline
 accounting excludes verification work, but local calibration should still use
@@ -112,11 +119,15 @@ one `collection_config_id`; mixed input is rejected instead of silently fitted.
 The JSON report retains both inventories and their sample counts. Empty inputs
 produce a valid deterministic report with zero samples and groups.
 
-The analyzer groups by phase, deep depth, shallow depth, and node type. Each
-group reports:
+The analyzer's adoptable groups are keyed by phase, deep depth, shallow depth,
+and result-independent search role. Only `non_pv_scout` is recommendation
+eligible, and its fit includes both eventual fail-high and fail-low outcomes.
+Separate post-result `pv`/`cut`/`all` groups remain in
+`result_node_type_groups` for diagnostics only. Each group reports:
 
 - total sample count, exact-pair count, and bound-observation count
-- `deep = a + b * shallow` regression using only rows where both
+- `deep = intercept + slope * shallow` regression with explicit
+  `linear_regression.intercept` and `.slope` keys, using only rows where both
   `shallow_verification_bound` and `deep_verification_bound` are `exact`
 - residual mean, population standard deviation, and residual percentiles
 - MAE and RMSE for fitted regression residuals
@@ -148,18 +159,43 @@ Do not copy a regression group into runtime merely because
 then create a versioned `ProbCutCalibrationProfileV1` that records:
 
 - profile ID and schema version
-- exact analyzer `input_checksum_sha256`
+- SHA-256 of the exact reviewed analyzer report file
 - evaluator and artifact families
+- exact node class `non_pv_scout_beta_only`
 - phase and the single supported deep/shallow depth pair
 - regression slope/intercept and residual sigma
 - audited confidence multiplier
 - inclusive shallow-score and beta validity ranges
 
-The first runtime version rejects multiple depth pairs, duplicate groups,
-invalid identity/checksum data, non-finite coefficients, and every missing
-phase/depth pair. It never fills a missing group from an adjacent phase or
-depth. The caller must ensure that the profile evaluator/artifact family names
-describe the actual evaluator supplied to search.
+The first runtime version rejects any other or missing node class, multiple
+depth pairs, duplicate groups, invalid identity/checksum data, non-finite
+coefficients, and every missing phase/depth pair. It never fills a missing
+group from an adjacent phase or depth. The caller must ensure that the profile
+evaluator/artifact family names describe the actual evaluator supplied to
+search.
+
+Do not manually translate analyzer coefficient names. Create a local reviewed
+adoption specification containing only the explicit decisions that the report
+cannot supply (profile ID, confidence multiplier, and audited validity ranges),
+then run the checked converter:
+
+```sh
+python3 tools/search-calibration/convert_probcut_profile.py \
+  "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/report.json" \
+  "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/adoption.json" \
+  --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv"
+```
+
+The adoption file uses `schema_version: "probcut-profile-adoption-v1"`, exact
+report `evaluator_id`/`artifact_id` values as `evaluator_family` and
+`artifact_family`, `node_class: "non_pv_scout_beta_only"`, and an `entries`
+array. Each entry selects `phase`, `deep_depth`, and `shallow_depth` and supplies
+`confidence_multiplier`, `minimum_shallow_score`, `maximum_shallow_score`,
+`minimum_beta`, and `maximum_beta`. The converter selects exactly one eligible
+`non_pv_scout` group, maps `.slope` to `regression_slope` and `.intercept` to
+`intercept`, copies residual sigma, rejects multiple depth pairs, and records
+the SHA-256 of the exact report file bytes. It never derives confidence or
+validity ranges.
 
 The one-sided integer condition is:
 
@@ -180,7 +216,7 @@ For local benchmark input, use a TSV outside the repository with this exact
 header (one row per supported phase):
 
 ```text
-schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	phase	deep_depth	shallow_depth	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	node_class	phase	deep_depth	shallow_depth	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
 ```
 
 The benchmark requires an explicit positive `--probcut-maximum-margin`; it does

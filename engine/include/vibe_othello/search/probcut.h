@@ -11,6 +11,11 @@ namespace vibe_othello::search {
 
 inline constexpr std::uint32_t kProbCutCalibrationProfileSchemaVersion = 1;
 
+enum class ProbCutNodeClassV1 : std::uint8_t {
+  unspecified,
+  non_pv_scout_beta_only,
+};
+
 // One reviewed regression group. Ranges are inclusive and are part of the
 // calibrated domain; runtime code never extrapolates to another phase, depth
 // pair, shallow score, or beta.
@@ -40,6 +45,7 @@ struct ProbCutCalibrationProfileV1 {
   std::string_view source_calibration_report_checksum_sha256;
   std::string_view evaluator_family;
   std::string_view artifact_family;
+  ProbCutNodeClassV1 node_class = ProbCutNodeClassV1::unspecified;
   std::span<const ProbCutCalibrationEntryV1> entries;
 };
 
