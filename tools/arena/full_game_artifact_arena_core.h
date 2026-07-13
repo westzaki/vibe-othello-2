@@ -15,6 +15,26 @@ enum class EngineRole : std::uint8_t {
   baseline,
 };
 
+struct ProbCutPairTelemetry {
+  std::uint8_t phase = 0;
+  int deep_depth = 0;
+  int shallow_depth = 0;
+  std::uint64_t attempts = 0;
+  std::uint64_t shallow_nodes = 0;
+  std::uint64_t successes = 0;
+  std::uint64_t confidence_rejections = 0;
+  std::uint64_t unsupported_profile = 0;
+  std::uint64_t near_exact_rejections = 0;
+  std::uint64_t pass_rejections = 0;
+  std::uint64_t pv_rejections = 0;
+  std::uint64_t root_rejections = 0;
+  std::uint64_t beta_cuts = 0;
+  std::uint64_t cut_low_attempts = 0;
+  std::uint64_t shadow_candidates = 0;
+  std::uint64_t shadow_verifications = 0;
+  std::uint64_t shadow_false_cuts = 0;
+};
+
 struct SearchTelemetry {
   EngineRole role = EngineRole::candidate;
   std::string side_to_move;
@@ -51,6 +71,18 @@ struct SearchTelemetry {
   std::uint64_t iid_searches = 0;
   std::uint64_t endgame_nodes = 0;
   std::uint64_t selective_cuts = 0;
+  std::uint64_t probcut_attempts = 0;
+  std::uint64_t probcut_shallow_nodes = 0;
+  std::uint64_t probcut_successes = 0;
+  std::uint64_t probcut_confidence_rejections = 0;
+  std::uint64_t probcut_unsupported_profile = 0;
+  std::uint64_t probcut_near_exact_rejections = 0;
+  std::uint64_t probcut_pass_rejections = 0;
+  std::uint64_t probcut_pv_rejections = 0;
+  std::uint64_t probcut_beta_cuts = 0;
+  std::uint64_t probcut_cut_low_attempts = 0;
+  std::uint64_t probcut_shadow_false_cuts = 0;
+  std::vector<ProbCutPairTelemetry> probcut_by_phase_depth_pair;
   bool exact = false;
   bool stopped = false;
   bool exact_handoff_used = false;
@@ -91,6 +123,18 @@ struct TelemetrySummary {
   std::uint64_t iid_searches = 0;
   std::uint64_t endgame_nodes = 0;
   std::uint64_t selective_cuts = 0;
+  std::uint64_t probcut_attempts = 0;
+  std::uint64_t probcut_shallow_nodes = 0;
+  std::uint64_t probcut_successes = 0;
+  std::uint64_t probcut_confidence_rejections = 0;
+  std::uint64_t probcut_unsupported_profile = 0;
+  std::uint64_t probcut_near_exact_rejections = 0;
+  std::uint64_t probcut_pass_rejections = 0;
+  std::uint64_t probcut_pv_rejections = 0;
+  std::uint64_t probcut_beta_cuts = 0;
+  std::uint64_t probcut_cut_low_attempts = 0;
+  std::uint64_t probcut_shadow_false_cuts = 0;
+  std::vector<ProbCutPairTelemetry> probcut_by_phase_depth_pair;
   std::uint64_t stopped_searches = 0;
   std::uint64_t exact_handoff_uses = 0;
   std::uint64_t exact_root_searches = 0;

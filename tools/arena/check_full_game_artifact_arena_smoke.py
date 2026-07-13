@@ -163,14 +163,16 @@ def assert_report(report: dict[str, object]) -> None:
     sanity = report["same_artifact_sanity"]
     if sanity != {
         "same_runtime_artifact": True,
+        "same_search_configuration": True,
+        "applicable": True,
         "paired_color_swap": True,
         "neutral": True,
     }:
         raise AssertionError(f"same-artifact sanity failed: {sanity!r}")
     if overall["candidate_score_rate"] != 0.5 or overall["average_disc_diff_candidate_perspective"] != 0.0:
         raise AssertionError(f"same artifact was not neutral: {overall!r}")
-    if report["schema_version"] != 3 or report["arena_version"] != "full-game-artifact-arena-v3":
-        raise AssertionError(f"unexpected v3 schema: {report!r}")
+    if report["schema_version"] != 4 or report["arena_version"] != "full-game-artifact-arena-v4":
+        raise AssertionError(f"unexpected v4 schema: {report!r}")
     if report["search_config"]["limit_mode"] != "fixed_depth":
         raise AssertionError(f"fixed-depth mode was not recorded: {report['search_config']!r}")
     paired = report["results"].get("paired_score")
@@ -184,7 +186,7 @@ def assert_report(report: dict[str, object]) -> None:
     if paired_sanity.get("paired_color_swap_complete") is not True or paired_sanity.get(
         "same_artifact_neutral"
     ) is not True:
-        raise AssertionError(f"v3 paired sanity failed: {paired_sanity!r}")
+        raise AssertionError(f"v4 paired sanity failed: {paired_sanity!r}")
     telemetry = report["telemetry"]
     for role in ("candidate", "baseline"):
         role_report = telemetry.get(role)
@@ -208,6 +210,8 @@ def assert_report(report: dict[str, object]) -> None:
                 raise AssertionError(f"missing {role} backend telemetry {field}: {overall_telemetry!r}")
         if not role_report["by_phase"] or not role_report["by_side_to_move"]:
             raise AssertionError(f"missing {role} telemetry buckets: {role_report!r}")
+        if not isinstance(overall_telemetry.get("probcut"), dict):
+            raise AssertionError(f"missing {role} ProbCut telemetry: {overall_telemetry!r}")
     if any(not game.get("search_calls") for game in report["game_records"]):
         raise AssertionError("game record lacks per-search telemetry")
     first_search = report["game_records"][0]["search_calls"][0]
@@ -223,6 +227,7 @@ def assert_report(report: dict[str, object]) -> None:
         "stateless_eval_calls",
         "incremental_updates",
         "incremental_touched_instances",
+        "probcut",
     ):
         if field not in first_search:
             raise AssertionError(f"per-search telemetry lacks {field}: {first_search!r}")

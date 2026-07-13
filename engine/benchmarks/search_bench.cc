@@ -48,6 +48,8 @@ using vibe_othello::search::Line;
 using vibe_othello::search::NodeCount;
 using vibe_othello::search::ProbCutCalibrationEntryV1;
 using vibe_othello::search::ProbCutCalibrationProfileV1;
+using vibe_othello::search::ProbCutDepthPairStats;
+using vibe_othello::search::ProbCutDepthPairV1;
 using vibe_othello::search::ProbCutNodeClassV1;
 using vibe_othello::search::ProbCutOptionsV1;
 using vibe_othello::search::RootMoveInfo;
@@ -86,14 +88,16 @@ enum class BoolSelection {
 enum class ProbCutSelection {
   off,
   shadow,
-  on,
+  single,
+  multi,
   all,
 };
 
 enum class ProbCutMode {
   off,
   shadow,
-  on,
+  single,
+  multi,
 };
 
 enum class EvalSelection {
@@ -140,6 +144,8 @@ struct Config {
   Score probcut_minimum_margin = 0;
   Score probcut_maximum_margin = 0;
   double probcut_confidence_multiplier = 0.0;
+  std::uint8_t probcut_maximum_probes = 2;
+  double probcut_maximum_shallow_overhead_ratio = 0.0;
   bool depths_overridden = false;
   char delimiter = '\t';
 };
@@ -174,6 +180,8 @@ struct BenchmarkVariant {
   Score probcut_minimum_margin = 0;
   Score probcut_maximum_margin = 0;
   double probcut_confidence_multiplier = 0.0;
+  std::uint8_t probcut_maximum_probes = 1;
+  double probcut_maximum_shallow_overhead_ratio = 0.0;
   bool probcut_matrix = false;
 };
 
@@ -184,6 +192,7 @@ struct LoadedProbCutProfile {
   std::string evaluator_family;
   std::string artifact_family;
   ProbCutNodeClassV1 node_class = ProbCutNodeClassV1::unspecified;
+  std::vector<ProbCutDepthPairV1> ordered_depth_pairs;
   std::vector<ProbCutCalibrationEntryV1> entries;
 
   ProbCutCalibrationProfileV1 view() const noexcept {
@@ -194,6 +203,7 @@ struct LoadedProbCutProfile {
         .evaluator_family = evaluator_family,
         .artifact_family = artifact_family,
         .node_class = node_class,
+        .ordered_depth_pairs = ordered_depth_pairs,
         .entries = entries,
     };
   }
@@ -433,8 +443,10 @@ std::string_view probcut_mode_name(ProbCutMode mode) noexcept {
     return "off";
   case ProbCutMode::shadow:
     return "shadow";
-  case ProbCutMode::on:
-    return "on";
+  case ProbCutMode::single:
+    return "single";
+  case ProbCutMode::multi:
+    return "multi";
   }
   return "unknown";
 }
@@ -446,8 +458,11 @@ std::optional<ProbCutSelection> parse_probcut_selection(std::string_view value) 
   if (value == "shadow") {
     return ProbCutSelection::shadow;
   }
-  if (value == "on") {
-    return ProbCutSelection::on;
+  if (value == "single") {
+    return ProbCutSelection::single;
+  }
+  if (value == "on" || value == "multi") {
+    return ProbCutSelection::multi;
   }
   if (value == "all") {
     return ProbCutSelection::all;
@@ -461,10 +476,12 @@ std::vector<ProbCutMode> probcut_values(ProbCutSelection selection) {
     return {ProbCutMode::off};
   case ProbCutSelection::shadow:
     return {ProbCutMode::shadow};
-  case ProbCutSelection::on:
-    return {ProbCutMode::on};
+  case ProbCutSelection::single:
+    return {ProbCutMode::single};
+  case ProbCutSelection::multi:
+    return {ProbCutMode::multi};
   case ProbCutSelection::all:
-    return {ProbCutMode::off, ProbCutMode::shadow, ProbCutMode::on};
+    return {ProbCutMode::off, ProbCutMode::single, ProbCutMode::multi, ProbCutMode::shadow};
   }
   return {};
 }
@@ -559,7 +576,9 @@ bool uses_pattern_evaluator(EvalSelection selection) noexcept {
 }
 
 SearchOptions search_options_for_variant(BenchmarkVariant variant,
-                                         const ProbCutCalibrationProfileV1* profile) noexcept {
+                                         const ProbCutCalibrationProfileV1* profile,
+                                         std::string_view evaluator_family,
+                                         std::string_view artifact_family) noexcept {
   SearchOptions options{};
   switch (variant.tt_mode) {
   case TTMode::off:
@@ -587,18 +606,40 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant,
   options.endgame.endgame_exact_empties = variant.exact_endgame_empties;
   options.reporting.multi_pv = 1;
   if (variant.probcut_mode != ProbCutMode::off && profile != nullptr && !profile->entries.empty()) {
+    const std::span<const ProbCutDepthPairV1> selected_pairs =
+        variant.probcut_mode == ProbCutMode::single && !profile->ordered_depth_pairs.empty()
+            ? profile->ordered_depth_pairs.first(1)
+            : profile->ordered_depth_pairs;
+    const auto minimum_deep = std::min_element(
+        profile->entries.begin(), profile->entries.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.deep_depth < rhs.deep_depth; });
+    const auto selected_minimum_deep = std::min_element(
+        selected_pairs.begin(), selected_pairs.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.deep_depth < rhs.deep_depth; });
     const ProbCutCalibrationEntryV1& first = profile->entries.front();
     options.probcut_options = ProbCutOptionsV1{
         .use_probcut = true,
-        .minimum_depth = first.deep_depth,
+        .minimum_depth =
+            selected_pairs.empty() ? minimum_deep->deep_depth : selected_minimum_deep->deep_depth,
         .shallow_depth_reduction = static_cast<Depth>(first.deep_depth - first.shallow_depth),
+        .maximum_probes_per_node = variant.probcut_mode == ProbCutMode::single
+                                       ? std::uint8_t{1}
+                                       : variant.probcut_maximum_probes,
+        .ordered_depth_pairs = selected_pairs,
+        .stop_after_first_success = true,
         .confidence_multiplier = variant.probcut_confidence_multiplier,
+        .minimum_confidence = variant.probcut_confidence_multiplier,
         .minimum_margin = variant.probcut_minimum_margin,
         .maximum_margin = variant.probcut_maximum_margin,
+        .maximum_shallow_overhead_ratio = variant.probcut_maximum_shallow_overhead_ratio,
+        .enabled_phase_mask = vibe_othello::search::kAllProbCutPhasesMask,
         .non_pv_only = true,
         .beta_only = true,
         .disable_near_exact = true,
+        .near_exact_disable_empties = variant.exact_endgame_empties,
         .shadow_verify = variant.probcut_mode == ProbCutMode::shadow,
+        .evaluator_family = evaluator_family,
+        .artifact_family = artifact_family,
         .calibration_profile_id = profile->profile_id,
         .calibration_profile = profile,
     };
@@ -690,6 +731,11 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
                         .probcut_minimum_margin = config.probcut_minimum_margin,
                         .probcut_maximum_margin = config.probcut_maximum_margin,
                         .probcut_confidence_multiplier = config.probcut_confidence_multiplier,
+                        .probcut_maximum_probes = probcut_mode == ProbCutMode::single
+                                                      ? std::uint8_t{1}
+                                                      : config.probcut_maximum_probes,
+                        .probcut_maximum_shallow_overhead_ratio =
+                            config.probcut_maximum_shallow_overhead_ratio,
                         .probcut_matrix = config.probcut != ProbCutSelection::off,
                     });
                   }
@@ -713,9 +759,10 @@ void print_usage(std::ostream& output, std::string_view program) {
             " [--eval disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all]"
             " [--time-ms N] [--nodes N] [--exact-endgame N]"
             " [--endgame-tt off|on|both] [--endgame-parity off|on|both]"
-            " [--probcut off|shadow|on|all] [--probcut-profile PATH]"
+            " [--probcut off|shadow|single|multi|on|all] [--probcut-profile PATH]"
             " [--probcut-minimum-margin N] [--probcut-maximum-margin N]"
-            " [--probcut-confidence K]"
+            " [--probcut-confidence K] [--probcut-maximum-probes N]"
+            " [--probcut-maximum-shallow-overhead-ratio R]"
             " [--corpus PATH] [--tsv|--csv|--jsonl]\n\n"
          << "Default depth range is 6..8.\n";
 }
@@ -832,7 +879,7 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
     }
     const std::vector<std::string_view> fields = split_tabs(line);
     if (!saw_header) {
-      const std::array<std::string_view, 17> expected{
+      const std::array<std::string_view, 22> expected{
           "schema_version",
           "profile_id",
           "source_checksum_sha256",
@@ -840,8 +887,13 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
           "artifact_family",
           "node_class",
           "phase",
+          "minimum_empties",
+          "maximum_empties",
           "deep_depth",
           "shallow_depth",
+          "exact_handoff_enabled",
+          "minimum_exact_handoff_distance",
+          "maximum_exact_handoff_distance",
           "regression_slope",
           "intercept",
           "residual_sigma",
@@ -857,27 +909,37 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
       saw_header = true;
       continue;
     }
-    require_condition(fields.size() == 17, "invalid ProbCut profile row");
+    require_condition(fields.size() == 22, "invalid ProbCut profile row");
     const std::optional<int> schema_version = parse_int(fields[0]);
     const std::optional<int> phase = parse_int(fields[6]);
-    const std::optional<int> deep_depth = parse_int(fields[7]);
-    const std::optional<int> shallow_depth = parse_int(fields[8]);
-    const std::optional<double> slope = parse_double(fields[9]);
-    const std::optional<double> intercept = parse_double(fields[10]);
-    const std::optional<double> sigma = parse_double(fields[11]);
-    const std::optional<double> confidence = parse_double(fields[12]);
-    const std::optional<int> minimum_shallow = parse_int(fields[13]);
-    const std::optional<int> maximum_shallow = parse_int(fields[14]);
-    const std::optional<int> minimum_beta = parse_int(fields[15]);
-    const std::optional<int> maximum_beta = parse_int(fields[16]);
+    const std::optional<int> minimum_empties = parse_int(fields[7]);
+    const std::optional<int> maximum_empties = parse_int(fields[8]);
+    const std::optional<int> deep_depth = parse_int(fields[9]);
+    const std::optional<int> shallow_depth = parse_int(fields[10]);
+    const bool valid_handoff_bool = fields[11] == "true" || fields[11] == "false";
+    const bool exact_handoff_enabled = fields[11] == "true";
+    const std::optional<int> minimum_handoff = parse_int(fields[12]);
+    const std::optional<int> maximum_handoff = parse_int(fields[13]);
+    const std::optional<double> slope = parse_double(fields[14]);
+    const std::optional<double> intercept = parse_double(fields[15]);
+    const std::optional<double> sigma = parse_double(fields[16]);
+    const std::optional<double> confidence = parse_double(fields[17]);
+    const std::optional<int> minimum_shallow = parse_int(fields[18]);
+    const std::optional<int> maximum_shallow = parse_int(fields[19]);
+    const std::optional<int> minimum_beta = parse_int(fields[20]);
+    const std::optional<int> maximum_beta = parse_int(fields[21]);
     require_condition(
         schema_version.has_value() && *schema_version > 0 && phase.has_value() && *phase >= 0 &&
-            *phase <= 12 && deep_depth.has_value() && *deep_depth > 0 &&
+            *phase <= 12 && minimum_empties.has_value() && maximum_empties.has_value() &&
+            *minimum_empties >= 0 && *maximum_empties <= 60 &&
+            *minimum_empties <= *maximum_empties && deep_depth.has_value() && *deep_depth > 0 &&
             *deep_depth <= std::numeric_limits<Depth>::max() && shallow_depth.has_value() &&
             *shallow_depth > 0 && *shallow_depth <= std::numeric_limits<Depth>::max() &&
-            slope.has_value() && intercept.has_value() && sigma.has_value() &&
-            confidence.has_value() && minimum_shallow.has_value() && maximum_shallow.has_value() &&
-            minimum_beta.has_value() && maximum_beta.has_value(),
+            valid_handoff_bool && minimum_handoff.has_value() && maximum_handoff.has_value() &&
+            *minimum_handoff >= 0 && *maximum_handoff <= 60 &&
+            *minimum_handoff <= *maximum_handoff && slope.has_value() && intercept.has_value() &&
+            sigma.has_value() && confidence.has_value() && minimum_shallow.has_value() &&
+            maximum_shallow.has_value() && minimum_beta.has_value() && maximum_beta.has_value(),
         "invalid ProbCut profile value");
 
     if (profile.entries.empty()) {
@@ -896,10 +958,23 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
               fields[5] == "non_pv_scout_beta_only",
           "mixed ProbCut profile identity");
     }
-    profile.entries.push_back(ProbCutCalibrationEntryV1{
-        .phase = static_cast<std::uint8_t>(*phase),
+    const ProbCutDepthPairV1 pair{
         .deep_depth = static_cast<Depth>(*deep_depth),
         .shallow_depth = static_cast<Depth>(*shallow_depth),
+    };
+    if (std::find(profile.ordered_depth_pairs.begin(), profile.ordered_depth_pairs.end(), pair) ==
+        profile.ordered_depth_pairs.end()) {
+      profile.ordered_depth_pairs.push_back(pair);
+    }
+    profile.entries.push_back(ProbCutCalibrationEntryV1{
+        .phase = static_cast<std::uint8_t>(*phase),
+        .minimum_empties = static_cast<std::uint8_t>(*minimum_empties),
+        .maximum_empties = static_cast<std::uint8_t>(*maximum_empties),
+        .deep_depth = static_cast<Depth>(*deep_depth),
+        .shallow_depth = static_cast<Depth>(*shallow_depth),
+        .exact_handoff_enabled = exact_handoff_enabled,
+        .minimum_exact_handoff_distance = static_cast<std::uint8_t>(*minimum_handoff),
+        .maximum_exact_handoff_distance = static_cast<std::uint8_t>(*maximum_handoff),
         .regression_slope = *slope,
         .intercept = *intercept,
         .residual_sigma = *sigma,
@@ -925,19 +1000,30 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
                                          (character >= 'a' && character <= 'f');
                                 }),
                     "invalid ProbCut source checksum");
-  const Depth deep_depth = profile.entries.front().deep_depth;
-  const Depth shallow_depth = profile.entries.front().shallow_depth;
   for (std::size_t index = 0; index < profile.entries.size(); ++index) {
     const ProbCutCalibrationEntryV1& entry = profile.entries[index];
-    require_condition(entry.deep_depth == deep_depth && entry.shallow_depth == shallow_depth &&
-                          entry.deep_depth > entry.shallow_depth && entry.regression_slope > 0.0 &&
+    require_condition(entry.deep_depth > entry.shallow_depth && entry.regression_slope > 0.0 &&
                           entry.residual_sigma >= 0.0 && entry.confidence_multiplier > 0.0 &&
                           entry.minimum_shallow_score <= entry.maximum_shallow_score &&
-                          entry.minimum_beta <= entry.maximum_beta,
+                          entry.minimum_beta <= entry.maximum_beta &&
+                          entry.minimum_shallow_score > vibe_othello::search::kScoreLoss &&
+                          entry.maximum_shallow_score < vibe_othello::search::kScoreWin &&
+                          entry.minimum_beta > vibe_othello::search::kScoreLoss &&
+                          entry.maximum_beta < vibe_othello::search::kScoreWin,
                       "unsupported ProbCut profile entry");
     for (std::size_t previous = 0; previous < index; ++previous) {
-      require_condition(profile.entries[previous].phase != entry.phase,
-                        "duplicate ProbCut profile phase");
+      const ProbCutCalibrationEntryV1& other = profile.entries[previous];
+      const bool empties_overlap = other.minimum_empties <= entry.maximum_empties &&
+                                   entry.minimum_empties <= other.maximum_empties;
+      const bool proximity_overlap =
+          other.minimum_exact_handoff_distance <= entry.maximum_exact_handoff_distance &&
+          entry.minimum_exact_handoff_distance <= other.maximum_exact_handoff_distance;
+      const bool ambiguous_domain = other.phase == entry.phase &&
+                                    other.deep_depth == entry.deep_depth &&
+                                    other.shallow_depth == entry.shallow_depth &&
+                                    other.exact_handoff_enabled == entry.exact_handoff_enabled &&
+                                    empties_overlap && proximity_overlap;
+      require_condition(!ambiguous_domain, "overlapping ProbCut profile domain");
     }
   }
   return profile;
@@ -1229,6 +1315,36 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--probcut-maximum-probes") {
+      require_condition(index + 1 < argc, "--probcut-maximum-probes requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--probcut-maximum-probes", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<int> probes = parse_int(value);
+      require_condition(probes.has_value() && *probes > 0 && *probes <= 255,
+                        "invalid ProbCut maximum probes");
+      config.probcut_maximum_probes = static_cast<std::uint8_t>(*probes);
+      continue;
+    }
+
+    if (argument == "--probcut-maximum-shallow-overhead-ratio") {
+      require_condition(index + 1 < argc,
+                        "--probcut-maximum-shallow-overhead-ratio requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--probcut-maximum-shallow-overhead-ratio",
+                                          &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<double> ratio = parse_double(value);
+      require_condition(ratio.has_value() && *ratio >= 0.0,
+                        "invalid ProbCut shallow overhead ratio");
+      config.probcut_maximum_shallow_overhead_ratio = *ratio;
+      continue;
+    }
+
     if (argument == "--exact-endgame") {
       require_condition(index + 1 < argc, "--exact-endgame requires a value");
       value = argv[++index];
@@ -1412,29 +1528,102 @@ void print_json_root_moves(std::ostream& output, const std::vector<RootMoveInfo>
   output << ']';
 }
 
+void print_json_probcut_pair_stats(std::ostream& output,
+                                   const std::vector<ProbCutDepthPairStats>& entries) {
+  output << '[';
+  for (std::size_t index = 0; index < entries.size(); ++index) {
+    if (index != 0) {
+      output << ',';
+    }
+    const ProbCutDepthPairStats& entry = entries[index];
+    output << "{\"phase\":" << static_cast<int>(entry.phase)
+           << ",\"deep_depth\":" << entry.deep_depth << ",\"shallow_depth\":" << entry.shallow_depth
+           << ",\"attempts\":" << entry.attempts << ",\"shallow_nodes\":" << entry.shallow_nodes
+           << ",\"successes\":" << entry.successes
+           << ",\"confidence_rejections\":" << entry.confidence_rejections
+           << ",\"unsupported_profile\":" << entry.unsupported_profile
+           << ",\"near_exact_rejections\":" << entry.near_exact_rejections
+           << ",\"pass_rejections\":" << entry.pass_rejections
+           << ",\"pv_rejections\":" << entry.pv_rejections
+           << ",\"root_rejections\":" << entry.root_rejections
+           << ",\"beta_cuts\":" << entry.beta_cuts
+           << ",\"cut_low_attempts\":" << entry.cut_low_attempts
+           << ",\"shadow_candidates\":" << entry.shadow_candidates
+           << ",\"shadow_verifications\":" << entry.shadow_verifications
+           << ",\"shadow_false_cuts\":" << entry.shadow_false_cuts
+           << ",\"average_shallow_overhead\":";
+    if (entry.attempts == 0) {
+      output << "null";
+    } else {
+      output << static_cast<double>(entry.shallow_nodes) / static_cast<double>(entry.attempts);
+    }
+    output << ",\"cut_success_rate\":";
+    if (entry.attempts == 0) {
+      output << "null";
+    } else {
+      output << static_cast<double>(entry.successes) / static_cast<double>(entry.attempts);
+    }
+    output << '}';
+  }
+  output << ']';
+}
+
+std::string compact_probcut_pair_stats(const std::vector<ProbCutDepthPairStats>& entries) {
+  std::ostringstream output;
+  for (std::size_t index = 0; index < entries.size(); ++index) {
+    if (index != 0) {
+      output << '|';
+    }
+    const ProbCutDepthPairStats& entry = entries[index];
+    output << static_cast<int>(entry.phase) << ':' << entry.deep_depth << '/' << entry.shallow_depth
+           << ':' << entry.attempts << '/' << entry.shallow_nodes << '/' << entry.successes << '/'
+           << entry.confidence_rejections << '/' << entry.unsupported_profile << '/'
+           << entry.near_exact_rejections << '/' << entry.pass_rejections << '/'
+           << entry.pv_rejections << '/' << entry.root_rejections << '/' << entry.beta_cuts << '/'
+           << entry.cut_low_attempts << '/' << entry.shadow_false_cuts;
+  }
+  return output.str();
+}
+
 TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position position, Depth depth,
                        const Evaluator* pattern_incremental, const Evaluator* pattern_stateless,
-                       const ProbCutCalibrationProfileV1* probcut_profile) {
+                       const ProbCutCalibrationProfileV1* probcut_profile,
+                       std::string_view pattern_evaluator_family,
+                       std::string_view pattern_artifact_family) {
   DiscDifferenceEvaluator evaluator;
   SimpleEvaluator simple_evaluator;
   const Evaluator* selected_evaluator = &evaluator;
+  std::string_view evaluator_family = "disc_difference";
+  std::string_view artifact_family = "none";
   switch (variant.eval_mode) {
   case EvalMode::disc:
     break;
   case EvalMode::simple:
     selected_evaluator = &simple_evaluator;
+    evaluator_family = "simple";
     break;
   case EvalMode::pattern_v2_incremental:
     require_condition(pattern_incremental != nullptr, "incremental pattern evaluator is missing");
     selected_evaluator = pattern_incremental;
+    evaluator_family = pattern_evaluator_family;
+    artifact_family = pattern_artifact_family;
     break;
   case EvalMode::pattern_v2_stateless:
     require_condition(pattern_stateless != nullptr, "stateless pattern evaluator is missing");
     selected_evaluator = pattern_stateless;
+    evaluator_family = pattern_evaluator_family;
+    artifact_family = pattern_artifact_family;
     break;
   }
+  if (variant.probcut_mode != ProbCutMode::off && probcut_profile != nullptr) {
+    require_condition(
+        probcut_profile->evaluator_family == evaluator_family &&
+            probcut_profile->artifact_family == artifact_family,
+        "ProbCut profile evaluator/artifact family does not match benchmark evaluator");
+  }
   const auto start = std::chrono::steady_clock::now();
-  const SearchOptions options = search_options_for_variant(variant, probcut_profile);
+  const SearchOptions options =
+      search_options_for_variant(variant, probcut_profile, evaluator_family, artifact_family);
 
   SearchResult result;
   if (mode == BenchmarkMode::fixed && !variant.probcut_matrix) {
@@ -1466,8 +1655,19 @@ std::uint8_t position_phase(Position position) noexcept {
 
 std::string_view profile_id_for(BenchmarkVariant variant,
                                 const ProbCutCalibrationProfileV1* profile) noexcept {
-  static_cast<void>(variant);
-  return profile == nullptr ? "none" : profile->profile_id;
+  return profile == nullptr || variant.probcut_mode == ProbCutMode::off ? "none"
+                                                                        : profile->profile_id;
+}
+
+std::span<const ProbCutDepthPairV1>
+enabled_pairs_for(BenchmarkVariant variant, const ProbCutCalibrationProfileV1* profile) noexcept {
+  if (profile == nullptr || variant.probcut_mode == ProbCutMode::off) {
+    return {};
+  }
+  if (variant.probcut_mode == ProbCutMode::single && !profile->ordered_depth_pairs.empty()) {
+    return profile->ordered_depth_pairs.first(1);
+  }
+  return profile->ordered_depth_pairs;
 }
 
 void print_delimited_header(char delimiter) {
@@ -1489,12 +1689,17 @@ void print_delimited_header(char delimiter) {
             << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs" << delimiter
             << "iid_searches" << delimiter << "endgame_nodes" << delimiter << "probcut_attempts"
             << delimiter << "probcut_shallow_nodes" << delimiter << "probcut_successes" << delimiter
-            << "probcut_rejected_by_phase" << delimiter << "probcut_rejected_by_depth" << delimiter
+            << "probcut_unsupported_profile" << delimiter << "probcut_rejected_by_phase"
+            << delimiter << "probcut_rejected_by_depth" << delimiter
             << "probcut_rejected_near_exact" << delimiter << "probcut_rejected_pass" << delimiter
-            << "probcut_rejected_confidence" << delimiter << "probcut_beta_cutoffs" << delimiter
-            << "probcut_shadow_candidates" << delimiter << "probcut_shadow_verifications"
-            << delimiter << "probcut_shadow_false_cuts" << delimiter
-            << "probcut_estimated_saved_nodes" << delimiter
+            << "probcut_rejected_pv" << delimiter << "probcut_rejected_root" << delimiter
+            << "probcut_rejected_overhead" << delimiter << "probcut_probe_limit_reached"
+            << delimiter << "probcut_rejected_confidence" << delimiter << "probcut_beta_cutoffs"
+            << delimiter << "probcut_cut_low_attempts" << delimiter << "probcut_shadow_candidates"
+            << delimiter << "probcut_shadow_verifications" << delimiter
+            << "probcut_shadow_false_cuts" << delimiter << "probcut_average_shallow_overhead"
+            << delimiter << "probcut_cut_success_rate" << delimiter << "probcut_pair_telemetry"
+            << delimiter << "probcut_estimated_saved_nodes" << delimiter
             << "probcut_estimated_saved_nodes_available" << delimiter << "tt_probes" << delimiter
             << "tt_hits" << delimiter << "tt_stores" << delimiter << "tt_cutoffs" << delimiter
             << "tt_replacements" << delimiter << "tt_bucket_conflicts" << delimiter
@@ -1518,7 +1723,7 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << delimiter << static_cast<int>(position_phase(position_case.position)) << delimiter
             << probcut_mode_name(variant.probcut_mode) << delimiter
             << profile_id_for(variant, probcut_profile) << delimiter
-            << (probcut_profile == nullptr
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
                     ? std::string_view{"none"}
                     : probcut_profile->source_calibration_report_checksum_sha256)
             << delimiter << variant.max_nodes << delimiter << variant.max_time_ms << delimiter
@@ -1552,16 +1757,33 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << timed_result.result.stats.probcut_attempts << delimiter
             << timed_result.result.stats.probcut_shallow_nodes << delimiter
             << timed_result.result.stats.probcut_successes << delimiter
+            << timed_result.result.stats.probcut_unsupported_profile << delimiter
             << timed_result.result.stats.probcut_rejected_by_phase << delimiter
             << timed_result.result.stats.probcut_rejected_by_depth << delimiter
             << timed_result.result.stats.probcut_rejected_near_exact << delimiter
             << timed_result.result.stats.probcut_rejected_pass << delimiter
+            << timed_result.result.stats.probcut_rejected_pv << delimiter
+            << timed_result.result.stats.probcut_rejected_root << delimiter
+            << timed_result.result.stats.probcut_rejected_overhead << delimiter
+            << timed_result.result.stats.probcut_probe_limit_reached << delimiter
             << timed_result.result.stats.probcut_rejected_confidence << delimiter
             << timed_result.result.stats.probcut_beta_cutoffs << delimiter
+            << timed_result.result.stats.probcut_cut_low_attempts << delimiter
             << timed_result.result.stats.probcut_shadow_candidates << delimiter
             << timed_result.result.stats.probcut_shadow_verifications << delimiter
             << timed_result.result.stats.probcut_shadow_false_cuts << delimiter
-            << timed_result.result.stats.probcut_estimated_saved_nodes << delimiter
+            << (timed_result.result.stats.probcut_attempts == 0
+                    ? 0.0
+                    : static_cast<double>(timed_result.result.stats.probcut_shallow_nodes) /
+                          static_cast<double>(timed_result.result.stats.probcut_attempts))
+            << delimiter
+            << (timed_result.result.stats.probcut_attempts == 0
+                    ? 0.0
+                    : static_cast<double>(timed_result.result.stats.probcut_successes) /
+                          static_cast<double>(timed_result.result.stats.probcut_attempts))
+            << delimiter
+            << compact_probcut_pair_stats(timed_result.result.stats.probcut_by_phase_depth_pair)
+            << delimiter << timed_result.result.stats.probcut_estimated_saved_nodes << delimiter
             << bool_mode_name(timed_result.result.stats.probcut_estimated_saved_nodes_available)
             << delimiter << timed_result.result.stats.tt_probes << delimiter
             << timed_result.result.stats.tt_hits << delimiter << timed_result.result.stats.tt_stores
@@ -1603,9 +1825,28 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"probcut_profile_id\":";
   print_json_string(std::cout, profile_id_for(variant, probcut_profile));
   std::cout << ",\"probcut_source_checksum_sha256\":";
-  print_json_string(std::cout, probcut_profile == nullptr
-                                   ? std::string_view{"none"}
-                                   : probcut_profile->source_calibration_report_checksum_sha256);
+  print_json_string(std::cout,
+                    probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                        ? std::string_view{"none"}
+                        : probcut_profile->source_calibration_report_checksum_sha256);
+  std::cout << ",\"probcut_enabled_depth_pairs\":[";
+  const std::span<const ProbCutDepthPairV1> enabled_pairs =
+      enabled_pairs_for(variant, probcut_profile);
+  for (std::size_t index = 0; index < enabled_pairs.size(); ++index) {
+    if (index != 0) {
+      std::cout << ',';
+    }
+    const ProbCutDepthPairV1 pair = enabled_pairs[index];
+    std::cout << "{\"deep_depth\":" << pair.deep_depth
+              << ",\"shallow_depth\":" << pair.shallow_depth << '}';
+  }
+  std::cout << ']';
+  std::cout << ",\"probcut_minimum_margin\":" << variant.probcut_minimum_margin;
+  std::cout << ",\"probcut_maximum_margin\":" << variant.probcut_maximum_margin;
+  std::cout << ",\"probcut_minimum_confidence\":" << variant.probcut_confidence_multiplier;
+  std::cout << ",\"probcut_maximum_probes\":" << static_cast<int>(variant.probcut_maximum_probes);
+  std::cout << ",\"probcut_maximum_shallow_overhead_ratio\":"
+            << variant.probcut_maximum_shallow_overhead_ratio;
   std::cout << ",\"node_limit\":" << variant.max_nodes;
   std::cout << ",\"time_limit_ms\":" << variant.max_time_ms;
   std::cout << ",\"pvs\":";
@@ -1658,6 +1899,8 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"probcut_attempts\":" << timed_result.result.stats.probcut_attempts;
   std::cout << ",\"probcut_shallow_nodes\":" << timed_result.result.stats.probcut_shallow_nodes;
   std::cout << ",\"probcut_successes\":" << timed_result.result.stats.probcut_successes;
+  std::cout << ",\"probcut_unsupported_profile\":"
+            << timed_result.result.stats.probcut_unsupported_profile;
   std::cout << ",\"probcut_rejected_by_phase\":"
             << timed_result.result.stats.probcut_rejected_by_phase;
   std::cout << ",\"probcut_rejected_by_depth\":"
@@ -1665,15 +1908,39 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"probcut_rejected_near_exact\":"
             << timed_result.result.stats.probcut_rejected_near_exact;
   std::cout << ",\"probcut_rejected_pass\":" << timed_result.result.stats.probcut_rejected_pass;
+  std::cout << ",\"probcut_rejected_pv\":" << timed_result.result.stats.probcut_rejected_pv;
+  std::cout << ",\"probcut_rejected_root\":" << timed_result.result.stats.probcut_rejected_root;
+  std::cout << ",\"probcut_rejected_overhead\":"
+            << timed_result.result.stats.probcut_rejected_overhead;
+  std::cout << ",\"probcut_probe_limit_reached\":"
+            << timed_result.result.stats.probcut_probe_limit_reached;
   std::cout << ",\"probcut_rejected_confidence\":"
             << timed_result.result.stats.probcut_rejected_confidence;
   std::cout << ",\"probcut_beta_cutoffs\":" << timed_result.result.stats.probcut_beta_cutoffs;
+  std::cout << ",\"probcut_cut_low_attempts\":"
+            << timed_result.result.stats.probcut_cut_low_attempts;
   std::cout << ",\"probcut_shadow_candidates\":"
             << timed_result.result.stats.probcut_shadow_candidates;
   std::cout << ",\"probcut_shadow_verifications\":"
             << timed_result.result.stats.probcut_shadow_verifications;
   std::cout << ",\"probcut_shadow_false_cuts\":"
             << timed_result.result.stats.probcut_shadow_false_cuts;
+  std::cout << ",\"probcut_average_shallow_overhead\":";
+  if (timed_result.result.stats.probcut_attempts == 0) {
+    std::cout << "null";
+  } else {
+    std::cout << static_cast<double>(timed_result.result.stats.probcut_shallow_nodes) /
+                     static_cast<double>(timed_result.result.stats.probcut_attempts);
+  }
+  std::cout << ",\"probcut_cut_success_rate\":";
+  if (timed_result.result.stats.probcut_attempts == 0) {
+    std::cout << "null";
+  } else {
+    std::cout << static_cast<double>(timed_result.result.stats.probcut_successes) /
+                     static_cast<double>(timed_result.result.stats.probcut_attempts);
+  }
+  std::cout << ",\"probcut_by_phase_depth_pair\":";
+  print_json_probcut_pair_stats(std::cout, timed_result.result.stats.probcut_by_phase_depth_pair);
   std::cout << ",\"probcut_estimated_saved_nodes\":"
             << timed_result.result.stats.probcut_estimated_saved_nodes;
   std::cout << ",\"probcut_estimated_saved_nodes_available\":"
@@ -1712,12 +1979,16 @@ int main(int argc, char** argv) {
   }
   std::optional<vibe_othello::evaluation::PhaseAwareEvaluator> pattern_incremental;
   std::optional<StatelessPhaseAwareEvaluator> pattern_stateless;
+  std::string pattern_evaluator_family;
+  std::string pattern_artifact_family;
   if (uses_pattern_evaluator(config->eval)) {
     vibe_othello::evaluation::PatternArtifactLoadResult artifact_result =
         vibe_othello::evaluation::load_default_pattern_artifact(
             vibe_othello::evaluation::default_eval_root(VIBE_OTHELLO_SOURCE_DIR));
     require_condition(artifact_result.ok(), "failed to load committed default artifact");
     vibe_othello::evaluation::LoadedPatternArtifact artifact = std::move(*artifact_result.artifact);
+    pattern_evaluator_family = artifact.pattern_set_id;
+    pattern_artifact_family = artifact.artifact_id;
     pattern_incremental.emplace(std::move(artifact.weights), std::move(artifact.feature_set),
                                 std::move(artifact.trained_phases),
                                 artifact.fallback_additive_through_phase);
@@ -1738,7 +2009,8 @@ int main(int argc, char** argv) {
               run_search(mode, variant, position_case.position, depth,
                          pattern_incremental ? &*pattern_incremental : nullptr,
                          pattern_stateless ? &*pattern_stateless : nullptr,
-                         probcut_profile ? &*probcut_profile : nullptr);
+                         probcut_profile ? &*probcut_profile : nullptr, pattern_evaluator_family,
+                         pattern_artifact_family);
           if (config->output_format == OutputFormat::jsonl) {
             print_jsonl_result(position_case, mode, variant, depth, timed_result,
                                probcut_profile ? &*probcut_profile : nullptr);

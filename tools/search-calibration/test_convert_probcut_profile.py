@@ -48,11 +48,17 @@ def adoption() -> dict[str, object]:
         "evaluator_family": "fixture-eval",
         "artifact_family": "none",
         "node_class": "non_pv_scout_beta_only",
+        "ordered_depth_pairs": [{"deep_depth": 6, "shallow_depth": 3}],
         "entries": [
             {
                 "phase": 3,
+                "minimum_empties": 20,
+                "maximum_empties": 40,
                 "deep_depth": 6,
                 "shallow_depth": 3,
+                "exact_handoff_enabled": True,
+                "minimum_exact_handoff_distance": 8,
+                "maximum_exact_handoff_distance": 32,
                 "confidence_multiplier": 3.5,
                 "minimum_shallow_score": -100,
                 "maximum_shallow_score": 100,
@@ -78,14 +84,43 @@ class ConverterTests(unittest.TestCase):
         fields = lines[1].split("\t")
         self.assertEqual(fields[2], hashlib.sha256(raw).hexdigest())
         self.assertEqual(fields[5], "non_pv_scout_beta_only")
-        self.assertEqual(fields[9], "1.5")
-        self.assertEqual(fields[10], "-1.25")
+        self.assertEqual(fields[7:14], ["20", "40", "6", "3", "true", "8", "32"])
+        self.assertEqual(fields[14], "1.5")
+        self.assertEqual(fields[15], "-1.25")
+
+    def test_accepts_reviewed_multiple_depth_pairs_in_explicit_order(self) -> None:
+        multi_report = report()
+        second = dict(multi_report["groups"][0])
+        second["deep_depth"] = 8
+        second["shallow_depth"] = 4
+        multi_report["groups"].append(second)
+        multi_adoption = adoption()
+        multi_adoption["ordered_depth_pairs"] = [
+            {"deep_depth": 8, "shallow_depth": 4},
+            {"deep_depth": 6, "shallow_depth": 3},
+        ]
+        second_selection = dict(multi_adoption["entries"][0])
+        second_selection["deep_depth"] = 8
+        second_selection["shallow_depth"] = 4
+        multi_adoption["entries"].append(second_selection)
+
+        rows = self.converter.render_profile(multi_report, b"{}\n", multi_adoption).splitlines()[1:]
+        self.assertEqual([(row.split("\t")[9], row.split("\t")[10]) for row in rows], [("8", "4"), ("6", "3")])
 
     def test_rejects_post_result_cut_group(self) -> None:
         bad_report = report()
         bad_report["groups"][0]["search_role"] = "cut"
         with self.assertRaisesRegex(self.converter.ProfileConversionError, "non_pv_scout"):
             self.converter.render_profile(bad_report, b"{}\n", adoption())
+
+    def test_rejects_overlapping_profile_domains(self) -> None:
+        bad_adoption = adoption()
+        overlap = dict(bad_adoption["entries"][0])
+        overlap["minimum_empties"] = 30
+        overlap["maximum_empties"] = 50
+        bad_adoption["entries"].append(overlap)
+        with self.assertRaisesRegex(self.converter.ProfileConversionError, "overlapping"):
+            self.converter.render_profile(report(), b"{}\n", bad_adoption)
 
     def test_cli_conversion_is_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

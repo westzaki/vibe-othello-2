@@ -138,6 +138,10 @@ The current search implementation includes:
   groups remain diagnostics; strict provenance isolation, small-sample guards,
   explicit slope/intercept keys, JSON plus Markdown reports, and a checked
   report-to-profile converter
+* off-by-default Multi-ProbCut cut-high capability with exact phase, empties,
+  deep/shallow pair, node-class, exact-handoff proximity, evaluator-family, and
+  artifact-family selection; ordered bounded probes; cumulative overhead gate;
+  isolated shallow TT/ordering state; and phase/pair telemetry
 
 Existing search tests include:
 
@@ -160,6 +164,10 @@ Existing search tests include:
 * offline analyzer determinism, bound exclusion from regression, mixed
   provenance/policy rejection, small-sample guards, invalid/malformed schema,
   and empty-input tests
+* Multi-ProbCut exact profile selection, unsupported fallback, pair ordering,
+  first-success stop, probe/overhead limits, shallow recursion and TT isolation,
+  bound/PV/pass/root/exact/stopped-search safety, deterministic pair telemetry,
+  and session semantic invalidation
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
 
@@ -170,7 +178,7 @@ The current implementation does not yet have:
 * dedicated PV table
 * top-N Multi-PV limiting for `multi_pv > 1`
 * reviewed production ProbCut profile adoption and default enablement
-* cut-low or Multi-ProbCut/multiple-depth-pair support
+* cut-low support
 * parallel search
 * analysis and review-specific result adapters
 * match-bench, self-play, or production strength validation for learned
@@ -203,7 +211,7 @@ Endgame-specific gaps are tracked in `docs/progress/endgame.md`.
 Remaining unimplemented search options are expected to remain safe no-ops until
 each option is implemented. The legacy flat/experimental `probcut` flags remain
 safe no-ops; only the typed, profile-backed `probcut_options` can enable the
-new conservative cut-high path. `midgame.use_iid` enables ordering-only shallow
+conservative single- or multi-pair cut-high path. `midgame.use_iid` enables ordering-only shallow
 midgame searches, and `endgame.exact_endgame` is no longer a no-op when the root
 threshold is met.
 
@@ -249,8 +257,9 @@ Status values:
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add conservative non-PV beta ProbCut | done | Typed profile-backed option; exact `non_pv_scout_beta_only` population and phase/depth match, mutually isolated MPC verification, subtree-local selective TT provenance, off by default, no production profile committed |
+| Extend cut-high to bounded Multi-ProbCut | done | Multiple reviewed depth pairs, exact domain matching without neighbor extrapolation, ordered probes with first-success stop/probe/overhead gates, isolated shallow state, semantic fingerprinting, benchmark/Arena telemetry, and a local strength-campaign runner; still off by default |
 | Add MPC shadow calibration | done | Diagnostics-only reduced-depth sampling; no official cutoff or runtime coefficient |
-| Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, holdout audit, and local off/shadow/on measurements; no default or preset enablement |
+| Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, false-cut/fixed-depth/exact holdouts, and local off/single/multi fixed-time strength evidence; no default or preset enablement |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |
 | Add analysis and review-facing result adapters | deferred | Requires consumer needs |
 

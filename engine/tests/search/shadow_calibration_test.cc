@@ -78,6 +78,8 @@ ProbCutOptionsV1 probcut_options(const ProbCutCalibrationProfileV1* profile, boo
       .beta_only = true,
       .disable_near_exact = true,
       .shadow_verify = shadow_verify,
+      .evaluator_family = profile->evaluator_family,
+      .artifact_family = profile->artifact_family,
       .calibration_profile_id = profile->profile_id,
       .calibration_profile = profile,
   };
@@ -399,7 +401,7 @@ TEST_CASE("ProbCut shallow search never records MPC shadow samples",
   };
 
   const internal::SearchNodeResult result =
-      internal::null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+      internal::null_window_search(&context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(result.is_complete());
   REQUIRE(result.is_selective());
   REQUIRE(context.stats.probcut_beta_cutoffs == 1);

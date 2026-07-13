@@ -30,7 +30,7 @@ This document does not implement:
 * game review logic
 * opening books
 * training workflows
-* ProbCut
+* browser preset exposure or default enablement of ProbCut/Multi-ProbCut
 * parallel search
 * evaluator artifact publication
 

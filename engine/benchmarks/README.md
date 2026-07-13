@@ -79,8 +79,11 @@ an explicit positive maximum confidence margin. The TSV schema and adoption
 rules, including the report-to-TSV converter and required
 `non_pv_scout_beta_only` node class, are in
 `tools/search-calibration/README.md`. `--probcut all` expands each
-variant to `off`, `shadow`, and `on`; `--pvs on` is required because the first
-implementation only attempts cut-node-equivalent PVS scout entries.
+variant to `off`, `single`, `multi`, and `shadow`; `on` is accepted as a
+compatibility alias for `multi`. `single` uses only the first reviewed pair,
+while `multi` follows the reviewed pair preference subject to the per-node
+probe and overhead caps. `--pvs on` is required because pruning is attempted
+only at cut-node-equivalent PVS scout entries.
 
 Fixed-depth comparison:
 
@@ -90,6 +93,8 @@ Fixed-depth comparison:
   --probcut all \
   --probcut-profile "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv" \
   --probcut-maximum-margin "$PROBCUT_MAXIMUM_MARGIN" \
+  --probcut-maximum-probes 2 \
+  --probcut-maximum-shallow-overhead-ratio 0.20 \
   --corpus engine/fixtures/search/positions.tsv --jsonl
 ```
 
@@ -110,12 +115,17 @@ repository does not provide a fallback. `--probcut-minimum-margin` can only
 raise the applied margin.
 `--probcut-confidence 0` uses the profile multiplier; a positive value can only
 raise it because runtime uses the maximum of profile and option multipliers.
+`--probcut-minimum-confidence` can impose a further reviewed confidence floor;
+none of these options derives calibration values.
 
 Output includes root phase, requested ProbCut mode, profile ID and source
 checksum, node/time limits, nodes, completed depth, score/best move, attempts,
 successes, shallow-node overhead, rejection reasons, real beta cutoffs, and
-shadow false-cut counts. Estimated saved nodes are emitted as unavailable and
-zero rather than guessed. Aggregate by `phase` for phase-specific review.
+shadow false-cut counts. JSONL also emits the enabled pair order and telemetry
+for every phase/deep/shallow tuple; TSV emits the same pair telemetry in a
+compact field. Average shallow overhead and cut success rate include the real
+shallow work. Estimated saved nodes are emitted as unavailable and zero rather
+than guessed. Aggregate by exact phase and depth pair for review.
 Long strength or Arena matrices stay local and must not run in CI.
 
 Use `--corpus engine/fixtures/search/positions.tsv` to run the checked-in search

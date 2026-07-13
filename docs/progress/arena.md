@@ -12,7 +12,7 @@ The persistent full-game artifact arena provides:
 * deterministic opening-pair cluster-bootstrap confidence intervals
 * explicit run-level strength-gate eligibility and descriptive-only invalid runs
 * same-artifact, color-swap, and argument-order sanity support
-* input and build fingerprints in `full-game-artifact-arena-v3` reports
+* input and build fingerprints in `full-game-artifact-arena-v4` reports
 * opt-in `--persistent-session` with caller-selected `--tt-bytes`
 * requested/actual TT allocation and split same-key, bucket-conflict,
   replacement, probe-slot, and generation-age telemetry
@@ -31,6 +31,10 @@ The persistent full-game artifact arena provides:
   than timing-sensitive correctness rejection gates
 * strict report-to-request binding for search config, runtime artifacts,
   executable identity, and opening selection
+* independent candidate/baseline off, single-pair, and Multi-ProbCut policies
+  with phase/depth-pair telemetry
+* a local off/single/multi campaign across fixed depth, fixed nodes, and
+  50/100/500-ms cells, multiple seeds/opening subsets, and policy swaps
 
 ## Limitations
 
@@ -53,3 +57,7 @@ The matrix-wide outcome aggregate is descriptive and deliberately omits a
 confidence interval. Cell-level intervals cluster by opening pair; repeated
 openings under different time and exact conditions are not treated as
 independent observations.
+
+No reviewed Multi-ProbCut calibration or fixed-time strength report is checked
+in. The MPC campaign deliberately cannot authorize preset enablement; its
+fixed-depth/exact/false-cut and cross-subset review items remain manual gates.

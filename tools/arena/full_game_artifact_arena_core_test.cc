@@ -85,6 +85,52 @@ TEST_CASE("telemetry records stopped and wall-time overshoot cases", "[arena]") 
   REQUIRE(summary.time_overshoot_ns == std::vector<std::uint64_t>{2'000'000, 0});
 }
 
+TEST_CASE("telemetry aggregates Multi-ProbCut phase and depth pairs", "[arena]") {
+  const std::vector<SearchTelemetry> records{
+      SearchTelemetry{
+          .probcut_attempts = 2,
+          .probcut_shallow_nodes = 20,
+          .probcut_successes = 1,
+          .probcut_by_phase_depth_pair = {ProbCutPairTelemetry{.phase = 3,
+                                                               .deep_depth = 8,
+                                                               .shallow_depth = 3,
+                                                               .attempts = 2,
+                                                               .shallow_nodes = 20,
+                                                               .successes = 1}},
+      },
+      SearchTelemetry{
+          .probcut_attempts = 3,
+          .probcut_shallow_nodes = 30,
+          .probcut_confidence_rejections = 2,
+          .probcut_by_phase_depth_pair = {ProbCutPairTelemetry{.phase = 3,
+                                                               .deep_depth = 8,
+                                                               .shallow_depth = 3,
+                                                               .attempts = 3,
+                                                               .shallow_nodes = 30,
+                                                               .confidence_rejections = 2,
+                                                               .unsupported_profile = 1,
+                                                               .near_exact_rejections = 2,
+                                                               .pass_rejections = 3,
+                                                               .pv_rejections = 4,
+                                                               .root_rejections = 5}},
+      },
+  };
+
+  const TelemetrySummary summary = summarize_telemetry(records);
+  REQUIRE(summary.probcut_attempts == 5);
+  REQUIRE(summary.probcut_shallow_nodes == 50);
+  REQUIRE(summary.probcut_successes == 1);
+  REQUIRE(summary.probcut_confidence_rejections == 2);
+  REQUIRE(summary.probcut_by_phase_depth_pair.size() == 1);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].attempts == 5);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].shallow_nodes == 50);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].unsupported_profile == 1);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].near_exact_rejections == 2);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].pass_rejections == 3);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].pv_rejections == 4);
+  REQUIRE(summary.probcut_by_phase_depth_pair[0].root_rejections == 5);
+}
+
 TEST_CASE("nearest rank depth percentiles return observed depths", "[arena]") {
   const std::vector<std::uint64_t> depths{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 

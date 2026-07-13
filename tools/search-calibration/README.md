@@ -162,17 +162,19 @@ then create a versioned `ProbCutCalibrationProfileV1` that records:
 - SHA-256 of the exact reviewed analyzer report file
 - evaluator and artifact families
 - exact node class `non_pv_scout_beta_only`
-- phase and the single supported deep/shallow depth pair
+- ordered deep/shallow depth-pair preference
+- exact phase, inclusive empties range, and exact-handoff enabled/distance domain
 - regression slope/intercept and residual sigma
 - audited confidence multiplier
 - inclusive shallow-score and beta validity ranges
 
-The first runtime version rejects any other or missing node class, multiple
-depth pairs, duplicate groups, invalid identity/checksum data, non-finite
-coefficients, and every missing phase/depth pair. It never fills a missing
-group from an adjacent phase or depth. The caller must ensure that the profile
-evaluator/artifact family names describe the actual evaluator supplied to
-search.
+Runtime rejects any other or missing node class, incomplete/duplicate pair
+preferences, overlapping domains, invalid identity/checksum data, non-finite
+coefficients, and every missing complete match. It never fills a missing group
+from an adjacent phase, empties range, depth, handoff proximity, evaluator, or
+artifact. Arena binds evaluator family to the loaded artifact `pattern_set_id`
+and artifact family to `artifact_id`; benchmark callers must provide the same
+actual identity.
 
 Do not manually translate analyzer coefficient names. Create a local reviewed
 adoption specification containing only the explicit decisions that the report
@@ -188,20 +190,24 @@ python3 tools/search-calibration/convert_probcut_profile.py \
 
 The adoption file uses `schema_version: "probcut-profile-adoption-v1"`, exact
 report `evaluator_id`/`artifact_id` values as `evaluator_family` and
-`artifact_family`, `node_class: "non_pv_scout_beta_only"`, and an `entries`
-array. Each entry selects `phase`, `deep_depth`, and `shallow_depth` and supplies
-`confidence_multiplier`, `minimum_shallow_score`, `maximum_shallow_score`,
-`minimum_beta`, and `maximum_beta`. The converter selects exactly one eligible
+`artifact_family`, `node_class: "non_pv_scout_beta_only"`, an explicit unique
+`ordered_depth_pairs` array, and an `entries` array. Each entry selects `phase`,
+`deep_depth`, and `shallow_depth`; declares `minimum_empties`,
+`maximum_empties`, `exact_handoff_enabled`,
+`minimum_exact_handoff_distance`, and `maximum_exact_handoff_distance`; and
+supplies `confidence_multiplier`, `minimum_shallow_score`,
+`maximum_shallow_score`, `minimum_beta`, and `maximum_beta`. These domains are
+review decisions, not values inferred by the converter. The converter selects exactly one eligible
 `non_pv_scout` group, maps `.slope` to `regression_slope` and `.intercept` to
-`intercept`, copies residual sigma, rejects multiple depth pairs, and records
-the SHA-256 of the exact report file bytes. It never derives confidence or
-validity ranges.
+`intercept`, copies residual sigma, verifies that the preference exactly covers
+the selected pairs, and records the SHA-256 of the exact report file bytes. It
+never derives confidence, range, or ordering decisions.
 
 The one-sided integer condition is:
 
 ```text
 predicted_deep = slope * shallow_score + intercept
-k = max(profile_confidence_multiplier, option_confidence_multiplier)
+k = max(profile_confidence_multiplier, option_confidence_multiplier, minimum_confidence)
 margin = max(ceil(k * residual_sigma), minimum_margin)
 cut-high only if floor(predicted_deep) - margin >= beta
 ```
@@ -213,13 +219,20 @@ search but does not cut; normal deep search classifies a candidate as false
 when its result is below beta.
 
 For local benchmark input, use a TSV outside the repository with this exact
-header (one row per supported phase):
+header. Row order carries the reviewed first-occurrence pair preference; rows
+within a pair are ordered by the converter's exact domain key:
 
 ```text
-schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	node_class	phase	deep_depth	shallow_depth	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	node_class	phase	minimum_empties	maximum_empties	deep_depth	shallow_depth	exact_handoff_enabled	minimum_exact_handoff_distance	maximum_exact_handoff_distance	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
 ```
 
 The benchmark requires an explicit positive `--probcut-maximum-margin`; it does
 not infer one from the report. Keep the TSV, source report, samples, and run
 outputs under the local measurement root. Do not commit them as generated
 reports or calibration raw data.
+
+The repository intentionally contains no reviewed calibration TSV. Multi-pair
+runtime capability therefore remains off in C++ defaults, native presets,
+teacher generation, and every WASM/Web preset. A calibration report authorizes
+neither a preset change nor a strength claim; use the separate same-artifact
+fixed-time campaign and review its holdouts before enablement.

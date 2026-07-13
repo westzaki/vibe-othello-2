@@ -67,6 +67,8 @@ TEST_CASE("ProbCut normalization requires a complete reviewed profile identity",
       .confidence_multiplier = 3.0,
       .minimum_margin = 2,
       .maximum_margin = 8,
+      .evaluator_family = profile.evaluator_family,
+      .artifact_family = profile.artifact_family,
       .calibration_profile_id = profile.profile_id,
       .calibration_profile = &profile,
   };
@@ -74,6 +76,10 @@ TEST_CASE("ProbCut normalization requires a complete reviewed profile identity",
   const internal::ResolvedSearchOptions resolved = internal::normalize_search_options(options);
   REQUIRE(resolved.probcut == options.probcut_options);
   REQUIRE(resolved.probcut_profile_semantic_fingerprint != 0);
+
+  SearchOptions wrong_family = options;
+  wrong_family.probcut_options.artifact_family = "another-artifact";
+  REQUIRE_FALSE(internal::normalize_search_options(wrong_family).probcut.use_probcut);
 
   ProbCutCalibrationProfileV1 wrong_node_class = profile;
   wrong_node_class.node_class = ProbCutNodeClassV1::unspecified;
@@ -88,6 +94,141 @@ TEST_CASE("ProbCut normalization requires a complete reviewed profile identity",
   const internal::ResolvedSearchOptions rejected = internal::normalize_search_options(options);
   REQUIRE_FALSE(rejected.probcut.use_probcut);
   REQUIRE(rejected.probcut_profile_semantic_fingerprint == 0);
+}
+
+TEST_CASE("Multi-ProbCut normalization rejects ambiguous profile domains",
+          "[search][options][probcut]") {
+  const std::array pairs{ProbCutDepthPairV1{.deep_depth = 8, .shallow_depth = 3}};
+  const std::array entries{
+      ProbCutCalibrationEntryV1{
+          .phase = 4,
+          .minimum_empties = 20,
+          .maximum_empties = 30,
+          .deep_depth = 8,
+          .shallow_depth = 3,
+          .regression_slope = 1.0,
+          .residual_sigma = 1.0,
+          .confidence_multiplier = 3.0,
+          .minimum_shallow_score = -100,
+          .maximum_shallow_score = 100,
+          .minimum_beta = -100,
+          .maximum_beta = 100,
+      },
+      ProbCutCalibrationEntryV1{
+          .phase = 4,
+          .minimum_empties = 25,
+          .maximum_empties = 35,
+          .deep_depth = 8,
+          .shallow_depth = 3,
+          .regression_slope = 1.0,
+          .residual_sigma = 1.0,
+          .confidence_multiplier = 3.0,
+          .minimum_shallow_score = -100,
+          .maximum_shallow_score = 100,
+          .minimum_beta = -100,
+          .maximum_beta = 100,
+      },
+  };
+  const ProbCutCalibrationProfileV1 profile{
+      .profile_id = "ambiguous-profile",
+      .source_calibration_report_checksum_sha256 =
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      .evaluator_family = "synthetic",
+      .artifact_family = "none",
+      .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
+      .ordered_depth_pairs = pairs,
+      .entries = entries,
+  };
+  const SearchOptions options{.probcut_options = ProbCutOptionsV1{
+                                  .use_probcut = true,
+                                  .minimum_depth = 8,
+                                  .maximum_probes_per_node = 1,
+                                  .ordered_depth_pairs = pairs,
+                                  .maximum_margin = 8,
+                                  .evaluator_family = profile.evaluator_family,
+                                  .artifact_family = profile.artifact_family,
+                                  .calibration_profile_id = profile.profile_id,
+                                  .calibration_profile = &profile,
+                              }};
+  REQUIRE_FALSE(internal::normalize_search_options(options).probcut.use_probcut);
+}
+
+TEST_CASE("Multi-ProbCut semantic identity includes pair order and report checksum",
+          "[search][options][probcut]") {
+  const std::array pairs{
+      ProbCutDepthPairV1{.deep_depth = 8, .shallow_depth = 3},
+      ProbCutDepthPairV1{.deep_depth = 8, .shallow_depth = 4},
+  };
+  const std::array reversed_pairs{pairs[1], pairs[0]};
+  const std::array entries{
+      ProbCutCalibrationEntryV1{
+          .phase = 0,
+          .deep_depth = 8,
+          .shallow_depth = 3,
+          .regression_slope = 1.0,
+          .residual_sigma = 1.0,
+          .confidence_multiplier = 3.0,
+          .minimum_shallow_score = -100,
+          .maximum_shallow_score = 100,
+          .minimum_beta = -100,
+          .maximum_beta = 100,
+      },
+      ProbCutCalibrationEntryV1{
+          .phase = 0,
+          .deep_depth = 8,
+          .shallow_depth = 4,
+          .regression_slope = 1.0,
+          .residual_sigma = 1.0,
+          .confidence_multiplier = 3.0,
+          .minimum_shallow_score = -100,
+          .maximum_shallow_score = 100,
+          .minimum_beta = -100,
+          .maximum_beta = 100,
+      },
+  };
+  ProbCutCalibrationProfileV1 profile{
+      .profile_id = "semantic-profile",
+      .source_calibration_report_checksum_sha256 =
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      .evaluator_family = "synthetic",
+      .artifact_family = "none",
+      .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
+      .ordered_depth_pairs = pairs,
+      .entries = entries,
+  };
+  const auto options_for_profile = [](const ProbCutCalibrationProfileV1* value) {
+    return SearchOptions{.probcut_options = ProbCutOptionsV1{
+                             .use_probcut = true,
+                             .minimum_depth = 8,
+                             .maximum_probes_per_node = 2,
+                             .ordered_depth_pairs = value->ordered_depth_pairs,
+                             .minimum_margin = 0,
+                             .maximum_margin = 8,
+                             .evaluator_family = value->evaluator_family,
+                             .artifact_family = value->artifact_family,
+                             .calibration_profile_id = value->profile_id,
+                             .calibration_profile = value,
+                         }};
+  };
+  const auto original = internal::normalize_search_options(options_for_profile(&profile));
+  REQUIRE(original.probcut.use_probcut);
+
+  ProbCutCalibrationProfileV1 reordered = profile;
+  reordered.ordered_depth_pairs = reversed_pairs;
+  SearchOptions reordered_options = options_for_profile(&reordered);
+  reordered_options.probcut_options.ordered_depth_pairs = reversed_pairs;
+  const auto reordered_resolved = internal::normalize_search_options(reordered_options);
+  REQUIRE(reordered_resolved.probcut.use_probcut);
+  REQUIRE(reordered_resolved.probcut_profile_semantic_fingerprint !=
+          original.probcut_profile_semantic_fingerprint);
+
+  ProbCutCalibrationProfileV1 new_report = profile;
+  new_report.source_calibration_report_checksum_sha256 =
+      "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const auto new_report_resolved =
+      internal::normalize_search_options(options_for_profile(&new_report));
+  REQUIRE(new_report_resolved.probcut_profile_semantic_fingerprint !=
+          original.probcut_profile_semantic_fingerprint);
 }
 
 } // namespace

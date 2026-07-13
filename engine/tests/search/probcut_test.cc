@@ -3,6 +3,7 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -91,6 +92,8 @@ SearchOptions options_for(const ProbCutCalibrationProfileV1* profile, Depth mini
       .beta_only = true,
       .disable_near_exact = true,
       .shadow_verify = shadow_verify,
+      .evaluator_family = profile->evaluator_family,
+      .artifact_family = profile->artifact_family,
       .calibration_profile_id = profile->profile_id,
       .calibration_profile = profile,
   };
@@ -101,6 +104,16 @@ struct DirectRun {
   SearchNodeResult result;
   SearchStats stats;
 };
+
+const ProbCutDepthPairStats* telemetry_for(const SearchStats& stats, Depth deep_depth,
+                                           Depth shallow_depth) {
+  const auto entry = std::find_if(
+      stats.probcut_by_phase_depth_pair.begin(), stats.probcut_by_phase_depth_pair.end(),
+      [deep_depth, shallow_depth](const ProbCutDepthPairStats& value) {
+        return value.deep_depth == deep_depth && value.shallow_depth == shallow_depth;
+      });
+  return entry == stats.probcut_by_phase_depth_pair.end() ? nullptr : &*entry;
+}
 
 DirectRun run_null_window(board_core::Position position, Score beta, Depth depth,
                           SearchOptions options, SearchLimits limits = {}) {
@@ -113,7 +126,7 @@ DirectRun run_null_window(board_core::Position position, Score beta, Depth depth
       .options = normalize_search_options(options),
       .limit_state = &limit_state,
   };
-  SearchNodeResult result = null_window_search(&context, beta, depth, Ply{0});
+  SearchNodeResult result = null_window_search(&context, beta, depth, Ply{1});
   return DirectRun{
       .result = result,
       .stats = context.stats,
@@ -306,7 +319,7 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
       .transposition_table = &tt,
   };
 
-  const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+  const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(result.is_complete());
   REQUIRE(result.value().score == 0);
   REQUIRE(result.value().pv.size == 0);
@@ -315,6 +328,7 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
   REQUIRE(context.stats.probcut_successes == 1);
   REQUIRE(context.stats.probcut_beta_cutoffs == 1);
   REQUIRE(context.stats.selective_cuts == 1);
+  REQUIRE(context.stats.tt_stores == 1);
   REQUIRE(result.is_selective());
 
   SearchStats probe_stats{};
@@ -333,7 +347,7 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
       .options = normalize_search_options(options),
       .transposition_table = &tt,
   };
-  const SearchNodeResult reused = null_window_search(&reused_context, Score{0}, Depth{4}, Ply{0});
+  const SearchNodeResult reused = null_window_search(&reused_context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(reused.is_complete());
   REQUIRE(reused_context.stats.tt_cutoffs == 1);
   REQUIRE(reused_context.stats.probcut_attempts == 0);
@@ -399,7 +413,7 @@ TEST_CASE("ProbCut shallow search propagates an external stop request", "[search
       .limit_state = &limit_state,
   };
 
-  const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+  const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(result.is_stopped());
   REQUIRE(stop.load(std::memory_order_acquire));
   REQUIRE(context.stats.probcut_attempts == 1);
@@ -424,7 +438,7 @@ TEST_CASE("ProbCut shallow search shares the official time limit", "[search][pro
       .limit_state = &limit_state,
   };
 
-  const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+  const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(result.is_stopped());
   REQUIRE(context.stats.probcut_attempts == 1);
   REQUIRE(context.stats.probcut_shallow_nodes > 0);
@@ -503,7 +517,7 @@ TEST_CASE("selective TT suppression does not leak into an unrelated subtree",
       .transposition_table = &tt,
   };
 
-  const SearchNodeResult selective = null_window_search(&context, Score{0}, Depth{4}, Ply{0});
+  const SearchNodeResult selective = null_window_search(&context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(selective.is_selective());
 
   board_core::Position sibling = board_core::initial_position();
@@ -582,6 +596,223 @@ TEST_CASE("SearchSession clears TT when ProbCut profile semantics change",
   const SearchResult after_change =
       search_fixed_depth(session, board_core::initial_position(), evaluator, Depth{4}, changed);
   REQUIRE(after_change.stats.tt_generation_age_hits == 0);
+
+  const SearchResult reused_changed =
+      search_fixed_depth(session, board_core::initial_position(), evaluator, Depth{4}, changed);
+  REQUIRE(reused_changed.stats.tt_generation_age_hits > 0);
+  SearchOptions scheduler_changed = changed;
+  scheduler_changed.probcut_options.maximum_probes_per_node = 2;
+  const SearchResult after_scheduler_change = search_fixed_depth(
+      session, board_core::initial_position(), evaluator, Depth{4}, scheduler_changed);
+  REQUIRE(after_scheduler_change.stats.tt_generation_age_hits == 0);
+}
+
+TEST_CASE("Multi-ProbCut probes reviewed pairs in order and stops at first success",
+          "[search][probcut][multi]") {
+  const std::array pairs{
+      ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 1},
+      ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 2},
+  };
+  const std::array entries{
+      entry(0, Depth{4}, Depth{1}, -1000.0),
+      entry(0, Depth{4}, Depth{2}, 100.0),
+  };
+  ProbCutCalibrationProfileV1 profile = profile_for(entries);
+  profile.ordered_depth_pairs = pairs;
+  SearchOptions options = options_for(&profile, Depth{4}, Depth{3});
+  options.probcut_options.ordered_depth_pairs = pairs;
+  options.probcut_options.maximum_probes_per_node = 2;
+
+  const DirectRun run =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, options);
+  REQUIRE(run.result.is_complete());
+  REQUIRE(run.result.is_selective());
+  REQUIRE(run.stats.probcut_attempts == 2);
+  REQUIRE(run.stats.probcut_successes == 1);
+  REQUIRE(run.stats.probcut_rejected_confidence == 1);
+  REQUIRE(run.stats.probcut_by_phase_depth_pair.size() == 2);
+  REQUIRE(run.stats.probcut_by_phase_depth_pair[0].shallow_depth == 1);
+  REQUIRE(run.stats.probcut_by_phase_depth_pair[0].confidence_rejections == 1);
+  REQUIRE(run.stats.probcut_by_phase_depth_pair[1].shallow_depth == 2);
+  REQUIRE(run.stats.probcut_by_phase_depth_pair[1].beta_cuts == 1);
+  const DirectRun repeated =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, options);
+  REQUIRE(repeated.result.value().score == run.result.value().score);
+  REQUIRE(repeated.result.is_selective() == run.result.is_selective());
+  REQUIRE(repeated.stats == run.stats);
+
+  std::array successful_entries = entries;
+  successful_entries[0].intercept = 100.0;
+  ProbCutCalibrationProfileV1 first_success_profile = profile_for(successful_entries);
+  first_success_profile.ordered_depth_pairs = pairs;
+  SearchOptions first_success = options_for(&first_success_profile, Depth{4}, Depth{3});
+  first_success.probcut_options.ordered_depth_pairs = pairs;
+  first_success.probcut_options.maximum_probes_per_node = 2;
+  const DirectRun stopped_after_first =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, first_success);
+  REQUIRE(stopped_after_first.stats.probcut_attempts == 1);
+  REQUIRE(stopped_after_first.stats.probcut_successes == 1);
+  REQUIRE(stopped_after_first.stats.probcut_by_phase_depth_pair.size() == 1);
+  REQUIRE(stopped_after_first.stats.probcut_by_phase_depth_pair[0].shallow_depth == 1);
+}
+
+TEST_CASE("Multi-ProbCut enforces probe and cumulative shallow overhead limits",
+          "[search][probcut][multi][limits]") {
+  const std::array pairs{
+      ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 1},
+      ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 2},
+  };
+  const std::array entries{
+      entry(0, Depth{4}, Depth{1}, -1000.0),
+      entry(0, Depth{4}, Depth{2}, -1000.0),
+  };
+  ProbCutCalibrationProfileV1 profile = profile_for(entries);
+  profile.ordered_depth_pairs = pairs;
+
+  SearchOptions limited = options_for(&profile, Depth{4}, Depth{3});
+  limited.probcut_options.ordered_depth_pairs = pairs;
+  limited.probcut_options.maximum_probes_per_node = 1;
+  const DirectRun probe_limited =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, limited);
+  REQUIRE(probe_limited.stats.probcut_attempts == 1);
+  REQUIRE(probe_limited.stats.probcut_probe_limit_reached == 1);
+
+  SearchOptions overhead_limited = limited;
+  overhead_limited.probcut_options.maximum_probes_per_node = 2;
+  overhead_limited.probcut_options.maximum_shallow_overhead_ratio = 0.0001;
+  const DirectRun overhead =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, overhead_limited);
+  REQUIRE(overhead.stats.probcut_attempts == 1);
+  REQUIRE(overhead.stats.probcut_rejected_overhead == 1);
+}
+
+TEST_CASE("Multi-ProbCut shallow search suppresses nested pair probes",
+          "[search][probcut][multi][recursion]") {
+  const std::array pairs{
+      ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 2},
+      ProbCutDepthPairV1{.deep_depth = 2, .shallow_depth = 1},
+  };
+  const std::array entries{
+      entry(0, Depth{4}, Depth{2}, -1000.0),
+      entry(0, Depth{2}, Depth{1}, 100.0),
+  };
+  ProbCutCalibrationProfileV1 profile = profile_for(entries);
+  profile.ordered_depth_pairs = pairs;
+  SearchOptions options = options_for(&profile, Depth{2}, Depth{2});
+  options.probcut_options.ordered_depth_pairs = pairs;
+  options.probcut_options.maximum_probes_per_node = 2;
+
+  const DirectRun run =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, options);
+  REQUIRE(run.stats.probcut_attempts == 1);
+  const ProbCutDepthPairStats* outer = telemetry_for(run.stats, Depth{4}, Depth{2});
+  REQUIRE(outer != nullptr);
+  REQUIRE(outer->attempts == 1);
+  const ProbCutDepthPairStats* nested = telemetry_for(run.stats, Depth{2}, Depth{1});
+  REQUIRE(nested != nullptr);
+  REQUIRE(nested->attempts == 0);
+}
+
+TEST_CASE("Multi-ProbCut profile selection does not extrapolate empties or exact proximity",
+          "[search][probcut][multi][profile]") {
+  ProbCutCalibrationEntryV1 unsupported_empties = entry(0, Depth{4}, Depth{2});
+  unsupported_empties.maximum_empties = 59;
+  const std::array first_entries{unsupported_empties};
+  const ProbCutCalibrationProfileV1 first_profile = profile_for(first_entries);
+  const DirectRun first = run_null_window(board_core::initial_position(), Score{0}, Depth{4},
+                                          options_for(&first_profile, Depth{4}, Depth{2}));
+  REQUIRE(first.stats.probcut_attempts == 0);
+  REQUIRE(first.stats.probcut_unsupported_profile == 1);
+  const ProbCutDepthPairStats* first_pair = telemetry_for(first.stats, Depth{4}, Depth{2});
+  REQUIRE(first_pair != nullptr);
+  REQUIRE(first_pair->unsupported_profile == 1);
+
+  ProbCutCalibrationEntryV1 unsupported_handoff = entry(10, Depth{4}, Depth{2});
+  unsupported_handoff.minimum_empties = 12;
+  unsupported_handoff.maximum_empties = 12;
+  unsupported_handoff.exact_handoff_enabled = true;
+  unsupported_handoff.minimum_exact_handoff_distance = 5;
+  unsupported_handoff.maximum_exact_handoff_distance = 5;
+  const std::array second_entries{unsupported_handoff};
+  const ProbCutCalibrationProfileV1 second_profile = profile_for(second_entries);
+  SearchOptions exact = options_for(&second_profile, Depth{4}, Depth{2});
+  exact.endgame.exact_endgame = true;
+  exact.endgame.endgame_exact_empties = 8;
+  const DirectRun second =
+      run_null_window(test_support::generated_endgame_position(12), Score{0}, Depth{4}, exact);
+  REQUIRE(second.stats.probcut_attempts == 0);
+  REQUIRE(second.stats.probcut_unsupported_profile == 1);
+}
+
+TEST_CASE("ProbCut rejects root and PV nodes with explicit telemetry", "[search][probcut]") {
+  const std::array entries{entry(0, Depth{4}, Depth{2})};
+  const ProbCutCalibrationProfileV1 profile = profile_for(entries);
+  const SearchOptions options = options_for(&profile, Depth{4}, Depth{2});
+  DiscDifferenceEvaluator evaluator;
+
+  SearchContext root_context{
+      .position_state = make_search_position(board_core::initial_position()),
+      .evaluator = evaluator,
+      .options = normalize_search_options(options),
+  };
+  (void)null_window_search(&root_context, Score{0}, Depth{4}, Ply{0});
+  REQUIRE(root_context.stats.probcut_attempts == 0);
+  REQUIRE(root_context.stats.probcut_rejected_root == 1);
+  const ProbCutDepthPairStats* root_pair = telemetry_for(root_context.stats, Depth{4}, Depth{2});
+  REQUIRE(root_pair != nullptr);
+  REQUIRE(root_pair->root_rejections == 1);
+
+  SearchContext pv_context{
+      .position_state = make_search_position(board_core::initial_position()),
+      .evaluator = evaluator,
+      .options = normalize_search_options(options),
+  };
+  (void)alphabeta(&pv_context, kScoreLoss, kScoreWin, Depth{4}, Ply{1}, false);
+  REQUIRE(pv_context.stats.probcut_attempts == 0);
+  REQUIRE(pv_context.stats.probcut_rejected_pv > 0);
+  const ProbCutDepthPairStats* pv_pair = telemetry_for(pv_context.stats, Depth{4}, Depth{2});
+  REQUIRE(pv_pair != nullptr);
+  REQUIRE(pv_pair->pv_rejections > 0);
+}
+
+TEST_CASE("ProbCut pair telemetry aggregates deterministically", "[search][probcut][telemetry]") {
+  SearchStats total{};
+  SearchStats first{};
+  first.probcut_by_phase_depth_pair.push_back(ProbCutDepthPairStats{
+      .phase = 3,
+      .deep_depth = 8,
+      .shallow_depth = 3,
+      .attempts = 2,
+      .shallow_nodes = 10,
+      .successes = 1,
+  });
+  SearchStats second{};
+  second.probcut_by_phase_depth_pair.push_back(ProbCutDepthPairStats{
+      .phase = 3,
+      .deep_depth = 8,
+      .shallow_depth = 3,
+      .attempts = 3,
+      .shallow_nodes = 20,
+      .confidence_rejections = 2,
+      .unsupported_profile = 1,
+      .near_exact_rejections = 2,
+      .pass_rejections = 3,
+      .pv_rejections = 4,
+      .root_rejections = 5,
+      .cut_low_attempts = 0,
+  });
+  add_stats(&total, first);
+  add_stats(&total, second);
+  REQUIRE(total.probcut_by_phase_depth_pair.size() == 1);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].attempts == 5);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].shallow_nodes == 30);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].successes == 1);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].confidence_rejections == 2);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].unsupported_profile == 1);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].near_exact_rejections == 2);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].pass_rejections == 3);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].pv_rejections == 4);
+  REQUIRE(total.probcut_by_phase_depth_pair[0].root_rejections == 5);
 }
 
 } // namespace

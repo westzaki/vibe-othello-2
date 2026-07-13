@@ -22,7 +22,7 @@ over opening pairs with a supplied seed.
 
 ## Search Limits
 
-The v3 CLI has explicit pure modes:
+The v4 CLI has explicit pure modes:
 
 * `--limit-mode depth --depth N`
 * `--limit-mode nodes --nodes N`
@@ -39,6 +39,9 @@ Each engine search call records its engine role, side to move, occupied count,
 artifact phase id, completed depth, arena-measured nanosecond elapsed time, all public `SearchStats`
 counters, exact/stopped flags, and exact-handoff status. Aggregates are emitted
 separately for candidate and baseline overall, by phase, and by side to move.
+ProbCut policy is independently resolved for candidate and baseline. Global and
+phase/deep/shallow telemetry includes attempts, shallow nodes, successes,
+rejections, real beta cuts, and shadow false cuts.
 
 Backend telemetry keeps the public `SearchStats` field names on each search
 record and in every aggregate: incremental enablement and state
@@ -69,8 +72,10 @@ Formal strength-gate eligibility requires a pure limit mode, zero failed and
 illegal games, complete pairs, the configured minimum pair count, and telemetry
 from both engines. Bootstrap output from an ineligible run is descriptive only.
 
-Same-artifact sanity requires each opening pair to have score exactly 0.5 and
-candidate disc-difference sum exactly zero. The companion
+Same-artifact same-search-configuration sanity requires each opening pair to
+have score exactly 0.5 and candidate disc-difference sum exactly zero. A
+same-artifact comparison with different search policies is an A/B strength
+cell, not a neutrality sanity cell. The companion
 `run_full_game_artifact_arena_sanity.py` runs candidate/candidate,
 baseline/baseline, and candidate/baseline in both argument orders. It preserves
 weights overrides and checks content identities, selected openings, search
@@ -82,7 +87,7 @@ committed.
 ## Fixed-Time Campaign Layer
 
 The fixed-time artifact strength campaign is a Python orchestration layer over
-the v3 full-game arena. Its default 3-by-3 matrix crosses 50, 100, and 500 ms
+the v4 full-game arena. Its default 3-by-3 matrix crosses 50, 100, and 500 ms
 per move with exact thresholds 8, 10, and 12 while holding the TT budget and
 session-retention policy constant. Every cell includes forward, argument-order
 reverse, and both same-artifact comparisons; the arena remains responsible for
@@ -126,8 +131,24 @@ was enabled and the requested and actual TT allocation. The configured TT byte
 budget is always bound to the session used by search; disabling persistence
 clears that session before each move instead of falling back to a default TT.
 
-Schema v3 is the first schema with split TT replacement, bucket-conflict, and
+Schema v4 adds independently configured candidate/baseline ProbCut policy and
+phase/depth-pair telemetry. Schema v3 was the first schema with split TT replacement, bucket-conflict, and
 same-key-update telemetry. This intentionally supersedes the v2 `overwrites`
 and `collisions` field names. Allocation reporting includes both enabled state
 and allocation success so an intentional zero-byte table is distinguishable
 from allocation failure.
+
+## Multi-ProbCut Campaign Layer
+
+The Multi-ProbCut campaign uses one artifact and reviewed calibration identity
+for off/off sanity, first-reviewed-pair versus off, and ordered multi-pair
+versus off, in both policy assignments. Fixed-depth, fixed-node, and fixed-time
+cells share openings, exact policy, TT size, and session-retention settings.
+Multiple seeds and repeatable opening inputs are first-class dimensions.
+
+The campaign report is evidence input, not an enablement action. Automatic
+checks cover clean games, off/off sanity, the primary 500-ms score direction
+and fixed 95% interval, and completed depth. Production review must additionally
+accept fixed-depth correctness and exact holdouts, false-cut audit, effective
+overhead/throughput, and direction consistency across seeds and opening
+subsets. The runner never changes a preset or authorizes production enablement.

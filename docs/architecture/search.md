@@ -329,13 +329,22 @@ struct ProbCutOptionsV1 {
   bool use_probcut;
   Depth minimum_depth;
   Depth shallow_depth_reduction;
+  std::uint8_t maximum_probes_per_node;
+  std::span<const ProbCutDepthPairV1> ordered_depth_pairs;
+  bool stop_after_first_success;
   double confidence_multiplier;
+  double minimum_confidence;
   Score minimum_margin;
   Score maximum_margin;
+  double maximum_shallow_overhead_ratio;
+  std::uint16_t enabled_phase_mask;
   bool non_pv_only;
   bool beta_only;
   bool disable_near_exact;
+  std::uint8_t near_exact_disable_empties;
   bool shadow_verify;
+  std::string_view evaluator_family;
+  std::string_view artifact_family;
   std::string_view calibration_profile_id;
   const ProbCutCalibrationProfileV1* calibration_profile;
 };
@@ -364,8 +373,10 @@ legacy flat `probcut` and `experimental.probcut` flags remain compatibility
 placeholders and do not enable pruning. Runtime normalization enables the typed
 option only when its caller-owned profile is complete and internally valid,
 the profile ID matches, the report checksum is a lowercase SHA-256, the profile
-node class is exactly `non_pv_scout_beta_only`, the one-depth-pair entries are
-finite and non-duplicated, all conservative scope
+node class is exactly `non_pv_scout_beta_only`, calibration entries are
+finite and non-overlapping, every multi-pair profile carries a complete unique
+depth-pair preference, the caller's evaluator/artifact family exactly matches
+the profile, all conservative scope
 flags remain true, margins are ordered, and the legacy kernel is disabled.
 Invalid or incomplete configuration normalizes to disabled; it never invents a
 coefficient or fallback margin. Profile storage, entries, and strings must
@@ -1365,41 +1376,54 @@ ProbCut and Multi-ProbCut require calibrated error estimates.
 ProbCut and Multi-ProbCut are the preferred selective pruning family for
 Othello.
 
-The first runtime implementation is the deliberately narrower one-direction
-ProbCut described below. Multi-ProbCut and cut-low remain deferred.
+Runtime supports a bounded Multi-ProbCut cut-high scheduler. Cut-low remains
+deferred because it requires a separate calibration population, confidence
+decision, and telemetry.
 
 They must not be enabled in exact endgame modes.
 
-### Conservative non-PV ProbCut
+### Conservative non-PV Multi-ProbCut
 
 Runtime ProbCut is off by default and has no built-in production calibration
 profile. Its default depths and margins are zero/invalid as an additional guard;
 callers must supply every runtime value from a reviewed profile and adoption
 decision. It is attempted only at an explicit PVS scout/null-window entry marked
 as cut-node-equivalent. Plain PV/full-window nodes, recursive alpha-beta nodes
-without that marker, IID work, the legacy kernel, terminal nodes, pass nodes,
-depths below `minimum_depth`, unsupported phase/depth pairs, sentinel-adjacent
-windows, and positions at or below the configured exact threshold cannot cut.
-Only beta-direction cut-high is implemented. Normal/hard WASM presets leave
+without that marker, IID work, the legacy kernel, root/terminal/pass nodes,
+depths below `minimum_depth`, disabled phases, unsupported complete profile
+domains, sentinel-adjacent windows, and positions at or below the configured
+near-exact threshold cannot cut.
+Only beta-direction cut-high is implemented. Easy/normal/hard WASM presets leave
 `probcut_options` at its disabled default.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
 source calibration report SHA-256, evaluator family, artifact family,
-`node_class = non_pv_scout_beta_only`, and one reviewed deep/shallow depth
-pair. Runtime requires this node class to match the explicit PVS scout role;
+`node_class = non_pv_scout_beta_only`, and one reviewed preference containing
+every supported deep/shallow pair exactly once. Runtime requires this node class to match the explicit PVS scout role;
 post-result `cut` groups are not an adoption population. Entries are keyed by
-phase and contain slope
+phase, inclusive empties range, deep/shallow pair, exact-handoff enabled state,
+and inclusive exact-handoff-distance range. They also contain slope
 `a`, intercept `b`, residual sigma, audited confidence multiplier, and inclusive
-shallow-score/beta validity ranges. Missing phase/depth entries are rejections;
-the engine never extrapolates. Multiple depth pairs are rejected in this first
-version.
+shallow-score/beta validity ranges. The caller supplies the evaluator and
+artifact family actually in use; both must exactly match the reviewed profile.
+Missing or ambiguous domains are rejected. Adjacent phase, empties, depth,
+handoff, evaluator, and artifact profiles are never extrapolated.
+
+At a node, the scheduler walks the configured pair preference, considering
+only pairs whose deep depth exactly equals the current depth. It stops at the
+first successful cut and never runs more than `maximum_probes_per_node`.
+`enabled_phase_mask`, `minimum_depth`, `minimum_confidence`,
+`near_exact_disable_empties`, and `maximum_shallow_overhead_ratio` provide
+additional gates. The overhead ratio is cumulative shallow nodes divided by
+non-shallow official nodes; zero disables only this ratio gate. The current V1
+contract requires `stop_after_first_success=true`.
 
 For an eligible node, a full-window shallow search produces integer score `s`.
 The profile condition is:
 
 ```text
 predicted_deep = a * s + b
-k_effective = max(profile_k, option_k)
+k_effective = max(profile_k, option_k, minimum_confidence)
 margin = max(ceil(k_effective * residual_sigma), minimum_margin)
 lower = floor(predicted_deep) - margin
 cut-high iff lower >= beta
@@ -1415,10 +1439,12 @@ and the shallow search temporarily disables exact handoff, so the fitted
 heuristic domain is not mixed with exact score kinds.
 
 The shallow search shares the official stop flag, deadline, node limit, node
-counter, TT probe state, and evaluator state. Its nodes therefore contribute to
+counter, and evaluator state. Its nodes therefore contribute to
 `SearchResult::nodes`; `probcut_shallow_nodes` is a subset for overhead review.
 Nested ProbCut, IID, and MPC shadow collection are disabled during that shallow
-search. A stopped shallow search always propagates stop and never cuts.
+search. The official TT and shared killer/history state are detached, so a
+shallow exact-looking value cannot enter reusable state or perturb official
+ordering. A stopped shallow search always propagates stop and never cuts.
 
 A successful real cut returns exactly `beta` with an empty continuation: it is
 a heuristic lower bound, not an exact value or invented PV. The TT may store
@@ -1433,9 +1459,12 @@ false-cut counter. Shadow verification is intended for unit tests and local
 profile audit. Unlike the separate sample-collection facility below, its
 shallow overhead is official work and consumes the same node/time budget.
 
-Telemetry includes attempts, shallow nodes, confidence successes, rejections
-by phase/depth/near-exact/pass/confidence, real beta cutoffs, shadow candidates,
-shadow verifications, and shadow false cuts. Estimated saved nodes remain
+Telemetry includes attempts, shallow nodes, confidence successes, unsupported
+profiles, near-exact/pass/PV/root/overhead/probe-limit/confidence rejections,
+real beta cutoffs, shadow candidates, shadow verifications, and shadow false
+cuts. Reporting tools aggregate the same counters by phase and exact depth pair
+and derive average shallow overhead and cut success rate. Cut-low attempts stay
+zero because cut-low is not implemented. Estimated saved nodes remain
 unavailable (`probcut_estimated_saved_nodes_available=false`); the engine does
 not publish a guessed saving.
 
@@ -1638,6 +1667,8 @@ Recommended counters:
 * ProbCut shallow nodes and beta cutoffs
 * ProbCut rejection reason counts
 * ProbCut shadow verifications and false cuts
+* ProbCut phase/deep/shallow attempts, overhead, successes, and rejection
+  aggregates
 * endgame nodes
 * pass nodes
 * split points
@@ -1952,6 +1983,12 @@ experimental semantics, and the direct-search domain. A binding change clears
 the TT before probing. Mutable evaluators must increment their revision whenever
 their scoring behavior changes in place. Ordering state is safe to retain across
 an automatic semantic rebind because it does not supply cutoff values.
+
+The binding also includes every Multi-ProbCut scheduler setting and the complete
+reviewed profile semantics: profile ID, calibration report SHA-256, evaluator
+and artifact families, ordered pairs, domain keys, coefficients, confidence,
+and validity ranges. Caller-owned strings/spans/pointers are replaced by this
+stable content fingerprint before the session retains the identity.
 
 The TT accepts an entry or byte budget. Zero disables it. Allocation reports
 requested and actual bytes, entries, power-of-two buckets, entry size, enabled

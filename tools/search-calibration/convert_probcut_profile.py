@@ -23,8 +23,13 @@ HEADER = (
     "artifact_family",
     "node_class",
     "phase",
+    "minimum_empties",
+    "maximum_empties",
     "deep_depth",
     "shallow_depth",
+    "exact_handoff_enabled",
+    "minimum_exact_handoff_distance",
+    "maximum_exact_handoff_distance",
     "regression_slope",
     "intercept",
     "residual_sigma",
@@ -96,19 +101,71 @@ def render_profile(report: dict[str, Any], report_raw: bytes, adoption: dict[str
     require(isinstance(report_groups, list), "report groups must be an array")
     source_checksum = hashlib.sha256(report_raw).hexdigest()
 
-    output_rows: list[tuple[int, list[str]]] = []
+    preference = adoption.get("ordered_depth_pairs")
+    require(isinstance(preference, list) and bool(preference), "ordered_depth_pairs must be non-empty")
+    ordered_pairs: list[tuple[int, int]] = []
+    for index, pair in enumerate(preference):
+        label = f"ordered_depth_pairs[{index}]"
+        require(isinstance(pair, dict), f"{label} must be an object")
+        deep = integer(pair.get("deep_depth"), f"{label}.deep_depth")
+        shallow = integer(pair.get("shallow_depth"), f"{label}.shallow_depth")
+        require(deep > shallow > 0, f"{label} depths are invalid")
+        require((deep, shallow) not in ordered_pairs, f"duplicate ordered depth pair {deep}/{shallow}")
+        ordered_pairs.append((deep, shallow))
+
+    output_rows: list[tuple[int, int, int, int, list[str]]] = []
     depth_pairs: set[tuple[int, int]] = set()
-    phases: set[int] = set()
+    domains: list[tuple[int, int, int, int, int, bool, int, int]] = []
     for index, selection in enumerate(selections):
         label = f"entries[{index}]"
         require(isinstance(selection, dict), f"{label} must be an object")
         phase = integer(selection.get("phase"), f"{label}.phase")
         deep_depth = integer(selection.get("deep_depth"), f"{label}.deep_depth")
         shallow_depth = integer(selection.get("shallow_depth"), f"{label}.shallow_depth")
+        minimum_empties = integer(selection.get("minimum_empties"), f"{label}.minimum_empties")
+        maximum_empties = integer(selection.get("maximum_empties"), f"{label}.maximum_empties")
+        exact_handoff_enabled = selection.get("exact_handoff_enabled")
+        minimum_handoff = integer(
+            selection.get("minimum_exact_handoff_distance"),
+            f"{label}.minimum_exact_handoff_distance",
+        )
+        maximum_handoff = integer(
+            selection.get("maximum_exact_handoff_distance"),
+            f"{label}.maximum_exact_handoff_distance",
+        )
         require(0 <= phase <= 12, f"{label}.phase is out of range")
+        require(0 <= minimum_empties <= maximum_empties <= 60, f"{label} empties range is invalid")
         require(deep_depth > shallow_depth > 0, f"{label} depths are invalid")
-        require(phase not in phases, f"duplicate phase {phase}")
-        phases.add(phase)
+        require(
+            (deep_depth, shallow_depth) in ordered_pairs,
+            f"{label} pair is missing from ordered_depth_pairs",
+        )
+        require(isinstance(exact_handoff_enabled, bool), f"{label}.exact_handoff_enabled must be boolean")
+        require(0 <= minimum_handoff <= maximum_handoff <= 60, f"{label} handoff range is invalid")
+        domain = (
+            phase,
+            minimum_empties,
+            maximum_empties,
+            deep_depth,
+            shallow_depth,
+            exact_handoff_enabled,
+            minimum_handoff,
+            maximum_handoff,
+        )
+        for previous in domains:
+            same_key = (
+                previous[0] == phase
+                and previous[3] == deep_depth
+                and previous[4] == shallow_depth
+                and previous[5] == exact_handoff_enabled
+            )
+            empties_overlap = previous[1] <= maximum_empties and minimum_empties <= previous[2]
+            handoff_overlap = previous[6] <= maximum_handoff and minimum_handoff <= previous[7]
+            require(
+                not (same_key and empties_overlap and handoff_overlap),
+                f"overlapping profile domain at {label}",
+            )
+        domains.append(domain)
         depth_pairs.add((deep_depth, shallow_depth))
 
         matches = [
@@ -141,7 +198,10 @@ def render_profile(report: dict[str, Any], report_raw: bytes, adoption: dict[str
 
         output_rows.append(
             (
+                ordered_pairs.index((deep_depth, shallow_depth)),
                 phase,
+                minimum_empties,
+                minimum_handoff,
                 [
                     "1",
                     profile_id,
@@ -150,8 +210,13 @@ def render_profile(report: dict[str, Any], report_raw: bytes, adoption: dict[str
                     artifact_family,
                     NODE_CLASS,
                     str(phase),
+                    str(minimum_empties),
+                    str(maximum_empties),
                     str(deep_depth),
                     str(shallow_depth),
+                    "true" if exact_handoff_enabled else "false",
+                    str(minimum_handoff),
+                    str(maximum_handoff),
                     format(slope, ".17g"),
                     format(intercept, ".17g"),
                     format(sigma, ".17g"),
@@ -164,9 +229,9 @@ def render_profile(report: dict[str, Any], report_raw: bytes, adoption: dict[str
             )
         )
 
-    require(len(depth_pairs) == 1, "ProbCut profile v1 supports exactly one depth pair")
+    require(depth_pairs == set(ordered_pairs), "ordered_depth_pairs must list exactly the selected pairs")
     lines = ["\t".join(HEADER)]
-    lines.extend("\t".join(row) for _, row in sorted(output_rows))
+    lines.extend("\t".join(row) for *_, row in sorted(output_rows))
     return "\n".join(lines) + "\n"
 
 

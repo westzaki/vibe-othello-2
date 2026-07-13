@@ -10,6 +10,28 @@
 
 namespace vibe_othello::search {
 
+struct ProbCutDepthPairStats {
+  std::uint8_t phase = 0;
+  Depth deep_depth = 0;
+  Depth shallow_depth = 0;
+  NodeCount attempts = 0;
+  NodeCount shallow_nodes = 0;
+  NodeCount successes = 0;
+  NodeCount confidence_rejections = 0;
+  NodeCount unsupported_profile = 0;
+  NodeCount near_exact_rejections = 0;
+  NodeCount pass_rejections = 0;
+  NodeCount pv_rejections = 0;
+  NodeCount root_rejections = 0;
+  NodeCount beta_cuts = 0;
+  NodeCount cut_low_attempts = 0;
+  NodeCount shadow_candidates = 0;
+  NodeCount shadow_verifications = 0;
+  NodeCount shadow_false_cuts = 0;
+
+  friend bool operator==(const ProbCutDepthPairStats&, const ProbCutDepthPairStats&) = default;
+};
+
 struct SearchStats {
   NodeCount nodes = 0;
   NodeCount leaf_nodes = 0;
@@ -45,17 +67,24 @@ struct SearchStats {
   NodeCount probcut_attempts = 0;
   NodeCount probcut_shallow_nodes = 0;
   NodeCount probcut_successes = 0;
+  NodeCount probcut_unsupported_profile = 0;
   NodeCount probcut_rejected_by_phase = 0;
   NodeCount probcut_rejected_by_depth = 0;
   NodeCount probcut_rejected_near_exact = 0;
   NodeCount probcut_rejected_pass = 0;
+  NodeCount probcut_rejected_pv = 0;
+  NodeCount probcut_rejected_root = 0;
+  NodeCount probcut_rejected_overhead = 0;
+  NodeCount probcut_probe_limit_reached = 0;
   NodeCount probcut_rejected_confidence = 0;
   NodeCount probcut_beta_cutoffs = 0;
+  NodeCount probcut_cut_low_attempts = 0;
   NodeCount probcut_shadow_candidates = 0;
   NodeCount probcut_shadow_verifications = 0;
   NodeCount probcut_shadow_false_cuts = 0;
   NodeCount probcut_estimated_saved_nodes = 0;
   bool probcut_estimated_saved_nodes_available = false;
+  std::vector<ProbCutDepthPairStats> probcut_by_phase_depth_pair;
 
   friend bool operator==(const SearchStats&, const SearchStats&) = default;
 };
