@@ -10,8 +10,9 @@ by default. A generated analyzer report is not itself runtime authorization.
 
 Configure `SearchOptions::selective` with `SelectiveSearchOptionsV1`. Collection
 is active only when `enable_shadow_calibration` is true, the integer
-`sample_rate` is positive, `max_samples_per_search` is positive, the depth
-reduction is positive, and a caller-owned `ShadowCalibrationSink` is present.
+`sample_rate` is positive, `max_samples_per_search` is positive,
+`ordered_depth_pairs` is a non-empty unique list of valid deep/shallow pairs,
+and a caller-owned `ShadowCalibrationSink` is present.
 All four identity strings must also be non-empty.
 The rate scale is `kShadowCalibrationSampleRateScale == 1'000'000`.
 
@@ -28,15 +29,16 @@ serialize one object per line. Serialize enums and moves as:
 - `canonical_position_hash`: 16 lowercase hexadecimal characters
 
 JSON field names match the C++ member names exactly. Every JSON/JSONL sample
-must contain all schema-v4 fields validated by `analyze_shadow_samples.py`.
+must contain all schema-v5 fields validated by `analyze_shadow_samples.py`.
 `repo_sha`, `search_config_id`, `evaluator_id`, and `artifact_id` must identify
 the actual run; `repo_sha` is a 7-64 character lowercase hexadecimal Git SHA.
 Use `artifact_id: "none"` only for an evaluator with no
 artifact. Do not insert a path, hostname, or user name into identity fields.
 
 The engine derives `collection_config_id` from the effective sample rate,
-sample cap, minimum deep depth, shallow reduction, PV/pass/near-exact inclusion
-flags, and sample schema version. This ID is stored in every sample and mixed
+sample cap, the entire ordered depth-pair list, PV/pass/near-exact inclusion
+flags, and sample schema version. Pair order and subset therefore belong to one
+population identity. This ID is stored in every sample and mixed
 into `search_identity`, so changing collection policy changes the population
 identity without relying on caller metadata. The analyzer rejects mixed
 collection IDs.
@@ -51,10 +53,15 @@ store key. Phase v1 uses
 At official node entry, `search_role` is assigned without using the result:
 `pv` for PV/full-window work, `non_pv_scout` for an explicit PVS scout
 candidate, and `other` otherwise. This is the ProbCut calibration population.
-After the official search completes at a sampled node, collection runs two
-isolated searches over `[kScoreLoss, kScoreWin]`: one at `shallow_depth` and one
-at `deep_depth`. Schema v4 separates their exact value observations from the
-official window result:
+After the official search completes at a sampled node, collection runs one
+isolated deep verification over `[kScoreLoss, kScoreWin]`, then one isolated
+shallow verification for every configured pair whose deep depth matches that
+node. The whole same-deep pair set is reserved against the sample cap, and no
+partial node population is emitted if any verification stops. Schema v5 stores
+`collection_pair_index/count` and `same_deep_pair_index/count` so the analyzer
+can enforce completeness. It also records `search_mode`,
+`exact_handoff_enabled`, `exact_handoff_threshold`, and the derived
+`exact_handoff_distance`; these observations define the calibrated domain.
 
 - `official_alpha`, `official_beta`, `official_deep_score`, and
   `official_deep_bound` retain the official result for `pv`/`cut`/`all`
@@ -120,7 +127,9 @@ The JSON report retains both inventories and their sample counts. Empty inputs
 produce a valid deterministic report with zero samples and groups.
 
 The analyzer's adoptable groups are keyed by phase, deep depth, shallow depth,
-and result-independent search role. Only `non_pv_scout` is recommendation
+result-independent search role, search mode, exact-handoff enablement and
+threshold, four-empties bucket, and four-distance bucket. Each group carries
+the exact observed empties and distance inventory. Only `non_pv_scout` is recommendation
 eligible, and its fit includes both eventual fail-high and fail-low outcomes.
 Separate post-result `pv`/`cut`/`all` groups remain in
 `result_node_type_groups` for diagnostics only. Each group reports:
@@ -152,6 +161,13 @@ stable. The recommended margin is an in-sample, report-only diagnostic. Before
 runtime adoption, coefficients and margins require validation against a
 separate seed or holdout campaign and a separate measured search change.
 
+The report also retains the collection pair order and per-node
+`scheduler_observations`. A report is rejected when a sampled node is missing
+one of its same-deep pairs or maps one collection index to multiple pairs.
+CTest includes a synthetic same-deep two-pair pipeline test through analyzer,
+converter, and the native Arena loader. That fixture checks the evidence chain;
+it is not calibration or strength evidence.
+
 ## Runtime profile adoption
 
 Do not copy a regression group into runtime merely because
@@ -160,10 +176,13 @@ then create a versioned `ProbCutCalibrationProfileV1` that records:
 
 - profile ID and schema version
 - SHA-256 of the exact reviewed analyzer report file
+- SHA-256 of an independent joint holdout report
 - evaluator and artifact families
 - exact node class `non_pv_scout_beta_only`
-- ordered deep/shallow depth-pair preference
-- exact phase, inclusive empties range, and exact-handoff enabled/distance domain
+- `validated_pair_order` and `validated_maximum_probes_per_node`
+- joint first-success false-cut count, cut-candidate count, and Wilson 95% upper bound
+- exact phase/search mode, inclusive empties range, and exact-handoff
+  enabled/threshold/distance domain
 - regression slope/intercept and residual sigma
 - audited confidence multiplier
 - inclusive shallow-score and beta validity ranges
@@ -175,6 +194,10 @@ from an adjacent phase, empties range, depth, handoff proximity, evaluator, or
 artifact. Arena binds evaluator family to the loaded artifact `pattern_set_id`
 and artifact family to `artifact_id`; benchmark callers must provide the same
 actual identity.
+Runtime `ordered_depth_pairs` may only be an identical prefix of
+`validated_pair_order`, and `maximum_probes_per_node` may not exceed the
+reviewed maximum. Reordering, suffix-only selection, or an unreviewed extra
+probe disables MPC during option normalization.
 
 Do not manually translate analyzer coefficient names. Create a local reviewed
 adoption specification containing only the explicit decisions that the report
@@ -185,23 +208,33 @@ then run the checked converter:
 python3 tools/search-calibration/convert_probcut_profile.py \
   "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/report.json" \
   "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/adoption.json" \
+  --joint-holdout-report "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/holdout-report.json" \
   --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv"
 ```
 
-The adoption file uses `schema_version: "probcut-profile-adoption-v1"`, exact
+The adoption file uses `schema_version: "probcut-profile-adoption-v2"`, exact
 report `evaluator_id`/`artifact_id` values as `evaluator_family` and
 `artifact_family`, `node_class: "non_pv_scout_beta_only"`, an explicit unique
-`ordered_depth_pairs` array, and an `entries` array. Each entry selects `phase`,
-`deep_depth`, and `shallow_depth`; declares `minimum_empties`,
-`maximum_empties`, `exact_handoff_enabled`,
+`validated_pair_order` array, `validated_maximum_probes_per_node`,
+`minimum_joint_cut_candidates`, `maximum_joint_false_cut_rate_upper_bound`, and
+an `entries` array. Each entry selects `phase`, `search_mode`, `deep_depth`, and
+`shallow_depth`; declares `minimum_empties`, `maximum_empties`,
+`exact_handoff_enabled`, `exact_handoff_threshold`,
 `minimum_exact_handoff_distance`, and `maximum_exact_handoff_distance`; and
 supplies `confidence_multiplier`, `minimum_shallow_score`,
 `maximum_shallow_score`, `minimum_beta`, and `maximum_beta`. These domains are
-review decisions, not values inferred by the converter. The converter selects exactly one eligible
+review decisions constrained by the report: every integer in an adopted
+empties/distance range must occur in that group's observed inventory. The
+converter selects exactly one eligible
 `non_pv_scout` group, maps `.slope` to `regression_slope` and `.intercept` to
-`intercept`, copies residual sigma, verifies that the preference exactly covers
-the selected pairs, and records the SHA-256 of the exact report file bytes. It
-never derives confidence, range, or ordering decisions.
+`intercept`, copies residual sigma, verifies that the preference exactly matches
+the collected pair order, and records both report SHA-256 values. Training and
+holdout provenance/collection policy must match and their sampled-node
+identities must be disjoint. The converter then replays the runtime scheduler
+on holdout nodes—pair 1, then pair 2 after a rejection, stopping at the first
+success—and refuses output unless the joint candidate minimum and reviewed
+false-cut upper bound pass. Pair-local margins alone cannot authorize a
+Multi-ProbCut profile.
 
 The one-sided integer condition is:
 
@@ -223,7 +256,7 @@ header. Row order carries the reviewed first-occurrence pair preference; rows
 within a pair are ordered by the converter's exact domain key:
 
 ```text
-schema_version	profile_id	source_checksum_sha256	evaluator_family	artifact_family	node_class	phase	minimum_empties	maximum_empties	deep_depth	shallow_depth	exact_handoff_enabled	minimum_exact_handoff_distance	maximum_exact_handoff_distance	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+schema_version	profile_id	source_checksum_sha256	joint_holdout_checksum_sha256	evaluator_family	artifact_family	node_class	validated_maximum_probes_per_node	joint_false_cut_count	joint_cut_candidate_count	joint_false_cut_rate_upper_bound	phase	search_mode	minimum_empties	maximum_empties	deep_depth	shallow_depth	exact_handoff_enabled	exact_handoff_threshold	minimum_exact_handoff_distance	maximum_exact_handoff_distance	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
 ```
 
 The benchmark requires an explicit positive `--probcut-maximum-margin`; it does

@@ -312,8 +312,7 @@ struct SelectiveSearchOptionsV1 {
   bool enable_shadow_calibration;
   std::uint32_t sample_rate;
   std::uint32_t max_samples_per_search;
-  Depth minimum_deep_depth;
-  Depth shallow_depth_reduction;
+  std::span<const ShadowCalibrationDepthPairV1> ordered_depth_pairs;
   bool include_pv_nodes;
   bool include_pass_nodes;
   bool include_near_exact_nodes;
@@ -364,19 +363,22 @@ struct SearchOptions {
 `SelectiveSearchOptionsV1` is diagnostics-only and defaults to disabled.
 `sample_rate` is an integer millionth rate in `[0, 1'000'000]`; integer
 sampling avoids platform-dependent floating-point decisions. Enabling requires
-a non-null caller-owned sink, positive rate and cap, and a positive shallow
-depth reduction. Metadata strings and the sink must outlive the search call.
-Normal runtime and WASM presets keep the whole config at its disabled default.
+a non-null caller-owned sink, positive rate and cap, and a non-empty unique list
+of valid deep/shallow pairs. Pair storage, metadata strings, and the sink must
+outlive the search call. Normal runtime and WASM presets keep the whole config
+at its disabled default.
 
 `ProbCutOptionsV1` is the typed runtime option. It also defaults disabled. The
 legacy flat `probcut` and `experimental.probcut` flags remain compatibility
 placeholders and do not enable pruning. Runtime normalization enables the typed
 option only when its caller-owned profile is complete and internally valid,
-the profile ID matches, the report checksum is a lowercase SHA-256, the profile
-node class is exactly `non_pv_scout_beta_only`, calibration entries are
-finite and non-overlapping, every multi-pair profile carries a complete unique
-depth-pair preference, the caller's evaluator/artifact family exactly matches
-the profile, all conservative scope
+the profile ID matches, both report checksums are lowercase SHA-256 values, the
+profile node class is exactly `non_pv_scout_beta_only`, calibration entries are
+finite and non-overlapping, every profile carries a complete unique validated
+pair order plus internally consistent joint scheduler evidence, the caller's
+pair selection is a reviewed prefix, the probe count is within the reviewed
+maximum, the caller's evaluator/artifact family exactly matches the profile,
+all conservative scope
 flags remain true, margins are ordered, and the legacy kernel is disabled.
 Invalid or incomplete configuration normalizes to disabled; it never invents a
 coefficient or fallback margin. Profile storage, entries, and strings must
@@ -1397,17 +1399,22 @@ Only beta-direction cut-high is implemented. Easy/normal/hard WASM presets leave
 `probcut_options` at its disabled default.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
-source calibration report SHA-256, evaluator family, artifact family,
-`node_class = non_pv_scout_beta_only`, and one reviewed preference containing
-every supported deep/shallow pair exactly once. Runtime requires this node class to match the explicit PVS scout role;
+source calibration report SHA-256, independent joint holdout SHA-256, evaluator
+family, artifact family, `node_class = non_pv_scout_beta_only`,
+`validated_pair_order`, and the validated maximum probes per node. Joint
+first-success evidence records false-cut count, cut-candidate count, and its
+95% upper bound. Runtime requires this node class to match the explicit PVS scout role;
 post-result `cut` groups are not an adoption population. Entries are keyed by
-phase, inclusive empties range, deep/shallow pair, exact-handoff enabled state,
-and inclusive exact-handoff-distance range. They also contain slope
+phase, search mode, inclusive empties range, deep/shallow pair, exact-handoff
+enabled state and threshold, and inclusive exact-handoff-distance range. They also contain slope
 `a`, intercept `b`, residual sigma, audited confidence multiplier, and inclusive
 shallow-score/beta validity ranges. The caller supplies the evaluator and
 artifact family actually in use; both must exactly match the reviewed profile.
 Missing or ambiguous domains are rejected. Adjacent phase, empties, depth,
 handoff, evaluator, and artifact profiles are never extrapolated.
+Runtime pair options must be an identical prefix of `validated_pair_order`, and
+the requested probe count must not exceed the reviewed maximum. A reordered or
+suffix-only selection disables MPC during normalization.
 
 At a node, the scheduler walks the configured pair preference, considering
 only pairs whose deep depth exactly equals the current depth. It stops at the
@@ -1473,8 +1480,9 @@ not publish a guessed saving.
 The current implementation provides calibration-only shadow mode. It never
 cuts off the official tree and does not apply fitted coefficients at runtime.
 At a deterministically sampled eligible node, it first completes the normal
-deep search, then runs reduced-depth and deep-depth full-window verification
-searches in separate isolated contexts over `[kScoreLoss, kScoreWin]`. The
+deep search, then runs one deep-depth verification and one reduced-depth
+verification for every configured same-deep pair in separate isolated contexts
+over `[kScoreLoss, kScoreWin]`. The
 verification contexts have no official TT, no shared history/killer state, no
 official node/time budget, no exact handoff, no ProbCut, and no nested shadow
 collection.
@@ -1492,22 +1500,25 @@ count enforces the cap even when a parent candidate remains pending while
 recursive candidates complete. Given the same root, config, artifact, seed,
 and repository SHA, traversal and the emitted sample set are deterministic.
 The engine also derives `collection_config_id` from the effective sampling
-rate, cap, depth requirements and PV/pass/near-exact inclusion flags plus the
-sample schema version. It is persisted in each schema-v4 sample and mixed into
+rate, cap, the complete ordered depth-pair list, and PV/pass/near-exact
+inclusion flags plus the sample schema version. It is persisted in each
+schema-v5 sample and mixed into
 `search_identity`; a collection-policy change therefore creates a distinct
 population identity without relying on a caller-maintained config string.
 
 By default, PV nodes, forced-pass nodes, and positions at or below the enabled
 exact-handoff threshold are excluded. They can be included independently for
-diagnostic strata. Schema v4 assigns a result-independent `search_role` at
+diagnostic strata. Schema v5 assigns a result-independent `search_role` at
 node entry: `pv`, explicit `non_pv_scout`, or `other`. The analyzer fits
 ProbCut candidates only from the complete `non_pv_scout` population, including
 both eventual fail-high and fail-low results. After official search, the
 existing result diagnostic `node_type` remains `pv`, non-PV `cut` for
-fail-high, or non-PV `all` otherwise. Schema v4 preserves the official
+fail-high, or non-PV `all` otherwise. Schema v5 preserves the official
 alpha/beta, score, bound, and result for this classification. It separately
 records shallow and deep full-window
-verification scores, bounds, and best moves. `hypothetical_cut_high` means the
+verification scores, bounds, and best moves, plus search mode, exact-handoff
+enablement/threshold/distance, global pair index, and same-deep pair index.
+`hypothetical_cut_high` means the
 shallow verification score crossed the official beta; `_low` means it crossed
 the official alpha. False-cut candidates compare that crossing with the deep
 verification score. These are observations, not runtime cutoffs.
@@ -1523,6 +1534,11 @@ config/evaluator/artifact provenance and mixed collection policy, records the
 accepted inventories, and withholds margins from under-threshold groups.
 Separate-seed or holdout validation remains mandatory before any coefficient
 can be proposed for runtime use.
+The analyzer rejects partial same-deep populations, groups by phase/pair/role,
+search mode, observed empties bucket, and observed exact-handoff-distance
+bucket. Profile conversion requires disjoint training and holdout samples and
+offline-replays the runtime first-success policy. Pair-local fits without joint
+scheduler evidence cannot produce a profile.
 The JSON/JSONL contract and deterministic offline analyzer are documented in
 `tools/search-calibration/README.md`. Samples and reports are local-only.
 

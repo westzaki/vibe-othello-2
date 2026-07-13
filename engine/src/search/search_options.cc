@@ -56,8 +56,17 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
   if (profile == nullptr || profile->schema_version != kProbCutCalibrationProfileSchemaVersion ||
       profile->profile_id.empty() || profile->profile_id != options.calibration_profile_id ||
       !valid_sha256(profile->source_calibration_report_checksum_sha256) ||
-      profile->evaluator_family.empty() || profile->artifact_family.empty() ||
+      !valid_sha256(profile->joint_holdout_checksum_sha256) || profile->evaluator_family.empty() ||
+      profile->artifact_family.empty() ||
       profile->node_class != ProbCutNodeClassV1::non_pv_scout_beta_only ||
+      profile->validated_maximum_probes_per_node == 0 || profile->joint_cut_candidate_count == 0 ||
+      profile->joint_false_cut_count > profile->joint_cut_candidate_count ||
+      !std::isfinite(profile->joint_false_cut_rate_upper_bound) ||
+      profile->joint_false_cut_rate_upper_bound < 0.0 ||
+      profile->joint_false_cut_rate_upper_bound > 1.0 ||
+      profile->joint_false_cut_rate_upper_bound <
+          static_cast<double>(profile->joint_false_cut_count) /
+              static_cast<double>(profile->joint_cut_candidate_count) ||
       profile->entries.empty()) {
     return false;
   }
@@ -65,9 +74,15 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
   std::size_t unique_pair_count = 0;
   for (std::size_t index = 0; index < profile->entries.size(); ++index) {
     const ProbCutCalibrationEntryV1& entry = profile->entries[index];
-    if (entry.phase > 12 || entry.minimum_empties > entry.maximum_empties ||
-        entry.maximum_empties > 60 || entry.deep_depth <= 0 || entry.shallow_depth <= 0 ||
-        entry.deep_depth <= entry.shallow_depth ||
+    if (entry.phase > 12 ||
+        static_cast<std::uint8_t>(entry.search_mode) >
+            static_cast<std::uint8_t>(SearchMode::win_loss_draw) ||
+        entry.minimum_empties > entry.maximum_empties || entry.maximum_empties > 60 ||
+        entry.deep_depth <= 0 || entry.shallow_depth <= 0 ||
+        entry.deep_depth <= entry.shallow_depth || entry.exact_handoff_threshold > 60 ||
+        (entry.exact_handoff_enabled != (entry.exact_handoff_threshold != 0)) ||
+        (!entry.exact_handoff_enabled && (entry.minimum_exact_handoff_distance != 0 ||
+                                          entry.maximum_exact_handoff_distance != 0)) ||
         entry.minimum_exact_handoff_distance > entry.maximum_exact_handoff_distance ||
         entry.maximum_exact_handoff_distance > 60 || !std::isfinite(entry.regression_slope) ||
         entry.regression_slope <= 0.0 || !std::isfinite(entry.intercept) ||
@@ -99,61 +114,65 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
       const bool proximity_overlap =
           other.minimum_exact_handoff_distance <= entry.maximum_exact_handoff_distance &&
           entry.minimum_exact_handoff_distance <= other.maximum_exact_handoff_distance;
-      if (other.phase == entry.phase && other.deep_depth == entry.deep_depth &&
-          other.shallow_depth == entry.shallow_depth &&
-          other.exact_handoff_enabled == entry.exact_handoff_enabled && empties_overlap &&
+      if (other.phase == entry.phase && other.search_mode == entry.search_mode &&
+          other.deep_depth == entry.deep_depth && other.shallow_depth == entry.shallow_depth &&
+          other.exact_handoff_enabled == entry.exact_handoff_enabled &&
+          other.exact_handoff_threshold == entry.exact_handoff_threshold && empties_overlap &&
           proximity_overlap) {
         return false;
       }
     }
   }
 
-  if (profile->ordered_depth_pairs.empty()) {
-    if (unique_pair_count != 1) {
+  if (profile->validated_pair_order.empty() ||
+      profile->validated_pair_order.size() != unique_pair_count ||
+      profile->validated_maximum_probes_per_node > profile->validated_pair_order.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < profile->validated_pair_order.size(); ++index) {
+    const ProbCutDepthPairV1 pair = profile->validated_pair_order[index];
+    if (pair.deep_depth <= pair.shallow_depth || pair.shallow_depth <= 0 ||
+        std::find(profile->validated_pair_order.begin(),
+                  profile->validated_pair_order.begin() + static_cast<std::ptrdiff_t>(index),
+                  pair) !=
+            profile->validated_pair_order.begin() + static_cast<std::ptrdiff_t>(index) ||
+        std::none_of(profile->entries.begin(), profile->entries.end(),
+                     [pair](const ProbCutCalibrationEntryV1& entry) {
+                       return entry.deep_depth == pair.deep_depth &&
+                              entry.shallow_depth == pair.shallow_depth;
+                     })) {
       return false;
-    }
-  } else {
-    if (profile->ordered_depth_pairs.size() != unique_pair_count) {
-      return false;
-    }
-    for (std::size_t index = 0; index < profile->ordered_depth_pairs.size(); ++index) {
-      const ProbCutDepthPairV1 pair = profile->ordered_depth_pairs[index];
-      if (pair.deep_depth <= pair.shallow_depth || pair.shallow_depth <= 0 ||
-          std::find(profile->ordered_depth_pairs.begin(),
-                    profile->ordered_depth_pairs.begin() + static_cast<std::ptrdiff_t>(index),
-                    pair) !=
-              profile->ordered_depth_pairs.begin() + static_cast<std::ptrdiff_t>(index) ||
-          std::none_of(profile->entries.begin(), profile->entries.end(),
-                       [pair](const ProbCutCalibrationEntryV1& entry) {
-                         return entry.deep_depth == pair.deep_depth &&
-                                entry.shallow_depth == pair.shallow_depth;
-                       })) {
-        return false;
-      }
     }
   }
 
   std::uint64_t hash = kFnvOffset;
-  mix_string("probcut-calibration-profile-v1", &hash);
+  mix_string("probcut-calibration-profile-v2", &hash);
   mix_integer(profile->schema_version, &hash);
   mix_string(profile->profile_id, &hash);
   mix_string(profile->source_calibration_report_checksum_sha256, &hash);
+  mix_string(profile->joint_holdout_checksum_sha256, &hash);
   mix_string(profile->evaluator_family, &hash);
   mix_string(profile->artifact_family, &hash);
   mix_integer(static_cast<std::uint8_t>(profile->node_class), &hash);
-  mix_integer(static_cast<std::uint64_t>(profile->ordered_depth_pairs.size()), &hash);
-  for (const ProbCutDepthPairV1 pair : profile->ordered_depth_pairs) {
+  mix_integer(profile->validated_maximum_probes_per_node, &hash);
+  mix_integer(profile->joint_false_cut_count, &hash);
+  mix_integer(profile->joint_cut_candidate_count, &hash);
+  mix_double(profile->joint_false_cut_rate_upper_bound, &hash);
+  mix_integer(static_cast<std::uint64_t>(profile->validated_pair_order.size()), &hash);
+  for (const ProbCutDepthPairV1 pair : profile->validated_pair_order) {
     mix_integer(pair.deep_depth, &hash);
     mix_integer(pair.shallow_depth, &hash);
   }
   mix_integer(static_cast<std::uint64_t>(profile->entries.size()), &hash);
   for (const ProbCutCalibrationEntryV1& entry : profile->entries) {
     mix_integer(entry.phase, &hash);
+    mix_integer(static_cast<std::uint8_t>(entry.search_mode), &hash);
     mix_integer(entry.minimum_empties, &hash);
     mix_integer(entry.maximum_empties, &hash);
     mix_integer(entry.deep_depth, &hash);
     mix_integer(entry.shallow_depth, &hash);
     mix_integer(static_cast<std::uint8_t>(entry.exact_handoff_enabled), &hash);
+    mix_integer(entry.exact_handoff_threshold, &hash);
     mix_integer(entry.minimum_exact_handoff_distance, &hash);
     mix_integer(entry.maximum_exact_handoff_distance, &hash);
     mix_double(entry.regression_slope, &hash);
@@ -192,26 +211,17 @@ bool valid_probcut_options(const ProbCutOptionsV1& options, bool use_legacy_sear
   }
 
   const std::span<const ProbCutDepthPairV1> preference = options.ordered_depth_pairs.empty()
-                                                             ? profile.ordered_depth_pairs
+                                                             ? profile.validated_pair_order
                                                              : options.ordered_depth_pairs;
-  if (preference.empty()) {
-    if (options.shallow_depth_reduction <= 0) {
+  if (options.maximum_probes_per_node > profile.validated_maximum_probes_per_node) {
+    return false;
+  }
+  if (preference.empty() || preference.size() > profile.validated_pair_order.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < preference.size(); ++index) {
+    if (preference[index] != profile.validated_pair_order[index]) {
       return false;
-    }
-  } else {
-    for (std::size_t index = 0; index < preference.size(); ++index) {
-      const ProbCutDepthPairV1 pair = preference[index];
-      const bool duplicate =
-          std::find(preference.begin(), preference.begin() + static_cast<std::ptrdiff_t>(index),
-                    pair) != preference.begin() + static_cast<std::ptrdiff_t>(index);
-      const bool supported =
-          std::any_of(profile.entries.begin(), profile.entries.end(), [pair](const auto& entry) {
-            return entry.deep_depth == pair.deep_depth && entry.shallow_depth == pair.shallow_depth;
-          });
-      if (pair.deep_depth <= pair.shallow_depth || pair.shallow_depth <= 0 || duplicate ||
-          !supported) {
-        return false;
-      }
     }
   }
 

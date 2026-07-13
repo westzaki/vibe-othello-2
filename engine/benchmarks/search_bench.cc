@@ -58,6 +58,7 @@ using vibe_othello::search::ScoreKind;
 using vibe_othello::search::search_fixed_depth;
 using vibe_othello::search::search_iterative;
 using vibe_othello::search::SearchLimits;
+using vibe_othello::search::SearchMode;
 using vibe_othello::search::SearchOptions;
 using vibe_othello::search::SearchResult;
 
@@ -189,13 +190,18 @@ struct LoadedProbCutProfile {
   std::uint32_t schema_version = 0;
   std::string profile_id;
   std::string source_checksum;
+  std::string joint_holdout_checksum;
   std::string evaluator_family;
   std::string artifact_family;
   ProbCutNodeClassV1 node_class = ProbCutNodeClassV1::unspecified;
-  std::vector<ProbCutDepthPairV1> ordered_depth_pairs;
+  std::vector<ProbCutDepthPairV1> validated_pair_order;
+  std::uint8_t validated_maximum_probes_per_node = 0;
+  NodeCount joint_false_cut_count = 0;
+  NodeCount joint_cut_candidate_count = 0;
+  double joint_false_cut_rate_upper_bound = 1.0;
   std::vector<ProbCutCalibrationEntryV1> entries;
 
-  ProbCutCalibrationProfileV1 view() const noexcept {
+  [[nodiscard]] ProbCutCalibrationProfileV1 view() const noexcept {
     return ProbCutCalibrationProfileV1{
         .schema_version = schema_version,
         .profile_id = profile_id,
@@ -203,7 +209,12 @@ struct LoadedProbCutProfile {
         .evaluator_family = evaluator_family,
         .artifact_family = artifact_family,
         .node_class = node_class,
-        .ordered_depth_pairs = ordered_depth_pairs,
+        .validated_pair_order = validated_pair_order,
+        .validated_maximum_probes_per_node = validated_maximum_probes_per_node,
+        .joint_holdout_checksum_sha256 = joint_holdout_checksum,
+        .joint_false_cut_count = joint_false_cut_count,
+        .joint_cut_candidate_count = joint_cut_candidate_count,
+        .joint_false_cut_rate_upper_bound = joint_false_cut_rate_upper_bound,
         .entries = entries,
     };
   }
@@ -607,9 +618,9 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant,
   options.reporting.multi_pv = 1;
   if (variant.probcut_mode != ProbCutMode::off && profile != nullptr && !profile->entries.empty()) {
     const std::span<const ProbCutDepthPairV1> selected_pairs =
-        variant.probcut_mode == ProbCutMode::single && !profile->ordered_depth_pairs.empty()
-            ? profile->ordered_depth_pairs.first(1)
-            : profile->ordered_depth_pairs;
+        variant.probcut_mode == ProbCutMode::single && !profile->validated_pair_order.empty()
+            ? profile->validated_pair_order.first(1)
+            : profile->validated_pair_order;
     const auto minimum_deep = std::min_element(
         profile->entries.begin(), profile->entries.end(),
         [](const auto& lhs, const auto& rhs) { return lhs.deep_depth < rhs.deep_depth; });
@@ -879,19 +890,26 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
     }
     const std::vector<std::string_view> fields = split_tabs(line);
     if (!saw_header) {
-      const std::array<std::string_view, 22> expected{
+      const std::array<std::string_view, 29> expected{
           "schema_version",
           "profile_id",
           "source_checksum_sha256",
+          "joint_holdout_checksum_sha256",
           "evaluator_family",
           "artifact_family",
           "node_class",
+          "validated_maximum_probes_per_node",
+          "joint_false_cut_count",
+          "joint_cut_candidate_count",
+          "joint_false_cut_rate_upper_bound",
           "phase",
+          "search_mode",
           "minimum_empties",
           "maximum_empties",
           "deep_depth",
           "shallow_depth",
           "exact_handoff_enabled",
+          "exact_handoff_threshold",
           "minimum_exact_handoff_distance",
           "maximum_exact_handoff_distance",
           "regression_slope",
@@ -909,70 +927,102 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
       saw_header = true;
       continue;
     }
-    require_condition(fields.size() == 22, "invalid ProbCut profile row");
+    require_condition(fields.size() == 29, "invalid ProbCut profile row");
     const std::optional<int> schema_version = parse_int(fields[0]);
-    const std::optional<int> phase = parse_int(fields[6]);
-    const std::optional<int> minimum_empties = parse_int(fields[7]);
-    const std::optional<int> maximum_empties = parse_int(fields[8]);
-    const std::optional<int> deep_depth = parse_int(fields[9]);
-    const std::optional<int> shallow_depth = parse_int(fields[10]);
-    const bool valid_handoff_bool = fields[11] == "true" || fields[11] == "false";
-    const bool exact_handoff_enabled = fields[11] == "true";
-    const std::optional<int> minimum_handoff = parse_int(fields[12]);
-    const std::optional<int> maximum_handoff = parse_int(fields[13]);
-    const std::optional<double> slope = parse_double(fields[14]);
-    const std::optional<double> intercept = parse_double(fields[15]);
-    const std::optional<double> sigma = parse_double(fields[16]);
-    const std::optional<double> confidence = parse_double(fields[17]);
-    const std::optional<int> minimum_shallow = parse_int(fields[18]);
-    const std::optional<int> maximum_shallow = parse_int(fields[19]);
-    const std::optional<int> minimum_beta = parse_int(fields[20]);
-    const std::optional<int> maximum_beta = parse_int(fields[21]);
+    const std::optional<int> validated_maximum_probes = parse_int(fields[7]);
+    const std::optional<NodeCount> joint_false_cuts = parse_node_count(fields[8]);
+    const std::optional<NodeCount> joint_candidates = parse_node_count(fields[9]);
+    const std::optional<double> joint_upper = parse_double(fields[10]);
+    const std::optional<int> phase = parse_int(fields[11]);
+    const std::optional<SearchMode> search_mode =
+        fields[12] == "move"            ? std::optional{SearchMode::move}
+        : fields[12] == "analyze"       ? std::optional{SearchMode::analyze}
+        : fields[12] == "exact_score"   ? std::optional{SearchMode::exact_score}
+        : fields[12] == "win_loss_draw" ? std::optional{SearchMode::win_loss_draw}
+                                        : std::nullopt;
+    const std::optional<int> minimum_empties = parse_int(fields[13]);
+    const std::optional<int> maximum_empties = parse_int(fields[14]);
+    const std::optional<int> deep_depth = parse_int(fields[15]);
+    const std::optional<int> shallow_depth = parse_int(fields[16]);
+    const bool valid_handoff_bool = fields[17] == "true" || fields[17] == "false";
+    const bool exact_handoff_enabled = fields[17] == "true";
+    const std::optional<int> exact_handoff_threshold = parse_int(fields[18]);
+    const std::optional<int> minimum_handoff = parse_int(fields[19]);
+    const std::optional<int> maximum_handoff = parse_int(fields[20]);
+    const std::optional<double> slope = parse_double(fields[21]);
+    const std::optional<double> intercept = parse_double(fields[22]);
+    const std::optional<double> sigma = parse_double(fields[23]);
+    const std::optional<double> confidence = parse_double(fields[24]);
+    const std::optional<int> minimum_shallow = parse_int(fields[25]);
+    const std::optional<int> maximum_shallow = parse_int(fields[26]);
+    const std::optional<int> minimum_beta = parse_int(fields[27]);
+    const std::optional<int> maximum_beta = parse_int(fields[28]);
     require_condition(
-        schema_version.has_value() && *schema_version > 0 && phase.has_value() && *phase >= 0 &&
-            *phase <= 12 && minimum_empties.has_value() && maximum_empties.has_value() &&
-            *minimum_empties >= 0 && *maximum_empties <= 60 &&
+        schema_version.has_value() && *schema_version == 2 &&
+            validated_maximum_probes.has_value() && *validated_maximum_probes > 0 &&
+            *validated_maximum_probes <= 255 && joint_false_cuts.has_value() &&
+            joint_candidates.has_value() && *joint_candidates > 0 &&
+            *joint_false_cuts <= *joint_candidates && joint_upper.has_value() &&
+            *joint_upper >= 0.0 && *joint_upper <= 1.0 && search_mode.has_value() &&
+            phase.has_value() && *phase >= 0 && *phase <= 12 && minimum_empties.has_value() &&
+            maximum_empties.has_value() && *minimum_empties >= 0 && *maximum_empties <= 60 &&
             *minimum_empties <= *maximum_empties && deep_depth.has_value() && *deep_depth > 0 &&
             *deep_depth <= std::numeric_limits<Depth>::max() && shallow_depth.has_value() &&
             *shallow_depth > 0 && *shallow_depth <= std::numeric_limits<Depth>::max() &&
-            valid_handoff_bool && minimum_handoff.has_value() && maximum_handoff.has_value() &&
-            *minimum_handoff >= 0 && *maximum_handoff <= 60 &&
-            *minimum_handoff <= *maximum_handoff && slope.has_value() && intercept.has_value() &&
-            sigma.has_value() && confidence.has_value() && minimum_shallow.has_value() &&
-            maximum_shallow.has_value() && minimum_beta.has_value() && maximum_beta.has_value(),
+            valid_handoff_bool && exact_handoff_threshold.has_value() &&
+            *exact_handoff_threshold >= 0 && *exact_handoff_threshold <= 60 &&
+            (exact_handoff_enabled == (*exact_handoff_threshold != 0)) &&
+            minimum_handoff.has_value() && maximum_handoff.has_value() && *minimum_handoff >= 0 &&
+            *maximum_handoff <= 60 && *minimum_handoff <= *maximum_handoff && slope.has_value() &&
+            intercept.has_value() && sigma.has_value() && confidence.has_value() &&
+            minimum_shallow.has_value() && maximum_shallow.has_value() &&
+            minimum_beta.has_value() && maximum_beta.has_value(),
         "invalid ProbCut profile value");
 
     if (profile.entries.empty()) {
       profile.schema_version = static_cast<std::uint32_t>(*schema_version);
       profile.profile_id = fields[1];
       profile.source_checksum = fields[2];
-      profile.evaluator_family = fields[3];
-      profile.artifact_family = fields[4];
-      require_condition(fields[5] == "non_pv_scout_beta_only", "unsupported ProbCut node class");
+      profile.joint_holdout_checksum = fields[3];
+      profile.evaluator_family = fields[4];
+      profile.artifact_family = fields[5];
+      profile.validated_maximum_probes_per_node =
+          static_cast<std::uint8_t>(*validated_maximum_probes);
+      profile.joint_false_cut_count = *joint_false_cuts;
+      profile.joint_cut_candidate_count = *joint_candidates;
+      profile.joint_false_cut_rate_upper_bound = *joint_upper;
+      require_condition(fields[6] == "non_pv_scout_beta_only", "unsupported ProbCut node class");
       profile.node_class = ProbCutNodeClassV1::non_pv_scout_beta_only;
     } else {
       require_condition(
           profile.schema_version == static_cast<std::uint32_t>(*schema_version) &&
               profile.profile_id == fields[1] && profile.source_checksum == fields[2] &&
-              profile.evaluator_family == fields[3] && profile.artifact_family == fields[4] &&
-              fields[5] == "non_pv_scout_beta_only",
+              profile.joint_holdout_checksum == fields[3] &&
+              profile.evaluator_family == fields[4] && profile.artifact_family == fields[5] &&
+              fields[6] == "non_pv_scout_beta_only" &&
+              profile.validated_maximum_probes_per_node == *validated_maximum_probes &&
+              profile.joint_false_cut_count == *joint_false_cuts &&
+              profile.joint_cut_candidate_count == *joint_candidates &&
+              profile.joint_false_cut_rate_upper_bound == *joint_upper,
           "mixed ProbCut profile identity");
     }
     const ProbCutDepthPairV1 pair{
         .deep_depth = static_cast<Depth>(*deep_depth),
         .shallow_depth = static_cast<Depth>(*shallow_depth),
     };
-    if (std::find(profile.ordered_depth_pairs.begin(), profile.ordered_depth_pairs.end(), pair) ==
-        profile.ordered_depth_pairs.end()) {
-      profile.ordered_depth_pairs.push_back(pair);
+    if (std::find(profile.validated_pair_order.begin(), profile.validated_pair_order.end(), pair) ==
+        profile.validated_pair_order.end()) {
+      profile.validated_pair_order.push_back(pair);
     }
     profile.entries.push_back(ProbCutCalibrationEntryV1{
         .phase = static_cast<std::uint8_t>(*phase),
+        .search_mode = *search_mode,
         .minimum_empties = static_cast<std::uint8_t>(*minimum_empties),
         .maximum_empties = static_cast<std::uint8_t>(*maximum_empties),
         .deep_depth = static_cast<Depth>(*deep_depth),
         .shallow_depth = static_cast<Depth>(*shallow_depth),
         .exact_handoff_enabled = exact_handoff_enabled,
+        .exact_handoff_threshold = static_cast<std::uint8_t>(*exact_handoff_threshold),
         .minimum_exact_handoff_distance = static_cast<std::uint8_t>(*minimum_handoff),
         .maximum_exact_handoff_distance = static_cast<std::uint8_t>(*maximum_handoff),
         .regression_slope = *slope,
@@ -987,19 +1037,28 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
   }
   require_condition(saw_header, "missing ProbCut profile header");
   require_condition(!profile.entries.empty(), "empty ProbCut profile");
-  require_condition(profile.schema_version ==
-                            vibe_othello::search::kProbCutCalibrationProfileSchemaVersion &&
-                        !profile.profile_id.empty() && !profile.evaluator_family.empty() &&
-                        !profile.artifact_family.empty() &&
-                        profile.node_class == ProbCutNodeClassV1::non_pv_scout_beta_only &&
-                        profile.source_checksum.size() == 64,
-                    "invalid ProbCut profile identity");
+  require_condition(
+      profile.schema_version == vibe_othello::search::kProbCutCalibrationProfileSchemaVersion &&
+          !profile.profile_id.empty() && !profile.evaluator_family.empty() &&
+          !profile.artifact_family.empty() &&
+          profile.node_class == ProbCutNodeClassV1::non_pv_scout_beta_only &&
+          profile.source_checksum.size() == 64 && profile.joint_holdout_checksum.size() == 64 &&
+          !profile.validated_pair_order.empty() &&
+          profile.validated_maximum_probes_per_node <= profile.validated_pair_order.size(),
+      "invalid ProbCut profile identity");
   require_condition(std::all_of(profile.source_checksum.begin(), profile.source_checksum.end(),
                                 [](char character) {
                                   return (character >= '0' && character <= '9') ||
                                          (character >= 'a' && character <= 'f');
                                 }),
                     "invalid ProbCut source checksum");
+  require_condition(std::all_of(profile.joint_holdout_checksum.begin(),
+                                profile.joint_holdout_checksum.end(),
+                                [](char character) {
+                                  return (character >= '0' && character <= '9') ||
+                                         (character >= 'a' && character <= 'f');
+                                }),
+                    "invalid ProbCut joint holdout checksum");
   for (std::size_t index = 0; index < profile.entries.size(); ++index) {
     const ProbCutCalibrationEntryV1& entry = profile.entries[index];
     require_condition(entry.deep_depth > entry.shallow_depth && entry.regression_slope > 0.0 &&
@@ -1018,11 +1077,12 @@ LoadedProbCutProfile load_probcut_profile(std::string_view path) {
       const bool proximity_overlap =
           other.minimum_exact_handoff_distance <= entry.maximum_exact_handoff_distance &&
           entry.minimum_exact_handoff_distance <= other.maximum_exact_handoff_distance;
-      const bool ambiguous_domain = other.phase == entry.phase &&
-                                    other.deep_depth == entry.deep_depth &&
-                                    other.shallow_depth == entry.shallow_depth &&
-                                    other.exact_handoff_enabled == entry.exact_handoff_enabled &&
-                                    empties_overlap && proximity_overlap;
+      const bool ambiguous_domain =
+          other.phase == entry.phase && other.search_mode == entry.search_mode &&
+          other.deep_depth == entry.deep_depth && other.shallow_depth == entry.shallow_depth &&
+          other.exact_handoff_enabled == entry.exact_handoff_enabled &&
+          other.exact_handoff_threshold == entry.exact_handoff_threshold && empties_overlap &&
+          proximity_overlap;
       require_condition(!ambiguous_domain, "overlapping ProbCut profile domain");
     }
   }
@@ -1664,17 +1724,21 @@ enabled_pairs_for(BenchmarkVariant variant, const ProbCutCalibrationProfileV1* p
   if (profile == nullptr || variant.probcut_mode == ProbCutMode::off) {
     return {};
   }
-  if (variant.probcut_mode == ProbCutMode::single && !profile->ordered_depth_pairs.empty()) {
-    return profile->ordered_depth_pairs.first(1);
+  if (variant.probcut_mode == ProbCutMode::single && !profile->validated_pair_order.empty()) {
+    return profile->validated_pair_order.first(1);
   }
-  return profile->ordered_depth_pairs;
+  return profile->validated_pair_order;
 }
 
 void print_delimited_header(char delimiter) {
   std::cout << "position_name" << delimiter << "mode" << delimiter << "variant_id" << delimiter
             << "tt_mode" << delimiter << "evaluator" << delimiter << "phase" << delimiter
             << "probcut_mode" << delimiter << "probcut_profile_id" << delimiter
-            << "probcut_source_checksum_sha256" << delimiter << "node_limit" << delimiter
+            << "probcut_source_checksum_sha256" << delimiter
+            << "probcut_joint_holdout_checksum_sha256" << delimiter
+            << "probcut_validated_maximum_probes" << delimiter << "probcut_joint_false_cut_count"
+            << delimiter << "probcut_joint_cut_candidate_count" << delimiter
+            << "probcut_joint_false_cut_rate_upper_bound" << delimiter << "node_limit" << delimiter
             << "time_limit_ms" << delimiter << "pvs" << delimiter << "aspiration" << delimiter
             << "history" << delimiter << "killers" << delimiter << "iid" << delimiter
             << "exact_endgame" << delimiter << "endgame_exact_empties" << delimiter << "endgame_tt"
@@ -1726,6 +1790,26 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
                     ? std::string_view{"none"}
                     : probcut_profile->source_calibration_report_checksum_sha256)
+            << delimiter
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? std::string_view{"none"}
+                    : probcut_profile->joint_holdout_checksum_sha256)
+            << delimiter
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 0
+                    : static_cast<int>(probcut_profile->validated_maximum_probes_per_node))
+            << delimiter
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 0
+                    : probcut_profile->joint_false_cut_count)
+            << delimiter
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 0
+                    : probcut_profile->joint_cut_candidate_count)
+            << delimiter
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 1.0
+                    : probcut_profile->joint_false_cut_rate_upper_bound)
             << delimiter << variant.max_nodes << delimiter << variant.max_time_ms << delimiter
             << bool_mode_name(variant.use_pvs) << delimiter
             << bool_mode_name(variant.use_aspiration) << delimiter
@@ -1829,6 +1913,27 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
                     probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
                         ? std::string_view{"none"}
                         : probcut_profile->source_calibration_report_checksum_sha256);
+  std::cout << ",\"probcut_joint_holdout_checksum_sha256\":";
+  print_json_string(std::cout,
+                    probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                        ? std::string_view{"none"}
+                        : probcut_profile->joint_holdout_checksum_sha256);
+  std::cout << ",\"probcut_validated_maximum_probes\":"
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 0
+                    : static_cast<int>(probcut_profile->validated_maximum_probes_per_node));
+  std::cout << ",\"probcut_joint_false_cut_count\":"
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 0
+                    : probcut_profile->joint_false_cut_count);
+  std::cout << ",\"probcut_joint_cut_candidate_count\":"
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 0
+                    : probcut_profile->joint_cut_candidate_count);
+  std::cout << ",\"probcut_joint_false_cut_rate_upper_bound\":"
+            << (probcut_profile == nullptr || variant.probcut_mode == ProbCutMode::off
+                    ? 1.0
+                    : probcut_profile->joint_false_cut_rate_upper_bound);
   std::cout << ",\"probcut_enabled_depth_pairs\":[";
   const std::span<const ProbCutDepthPairV1> enabled_pairs =
       enabled_pairs_for(variant, probcut_profile);
@@ -1975,6 +2080,9 @@ int main(int argc, char** argv) {
   std::optional<ProbCutCalibrationProfileV1> probcut_profile;
   if (!config->probcut_profile_path.empty()) {
     loaded_probcut_profile.emplace(load_probcut_profile(config->probcut_profile_path));
+    require_condition(config->probcut_maximum_probes <=
+                          loaded_probcut_profile->validated_maximum_probes_per_node,
+                      "requested ProbCut maximum probes exceeds reviewed scheduler evidence");
     probcut_profile.emplace(loaded_probcut_profile->view());
   }
   std::optional<vibe_othello::evaluation::PhaseAwareEvaluator> pattern_incremental;

@@ -118,8 +118,9 @@ raise it because runtime uses the maximum of profile and option multipliers.
 `--probcut-minimum-confidence` can impose a further reviewed confidence floor;
 none of these options derives calibration values.
 
-Output includes root phase, requested ProbCut mode, profile ID and source
-checksum, node/time limits, nodes, completed depth, score/best move, attempts,
+Output includes root phase, requested ProbCut mode, profile ID, training and
+joint-holdout checksums, validated probe cap, joint false-cut evidence,
+node/time limits, nodes, completed depth, score/best move, attempts,
 successes, shallow-node overhead, rejection reasons, real beta cutoffs, and
 shadow false-cut counts. JSONL also emits the enabled pair order and telemetry
 for every phase/deep/shallow tuple; TSV emits the same pair telemetry in a

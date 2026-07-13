@@ -141,14 +141,17 @@ from allocation failure.
 ## Multi-ProbCut Campaign Layer
 
 The Multi-ProbCut campaign uses one artifact and reviewed calibration identity
-for off/off sanity, first-reviewed-pair versus off, and ordered multi-pair
-versus off, in both policy assignments. Fixed-depth, fixed-node, and fixed-time
-cells share openings, exact policy, TT size, and session-retention settings.
+for off/off sanity, first-reviewed-pair versus off, ordered multi-pair versus
+off, multi-pair versus the first-pair policy, and shadow multi-pair versus off,
+all in both policy assignments. Fixed-depth, fixed-node, and fixed-time cells
+share openings, exact policy, TT size, and session-retention settings.
 Multiple seeds and repeatable opening inputs are first-class dimensions.
 
 The campaign report is evidence input, not an enablement action. Automatic
-checks cover clean games, off/off sanity, the primary 500-ms score direction
-and fixed 95% interval, and completed depth. Production review must additionally
-accept fixed-depth correctness and exact holdouts, false-cut audit, effective
-overhead/throughput, and direction consistency across seeds and opening
-subsets. The runner never changes a preset or authorizes production enablement.
+checks cover clean games, exact fixed-depth/fixed-node off/off sanity, at least
+100 primary opening pairs, 500-ms multi-versus-off score/CI/depth/efficiency,
+multi-versus-single non-inferiority, 100-ms direction, later-pair attempts and
+successes, and scheduler-level shadow false-cut audit. Fixed-time same-config
+runs are statistical diagnostics rather than strict-neutral gates. Production
+review must additionally accept fixed-depth correctness and exact holdouts.
+The runner never changes a preset or authorizes production enablement.

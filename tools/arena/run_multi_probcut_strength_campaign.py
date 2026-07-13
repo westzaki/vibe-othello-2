@@ -12,13 +12,17 @@ from pathlib import Path
 from typing import Any
 
 
-RUNNER_VERSION = "multi-probcut-strength-campaign-v1"
+RUNNER_VERSION = "multi-probcut-strength-campaign-v2"
 COMPARISONS = {
     "same_config_off": ("off", "off"),
-    "single_forward": ("single", "off"),
-    "single_reverse": ("off", "single"),
-    "multi_forward": ("multi", "off"),
-    "multi_reverse": ("off", "multi"),
+    "single_off_forward": ("single", "off"),
+    "single_off_reverse": ("off", "single"),
+    "multi_off_forward": ("multi", "off"),
+    "multi_off_reverse": ("off", "multi"),
+    "multi_forward": ("multi", "single"),
+    "multi_reverse": ("single", "multi"),
+    "shadow_multi_forward": ("shadow", "off"),
+    "shadow_multi_reverse": ("off", "shadow"),
 }
 
 
@@ -57,6 +61,18 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def fnv1a64_file(path: Path) -> str:
+    value = 14_695_981_039_346_656_037
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        raise CampaignError(f"cannot checksum {path}: {error}") from error
+    for byte in data:
+        value ^= byte
+        value = (value * 1_099_511_628_211) & ((1 << 64) - 1)
+    return f"fnv1a64:{value:016x}"
+
+
 def profile_identity(path: Path) -> dict[str, Any]:
     try:
         rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
@@ -68,14 +84,25 @@ def profile_identity(path: Path) -> dict[str, Any]:
     values = rows[1].split("\t")
     if len(header) != len(values):
         raise CampaignError("ProbCut profile first row does not match its header")
-    required = ("profile_id", "source_checksum_sha256", "evaluator_family", "artifact_family")
+    required = (
+        "profile_id",
+        "source_checksum_sha256",
+        "joint_holdout_checksum_sha256",
+        "evaluator_family",
+        "artifact_family",
+        "validated_maximum_probes_per_node",
+        "joint_false_cut_count",
+        "joint_cut_candidate_count",
+        "joint_false_cut_rate_upper_bound",
+    )
     row = dict(zip(header, values, strict=True))
     if any(not row.get(field) for field in required):
         raise CampaignError("ProbCut profile identity is incomplete")
     identity = {field: row[field] for field in required}
-    checksum = identity["source_checksum_sha256"]
-    if len(checksum) != 64 or any(character not in "0123456789abcdef" for character in checksum):
-        raise CampaignError("ProbCut profile source checksum is not lowercase SHA-256")
+    for field in ("source_checksum_sha256", "joint_holdout_checksum_sha256"):
+        checksum = identity[field]
+        if len(checksum) != 64 or any(character not in "0123456789abcdef" for character in checksum):
+            raise CampaignError(f"ProbCut profile {field} is not lowercase SHA-256")
     pairs: list[dict[str, int]] = []
     try:
         for line in rows[1:]:
@@ -92,10 +119,29 @@ def profile_identity(path: Path) -> dict[str, Any]:
                 pairs.append(pair)
     except (KeyError, ValueError) as error:
         raise CampaignError(f"ProbCut profile row is malformed: {error}") from error
+    try:
+        validated_maximum_probes = int(identity["validated_maximum_probes_per_node"])
+        joint_false_cuts = int(identity["joint_false_cut_count"])
+        joint_candidates = int(identity["joint_cut_candidate_count"])
+        joint_upper = float(identity["joint_false_cut_rate_upper_bound"])
+    except ValueError as error:
+        raise CampaignError(f"ProbCut scheduler evidence is malformed: {error}") from error
+    if (
+        validated_maximum_probes <= 0
+        or validated_maximum_probes > len(pairs)
+        or joint_candidates <= 0
+        or not 0 <= joint_false_cuts <= joint_candidates
+        or not 0.0 <= joint_upper <= 1.0
+    ):
+        raise CampaignError("ProbCut scheduler evidence is invalid")
     return {
         **identity,
         "profile_file_sha256": sha256_file(path),
-        "ordered_depth_pairs": pairs,
+        "validated_pair_order": pairs,
+        "validated_maximum_probes_per_node": validated_maximum_probes,
+        "joint_false_cut_count": joint_false_cuts,
+        "joint_cut_candidate_count": joint_candidates,
+        "joint_false_cut_rate_upper_bound": joint_upper,
     }
 
 
@@ -165,6 +211,7 @@ def validate_report(
     limit_name: str,
     exact_endgame_empties: int,
     seed: int,
+    openings: Path,
 ) -> None:
     if report.get("schema_version") != 4 or report.get("arena_version") != "full-game-artifact-arena-v4":
         raise CampaignError(f"unsupported arena report schema: {path}")
@@ -180,16 +227,26 @@ def validate_report(
         if limit_name.startswith("fixed-nodes-")
         else "fixed_wall_time"
     )
+    expected_depth = args.fixed_depth if expected_limit_mode == "fixed_depth" else 0
+    expected_nodes = args.fixed_nodes if expected_limit_mode == "fixed_nodes" else 0
+    expected_time_ms = (
+        int(limit_name.removeprefix("fixed-time-").removesuffix("ms"))
+        if expected_limit_mode == "fixed_wall_time"
+        else 0
+    )
     if (
         config.get("preset") != args.search_preset
         or config.get("limit_mode") != expected_limit_mode
+        or config.get("depth") != expected_depth
+        or config.get("nodes") != expected_nodes
+        or config.get("time_ms") != expected_time_ms
         or config.get("exact_endgame_empties") != exact_endgame_empties
         or config.get("persistent_session") is not args.persistent_session
         or config.get("tt_requested_bytes") != args.tt_bytes
         or report.get("seed") != seed
     ):
         raise CampaignError(f"arena report search configuration mismatch: {path}")
-    expected_pairs = profile["ordered_depth_pairs"]
+    expected_pairs = profile["validated_pair_order"]
     for role, mode in (("candidate", candidate_mode), ("baseline", baseline_mode)):
         options = config.get(f"{role}_resolved_options")
         if not isinstance(options, dict):
@@ -207,6 +264,14 @@ def validate_report(
             multi.get("enabled") is not True
             or multi.get("profile_id") != profile["profile_id"]
             or multi.get("source_checksum_sha256") != profile["source_checksum_sha256"]
+            or multi.get("joint_holdout_checksum_sha256")
+            != profile["joint_holdout_checksum_sha256"]
+            or multi.get("validated_maximum_probes_per_node")
+            != profile["validated_maximum_probes_per_node"]
+            or multi.get("joint_false_cut_count") != profile["joint_false_cut_count"]
+            or multi.get("joint_cut_candidate_count") != profile["joint_cut_candidate_count"]
+            or multi.get("joint_false_cut_rate_upper_bound")
+            != profile["joint_false_cut_rate_upper_bound"]
             or multi.get("evaluator_family") != profile["evaluator_family"]
             or multi.get("artifact_family") != profile["artifact_family"]
             or multi.get("ordered_depth_pairs") != selected_pairs
@@ -218,11 +283,57 @@ def validate_report(
             or multi.get("maximum_shallow_overhead_ratio")
             != args.maximum_shallow_overhead_ratio
             or multi.get("near_exact_disable_empties") != exact_endgame_empties
-            or multi.get("shadow_verify") is not False
+            or multi.get("shadow_verify") is not (mode == "shadow")
         ):
             raise CampaignError(f"arena report {role} MPC identity mismatch: {path}")
     if report.get("failed_games") != 0 or report.get("illegal_games") != 0:
         raise CampaignError(f"arena report contains failed or illegal games: {path}")
+    paired = report.get("results", {}).get("paired_score", {})
+    gate = report.get("strength_gate", {})
+    paired_sanity = report.get("paired_sanity", {})
+    if (
+        paired.get("bootstrap_seed") != args.bootstrap_seed
+        or paired.get("bootstrap_samples") != args.bootstrap_samples
+        or paired.get("opening_pair_count") != report.get("opening_count")
+        or paired.get("game_count") != report.get("games")
+        or paired_sanity.get("incomplete_pairs") != 0
+        or gate.get("eligible") is not True
+        or gate.get("minimum_opening_pairs") != args.minimum_opening_pairs
+        or gate.get("reasons") != []
+    ):
+        raise CampaignError(f"arena report strength-gate/pair completeness mismatch: {path}")
+    expected_opening_limit = args.opening_limit or None
+    if (
+        report.get("opening_source_checksum") != fnv1a64_file(openings)
+        or report.get("opening_limit") != expected_opening_limit
+        or report.get("opening_count", 0) <= 0
+        or report.get("opening_count", 0) > report.get("input_opening_count", -1)
+        or (args.opening_limit and report.get("opening_count") != min(args.opening_limit, report.get("input_opening_count")))
+    ):
+        raise CampaignError(f"arena report opening binding mismatch: {path}")
+    candidate = report.get("candidate")
+    baseline = report.get("baseline")
+    inputs = report.get("inputs")
+    if not isinstance(candidate, dict) or not isinstance(baseline, dict) or not isinstance(inputs, dict):
+        raise CampaignError(f"arena report artifact identity is missing: {path}")
+    manifest_checksum = fnv1a64_file(args.artifact_manifest)
+    weights_checksum = fnv1a64_file(args.artifact_weights)
+    if (
+        candidate.get("artifact_id") != profile["artifact_family"]
+        or baseline.get("artifact_id") != profile["artifact_family"]
+        or candidate.get("pattern_set_id") != profile["evaluator_family"]
+        or baseline.get("pattern_set_id") != profile["evaluator_family"]
+        or candidate.get("runtime_identity_checksum") != baseline.get("runtime_identity_checksum")
+        or candidate.get("manifest_content_checksum") != manifest_checksum
+        or baseline.get("manifest_content_checksum") != manifest_checksum
+        or candidate.get("weights_file_checksum") != weights_checksum
+        or baseline.get("weights_file_checksum") != weights_checksum
+        or inputs.get("candidate_manifest_checksum") != manifest_checksum
+        or inputs.get("baseline_manifest_checksum") != manifest_checksum
+        or inputs.get("candidate_weights_checksum") != weights_checksum
+        or inputs.get("baseline_weights_checksum") != weights_checksum
+    ):
+        raise CampaignError(f"arena report artifact runtime binding mismatch: {path}")
 
 
 def stage_resume_identity(
@@ -271,6 +382,27 @@ def stage_summary(report: dict[str, Any], comparison: str) -> dict[str, Any]:
     }
 
 
+def wilson_upper_bound(false_cuts: int, candidates: int) -> float:
+    if candidates == 0:
+        return 1.0
+    z = 1.959963984540054
+    rate = false_cuts / candidates
+    denominator = 1.0 + z * z / candidates
+    centre = rate + z * z / (2.0 * candidates)
+    radius = z * ((rate * (1.0 - rate) + z * z / (4.0 * candidates)) / candidates) ** 0.5
+    return min(1.0, (centre + radius) / denominator)
+
+
+def pair_telemetry_total(stages: list[dict[str, Any]], pairs: list[dict[str, int]], field: str) -> int:
+    wanted = {(pair["deep_depth"], pair["shallow_depth"]) for pair in pairs}
+    return sum(
+        int(row.get(field, 0))
+        for stage in stages
+        for row in stage["summary"]["tested_probcut"].get("by_phase_depth_pair", [])
+        if (row.get("deep_depth"), row.get("shallow_depth")) in wanted
+    )
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     for path, label in (
         (args.arena_executable, "arena executable"),
@@ -282,12 +414,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if not path.is_file():
             raise CampaignError(f"missing {label}: {path}")
     profile = profile_identity(args.probcut_profile)
+    if args.maximum_probes > profile["validated_maximum_probes_per_node"]:
+        raise CampaignError("requested maximum probes exceeds reviewed scheduler evidence")
     artifact_manifest = load_json(args.artifact_manifest)
     if profile["evaluator_family"] != artifact_manifest.get("pattern_set_id"):
         raise CampaignError(
             "profile evaluator_family must exactly match artifact pattern_set_id"
         )
-    if profile["artifact_family"] != artifact_manifest.get("artifact_id"):
+    artifact_family = artifact_manifest.get("artifact_id") or args.artifact_manifest.stem
+    if profile["artifact_family"] != artifact_family:
         raise CampaignError("profile artifact_family must exactly match artifact artifact_id")
     stages: list[dict[str, Any]] = []
     for corpus_index, openings in enumerate(args.openings):
@@ -342,6 +477,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         limit_name,
                         exact_endgame_empties,
                         seed,
+                        openings,
                     )
                     if status == "completed":
                         resume_path.write_text(
@@ -372,25 +508,105 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         }
                     )
     completed_stages = [stage for stage in stages if "summary" in stage]
-    sanity_passed = all(
-        stage["same_config_sanity"].get("neutral") is True
+    strict_sanity_stages = [
+        stage
         for stage in completed_stages
         if stage["comparison"] == "same_config_off"
-    ) and bool(completed_stages)
-    primary_multi = [
+        and not stage["limit"].startswith("fixed-time-")
+    ]
+    sanity_passed = bool(strict_sanity_stages) and all(
+        stage["same_config_sanity"].get("neutral") is True
+        for stage in strict_sanity_stages
+    )
+    fixed_time_sanity = [
+        {
+            "opening_corpus_index": stage["opening_corpus_index"],
+            "seed": stage["seed"],
+            "limit": stage["limit"],
+            "score_rate": stage["summary"]["tested_policy_score_rate"],
+            "ci95": stage["summary"]["tested_policy_ci95"],
+            "neutral": stage["same_config_sanity"].get("neutral"),
+            "statistically_consistent_with_half": stage["summary"]["tested_policy_ci95"]["lower"]
+            <= 0.5
+            <= stage["summary"]["tested_policy_ci95"]["upper"],
+        }
+        for stage in completed_stages
+        if stage["comparison"] == "same_config_off"
+        and stage["limit"].startswith("fixed-time-")
+    ]
+    primary_multi_off = [
+        stage
+        for stage in completed_stages
+        if stage["comparison"] in ("multi_off_forward", "multi_off_reverse")
+        and stage["limit"] == "fixed-time-500ms"
+    ]
+    direction_consistent = bool(primary_multi_off) and all(
+        stage["summary"]["tested_policy_score_rate"] > 0.5 for stage in primary_multi_off
+    )
+    ci_gate = bool(primary_multi_off) and all(
+        stage["summary"]["tested_policy_ci95"]["lower"] > 0.5 for stage in primary_multi_off
+    )
+    depth_non_degraded = bool(primary_multi_off) and all(
+        stage["summary"]["completed_depth_p50_delta"] >= 0 for stage in primary_multi_off
+    )
+    effective_efficiency_improved = bool(primary_multi_off) and all(
+        stage["summary"]["completed_depth_p50_delta"] > 0
+        or stage["summary"]["tested_nodes_per_sec"] > stage["summary"]["control_nodes_per_sec"]
+        for stage in primary_multi_off
+    )
+    primary_pair_count_sufficient = bool(primary_multi_off) and all(
+        stage["summary"]["opening_pairs"] >= 100 for stage in primary_multi_off
+    )
+    primary_multi_single = [
         stage
         for stage in completed_stages
         if stage["comparison"] in ("multi_forward", "multi_reverse")
         and stage["limit"] == "fixed-time-500ms"
     ]
-    direction_consistent = bool(primary_multi) and all(
-        stage["summary"]["tested_policy_score_rate"] > 0.5 for stage in primary_multi
+    multi_single_non_degraded = bool(primary_multi_single) and all(
+        stage["summary"]["tested_policy_ci95"]["lower"] >= 0.5 - args.multi_single_noninferiority_margin
+        for stage in primary_multi_single
     )
-    ci_gate = bool(primary_multi) and all(
-        stage["summary"]["tested_policy_ci95"]["lower"] > 0.5 for stage in primary_multi
+    multi_single_point_superior = bool(primary_multi_single) and all(
+        stage["summary"]["tested_policy_score_rate"] > 0.5 for stage in primary_multi_single
     )
-    depth_non_degraded = bool(primary_multi) and all(
-        stage["summary"]["completed_depth_p50_delta"] >= 0 for stage in primary_multi
+    secondary_100ms = [
+        stage
+        for stage in completed_stages
+        if stage["comparison"] in ("multi_off_forward", "multi_off_reverse")
+        and stage["limit"] == "fixed-time-100ms"
+    ]
+    secondary_direction = bool(secondary_100ms) and all(
+        stage["summary"]["tested_policy_score_rate"] >= args.minimum_100ms_score_rate
+        for stage in secondary_100ms
+    )
+    active_multi = [
+        stage
+        for stage in completed_stages
+        if stage["comparison"]
+        in ("multi_off_forward", "multi_off_reverse", "multi_forward", "multi_reverse")
+    ]
+    later_pairs = profile["validated_pair_order"][1:]
+    later_pair_attempts = pair_telemetry_total(active_multi, later_pairs, "attempts")
+    later_pair_successes = pair_telemetry_total(active_multi, later_pairs, "successes")
+    later_pair_exercised = (
+        bool(later_pairs)
+        and later_pair_attempts >= args.minimum_later_pair_attempts
+        and later_pair_successes >= args.minimum_later_pair_successes
+    )
+    shadow_stages = [
+        stage
+        for stage in completed_stages
+        if stage["comparison"] in ("shadow_multi_forward", "shadow_multi_reverse")
+    ]
+    shadow_candidates = pair_telemetry_total(shadow_stages, profile["validated_pair_order"], "shadow_candidates")
+    shadow_verifications = pair_telemetry_total(shadow_stages, profile["validated_pair_order"], "shadow_verifications")
+    shadow_false_cuts = pair_telemetry_total(shadow_stages, profile["validated_pair_order"], "shadow_false_cuts")
+    shadow_upper = wilson_upper_bound(shadow_false_cuts, shadow_verifications)
+    shadow_audit_passed = (
+        shadow_candidates >= args.minimum_shadow_candidates
+        and shadow_verifications == shadow_candidates
+        and shadow_upper <= profile["joint_false_cut_rate_upper_bound"]
     )
     return {
         "schema_version": 1,
@@ -415,12 +631,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "primary_500ms_direction_consistent": direction_consistent,
             "primary_500ms_ci_lower_above_half": ci_gate,
             "primary_500ms_completed_depth_non_degraded": depth_non_degraded,
+            "primary_500ms_effective_efficiency_improved": effective_efficiency_improved,
+            "primary_500ms_minimum_100_opening_pairs": primary_pair_count_sufficient,
+            "multi_vs_single_non_degraded": multi_single_non_degraded,
+            "multi_vs_single_point_superior": multi_single_point_superior,
+            "secondary_100ms_not_reversed": secondary_direction,
+            "later_pair_exercised": later_pair_exercised,
+            "scheduler_shadow_audit_passed": shadow_audit_passed,
+        },
+        "fixed_time_same_config_diagnostics": fixed_time_sanity,
+        "scheduler_runtime_evidence": {
+            "later_pair_attempts": later_pair_attempts,
+            "later_pair_successes": later_pair_successes,
+            "shadow_candidates": shadow_candidates,
+            "shadow_verifications": shadow_verifications,
+            "shadow_false_cuts": shadow_false_cuts,
+            "shadow_false_cut_rate_upper_bound": shadow_upper,
         },
         "manual_review_required": [
-            "fixed-depth correctness holdout has no major error",
+            "fixed-depth differential correctness holdout has no major error",
             "exact holdout is non-degraded",
-            "false-cut audit accepts every enabled profile domain",
-            "nodes/sec or effective depth improves after shallow overhead",
         ],
         "production_enablement_authorized": False,
         "production_enablement_note": "A generated local report is evidence input, not preset authorization.",
@@ -442,7 +672,7 @@ def main() -> int:
     parser.add_argument("--seeds", type=lambda value: parse_int_list(value, "--seeds"), default=[0, 1])
     parser.add_argument("--exact-endgame-empties", type=int, default=8)
     parser.add_argument("--opening-limit", type=int, default=0)
-    parser.add_argument("--minimum-opening-pairs", type=int, default=1)
+    parser.add_argument("--minimum-opening-pairs", type=int, default=100)
     parser.add_argument("--search-preset", choices=("basic", "full"), default="full")
     parser.add_argument("--tt-bytes", type=int, default=16 * 1024 * 1024)
     parser.add_argument("--minimum-margin", type=int, default=0)
@@ -450,6 +680,11 @@ def main() -> int:
     parser.add_argument("--minimum-confidence", type=float, default=0.0)
     parser.add_argument("--maximum-probes", type=int, default=2)
     parser.add_argument("--maximum-shallow-overhead-ratio", type=float, default=0.0)
+    parser.add_argument("--multi-single-noninferiority-margin", type=float, default=0.02)
+    parser.add_argument("--minimum-100ms-score-rate", type=float, default=0.48)
+    parser.add_argument("--minimum-later-pair-attempts", type=int, default=30)
+    parser.add_argument("--minimum-later-pair-successes", type=int, default=1)
+    parser.add_argument("--minimum-shadow-candidates", type=int, default=30)
     parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--bootstrap-samples", type=int, default=10_000)
     parser.add_argument("--persistent-session", action=argparse.BooleanOptionalAction, default=True)
@@ -470,7 +705,14 @@ def main() -> int:
         or args.minimum_confidence < 0.0
         or args.maximum_probes <= 0
         or args.maximum_shallow_overhead_ratio < 0.0
+        or not 0.0 <= args.multi_single_noninferiority_margin < 0.5
+        or not 0.0 <= args.minimum_100ms_score_rate <= 1.0
+        or args.minimum_later_pair_attempts <= 0
+        or args.minimum_later_pair_successes <= 0
+        or args.minimum_shadow_candidates <= 0
         or args.bootstrap_samples <= 0
+        or 100 not in args.time_ms
+        or 500 not in args.time_ms
     ):
         parser.error("campaign numeric settings are invalid")
     try:

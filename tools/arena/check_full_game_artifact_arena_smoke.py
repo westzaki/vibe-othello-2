@@ -322,6 +322,78 @@ def assert_exact_guard(exe: str, temp_dir: Path) -> None:
         raise AssertionError(f"exact guard error missing:\n{completed.stderr}")
 
 
+def assert_probcut_profile_v2_loader(exe: str, temp_dir: Path) -> None:
+    header = (
+        "schema_version\tprofile_id\tsource_checksum_sha256\tjoint_holdout_checksum_sha256\t"
+        "evaluator_family\tartifact_family\tnode_class\tvalidated_maximum_probes_per_node\t"
+        "joint_false_cut_count\tjoint_cut_candidate_count\tjoint_false_cut_rate_upper_bound\t"
+        "phase\tsearch_mode\tminimum_empties\tmaximum_empties\tdeep_depth\tshallow_depth\t"
+        "exact_handoff_enabled\texact_handoff_threshold\tminimum_exact_handoff_distance\t"
+        "maximum_exact_handoff_distance\tregression_slope\tintercept\tresidual_sigma\t"
+        "confidence_multiplier\tminimum_shallow_score\tmaximum_shallow_score\tminimum_beta\tmaximum_beta"
+    )
+    identity = (
+        "2\tsynthetic-loader-fixture\t" + "0" * 64 + "\t" + "1" * 64
+        + "\tfixed-pattern-fixture-v1\tcandidate.manifest\tnon_pv_scout_beta_only\t2\t0\t100\t0.05"
+    )
+    rows = [header]
+    for shallow_depth in (1, 2):
+        for phase in range(13):
+            rows.append(
+                identity
+                + f"\t{phase}\tmove\t0\t60\t3\t{shallow_depth}\tfalse\t0\t0\t0"
+                "\t1\t100\t1\t1\t-200\t200\t-200\t200"
+            )
+    profile = temp_dir / "synthetic-probcut-profile.tsv"
+    profile.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    report_path = temp_dir / "probcut-profile-v2.json"
+    command = [
+        exe,
+        "--candidate-manifest",
+        str(temp_dir / "candidate.manifest.json"),
+        "--baseline-manifest",
+        str(temp_dir / "candidate.manifest.json"),
+        "--openings",
+        str(temp_dir / "openings.txt"),
+        "--opening-limit",
+        "1",
+        "--report-out",
+        str(report_path),
+        "--limit-mode",
+        "depth",
+        "--depth",
+        "4",
+        "--candidate-probcut",
+        "multi",
+        "--baseline-probcut",
+        "off",
+        "--probcut-profile",
+        str(profile),
+        "--probcut-maximum-margin",
+        "10",
+        "--probcut-maximum-probes",
+        "2",
+    ]
+    completed = run(command)
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"profile-v2 loader failed:\n{completed.stdout}\n{completed.stderr}"
+        )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    resolved = report["search_config"]["candidate_resolved_options"]["multi_probcut"]
+    if (
+        resolved.get("enabled") is not True
+        or resolved.get("joint_holdout_checksum_sha256") != "1" * 64
+        or resolved.get("validated_maximum_probes_per_node") != 2
+        or resolved.get("ordered_depth_pairs")
+        != [
+            {"deep_depth": 3, "shallow_depth": 1},
+            {"deep_depth": 3, "shallow_depth": 2},
+        ]
+    ):
+        raise AssertionError(f"profile-v2 evidence/order was not resolved: {resolved!r}")
+
+
 def assert_explicit_limit_modes(exe: str, temp_dir: Path) -> None:
     base = [
         exe,
@@ -395,6 +467,7 @@ def main(argv: list[str]) -> int:
                 f"{second['report_checksum']!r}"
             )
         assert_exact_guard(args.exe, temp_dir)
+        assert_probcut_profile_v2_loader(args.exe, temp_dir)
         assert_explicit_limit_modes(args.exe, temp_dir)
         assert_disabled_tt_without_persistence(args.exe, temp_dir)
         assert_sanity_runner(args.exe, temp_dir)

@@ -28,16 +28,16 @@ std::uint8_t phase_for(board_core::Position position) noexcept {
   return static_cast<std::uint8_t>(std::min(12, (normalized_count * 13) / 60));
 }
 
-const ProbCutCalibrationEntryV1* entry_for(const ProbCutCalibrationProfileV1& profile,
-                                           std::uint8_t phase, std::uint8_t empties,
-                                           Depth deep_depth, Depth shallow_depth,
-                                           bool exact_handoff_enabled,
-                                           std::uint8_t exact_handoff_distance) noexcept {
+const ProbCutCalibrationEntryV1*
+entry_for(const ProbCutCalibrationProfileV1& profile, std::uint8_t phase, std::uint8_t empties,
+          Depth deep_depth, Depth shallow_depth, SearchMode search_mode, bool exact_handoff_enabled,
+          std::uint8_t exact_handoff_threshold, std::uint8_t exact_handoff_distance) noexcept {
   for (const ProbCutCalibrationEntryV1& entry : profile.entries) {
-    if (entry.phase == phase && entry.minimum_empties <= empties &&
-        empties <= entry.maximum_empties && entry.deep_depth == deep_depth &&
-        entry.shallow_depth == shallow_depth &&
+    if (entry.phase == phase && entry.search_mode == search_mode &&
+        entry.minimum_empties <= empties && empties <= entry.maximum_empties &&
+        entry.deep_depth == deep_depth && entry.shallow_depth == shallow_depth &&
         entry.exact_handoff_enabled == exact_handoff_enabled &&
+        entry.exact_handoff_threshold == exact_handoff_threshold &&
         entry.minimum_exact_handoff_distance <= exact_handoff_distance &&
         exact_handoff_distance <= entry.maximum_exact_handoff_distance) {
       return &entry;
@@ -76,15 +76,9 @@ void record_pair_rejection(SearchStats* stats, const ProbCutOptionsV1& options, 
     return;
   }
   const std::span<const ProbCutDepthPairV1> preference =
-      options.ordered_depth_pairs.empty() ? options.calibration_profile->ordered_depth_pairs
+      options.ordered_depth_pairs.empty() ? options.calibration_profile->validated_pair_order
                                           : options.ordered_depth_pairs;
-  const ProbCutDepthPairV1 fallback_pair{
-      .deep_depth = depth,
-      .shallow_depth = static_cast<Depth>(depth - options.shallow_depth_reduction),
-  };
-  const std::span<const ProbCutDepthPairV1> pairs =
-      preference.empty() ? std::span<const ProbCutDepthPairV1>{&fallback_pair, 1} : preference;
-  for (const ProbCutDepthPairV1 pair : pairs) {
+  for (const ProbCutDepthPairV1 pair : preference) {
     if (pair.deep_depth != depth || pair.shallow_depth <= 0 || pair.shallow_depth >= depth) {
       continue;
     }
@@ -137,6 +131,11 @@ struct ScopedProbCutShallow {
     context->transposition_table = previous_transposition_table;
     context->ordering_state = previous_ordering_state;
   }
+
+  ScopedProbCutShallow(const ScopedProbCutShallow&) = delete;
+  ScopedProbCutShallow& operator=(const ScopedProbCutShallow&) = delete;
+  ScopedProbCutShallow(ScopedProbCutShallow&&) = delete;
+  ScopedProbCutShallow& operator=(ScopedProbCutShallow&&) = delete;
 
   SearchContext* context;
   bool previous_in_probcut;
@@ -279,24 +278,18 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
                                             : std::uint8_t{0};
 
   const std::span<const ProbCutDepthPairV1> preference = options.ordered_depth_pairs.empty()
-                                                             ? profile.ordered_depth_pairs
+                                                             ? profile.validated_pair_order
                                                              : options.ordered_depth_pairs;
-  const ProbCutDepthPairV1 fallback_pair{
-      .deep_depth = depth,
-      .shallow_depth = static_cast<Depth>(depth - options.shallow_depth_reduction),
-  };
-  const std::span<const ProbCutDepthPairV1> pairs =
-      preference.empty() ? std::span<const ProbCutDepthPairV1>{&fallback_pair, 1} : preference;
 
   std::uint8_t probes = 0;
   bool matched_profile = false;
-  for (const ProbCutDepthPairV1 pair : pairs) {
+  for (const ProbCutDepthPairV1 pair : preference) {
     if (pair.deep_depth != depth || pair.shallow_depth <= 0 || pair.shallow_depth >= depth) {
       continue;
     }
     const ProbCutCalibrationEntryV1* entry =
         entry_for(profile, phase, empties, pair.deep_depth, pair.shallow_depth,
-                  exact_handoff_enabled, handoff_distance);
+                  context->options.mode, exact_handoff_enabled, exact_threshold, handoff_distance);
     if (entry == nullptr) {
       ++pair_stats(&context->stats, phase, pair.deep_depth, pair.shallow_depth).unsupported_profile;
       continue;

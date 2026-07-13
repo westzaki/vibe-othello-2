@@ -9,7 +9,7 @@
 
 namespace vibe_othello::search {
 
-inline constexpr std::uint32_t kProbCutCalibrationProfileSchemaVersion = 1;
+inline constexpr std::uint32_t kProbCutCalibrationProfileSchemaVersion = 2;
 inline constexpr std::uint16_t kAllProbCutPhasesMask = (std::uint16_t{1} << 13U) - 1U;
 
 enum class ProbCutNodeClassV1 : std::uint8_t {
@@ -29,13 +29,15 @@ struct ProbCutDepthPairV1 {
 // pair, shallow score, or beta.
 struct ProbCutCalibrationEntryV1 {
   std::uint8_t phase = 0;
+  SearchMode search_mode = SearchMode::move;
   std::uint8_t minimum_empties = 0;
   std::uint8_t maximum_empties = 60;
   Depth deep_depth = 0;
   Depth shallow_depth = 0;
   bool exact_handoff_enabled = false;
+  std::uint8_t exact_handoff_threshold = 0;
   std::uint8_t minimum_exact_handoff_distance = 0;
-  std::uint8_t maximum_exact_handoff_distance = 60;
+  std::uint8_t maximum_exact_handoff_distance = 0;
   double regression_slope = 0.0;
   double intercept = 0.0;
   double residual_sigma = 0.0;
@@ -59,18 +61,22 @@ struct ProbCutCalibrationProfileV1 {
   std::string_view evaluator_family;
   std::string_view artifact_family;
   ProbCutNodeClassV1 node_class = ProbCutNodeClassV1::unspecified;
-  // Reviewed order of depth-pair preference. A multi-pair profile must list
-  // every supported pair exactly once. A single-pair legacy profile may leave
-  // this empty and use ProbCutOptionsV1::shallow_depth_reduction.
-  std::span<const ProbCutDepthPairV1> ordered_depth_pairs;
+  // Order and maximum probe count validated by joint first-success holdout
+  // replay. Runtime may use only an identical prefix and no more probes.
+  std::span<const ProbCutDepthPairV1> validated_pair_order;
+  std::uint8_t validated_maximum_probes_per_node = 0;
+  std::string_view joint_holdout_checksum_sha256;
+  NodeCount joint_false_cut_count = 0;
+  NodeCount joint_cut_candidate_count = 0;
+  double joint_false_cut_rate_upper_bound = 1.0;
   std::span<const ProbCutCalibrationEntryV1> entries;
 };
 
 struct ProbCutOptionsV1 {
   bool use_probcut = false;
   Depth minimum_depth = 0;
-  // Compatibility fallback for a profile with one pair. Multi-ProbCut uses
-  // ordered_depth_pairs (or the reviewed order carried by the profile).
+  // Retained in the public option shape for disabled-option compatibility.
+  // Reviewed schema-v2 profiles always use their validated pair order.
   Depth shallow_depth_reduction = 0;
   std::uint8_t maximum_probes_per_node = 1;
   std::span<const ProbCutDepthPairV1> ordered_depth_pairs;

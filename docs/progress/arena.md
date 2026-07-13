@@ -33,8 +33,14 @@ The persistent full-game artifact arena provides:
   executable identity, and opening selection
 * independent candidate/baseline off, single-pair, and Multi-ProbCut policies
   with phase/depth-pair telemetry
-* a local off/single/multi campaign across fixed depth, fixed nodes, and
-  50/100/500-ms cells, multiple seeds/opening subsets, and policy swaps
+* a local off/single/multi/shadow campaign across fixed depth, fixed nodes, and
+  50/100/500-ms cells, with direct multi-vs-single comparisons, multiple
+  seeds/opening subsets, and policy swaps
+* strict binding of profile training/holdout checksums, joint scheduler
+  evidence, requested limits, openings, bootstrap settings, artifact runtime
+  identity, and Arena pair-completeness gate
+* automatic later-pair attempt/success, 100-opening-pair primary floor,
+  100/500-ms direction, and scheduler-level shadow false-cut checks
 
 ## Limitations
 
@@ -59,5 +65,5 @@ openings under different time and exact conditions are not treated as
 independent observations.
 
 No reviewed Multi-ProbCut calibration or fixed-time strength report is checked
-in. The MPC campaign deliberately cannot authorize preset enablement; its
-fixed-depth/exact/false-cut and cross-subset review items remain manual gates.
+in. The MPC campaign deliberately cannot authorize preset enablement;
+fixed-depth differential correctness and exact holdouts remain manual gates.

@@ -5,10 +5,12 @@
 #include <algorithm>
 #include <bit>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace vibe_othello::search::internal {
 namespace {
@@ -102,12 +104,15 @@ std::uint64_t canonical_position_hash(board_core::Position position) noexcept {
 
 std::string make_collection_config_id(const SelectiveSearchOptionsV1& options) {
   std::uint64_t hash = kFnvOffset;
-  mix_string("mpc-shadow-collection-config-v1", &hash);
+  mix_string("mpc-shadow-collection-config-v2", &hash);
   mix_integer(kShadowCalibrationSchemaVersion, &hash);
   mix_integer(options.sample_rate, &hash);
   mix_integer(options.max_samples_per_search, &hash);
-  mix_integer(options.minimum_deep_depth, &hash);
-  mix_integer(options.shallow_depth_reduction, &hash);
+  mix_integer(static_cast<std::uint64_t>(options.ordered_depth_pairs.size()), &hash);
+  for (const ShadowCalibrationDepthPairV1 pair : options.ordered_depth_pairs) {
+    mix_integer(pair.deep_depth, &hash);
+    mix_integer(pair.shallow_depth, &hash);
+  }
   mix_integer(static_cast<std::uint8_t>(options.include_pv_nodes), &hash);
   mix_integer(static_cast<std::uint8_t>(options.include_pass_nodes), &hash);
   mix_integer(static_cast<std::uint8_t>(options.include_near_exact_nodes), &hash);
@@ -117,7 +122,7 @@ std::string make_collection_config_id(const SelectiveSearchOptionsV1& options) {
 std::string make_search_identity(std::uint64_t root_hash, const SelectiveSearchOptionsV1& options,
                                  std::string_view collection_config_id) {
   std::uint64_t hash = kFnvOffset;
-  mix_string("mpc-shadow-search-v2", &hash);
+  mix_string("mpc-shadow-search-v3", &hash);
   mix_integer(root_hash, &hash);
   mix_string(options.repo_sha, &hash);
   mix_string(options.search_config_id, &hash);
@@ -126,6 +131,27 @@ std::string make_search_identity(std::uint64_t root_hash, const SelectiveSearchO
   mix_string(collection_config_id, &hash);
   mix_integer(options.sampling_seed, &hash);
   return hex_u64(hash);
+}
+
+std::size_t pair_count_at_depth(const SelectiveSearchOptionsV1& options, Depth depth) noexcept {
+  return static_cast<std::size_t>(std::count_if(
+      options.ordered_depth_pairs.begin(), options.ordered_depth_pairs.end(),
+      [depth](const ShadowCalibrationDepthPairV1 pair) { return pair.deep_depth == depth; }));
+}
+
+bool valid_depth_pairs(std::span<const ShadowCalibrationDepthPairV1> pairs) noexcept {
+  if (pairs.empty() || pairs.size() > std::numeric_limits<std::uint16_t>::max()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < pairs.size(); ++index) {
+    const ShadowCalibrationDepthPairV1 pair = pairs[index];
+    if (pair.deep_depth <= pair.shallow_depth || pair.shallow_depth <= 0 ||
+        std::find(pairs.begin(), pairs.begin() + static_cast<std::ptrdiff_t>(index), pair) !=
+            pairs.begin() + static_cast<std::ptrdiff_t>(index)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 std::uint64_t sample_hash(const ShadowCalibrationRun& run, const ShadowCandidate& candidate,
@@ -221,10 +247,9 @@ struct ScopedDeadlinePause {
 std::optional<ShadowCalibrationRun> make_shadow_calibration_run(board_core::Position root,
                                                                 SelectiveSearchOptionsV1 options) {
   if (!options.enable_shadow_calibration || options.sink == nullptr || options.sample_rate == 0 ||
-      options.max_samples_per_search == 0 || options.minimum_deep_depth <= 0 ||
-      options.shallow_depth_reduction <= 0 || options.repo_sha.empty() ||
-      options.search_config_id.empty() || options.evaluator_id.empty() ||
-      options.artifact_id.empty()) {
+      options.max_samples_per_search == 0 || !valid_depth_pairs(options.ordered_depth_pairs) ||
+      options.repo_sha.empty() || options.search_config_id.empty() ||
+      options.evaluator_id.empty() || options.artifact_id.empty()) {
     return std::nullopt;
   }
   options.sample_rate = std::min(options.sample_rate, kShadowCalibrationSampleRateScale);
@@ -244,8 +269,8 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
     return std::nullopt;
   }
   ShadowCalibrationRun& run = *context->shadow_calibration;
-  if (context->in_iid || context->in_probcut_shallow || depth < run.options.minimum_deep_depth ||
-      depth <= run.options.shallow_depth_reduction) {
+  const std::size_t matching_pair_count = pair_count_at_depth(run.options, depth);
+  if (context->in_iid || context->in_probcut_shallow || matching_pair_count == 0) {
     return std::nullopt;
   }
 
@@ -270,14 +295,21 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
   const auto occupied_count = static_cast<std::uint8_t>(
       std::popcount(board_core::occupied(context->position_state.position)));
   const auto empties = static_cast<std::uint8_t>(board_core::kSquareCount - occupied_count);
-  const bool exact_handoff_eligible = context->options.endgame.exact_endgame &&
-                                      empties <= context->options.endgame.endgame_exact_empties;
+  const bool exact_handoff_enabled =
+      context->options.endgame.exact_endgame && context->options.endgame.endgame_exact_empties != 0;
+  const std::uint8_t exact_handoff_threshold =
+      exact_handoff_enabled ? context->options.endgame.endgame_exact_empties : std::uint8_t{0};
+  const std::uint8_t exact_handoff_distance =
+      exact_handoff_enabled && empties > exact_handoff_threshold
+          ? static_cast<std::uint8_t>(empties - exact_handoff_threshold)
+          : std::uint8_t{0};
+  const bool exact_handoff_eligible = exact_handoff_enabled && empties <= exact_handoff_threshold;
   if (exact_handoff_eligible && !run.options.include_near_exact_nodes) {
     return std::nullopt;
   }
 
   ++run.stats.shadow_candidates;
-  if (run.reserved_samples >= run.options.max_samples_per_search) {
+  if (matching_pair_count > run.options.max_samples_per_search - run.reserved_samples) {
     return std::nullopt;
   }
 
@@ -287,7 +319,6 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
       .alpha = alpha,
       .beta = beta,
       .deep_depth = depth,
-      .shallow_depth = static_cast<Depth>(depth - run.options.shallow_depth_reduction),
       .ply = ply,
       .occupied_count = occupied_count,
       .empties = empties,
@@ -295,6 +326,10 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
       .pv_node = pv_node,
       .pass_state = pass_state,
       .terminal_state = terminal_state,
+      .search_mode = context->options.mode,
+      .exact_handoff_enabled = exact_handoff_enabled,
+      .exact_handoff_threshold = exact_handoff_threshold,
+      .exact_handoff_distance = exact_handoff_distance,
       .exact_handoff_eligible = exact_handoff_eligible,
   };
 
@@ -303,7 +338,7 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
       run.options.sample_rate) {
     return std::nullopt;
   }
-  ++run.reserved_samples;
+  run.reserved_samples += matching_pair_count;
   return candidate;
 }
 
@@ -322,19 +357,10 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
   shadow_options.probcut_profile_semantic_fingerprint = 0;
   shadow_options.endgame.exact_endgame = false;
   shadow_options.endgame.endgame_exact_empties = 0;
-  SearchStats shallow_stats{};
-  const SearchNodeResult shallow_verification =
-      run_verification_search(candidate.position, candidate.shallow_depth, context->evaluator,
-                              shadow_options, &shallow_stats);
-  run.stats.shadow_shallow_nodes += shallow_stats.nodes;
-  run.stats.shadow_verification_probcut_attempts += shallow_stats.probcut_attempts;
-  run.stats.shadow_verification_probcut_beta_cutoffs += shallow_stats.probcut_beta_cutoffs;
-  if (!shallow_verification.is_complete()) {
-    return;
-  }
   SearchStats deep_stats{};
   const SearchNodeResult deep_verification = run_verification_search(
       candidate.position, candidate.deep_depth, context->evaluator, shadow_options, &deep_stats);
+  ++run.stats.shadow_deep_verification_searches;
   run.stats.shadow_deep_verification_nodes += deep_stats.nodes;
   run.stats.shadow_verification_probcut_attempts += deep_stats.probcut_attempts;
   run.stats.shadow_verification_probcut_beta_cutoffs += deep_stats.probcut_beta_cutoffs;
@@ -343,72 +369,115 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
   }
 
   const Score official_deep_score = official_deep_result.value().score;
-  const Score shallow_verification_score = shallow_verification.value().score;
   const Score deep_verification_score = deep_verification.value().score;
   const ShadowWindowResult actual_official_deep_result =
       window_result_for(official_deep_score, candidate);
   const ShadowNodeType node_type = node_type_for(candidate.pv_node, actual_official_deep_result);
-  const std::optional<board_core::Move> shallow_verification_best_move =
-      best_move(shallow_verification);
   const std::optional<board_core::Move> deep_verification_best_move = best_move(deep_verification);
-  const bool verification_best_move_agreement =
-      shallow_verification_best_move.has_value() && deep_verification_best_move.has_value() &&
-      shallow_verification_best_move == deep_verification_best_move;
-  const bool hypothetical_cut_high = shallow_verification_score >= candidate.beta;
-  const bool hypothetical_cut_low = shallow_verification_score <= candidate.alpha;
-  const bool false_cut_high_candidate =
-      hypothetical_cut_high && deep_verification_score < candidate.beta;
-  const bool false_cut_low_candidate =
-      hypothetical_cut_low && deep_verification_score > candidate.alpha;
 
-  ShadowCalibrationSample sample{
-      .repo_sha = std::string(run.options.repo_sha),
-      .search_config_id = std::string(run.options.search_config_id),
-      .evaluator_id = std::string(run.options.evaluator_id),
-      .artifact_id = std::string(run.options.artifact_id),
-      .collection_config_id = run.collection_config_id,
-      .canonical_position_hash = candidate.canonical_position_hash,
-      .phase = calibration_phase(candidate.occupied_count),
-      .occupied_count = candidate.occupied_count,
-      .empties = candidate.empties,
-      .ply = candidate.ply,
-      .search_role = candidate.search_role,
-      .node_type = node_type,
-      .pv_node = candidate.pv_node,
-      .cut_node = node_type == ShadowNodeType::cut,
-      .all_node = node_type == ShadowNodeType::all,
-      .deep_depth = candidate.deep_depth,
-      .shallow_depth = candidate.shallow_depth,
-      .official_alpha = candidate.alpha,
-      .official_beta = candidate.beta,
-      .official_deep_score = official_deep_score,
-      .official_deep_bound = classify_bound(official_deep_score, candidate.alpha, candidate.beta),
-      .shallow_verification_score = shallow_verification_score,
-      .deep_verification_score = deep_verification_score,
-      .shallow_verification_bound = verification_bound_for(shallow_verification_score),
-      .deep_verification_bound = verification_bound_for(deep_verification_score),
-      .shallow_verification_best_move = shallow_verification_best_move,
-      .deep_verification_best_move = deep_verification_best_move,
-      .verification_best_move_agreement = verification_best_move_agreement,
-      .pass_state = candidate.pass_state,
-      .terminal_state = candidate.terminal_state,
-      .exact_handoff_eligible = candidate.exact_handoff_eligible,
-      .actual_official_deep_result = actual_official_deep_result,
-      .hypothetical_cut_high = hypothetical_cut_high,
-      .hypothetical_cut_low = hypothetical_cut_low,
-      .false_cut_high_candidate = false_cut_high_candidate,
-      .false_cut_low_candidate = false_cut_low_candidate,
-      .sampling_seed = run.options.sampling_seed,
-      .search_identity = run.search_identity,
+  struct ShallowObservation {
+    std::size_t collection_pair_index = 0;
+    SearchNodeResult result;
   };
+  std::vector<ShallowObservation> shallow_observations;
+  shallow_observations.reserve(pair_count_at_depth(run.options, candidate.deep_depth));
+  for (std::size_t pair_index = 0; pair_index < run.options.ordered_depth_pairs.size();
+       ++pair_index) {
+    const ShadowCalibrationDepthPairV1 pair = run.options.ordered_depth_pairs[pair_index];
+    if (pair.deep_depth != candidate.deep_depth) {
+      continue;
+    }
+    SearchStats shallow_stats{};
+    SearchNodeResult shallow_verification = run_verification_search(
+        candidate.position, pair.shallow_depth, context->evaluator, shadow_options, &shallow_stats);
+    ++run.stats.shadow_shallow_verification_searches;
+    run.stats.shadow_shallow_nodes += shallow_stats.nodes;
+    run.stats.shadow_verification_probcut_attempts += shallow_stats.probcut_attempts;
+    run.stats.shadow_verification_probcut_beta_cutoffs += shallow_stats.probcut_beta_cutoffs;
+    if (!shallow_verification.is_complete()) {
+      return;
+    }
+    shallow_observations.push_back(
+        ShallowObservation{.collection_pair_index = pair_index, .result = shallow_verification});
+  }
 
-  ++run.stats.shadow_samples;
-  run.stats.shadow_best_move_agreements += verification_best_move_agreement ? 1 : 0;
-  run.stats.hypothetical_cut_highs += hypothetical_cut_high ? 1 : 0;
-  run.stats.hypothetical_cut_lows += hypothetical_cut_low ? 1 : 0;
-  run.stats.false_cut_high_candidates += false_cut_high_candidate ? 1 : 0;
-  run.stats.false_cut_low_candidates += false_cut_low_candidate ? 1 : 0;
-  run.options.sink->record(sample);
+  for (std::size_t same_deep_pair_index = 0; same_deep_pair_index < shallow_observations.size();
+       ++same_deep_pair_index) {
+    const ShallowObservation& observation = shallow_observations[same_deep_pair_index];
+    const std::size_t pair_index = observation.collection_pair_index;
+    const ShadowCalibrationDepthPairV1 pair = run.options.ordered_depth_pairs[pair_index];
+    const SearchNodeResult& shallow_verification = observation.result;
+    const Score shallow_verification_score = shallow_verification.value().score;
+    const std::optional<board_core::Move> shallow_verification_best_move =
+        best_move(shallow_verification);
+    const bool verification_best_move_agreement =
+        shallow_verification_best_move.has_value() && deep_verification_best_move.has_value() &&
+        shallow_verification_best_move == deep_verification_best_move;
+    const bool hypothetical_cut_high = shallow_verification_score >= candidate.beta;
+    const bool hypothetical_cut_low = shallow_verification_score <= candidate.alpha;
+    const bool false_cut_high_candidate =
+        hypothetical_cut_high && deep_verification_score < candidate.beta;
+    const bool false_cut_low_candidate =
+        hypothetical_cut_low && deep_verification_score > candidate.alpha;
+
+    ShadowCalibrationSample sample{
+        .repo_sha = std::string(run.options.repo_sha),
+        .search_config_id = std::string(run.options.search_config_id),
+        .evaluator_id = std::string(run.options.evaluator_id),
+        .artifact_id = std::string(run.options.artifact_id),
+        .collection_config_id = run.collection_config_id,
+        .canonical_position_hash = candidate.canonical_position_hash,
+        .phase = calibration_phase(candidate.occupied_count),
+        .occupied_count = candidate.occupied_count,
+        .empties = candidate.empties,
+        .ply = candidate.ply,
+        .search_role = candidate.search_role,
+        .node_type = node_type,
+        .pv_node = candidate.pv_node,
+        .cut_node = node_type == ShadowNodeType::cut,
+        .all_node = node_type == ShadowNodeType::all,
+        .collection_pair_index = static_cast<std::uint16_t>(pair_index),
+        .collection_pair_count = static_cast<std::uint16_t>(run.options.ordered_depth_pairs.size()),
+        .same_deep_pair_index = static_cast<std::uint16_t>(same_deep_pair_index),
+        .same_deep_pair_count =
+            static_cast<std::uint16_t>(pair_count_at_depth(run.options, candidate.deep_depth)),
+        .deep_depth = pair.deep_depth,
+        .shallow_depth = pair.shallow_depth,
+        .official_alpha = candidate.alpha,
+        .official_beta = candidate.beta,
+        .official_deep_score = official_deep_score,
+        .official_deep_bound = classify_bound(official_deep_score, candidate.alpha, candidate.beta),
+        .shallow_verification_score = shallow_verification_score,
+        .deep_verification_score = deep_verification_score,
+        .shallow_verification_bound = verification_bound_for(shallow_verification_score),
+        .deep_verification_bound = verification_bound_for(deep_verification_score),
+        .shallow_verification_best_move = shallow_verification_best_move,
+        .deep_verification_best_move = deep_verification_best_move,
+        .verification_best_move_agreement = verification_best_move_agreement,
+        .pass_state = candidate.pass_state,
+        .terminal_state = candidate.terminal_state,
+        .search_mode = candidate.search_mode,
+        .exact_handoff_enabled = candidate.exact_handoff_enabled,
+        .exact_handoff_threshold = candidate.exact_handoff_threshold,
+        .exact_handoff_distance = candidate.exact_handoff_distance,
+        .exact_handoff_eligible = candidate.exact_handoff_eligible,
+        .actual_official_deep_result = actual_official_deep_result,
+        .hypothetical_cut_high = hypothetical_cut_high,
+        .hypothetical_cut_low = hypothetical_cut_low,
+        .false_cut_high_candidate = false_cut_high_candidate,
+        .false_cut_low_candidate = false_cut_low_candidate,
+        .sampling_seed = run.options.sampling_seed,
+        .search_identity = run.search_identity,
+    };
+
+    ++run.stats.shadow_samples;
+    run.stats.shadow_best_move_agreements += verification_best_move_agreement ? 1 : 0;
+    run.stats.hypothetical_cut_highs += hypothetical_cut_high ? 1 : 0;
+    run.stats.hypothetical_cut_lows += hypothetical_cut_low ? 1 : 0;
+    run.stats.false_cut_high_candidates += false_cut_high_candidate ? 1 : 0;
+    run.stats.false_cut_low_candidates += false_cut_low_candidate ? 1 : 0;
+    run.options.sink->record(sample);
+  }
 }
 
 } // namespace vibe_othello::search::internal

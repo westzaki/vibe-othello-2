@@ -32,6 +32,16 @@ public:
 
 constexpr std::string_view kProbCutTestChecksum =
     "0000000000000000000000000000000000000000000000000000000000000000";
+constexpr std::array kProbCut3To1{ProbCutDepthPairV1{.deep_depth = 3, .shallow_depth = 1}};
+constexpr std::array kProbCut4To2{ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 2}};
+constexpr std::array kShadowDepthPairs{
+    ShadowCalibrationDepthPairV1{.deep_depth = 2, .shallow_depth = 1},
+    ShadowCalibrationDepthPairV1{.deep_depth = 3, .shallow_depth = 2},
+    ShadowCalibrationDepthPairV1{.deep_depth = 4, .shallow_depth = 3},
+    ShadowCalibrationDepthPairV1{.deep_depth = 5, .shallow_depth = 4},
+    ShadowCalibrationDepthPairV1{.deep_depth = 6, .shallow_depth = 5},
+    ShadowCalibrationDepthPairV1{.deep_depth = 7, .shallow_depth = 6},
+};
 
 std::array<ProbCutCalibrationEntryV1, 13> probcut_entries(Depth deep_depth, Depth shallow_depth) {
   std::array<ProbCutCalibrationEntryV1, 13> entries{};
@@ -62,6 +72,13 @@ probcut_profile(const std::array<ProbCutCalibrationEntryV1, Size>& entries) {
       .evaluator_family = "synthetic-disc-difference",
       .artifact_family = "none",
       .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
+      .validated_pair_order =
+          entries.front().deep_depth == 3 ? std::span{kProbCut3To1} : std::span{kProbCut4To2},
+      .validated_maximum_probes_per_node = 1,
+      .joint_holdout_checksum_sha256 = kProbCutTestChecksum,
+      .joint_false_cut_count = 0,
+      .joint_cut_candidate_count = 100,
+      .joint_false_cut_rate_upper_bound = 0.05,
       .entries = entries,
   };
 }
@@ -90,8 +107,7 @@ SelectiveSearchOptionsV1 enabled_shadow(Collector* collector) {
       .enable_shadow_calibration = true,
       .sample_rate = kShadowCalibrationSampleRateScale,
       .max_samples_per_search = 64,
-      .minimum_deep_depth = 2,
-      .shallow_depth_reduction = 1,
+      .ordered_depth_pairs = kShadowDepthPairs,
       .include_pv_nodes = true,
       .include_pass_nodes = true,
       .include_near_exact_nodes = false,
@@ -223,6 +239,13 @@ TEST_CASE("shadow sampling is deterministic and metadata is complete",
     REQUIRE(sample.phase == std::min(12, (normalized_count * 13) / 60));
     REQUIRE(sample.deep_depth >= 2);
     REQUIRE(sample.shallow_depth == sample.deep_depth - 1);
+    REQUIRE(sample.collection_pair_count == kShadowDepthPairs.size());
+    REQUIRE(sample.collection_pair_index < sample.collection_pair_count);
+    REQUIRE(sample.same_deep_pair_index < sample.same_deep_pair_count);
+    REQUIRE(sample.search_mode == SearchMode::move);
+    REQUIRE_FALSE(sample.exact_handoff_enabled);
+    REQUIRE(sample.exact_handoff_threshold == 0);
+    REQUIRE(sample.exact_handoff_distance == 0);
     REQUIRE(sample.official_alpha < sample.official_beta);
     REQUIRE(sample.sampling_seed == 42);
     REQUIRE(sample.search_identity.size() == 16);
@@ -286,9 +309,7 @@ TEST_CASE("collection policy changes collection and search identities",
   variants.push_back(baseline_options);
   variants.back().max_samples_per_search += 1;
   variants.push_back(baseline_options);
-  variants.back().minimum_deep_depth += 1;
-  variants.push_back(baseline_options);
-  variants.back().shallow_depth_reduction += 1;
+  variants.back().ordered_depth_pairs = variants.back().ordered_depth_pairs.first(3);
   variants.push_back(baseline_options);
   variants.back().include_pv_nodes = !variants.back().include_pv_nodes;
   variants.push_back(baseline_options);
@@ -315,6 +336,38 @@ TEST_CASE("shadow sampling enforces its per-search cap", "[search][shadow_calibr
   REQUIRE(collector.samples.size() == 3);
   REQUIRE(result.shadow_calibration.shadow_samples == 3);
   REQUIRE(result.shadow_calibration.shadow_candidates >= 3);
+}
+
+TEST_CASE("one sampled node records ordered shallow pairs with one deep verification",
+          "[search][shadow_calibration][multi_probcut]") {
+  constexpr std::array pairs{
+      ShadowCalibrationDepthPairV1{.deep_depth = 3, .shallow_depth = 1},
+      ShadowCalibrationDepthPairV1{.deep_depth = 3, .shallow_depth = 2},
+  };
+  Collector collector;
+  SearchOptions options{};
+  options.midgame.use_pvs = true;
+  options.selective = enabled_shadow(&collector);
+  options.selective.ordered_depth_pairs = pairs;
+  options.selective.include_pv_nodes = true;
+  options.selective.max_samples_per_search = 2;
+
+  const SearchResult result = run_fixed(board_core::initial_position(), Depth{4}, options);
+
+  REQUIRE(result.shadow_calibration.shadow_shallow_verification_searches == 2);
+  REQUIRE(result.shadow_calibration.shadow_deep_verification_searches == 1);
+  REQUIRE(collector.samples.size() == 2);
+  REQUIRE(result.shadow_calibration.shadow_samples == 2);
+  REQUIRE(collector.samples[0].canonical_position_hash ==
+          collector.samples[1].canonical_position_hash);
+  REQUIRE(collector.samples[0].deep_depth == 3);
+  REQUIRE(collector.samples[1].deep_depth == 3);
+  REQUIRE(collector.samples[0].shallow_depth == 1);
+  REQUIRE(collector.samples[1].shallow_depth == 2);
+  REQUIRE(collector.samples[0].same_deep_pair_index == 0);
+  REQUIRE(collector.samples[1].same_deep_pair_index == 1);
+  REQUIRE(collector.samples[0].deep_verification_score ==
+          collector.samples[1].deep_verification_score);
 }
 
 TEST_CASE("PV nodes are excluded or included by policy", "[search][shadow_calibration]") {
@@ -477,6 +530,9 @@ TEST_CASE("near exact nodes are excluded unless explicitly included",
   REQUIRE_FALSE(included.samples.empty());
   for (const ShadowCalibrationSample& sample : included.samples) {
     REQUIRE(sample.exact_handoff_eligible);
+    REQUIRE(sample.exact_handoff_enabled);
+    REQUIRE(sample.exact_handoff_threshold == 12);
+    REQUIRE(sample.exact_handoff_distance == 0);
   }
 }
 

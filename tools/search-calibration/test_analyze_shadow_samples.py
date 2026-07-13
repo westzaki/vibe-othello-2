@@ -28,7 +28,7 @@ def sample(index: int = 0) -> dict[str, object]:
     alpha = -20
     beta = 20
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "repo_sha": "0123456789abcdef",
         "search_config_id": "tiny-v1",
         "evaluator_id": "fixture-eval",
@@ -44,6 +44,10 @@ def sample(index: int = 0) -> dict[str, object]:
         "pv_node": True,
         "cut_node": False,
         "all_node": False,
+        "collection_pair_index": 0,
+        "collection_pair_count": 1,
+        "same_deep_pair_index": 0,
+        "same_deep_pair_count": 1,
         "deep_depth": 6,
         "shallow_depth": 3,
         "official_alpha": alpha,
@@ -59,6 +63,10 @@ def sample(index: int = 0) -> dict[str, object]:
         "verification_best_move_agreement": index % 2 == 0,
         "pass_state": False,
         "terminal_state": False,
+        "search_mode": "move",
+        "exact_handoff_enabled": False,
+        "exact_handoff_threshold": 0,
+        "exact_handoff_distance": 0,
         "exact_handoff_eligible": False,
         "actual_official_deep_result": "exact",
         "hypothetical_cut_high": shallow >= beta,
@@ -269,6 +277,100 @@ class AnalyzerTests(unittest.TestCase):
         second = self.analyzer.validate_sample(second, "second")
         with self.assertRaisesRegex(self.analyzer.CalibrationInputError, "collection_config_id"):
             self.analyzer.build_report([first, second], "a" * 64, 1)
+
+    def test_same_deep_multiple_shallow_pairs_form_one_scheduler_observation(self) -> None:
+        rows = []
+        for node_index in range(6):
+            for pair_index, shallow_depth in enumerate((3, 4)):
+                row = non_pv_scout(sample(node_index))
+                shallow_score = node_index - 2 + pair_index
+                deep_score = 2 * (node_index - 2) + 1
+                row.update(
+                    {
+                        "collection_pair_index": pair_index,
+                        "collection_pair_count": 2,
+                        "same_deep_pair_index": pair_index,
+                        "same_deep_pair_count": 2,
+                        "shallow_depth": shallow_depth,
+                        "shallow_verification_score": shallow_score,
+                        "deep_verification_score": deep_score,
+                    }
+                )
+                deep = deep_score
+                shallow = int(row["shallow_verification_score"])
+                row.update(
+                    {
+                        "official_deep_score": deep,
+                        "official_deep_bound": "upper" if deep <= 0 else "lower",
+                        "node_type": "all" if deep <= 0 else "cut",
+                        "cut_node": deep > 0,
+                        "all_node": deep <= 0,
+                        "actual_official_deep_result": "fail_low" if deep <= 0 else "fail_high",
+                        "hypothetical_cut_high": shallow >= 1,
+                        "hypothetical_cut_low": shallow <= 0,
+                        "false_cut_high_candidate": shallow >= 1 and deep < 1,
+                        "false_cut_low_candidate": shallow <= 0 and deep > 0,
+                    }
+                )
+                rows.append(self.analyzer.validate_sample(row, f"node[{node_index}].pair[{pair_index}]"))
+
+        report = self.analyzer.build_report(rows, "e" * 64, 1, 2)
+        self.assertEqual(
+            report["collection_depth_pairs"],
+            [
+                {"pair_index": 0, "deep_depth": 6, "shallow_depth": 3},
+                {"pair_index": 1, "deep_depth": 6, "shallow_depth": 4},
+            ],
+        )
+        self.assertEqual(len(report["scheduler_observations"]), 6)
+        self.assertTrue(all(len(node["pairs"]) == 2 for node in report["scheduler_observations"]))
+
+    def test_incomplete_same_deep_pair_population_is_rejected(self) -> None:
+        first = sample(0)
+        first.update(
+            {
+                "collection_pair_count": 2,
+                "same_deep_pair_count": 2,
+            }
+        )
+        second = sample(1)
+        second.update(
+            {
+                "collection_pair_index": 1,
+                "collection_pair_count": 2,
+                "same_deep_pair_count": 2,
+                "same_deep_pair_index": 1,
+                "shallow_depth": 4,
+            }
+        )
+        rows = [
+            self.analyzer.validate_sample(first, "first"),
+            self.analyzer.validate_sample(second, "second"),
+        ]
+        with self.assertRaisesRegex(self.analyzer.CalibrationInputError, "complete same-deep"):
+            self.analyzer.build_report(rows, "f" * 64, 1)
+
+    def test_exact_handoff_domain_is_observed_not_inferred(self) -> None:
+        row = sample(0)
+        row.update(
+            {
+                "occupied_count": 52,
+                "empties": 12,
+                "exact_handoff_enabled": True,
+                "exact_handoff_threshold": 8,
+                "exact_handoff_distance": 4,
+            }
+        )
+        validated = self.analyzer.validate_sample(row, "handoff")
+        report = self.analyzer.build_report([validated], "1" * 64, 1, 2)
+        group = report["groups"][0]
+        self.assertTrue(group["exact_handoff_enabled"])
+        self.assertEqual(group["exact_handoff_threshold"], 8)
+        self.assertEqual(group["observed_domain"]["empties_bucket"]["observed_values"], [12])
+        self.assertEqual(
+            group["observed_domain"]["exact_handoff_distance_bucket"]["observed_values"],
+            [4],
+        )
 
     def test_single_exact_pair_has_no_fit_or_margin(self) -> None:
         row = self.analyzer.validate_sample(sample(), "single")

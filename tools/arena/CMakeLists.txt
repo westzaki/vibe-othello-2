@@ -107,4 +107,10 @@ if(BUILD_TESTING)
       --schema-checker
       ${CMAKE_CURRENT_SOURCE_DIR}/check_fixed_time_artifact_strength_decision.py
       --artifact-fixture ${CMAKE_CURRENT_SOURCE_DIR}/check_full_game_artifact_arena_smoke.py)
+
+  add_test(
+    NAME vibe_othello_multi_probcut_strength_campaign_smoke
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_multi_probcut_strength_campaign.py
+            --runner ${CMAKE_CURRENT_SOURCE_DIR}/run_multi_probcut_strength_campaign.py)
 endif()

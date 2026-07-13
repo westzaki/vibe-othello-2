@@ -344,12 +344,13 @@ artifacts must not be committed.
 ## Multi-ProbCut Strength Campaign
 
 `run_multi_probcut_strength_campaign.py` runs the same reviewed calibration
-profile and artifact through three policies: MPC off, conservative first-pair
-ProbCut, and ordered Multi-ProbCut. It covers fixed depth, fixed nodes, and
-50/100/500 ms by default, repeats multiple seeds and opening corpora, swaps the
-candidate/baseline policy assignment, and includes an off/off same-config
-sanity cell. Artifact, opening, exact threshold, TT budget, and persistent
-session policy are held constant within each comparison.
+profile and artifact through MPC off, conservative first-pair ProbCut, ordered
+Multi-ProbCut, and shadow Multi-ProbCut. In addition to each policy versus off,
+the matrix directly runs multi versus single and swaps every policy assignment.
+It covers fixed depth, fixed nodes, and 50/100/500 ms by default, repeats
+multiple seeds and opening corpora, and includes an off/off same-config sanity
+cell. Artifact, opening, exact threshold, TT budget, and persistent-session
+policy are held constant within each comparison.
 
 ```sh
 python3 tools/arena/run_multi_probcut_strength_campaign.py \
@@ -366,13 +367,20 @@ python3 tools/arena/run_multi_probcut_strength_campaign.py \
   --resume
 ```
 
-The profile evaluator and artifact families must exactly match the manifest.
-The runner rejects failed/illegal games and summarizes score rate, fixed 95%
-opening-pair bootstrap interval, completed-depth delta, NPS, and MPC telemetry.
-It intentionally leaves `production_enablement_authorized=false`: a reviewer
-must separately accept the false-cut audit, fixed-depth correctness holdout,
-exact holdout, overhead, primary 500-ms interval, and cross-seed/opening
-consistency. Generated campaign reports remain local and must not be committed.
+The profile evaluator/artifact families, training checksum, joint holdout
+checksum, scheduler evidence, ordered pairs, and reviewed probe cap must match
+the resolved Arena options. The runner also binds requested node/depth/time
+limits, bootstrap settings, opening checksum/count, artifact runtime identity,
+TT/session settings, and Arena strength-gate eligibility. Primary 500-ms cells
+are ineligible below 100 opening pairs. Automatic checks require multi to beat
+off with a lower 95% bound above 0.5, remain non-degraded versus single, avoid a
+large 100-ms reversal, exercise and cut with a later pair, and pass joint shadow
+false-cut auditing. Fixed-depth/fixed-node same-config runs require exact
+neutrality; fixed-time sanity is reported statistically because scheduling can
+change completed depth. It intentionally leaves
+`production_enablement_authorized=false`: fixed-depth differential correctness
+and exact holdouts still require review. Generated reports remain local and
+must not be committed.
 No reviewed profile is shipped, so this command is opt-in tooling and does not
 enable any preset.
 
