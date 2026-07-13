@@ -334,8 +334,11 @@ def assert_probcut_profile_v3_loader(exe: str, temp_dir: Path) -> None:
         "confidence_multiplier\tminimum_shallow_score\tmaximum_shallow_score\tminimum_beta\tmaximum_beta"
     )
     evidence = ";".join(
-        f"2:2:{phase}:move:0:60:3:false:0:0:0:100:0:100:0.05"
-        for phase in range(13)
+        ["1:1:0:move:0:60:3:false:0:0:0:100:0:100:0.05"]
+        + [
+            f"2:2:{phase}:move:0:60:3:false:0:0:0:100:0:100:0.05"
+            for phase in range(13)
+        ]
     )
     identity = (
         "3\tsynthetic-loader-fixture\t" + "0" * 64 + "\t" + "1" * 64
@@ -389,6 +392,8 @@ def assert_probcut_profile_v3_loader(exe: str, temp_dir: Path) -> None:
     resolved = report["search_config"]["candidate_resolved_options"]["multi_probcut"]
     if (
         resolved.get("enabled") is not True
+        or resolved.get("effective_enabled") is not True
+        or resolved.get("requested_mode") != "multi"
         or resolved.get("joint_holdout_checksum_sha256") != "1" * 64
         or resolved.get("validated_maximum_probes_per_node") != 2
         or resolved.get("ordered_depth_pairs")
@@ -396,8 +401,24 @@ def assert_probcut_profile_v3_loader(exe: str, temp_dir: Path) -> None:
             {"deep_depth": 3, "shallow_depth": 1},
             {"deep_depth": 3, "shallow_depth": 2},
         ]
+        or resolved.get("effective_ordered_depth_pairs")
+        != [
+            {"deep_depth": 3, "shallow_depth": 1},
+            {"deep_depth": 3, "shallow_depth": 2},
+        ]
     ):
         raise AssertionError(f"profile-v3 evidence/order was not resolved: {resolved!r}")
+    single_report = temp_dir / "probcut-profile-v3-invalid-single.json"
+    single_command = list(command)
+    single_command[single_command.index("multi")] = "single"
+    single_command[single_command.index(str(report_path))] = str(single_report)
+    completed = run(single_command)
+    if completed.returncode == 0:
+        raise AssertionError("single ProbCut with incomplete domain evidence unexpectedly ran")
+    if "candidate requested ProbCut mode is not effective" not in completed.stderr:
+        raise AssertionError(f"single ProbCut rejection was not explicit:\n{completed.stderr}")
+    if single_report.exists():
+        raise AssertionError("rejected single ProbCut wrote an Arena report")
 
 
 def assert_explicit_limit_modes(exe: str, temp_dir: Path) -> None:

@@ -8,7 +8,7 @@
 #include <string_view>
 #include <type_traits>
 
-namespace vibe_othello::search::internal {
+namespace vibe_othello::search {
 namespace {
 
 constexpr std::uint64_t kFnvOffset = 14'695'981'039'346'656'037ULL;
@@ -100,9 +100,9 @@ bool scheduler_evidence_covers_entry(const ProbCutCalibrationProfileV1& profile,
       });
 }
 
-bool scheduler_configuration_is_reviewed(const ProbCutCalibrationProfileV1& profile,
-                                         std::size_t prefix_length,
-                                         std::uint8_t maximum_probes) noexcept {
+bool scheduler_evidence_covers_configuration(const ProbCutCalibrationProfileV1& profile,
+                                             std::size_t prefix_length,
+                                             std::uint8_t maximum_probes) noexcept {
   bool enables_a_domain = false;
   for (const ProbCutCalibrationEntryV1& entry : profile.entries) {
     if (!pair_is_in_prefix(profile, entry, prefix_length)) {
@@ -251,8 +251,8 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
     }
   }
 
-  if (!scheduler_configuration_is_reviewed(*profile, profile->validated_pair_order.size(),
-                                           profile->validated_maximum_probes_per_node)) {
+  if (!probcut_configuration_is_reviewed(*profile, profile->validated_pair_order,
+                                         profile->validated_maximum_probes_per_node)) {
     return false;
   }
 
@@ -353,9 +353,7 @@ bool valid_probcut_options(const ProbCutOptionsV1& options, bool use_legacy_sear
       return false;
     }
   }
-  if (options.maximum_probes_per_node > preference.size() ||
-      !scheduler_configuration_is_reviewed(profile, preference.size(),
-                                           options.maximum_probes_per_node)) {
+  if (!probcut_configuration_is_reviewed(profile, preference, options.maximum_probes_per_node)) {
     return false;
   }
 
@@ -374,10 +372,40 @@ bool valid_probcut_options(const ProbCutOptionsV1& options, bool use_legacy_sear
 
 } // namespace
 
-ResolvedSearchOptions normalize_search_options(SearchOptions options) noexcept {
+bool probcut_configuration_is_reviewed(const ProbCutCalibrationProfileV1& profile,
+                                       std::span<const ProbCutDepthPairV1> ordered_depth_pairs,
+                                       std::uint8_t maximum_probes_per_node) noexcept {
+  if (ordered_depth_pairs.empty() ||
+      ordered_depth_pairs.size() > profile.validated_pair_order.size() ||
+      maximum_probes_per_node == 0 || maximum_probes_per_node > ordered_depth_pairs.size() ||
+      maximum_probes_per_node > profile.validated_maximum_probes_per_node) {
+    return false;
+  }
+  for (std::size_t index = 0; index < ordered_depth_pairs.size(); ++index) {
+    if (ordered_depth_pairs[index] != profile.validated_pair_order[index]) {
+      return false;
+    }
+  }
+  return scheduler_evidence_covers_configuration(profile, ordered_depth_pairs.size(),
+                                                 maximum_probes_per_node);
+}
+
+ResolvedProbCutConfigurationV1
+resolve_probcut_configuration(ProbCutOptionsV1 options, bool use_legacy_search_kernel) noexcept {
+  std::uint64_t profile_fingerprint = 0;
+  if (!valid_probcut_options(options, use_legacy_search_kernel, &profile_fingerprint)) {
+    return {};
+  }
+  return ResolvedProbCutConfigurationV1{
+      .options = options,
+      .semantic_fingerprint = profile_fingerprint,
+  };
+}
+
+internal::ResolvedSearchOptions internal::normalize_search_options(SearchOptions options) noexcept {
   // Compatibility rule for the staged migration: legacy flat fields remain
   // sticky, while typed config can express the same behavior for new callers.
-  ResolvedSearchOptions resolved{
+  internal::ResolvedSearchOptions resolved{
       .mode = options.mode,
       .midgame =
           MidgameSearchOptions{
@@ -426,13 +454,11 @@ ResolvedSearchOptions normalize_search_options(SearchOptions options) noexcept {
       .selective = options.selective,
   };
 
-  std::uint64_t profile_fingerprint = 0;
-  if (valid_probcut_options(options.probcut_options, resolved.experimental.use_legacy_search_kernel,
-                            &profile_fingerprint)) {
-    resolved.probcut = options.probcut_options;
-    resolved.probcut_profile_semantic_fingerprint = profile_fingerprint;
-  }
+  const ResolvedProbCutConfigurationV1 probcut_resolution = resolve_probcut_configuration(
+      options.probcut_options, resolved.experimental.use_legacy_search_kernel);
+  resolved.probcut = probcut_resolution.options;
+  resolved.probcut_profile_semantic_fingerprint = probcut_resolution.semantic_fingerprint;
   return resolved;
 }
 
-} // namespace vibe_othello::search::internal
+} // namespace vibe_othello::search

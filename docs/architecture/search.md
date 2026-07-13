@@ -385,6 +385,13 @@ Invalid or incomplete configuration normalizes to disabled; it never invents a
 coefficient or fallback margin. Profile storage, entries, and strings must
 outlive the search call.
 
+`probcut_configuration_is_reviewed()` exposes the exact prefix/probe/domain
+evidence check, while `resolve_probcut_configuration()` applies the complete
+runtime normalization contract and returns an effective disabled-or-enabled
+configuration. Engine normalization, Arena, and search benchmarks use this
+shared resolver so measurement tooling cannot label a raw request as active
+when search would normalize it to off.
+
 The public API still accepts legacy flat fields during migration:
 
 ```cpp
@@ -1422,6 +1429,9 @@ passing evidence record for every domain reached by its selected entries. A
 reordered or suffix-only selection, unsafe prefix, or unobserved domain disables
 MPC during normalization. Thus a full scheduler may be accepted while a
 statistically unsafe single-pair prefix remains unavailable.
+Callers that produce comparative evidence must reject a requested non-off mode
+when `resolve_probcut_configuration()` returns disabled; silently continuing as
+an off-policy run is not a valid comparison.
 
 At a node, the scheduler walks the configured pair preference, considering
 only pairs whose deep depth exactly equals the current depth. It stops at the

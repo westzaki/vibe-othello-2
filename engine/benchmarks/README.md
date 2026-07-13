@@ -84,6 +84,10 @@ compatibility alias for `multi`. `single` requests the first pair with one
 probe, but it is enabled only when that exact prefix/domain configuration has
 its own passing holdout evidence. `multi` follows the reviewed pair preference
 subject to the per-node probe and overhead caps and the same evidence rule.
+Every requested non-off benchmark variant is resolved with the same public
+helper as engine normalization and fails before measurement if it would be
+effectively disabled; the benchmark never relabels an off fallback as single or
+multi.
 `--pvs on` is required because pruning is attempted
 only at cut-node-equivalent PVS scout entries.
 

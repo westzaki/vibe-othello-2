@@ -289,6 +289,11 @@ configured `--tt-bytes` budget always applies to the actual search session;
 `--persistent-session` controls only whether knowledge is retained between
 moves. Allocation output includes `tt_enabled` and `tt_allocation_succeeded` so
 an intentional zero-byte table is distinguishable from allocation failure.
+For ProbCut, `candidate_requested_probcut_mode` and requested prefix/probe
+fields record the command, while `effective_enabled`,
+`effective_ordered_depth_pairs`, and `effective_maximum_probes_per_node` record
+the shared runtime resolution. Arena exits before playing or writing a report
+if any requested non-off policy resolves to disabled.
 
 Speed rates use the arena's `steady_clock` nanosecond measurement around each
 search call. The engine-reported integer milliseconds and their difference
@@ -372,7 +377,10 @@ checksum, per-prefix/probe/domain scheduler evidence, ordered pairs, and reviewe
 the resolved Arena options. The runner also binds requested node/depth/time
 limits, bootstrap settings, opening checksum/count, artifact runtime identity,
 TT/session settings, and Arena strength-gate eligibility. Primary 500-ms cells
-are ineligible below 100 opening pairs. Automatic checks require multi to beat
+are accepted only when both sides' effective policies match the requested
+off/single/multi/shadow assignment; a raw single request normalized to off
+cannot enter a multi-versus-single result. They are ineligible below 100
+opening pairs. Automatic checks require multi to beat
 off with a lower 95% bound above 0.5, remain non-degraded versus single, avoid a
 large 100-ms reversal, exercise and cut with a later pair, and pass joint shadow
 false-cut auditing. Fixed-depth/fixed-node same-config runs require exact

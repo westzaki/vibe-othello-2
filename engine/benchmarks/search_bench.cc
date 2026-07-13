@@ -659,6 +659,8 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant,
         .calibration_profile = profile,
     };
   }
+  options.probcut_options =
+      vibe_othello::search::resolve_probcut_configuration(options.probcut_options).options;
   return options;
 }
 
@@ -1777,6 +1779,8 @@ TimedResult run_search(BenchmarkMode mode, BenchmarkVariant variant, Position po
   const auto start = std::chrono::steady_clock::now();
   const SearchOptions options =
       search_options_for_variant(variant, probcut_profile, evaluator_family, artifact_family);
+  require_condition(variant.probcut_mode == ProbCutMode::off || options.probcut_options.use_probcut,
+                    "requested ProbCut benchmark mode is not effective under the reviewed profile");
 
   SearchResult result;
   if (mode == BenchmarkMode::fixed && !variant.probcut_matrix) {

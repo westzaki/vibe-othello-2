@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-RUNNER_VERSION = "multi-probcut-strength-campaign-v2"
+RUNNER_VERSION = "multi-probcut-strength-campaign-v3"
 COMPARISONS = {
     "same_config_off": ("off", "off"),
     "single_off_forward": ("single", "off"),
@@ -73,6 +73,49 @@ def fnv1a64_file(path: Path) -> str:
     return f"fnv1a64:{value:016x}"
 
 
+def parse_profile_bool(value: str, label: str) -> bool:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise CampaignError(f"ProbCut profile {label} is malformed")
+
+
+def scheduler_domain_from_profile_row(fields: dict[str, str]) -> tuple[Any, ...]:
+    return (
+        int(fields["phase"]),
+        fields["search_mode"],
+        int(fields["minimum_empties"]),
+        int(fields["maximum_empties"]),
+        int(fields["deep_depth"]),
+        parse_profile_bool(fields["exact_handoff_enabled"], "exact_handoff_enabled"),
+        int(fields["exact_handoff_threshold"]),
+        int(fields["minimum_exact_handoff_distance"]),
+        int(fields["maximum_exact_handoff_distance"]),
+    )
+
+
+def parse_scheduler_domain_evidence(record: str) -> tuple[int, int, tuple[Any, ...]]:
+    fields = record.split(":")
+    if len(fields) != 15:
+        raise CampaignError("ProbCut scheduler/domain evidence is malformed")
+    try:
+        domain = (
+            int(fields[2]),
+            fields[3],
+            int(fields[4]),
+            int(fields[5]),
+            int(fields[6]),
+            parse_profile_bool(fields[7], "scheduler exact_handoff_enabled"),
+            int(fields[8]),
+            int(fields[9]),
+            int(fields[10]),
+        )
+        return int(fields[0]), int(fields[1]), domain
+    except ValueError as error:
+        raise CampaignError(f"ProbCut scheduler/domain evidence is malformed: {error}") from error
+
+
 def profile_identity(path: Path) -> dict[str, Any]:
     try:
         rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
@@ -105,6 +148,7 @@ def profile_identity(path: Path) -> dict[str, Any]:
         if len(checksum) != 64 or any(character not in "0123456789abcdef" for character in checksum):
             raise CampaignError(f"ProbCut profile {field} is not lowercase SHA-256")
     pairs: list[dict[str, int]] = []
+    entry_domains: list[tuple[tuple[int, int], tuple[Any, ...]]] = []
     try:
         for line in rows[1:]:
             fields = dict(zip(header, line.split("\t"), strict=True))
@@ -118,6 +162,12 @@ def profile_identity(path: Path) -> dict[str, Any]:
                 raise CampaignError("ProbCut profile contains an invalid depth pair")
             if pair not in pairs:
                 pairs.append(pair)
+            entry_domains.append(
+                (
+                    (pair["deep_depth"], pair["shallow_depth"]),
+                    scheduler_domain_from_profile_row(fields),
+                )
+            )
     except (KeyError, ValueError) as error:
         raise CampaignError(f"ProbCut profile row is malformed: {error}") from error
     try:
@@ -136,21 +186,28 @@ def profile_identity(path: Path) -> dict[str, Any]:
     ):
         raise CampaignError("ProbCut scheduler evidence is invalid")
     scheduler_domain_evidence = identity["scheduler_domain_evidence"].split(";")
-    if not scheduler_domain_evidence or any(record.count(":") != 14 for record in scheduler_domain_evidence):
-        raise CampaignError("ProbCut scheduler/domain evidence is malformed")
-    try:
-        reviewed_scheduler_configurations = {
-            (int(record.split(":", 2)[0]), int(record.split(":", 2)[1]))
-            for record in scheduler_domain_evidence
-        }
-    except ValueError as error:
-        raise CampaignError(f"ProbCut scheduler/domain evidence is malformed: {error}") from error
+    parsed_scheduler_evidence = {
+        parse_scheduler_domain_evidence(record) for record in scheduler_domain_evidence
+    }
     required_scheduler_configurations = {
         (1, 1),
         (len(pairs), validated_maximum_probes),
     }
-    if not required_scheduler_configurations.issubset(reviewed_scheduler_configurations):
-        raise CampaignError("ProbCut profile does not authorize both single and multi campaign modes")
+    pair_tuples = [(pair["deep_depth"], pair["shallow_depth"]) for pair in pairs]
+    for prefix_length, maximum_probes in required_scheduler_configurations:
+        enabled_pairs = set(pair_tuples[:prefix_length])
+        enabled_domains = {
+            domain for pair, domain in entry_domains if pair in enabled_pairs
+        }
+        missing_domains = [
+            domain
+            for domain in enabled_domains
+            if (prefix_length, maximum_probes, domain) not in parsed_scheduler_evidence
+        ]
+        if missing_domains:
+            raise CampaignError(
+                "ProbCut profile does not authorize all domains for both single and multi campaign modes"
+            )
     return {
         **identity,
         "profile_file_sha256": sha256_file(path),
@@ -269,6 +326,11 @@ def validate_report(
         raise CampaignError(f"arena report search configuration mismatch: {path}")
     expected_pairs = profile["validated_pair_order"]
     for role, mode in (("candidate", candidate_mode), ("baseline", baseline_mode)):
+        if (
+            config.get(f"{role}_requested_probcut_mode") != mode
+            or config.get(f"{role}_probcut_mode") != mode
+        ):
+            raise CampaignError(f"arena report {role} requested MPC mode mismatch: {path}")
         options = config.get(f"{role}_resolved_options")
         if not isinstance(options, dict):
             raise CampaignError(f"arena report lacks {role} options: {path}")
@@ -276,13 +338,19 @@ def validate_report(
         if not isinstance(multi, dict):
             raise CampaignError(f"arena report lacks {role} MPC options: {path}")
         if mode == "off":
-            if multi.get("enabled") is not False:
+            if (
+                multi.get("requested_mode") != "off"
+                or multi.get("enabled") is not False
+                or multi.get("effective_enabled") is not False
+            ):
                 raise CampaignError(f"arena report unexpectedly enables {role} MPC: {path}")
             continue
         selected_pairs = expected_pairs[:1] if mode == "single" else expected_pairs
         expected_probes = 1 if mode == "single" else args.maximum_probes
         if (
-            multi.get("enabled") is not True
+            multi.get("requested_mode") != mode
+            or multi.get("enabled") is not True
+            or multi.get("effective_enabled") is not True
             or multi.get("profile_id") != profile["profile_id"]
             or multi.get("source_checksum_sha256") != profile["source_checksum_sha256"]
             or multi.get("joint_holdout_checksum_sha256")
@@ -298,7 +366,9 @@ def validate_report(
             or multi.get("evaluator_family") != profile["evaluator_family"]
             or multi.get("artifact_family") != profile["artifact_family"]
             or multi.get("ordered_depth_pairs") != selected_pairs
+            or multi.get("effective_ordered_depth_pairs") != selected_pairs
             or multi.get("maximum_probes_per_node") != expected_probes
+            or multi.get("effective_maximum_probes_per_node") != expected_probes
             or multi.get("stop_after_first_success") is not True
             or multi.get("minimum_confidence") != args.minimum_confidence
             or multi.get("minimum_margin") != args.minimum_margin

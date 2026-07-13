@@ -118,6 +118,8 @@ struct Args {
 struct SearchConfig {
   SearchPreset preset = SearchPreset::full;
   search::SearchLimits limits;
+  search::SearchOptions candidate_requested_options;
+  search::SearchOptions baseline_requested_options;
   search::SearchOptions candidate_options;
   search::SearchOptions baseline_options;
   ProbCutMode candidate_probcut = ProbCutMode::off;
@@ -1011,10 +1013,10 @@ void configure_probcut(search::SearchOptions* options, ProbCutMode mode, const A
   };
 }
 
-SearchConfig make_search_config(const Args& args,
-                                const search::ProbCutCalibrationProfileV1* probcut_profile,
-                                const ArtifactIdentity& candidate_identity,
-                                const ArtifactIdentity& baseline_identity) {
+std::optional<SearchConfig>
+make_search_config(const Args& args, const search::ProbCutCalibrationProfileV1* probcut_profile,
+                   const ArtifactIdentity& candidate_identity,
+                   const ArtifactIdentity& baseline_identity) {
   const bool full = args.search_preset == SearchPreset::full;
   const LimitMode mode = *args.limit_mode;
   const bool fixed_nodes_or_time = mode == LimitMode::fixed_nodes || mode == LimitMode::fixed_time;
@@ -1044,12 +1046,28 @@ SearchConfig make_search_config(const Args& args,
       .experimental = search::ExperimentalSearchOptions{},
       .mode = search::SearchMode::move,
   };
-  search::SearchOptions candidate_options = base_options;
-  search::SearchOptions baseline_options = base_options;
-  configure_probcut(&candidate_options, args.candidate_probcut, args, probcut_profile,
+  search::SearchOptions candidate_requested_options = base_options;
+  search::SearchOptions baseline_requested_options = base_options;
+  configure_probcut(&candidate_requested_options, args.candidate_probcut, args, probcut_profile,
                     candidate_identity.pattern_set_id, candidate_identity.artifact_id);
-  configure_probcut(&baseline_options, args.baseline_probcut, args, probcut_profile,
+  configure_probcut(&baseline_requested_options, args.baseline_probcut, args, probcut_profile,
                     baseline_identity.pattern_set_id, baseline_identity.artifact_id);
+  const search::ResolvedProbCutConfigurationV1 candidate_probcut =
+      search::resolve_probcut_configuration(candidate_requested_options.probcut_options);
+  const search::ResolvedProbCutConfigurationV1 baseline_probcut =
+      search::resolve_probcut_configuration(baseline_requested_options.probcut_options);
+  if (args.candidate_probcut != ProbCutMode::off && !candidate_probcut.enabled()) {
+    std::cerr << "candidate requested ProbCut mode is not effective under the reviewed profile\n";
+    return std::nullopt;
+  }
+  if (args.baseline_probcut != ProbCutMode::off && !baseline_probcut.enabled()) {
+    std::cerr << "baseline requested ProbCut mode is not effective under the reviewed profile\n";
+    return std::nullopt;
+  }
+  search::SearchOptions candidate_options = candidate_requested_options;
+  candidate_options.probcut_options = candidate_probcut.options;
+  search::SearchOptions baseline_options = baseline_requested_options;
+  baseline_options.probcut_options = baseline_probcut.options;
   return SearchConfig{
       .preset = args.search_preset,
       .limits =
@@ -1059,6 +1077,8 @@ SearchConfig make_search_config(const Args& args,
               .max_time = args.max_time,
               .infinite = fixed_nodes_or_time,
           },
+      .candidate_requested_options = candidate_requested_options,
+      .baseline_requested_options = baseline_requested_options,
       .candidate_options = candidate_options,
       .baseline_options = baseline_options,
       .candidate_probcut = args.candidate_probcut,
@@ -1553,7 +1573,35 @@ void write_artifact_identity(std::ostream& output, const ArtifactIdentity& ident
   output << "}";
 }
 
-void write_search_options(std::ostream& output, const search::SearchOptions& options) {
+void write_probcut_pairs(std::ostream& output, std::span<const search::ProbCutDepthPairV1> pairs) {
+  output << '[';
+  for (std::size_t index = 0; index < pairs.size(); ++index) {
+    if (index != 0) {
+      output << ", ";
+    }
+    const search::ProbCutDepthPairV1 pair = pairs[index];
+    output << "{\"deep_depth\": " << pair.deep_depth
+           << ", \"shallow_depth\": " << pair.shallow_depth << "}";
+  }
+  output << ']';
+}
+
+void write_requested_probcut_options(std::ostream& output, const search::SearchOptions& options,
+                                     ProbCutMode requested_mode) {
+  const search::ProbCutOptionsV1& probcut = options.probcut_options;
+  output << "{\"requested_mode\": ";
+  write_json_string(output, probcut_mode_name(requested_mode));
+  output << ", \"requested_enabled\": ";
+  write_bool(output, probcut.use_probcut);
+  output << ", \"requested_maximum_probes_per_node\": "
+         << static_cast<int>(probcut.maximum_probes_per_node);
+  output << ", \"requested_ordered_depth_pairs\": ";
+  write_probcut_pairs(output, probcut.ordered_depth_pairs);
+  output << '}';
+}
+
+void write_search_options(std::ostream& output, const search::SearchOptions& options,
+                          ProbCutMode requested_mode) {
   output << "{";
   output << "\"use_pvs\": ";
   write_bool(output, options.midgame.use_pvs);
@@ -1586,7 +1634,11 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
   write_bool(output, options.experimental.use_parallel);
   output << ", \"selectivity_level\": " << static_cast<int>(options.experimental.selectivity_level);
   const search::ProbCutOptionsV1& probcut = options.probcut_options;
-  output << ", \"multi_probcut\": {\"enabled\": ";
+  output << ", \"multi_probcut\": {\"requested_mode\": ";
+  write_json_string(output, probcut_mode_name(requested_mode));
+  output << ", \"enabled\": ";
+  write_bool(output, probcut.use_probcut);
+  output << ", \"effective_enabled\": ";
   write_bool(output, probcut.use_probcut);
   output << ", \"profile_id\": ";
   write_json_string(output, probcut.use_probcut ? probcut.calibration_profile_id : "none");
@@ -1625,7 +1677,10 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
   write_json_string(output, probcut.artifact_family);
   output << ", \"minimum_depth\": " << probcut.minimum_depth;
   output << ", \"shallow_depth_reduction\": " << probcut.shallow_depth_reduction;
-  output << ", \"maximum_probes_per_node\": " << static_cast<int>(probcut.maximum_probes_per_node);
+  output << ", \"maximum_probes_per_node\": "
+         << (probcut.use_probcut ? static_cast<int>(probcut.maximum_probes_per_node) : 0);
+  output << ", \"effective_maximum_probes_per_node\": "
+         << (probcut.use_probcut ? static_cast<int>(probcut.maximum_probes_per_node) : 0);
   output << ", \"stop_after_first_success\": ";
   write_bool(output, probcut.stop_after_first_success);
   output << ", \"confidence_multiplier\": " << probcut.confidence_multiplier;
@@ -1644,16 +1699,11 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
          << static_cast<int>(probcut.near_exact_disable_empties);
   output << ", \"shadow_verify\": ";
   write_bool(output, probcut.shadow_verify);
-  output << ", \"ordered_depth_pairs\": [";
-  for (std::size_t index = 0; index < probcut.ordered_depth_pairs.size(); ++index) {
-    if (index != 0) {
-      output << ", ";
-    }
-    const search::ProbCutDepthPairV1 pair = probcut.ordered_depth_pairs[index];
-    output << "{\"deep_depth\": " << pair.deep_depth
-           << ", \"shallow_depth\": " << pair.shallow_depth << "}";
-  }
-  output << "]}";
+  output << ", \"ordered_depth_pairs\": ";
+  write_probcut_pairs(output, probcut.ordered_depth_pairs);
+  output << ", \"effective_ordered_depth_pairs\": ";
+  write_probcut_pairs(output, probcut.ordered_depth_pairs);
+  output << '}';
   output << "}";
 }
 
@@ -1698,12 +1748,22 @@ void write_search_config(std::ostream& output, const SearchConfig& config) {
   write_json_string(output, probcut_mode_name(config.candidate_probcut));
   output << ", \"baseline_probcut_mode\": ";
   write_json_string(output, probcut_mode_name(config.baseline_probcut));
+  output << ", \"candidate_requested_probcut_mode\": ";
+  write_json_string(output, probcut_mode_name(config.candidate_probcut));
+  output << ", \"baseline_requested_probcut_mode\": ";
+  write_json_string(output, probcut_mode_name(config.baseline_probcut));
+  output << ", \"candidate_requested_probcut_options\": ";
+  write_requested_probcut_options(output, config.candidate_requested_options,
+                                  config.candidate_probcut);
+  output << ", \"baseline_requested_probcut_options\": ";
+  write_requested_probcut_options(output, config.baseline_requested_options,
+                                  config.baseline_probcut);
   output << ", \"resolved_options\": ";
-  write_search_options(output, config.candidate_options);
+  write_search_options(output, config.candidate_options, config.candidate_probcut);
   output << ", \"candidate_resolved_options\": ";
-  write_search_options(output, config.candidate_options);
+  write_search_options(output, config.candidate_options, config.candidate_probcut);
   output << ", \"baseline_resolved_options\": ";
-  write_search_options(output, config.baseline_options);
+  write_search_options(output, config.baseline_options, config.baseline_probcut);
   output << "}";
 }
 
@@ -2596,16 +2656,19 @@ int main(int argc, char** argv) {
   if (!baseline.has_value()) {
     return 1;
   }
-  const SearchConfig search_config =
+  const std::optional<SearchConfig> search_config =
       make_search_config(*args, probcut_profile.has_value() ? &*probcut_profile : nullptr,
                          candidate->identity, baseline->identity);
+  if (!search_config.has_value()) {
+    return 1;
+  }
   const auto started = std::chrono::steady_clock::now();
   std::vector<GameRecord> games;
   games.reserve(openings.size() * 2U);
   int game_id = 1;
   for (const SelectedOpening& opening : openings) {
-    games.push_back(play_game(game_id++, opening, true, *candidate, *baseline, search_config));
-    games.push_back(play_game(game_id++, opening, false, *candidate, *baseline, search_config));
+    games.push_back(play_game(game_id++, opening, true, *candidate, *baseline, *search_config));
+    games.push_back(play_game(game_id++, opening, false, *candidate, *baseline, *search_config));
     if (args->progress_every > 0 &&
         games.size() % static_cast<std::size_t>(args->progress_every) == 0) {
       std::cerr << "full-game-artifact-arena progress games=" << games.size() << '\n';
@@ -2615,7 +2678,7 @@ int main(int argc, char** argv) {
       std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
   const ArenaStats stats = summarize(games);
   if (!write_report(*args, *candidate, *baseline, checksum_for(*openings_text),
-                    static_cast<int>(parsed_openings->size()), openings, search_config, games,
+                    static_cast<int>(parsed_openings->size()), openings, *search_config, games,
                     stats, elapsed_sec, std::filesystem::path{argv[0]})) {
     return 1;
   }

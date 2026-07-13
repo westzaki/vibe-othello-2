@@ -33,6 +33,8 @@ The persistent full-game artifact arena provides:
   executable identity, and opening selection
 * independent candidate/baseline off, single-pair, and Multi-ProbCut policies
   with phase/depth-pair telemetry
+* fail-fast shared runtime normalization for non-off ProbCut requests, plus
+  separate requested/effective policy fields in reports
 * a local off/single/multi/shadow campaign across fixed depth, fixed nodes, and
   50/100/500-ms cells, with direct multi-vs-single comparisons, multiple
   seeds/opening subsets, and policy swaps

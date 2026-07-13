@@ -21,7 +21,7 @@ def load_runner(path: Path):
     return module
 
 
-def profile_text() -> str:
+def profile_text(*, uncovered_single_domain: bool = False) -> str:
     header = (
         "schema_version\tprofile_id\tsource_checksum_sha256\tjoint_holdout_checksum_sha256\t"
         "evaluator_family\tartifact_family\tnode_class\tvalidated_maximum_probes_per_node\t"
@@ -32,14 +32,22 @@ def profile_text() -> str:
         "maximum_exact_handoff_distance\tregression_slope\tintercept\tresidual_sigma\t"
         "confidence_multiplier\tminimum_shallow_score\tmaximum_shallow_score\tminimum_beta\tmaximum_beta"
     )
+    evidence = [
+        "1:1:3:move:20:20:8:false:0:0:0:100:0:100:0.04",
+        "2:2:3:move:20:20:8:false:0:0:0:100:0:100:0.04",
+    ]
+    if uncovered_single_domain:
+        evidence.append("2:2:4:move:20:20:8:false:0:0:0:100:0:100:0.04")
     identity = (
         "3\tfixture-v3\t" + "1" * 64 + "\t" + "2" * 64
         + "\tfixture-eval\tfixture-artifact\tnon_pv_scout_beta_only\t2\t0\t100\t0.04\t"
-        + "1:1:3:move:20:20:8:false:0:0:0:100:0:100:0.04;"
-        + "2:2:3:move:20:20:8:false:0:0:0:100:0:100:0.04"
+        + ";".join(evidence)
     )
-    domain = "\t3\tmove\t20\t20\t8\t{}\tfalse\t0\t0\t0\t1\t0\t1\t3\t-100\t100\t-80\t80"
-    return "\n".join((header, identity + domain.format(3), identity + domain.format(4))) + "\n"
+    rows = [header]
+    for phase in (3, 4) if uncovered_single_domain else (3,):
+        domain = f"\t{phase}\tmove\t20\t20\t8\t{{}}\tfalse\t0\t0\t0\t1\t0\t1\t3\t-100\t100\t-80\t80"
+        rows.extend((identity + domain.format(3), identity + domain.format(4)))
+    return "\n".join(rows) + "\n"
 
 
 class CampaignTests(unittest.TestCase):
@@ -70,6 +78,15 @@ class CampaignTests(unittest.TestCase):
                 {"deep_depth": 8, "shallow_depth": 4},
             ],
         )
+
+    def test_profile_identity_rejects_single_evidence_missing_an_enabled_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profile.tsv"
+            path.write_text(profile_text(uncovered_single_domain=True), encoding="utf-8")
+            with self.assertRaisesRegex(
+                self.runner.CampaignError, "does not authorize all domains"
+            ):
+                self.runner.profile_identity(path)
 
     def test_reverse_summary_uses_baseline_as_tested_policy(self) -> None:
         report = {
@@ -182,7 +199,9 @@ class CampaignTests(unittest.TestCase):
                 maximum_shallow_overhead_ratio=0.25,
             )
             enabled = {
+                "requested_mode": "multi",
                 "enabled": True,
+                "effective_enabled": True,
                 "profile_id": profile["profile_id"],
                 "source_checksum_sha256": profile["source_checksum_sha256"],
                 "joint_holdout_checksum_sha256": profile[
@@ -196,7 +215,9 @@ class CampaignTests(unittest.TestCase):
                 "evaluator_family": "fixture-eval",
                 "artifact_family": "fixture-artifact",
                 "ordered_depth_pairs": profile["validated_pair_order"],
+                "effective_ordered_depth_pairs": profile["validated_pair_order"],
                 "maximum_probes_per_node": 2,
+                "effective_maximum_probes_per_node": 2,
                 "stop_after_first_success": True,
                 "minimum_confidence": 0.0,
                 "minimum_margin": 0,
@@ -221,6 +242,8 @@ class CampaignTests(unittest.TestCase):
                 "search_config": {
                     "candidate_probcut_mode": "multi",
                     "baseline_probcut_mode": "off",
+                    "candidate_requested_probcut_mode": "multi",
+                    "baseline_requested_probcut_mode": "off",
                     "preset": "full",
                     "limit_mode": "fixed_wall_time",
                     "depth": 0,
@@ -231,7 +254,11 @@ class CampaignTests(unittest.TestCase):
                     "tt_requested_bytes": 1024,
                     "candidate_resolved_options": {"multi_probcut": enabled},
                     "baseline_resolved_options": {
-                        "multi_probcut": {"enabled": False}
+                        "multi_probcut": {
+                            "requested_mode": "off",
+                            "enabled": False,
+                            "effective_enabled": False,
+                        }
                     },
                 },
                 "failed_games": 0,
@@ -313,6 +340,51 @@ class CampaignTests(unittest.TestCase):
                         7,
                         openings,
                     )
+
+            multi_vs_single = copy.deepcopy(report)
+            multi_vs_single["search_config"].update(
+                baseline_probcut_mode="single",
+                baseline_requested_probcut_mode="single",
+            )
+            single = copy.deepcopy(enabled)
+            single.update(
+                requested_mode="single",
+                ordered_depth_pairs=profile["validated_pair_order"][:1],
+                effective_ordered_depth_pairs=profile["validated_pair_order"][:1],
+                maximum_probes_per_node=1,
+                effective_maximum_probes_per_node=1,
+            )
+            multi_vs_single["search_config"]["baseline_resolved_options"] = {
+                "multi_probcut": single
+            }
+            self.runner.validate_report(
+                multi_vs_single,
+                root / "report.json",
+                args,
+                profile,
+                "multi",
+                "single",
+                "fixed-time-500ms",
+                8,
+                7,
+                openings,
+            )
+            multi_vs_single["search_config"]["baseline_resolved_options"][
+                "multi_probcut"
+            ]["effective_enabled"] = False
+            with self.assertRaisesRegex(self.runner.CampaignError, "MPC identity mismatch"):
+                self.runner.validate_report(
+                    multi_vs_single,
+                    root / "report.json",
+                    args,
+                    profile,
+                    "multi",
+                    "single",
+                    "fixed-time-500ms",
+                    8,
+                    7,
+                    openings,
+                )
 
 
 def main() -> int:

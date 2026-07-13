@@ -101,7 +101,7 @@ struct ProbCutOptionsV1 {
   bool use_probcut = false;
   Depth minimum_depth = 0;
   // Retained in the public option shape for disabled-option compatibility.
-  // Reviewed schema-v2 profiles always use their validated pair order.
+  // Reviewed schema-v3 profiles always use their validated pair order.
   Depth shallow_depth_reduction = 0;
   std::uint8_t maximum_probes_per_node = 1;
   std::span<const ProbCutDepthPairV1> ordered_depth_pairs;
@@ -147,6 +147,29 @@ struct ProbCutOptionsV1 {
            lhs.calibration_profile == rhs.calibration_profile;
   }
 };
+
+struct ResolvedProbCutConfigurationV1 {
+  ProbCutOptionsV1 options{};
+  std::uint64_t semantic_fingerprint = 0;
+
+  [[nodiscard]] constexpr bool enabled() const noexcept {
+    return options.use_probcut;
+  }
+};
+
+// Returns true only when the exact ordered prefix and probe cap have scheduler
+// evidence for every profile domain enabled by that prefix.
+[[nodiscard]] bool
+probcut_configuration_is_reviewed(const ProbCutCalibrationProfileV1& profile,
+                                  std::span<const ProbCutDepthPairV1> ordered_depth_pairs,
+                                  std::uint8_t maximum_probes_per_node) noexcept;
+
+// Applies the same profile, identity, conservative-scope, and scheduler-evidence
+// checks used by search option normalization. Invalid requested options resolve
+// to a disabled default rather than retaining raw enablement fields.
+[[nodiscard]] ResolvedProbCutConfigurationV1
+resolve_probcut_configuration(ProbCutOptionsV1 options,
+                              bool use_legacy_search_kernel = false) noexcept;
 
 } // namespace vibe_othello::search
 

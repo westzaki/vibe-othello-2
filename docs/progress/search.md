@@ -142,7 +142,9 @@ The current search implementation includes:
 * off-by-default Multi-ProbCut cut-high capability with exact phase, empties,
   deep/shallow pair, node-class, search mode, exact-handoff threshold/proximity,
   evaluator-family, and artifact-family selection; only a pair-order
-  prefix/probe/domain combination with explicit passing evidence is accepted; cumulative overhead gate;
+  prefix/probe/domain combination with explicit passing evidence is accepted;
+  a shared effective-configuration resolver is used by engine/Arena/benchmark;
+  cumulative overhead gate;
   isolated shallow TT/ordering state; and phase/pair telemetry
 
 Existing search tests include:

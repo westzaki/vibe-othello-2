@@ -461,6 +461,8 @@ TEST_CASE("Multi-ProbCut requires scheduler evidence for every enabled exact dom
                                    .calibration_profile_id = profile.profile_id,
                                    .calibration_profile = &profile,
                                }};
+  REQUIRE_FALSE(probcut_configuration_is_reviewed(profile, std::span{pairs}.first(1), 1));
+  REQUIRE_FALSE(resolve_probcut_configuration(prefix_options.probcut_options).enabled());
   REQUIRE_FALSE(internal::normalize_search_options(prefix_options).probcut.use_probcut);
 
   std::array complete_evidence{
@@ -479,6 +481,8 @@ TEST_CASE("Multi-ProbCut requires scheduler evidence for every enabled exact dom
       incomplete_prefix_evidence[2],
   };
   profile.scheduler_evidence = complete_evidence;
+  REQUIRE(probcut_configuration_is_reviewed(profile, std::span{pairs}.first(1), 1));
+  REQUIRE(resolve_probcut_configuration(prefix_options.probcut_options).enabled());
   REQUIRE(internal::normalize_search_options(prefix_options).probcut.use_probcut);
 }
 

@@ -146,6 +146,13 @@ off, multi-pair versus the first-pair policy, and shadow multi-pair versus off,
 all in both policy assignments. Fixed-depth, fixed-node, and fixed-time cells
 share openings, exact policy, TT size, and session-retention settings.
 Multiple seeds and repeatable opening inputs are first-class dimensions.
+Before any game starts, Arena resolves candidate and baseline ProbCut options
+with the same public resolver used by engine search normalization. A requested
+non-off mode that is not effective—including a prefix missing evidence for one
+enabled domain—is a hard configuration error. Reports keep requested modes and
+requested prefix/probe fields separate from effective enablement, effective
+prefix, and effective probe cap; `candidate_resolved_options` and
+`baseline_resolved_options` contain only the effective configuration.
 
 The campaign report is evidence input, not an enablement action. Automatic
 checks cover clean games, exact fixed-depth/fixed-node off/off sanity, at least
