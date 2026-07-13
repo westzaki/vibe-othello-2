@@ -128,10 +128,12 @@ The current search implementation includes:
 * temporary `experimental.use_legacy_search_kernel` rollback switch for the
   previous full-window root orchestration
 * default-disabled MPC shadow calibration with deterministic capped sampling,
-  compact schema-v1 samples, isolated shallow searches, raw hypothetical-cut
-  diagnostics, and telemetry separate from official `SearchStats`/nodes
+  compact schema-v2 samples, isolated shallow searches, automatically identified
+  collection policy, raw hypothetical-cut diagnostics, and telemetry separate
+  from official `SearchStats`/nodes
 * deterministic local offline calibration analysis grouped by phase, deep and
-  shallow depth, and node type, with JSON plus Markdown reports
+  shallow depth, and node type, with exact-pair-only regression, strict
+  provenance isolation, small-sample guards, and JSON plus Markdown reports
 
 Existing search tests include:
 
@@ -150,7 +152,9 @@ Existing search tests include:
   typed sub-configs, and compatibility conflict rules
 * shadow disabled/on official-result parity, deterministic sampling, cap,
   metadata, PV/pass/exact-region policy, and official-node-limit tests
-* offline analyzer determinism, invalid/malformed schema, and empty-input tests
+* offline analyzer determinism, bound exclusion from regression, mixed
+  provenance/policy rejection, small-sample guards, invalid/malformed schema,
+  and empty-input tests
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
 

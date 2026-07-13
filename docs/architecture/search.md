@@ -1336,7 +1336,7 @@ verification searches.
 
 They must not be enabled in exact endgame modes.
 
-### MPC shadow calibration v1
+### MPC shadow calibration
 
 The current implementation provides calibration-only shadow mode. It never
 cuts off the official tree and does not apply fitted coefficients at runtime.
@@ -1357,6 +1357,11 @@ depth, ply, and deterministic candidate ordinal. The per-search reservation
 count enforces the cap even when a parent candidate remains pending while
 recursive candidates complete. Given the same root, config, artifact, seed,
 and repository SHA, traversal and the emitted sample set are deterministic.
+The engine also derives `collection_config_id` from the effective sampling
+rate, cap, depth requirements and PV/pass/near-exact inclusion flags plus the
+sample schema version. It is persisted in each schema-v2 sample and mixed into
+`search_identity`; a collection-policy change therefore creates a distinct
+population identity without relying on a caller-maintained config string.
 
 By default, PV nodes, forced-pass nodes, and positions at or below the enabled
 exact-handoff threshold are excluded. They can be included independently for
@@ -1368,6 +1373,13 @@ crossings are observations, not unverified runtime coefficients or margins.
 
 Samples contain compact scalar metadata, hashes, scores, bounds, and moves;
 they never contain a `Position`, search stack, TT, evaluator state, or PV tree.
+Both shallow and deep window classifications are recorded. Offline value OLS
+uses only exact/exact pairs; upper/lower bounds are censored observations used
+only for window/cut diagnostics. The analyzer rejects mixed repository/search
+config/evaluator/artifact provenance and mixed collection policy, records the
+accepted inventories, and withholds margins from under-threshold groups.
+Separate-seed or holdout validation remains mandatory before any coefficient
+can be proposed for runtime use.
 The JSON/JSONL contract and deterministic offline analyzer are documented in
 `tools/search-calibration/README.md`. Samples and reports are local-only.
 

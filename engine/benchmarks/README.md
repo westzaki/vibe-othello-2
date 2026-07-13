@@ -5,7 +5,9 @@ They are not correctness tests and are not a CI pass/fail gate.
 
 ProbCut/Multi-ProbCut shadow sample collection and offline fitting are separate
 local-only diagnostics. See `tools/search-calibration/README.md`; neither the
-normal search benchmark nor fixed-time Arena enables shadow calibration.
+normal search benchmark nor fixed-time Arena enables shadow calibration. The
+offline analyzer fits only exact/exact score pairs and rejects mixed campaign
+provenance or collection policy.
 
 ## Running
 

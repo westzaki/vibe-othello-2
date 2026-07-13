@@ -100,14 +100,30 @@ std::uint64_t canonical_position_hash(board_core::Position position) noexcept {
   return hash;
 }
 
-std::string make_search_identity(std::uint64_t root_hash, const SelectiveSearchOptionsV1& options) {
+std::string make_collection_config_id(const SelectiveSearchOptionsV1& options) {
   std::uint64_t hash = kFnvOffset;
-  mix_string("mpc-shadow-search-v1", &hash);
+  mix_string("mpc-shadow-collection-config-v1", &hash);
+  mix_integer(kShadowCalibrationSchemaVersion, &hash);
+  mix_integer(options.sample_rate, &hash);
+  mix_integer(options.max_samples_per_search, &hash);
+  mix_integer(options.minimum_deep_depth, &hash);
+  mix_integer(options.shallow_depth_reduction, &hash);
+  mix_integer(static_cast<std::uint8_t>(options.include_pv_nodes), &hash);
+  mix_integer(static_cast<std::uint8_t>(options.include_pass_nodes), &hash);
+  mix_integer(static_cast<std::uint8_t>(options.include_near_exact_nodes), &hash);
+  return hex_u64(hash);
+}
+
+std::string make_search_identity(std::uint64_t root_hash, const SelectiveSearchOptionsV1& options,
+                                 std::string_view collection_config_id) {
+  std::uint64_t hash = kFnvOffset;
+  mix_string("mpc-shadow-search-v2", &hash);
   mix_integer(root_hash, &hash);
   mix_string(options.repo_sha, &hash);
   mix_string(options.search_config_id, &hash);
   mix_string(options.evaluator_id, &hash);
   mix_string(options.artifact_id, &hash);
+  mix_string(collection_config_id, &hash);
   mix_integer(options.sampling_seed, &hash);
   return hex_u64(hash);
 }
@@ -133,21 +149,21 @@ std::optional<board_core::Move> best_move(const SearchNodeResult& result) noexce
   return result.value().pv.moves.front();
 }
 
-ShadowDeepResult deep_result_for(Score score, const ShadowCandidate& candidate) noexcept {
+ShadowWindowResult window_result_for(Score score, const ShadowCandidate& candidate) noexcept {
   if (score <= candidate.alpha) {
-    return ShadowDeepResult::fail_low;
+    return ShadowWindowResult::fail_low;
   }
   if (score >= candidate.beta) {
-    return ShadowDeepResult::fail_high;
+    return ShadowWindowResult::fail_high;
   }
-  return ShadowDeepResult::exact;
+  return ShadowWindowResult::exact;
 }
 
-ShadowNodeType node_type_for(bool pv_node, ShadowDeepResult deep_result) noexcept {
+ShadowNodeType node_type_for(bool pv_node, ShadowWindowResult deep_result) noexcept {
   if (pv_node) {
     return ShadowNodeType::pv;
   }
-  return deep_result == ShadowDeepResult::fail_high ? ShadowNodeType::cut : ShadowNodeType::all;
+  return deep_result == ShadowWindowResult::fail_high ? ShadowNodeType::cut : ShadowNodeType::all;
 }
 
 std::uint8_t calibration_phase(std::uint8_t occupied_count) noexcept {
@@ -187,9 +203,11 @@ std::optional<ShadowCalibrationRun> make_shadow_calibration_run(board_core::Posi
   }
   options.sample_rate = std::min(options.sample_rate, kShadowCalibrationSampleRateScale);
   const std::uint64_t root_hash = canonical_position_hash(root);
+  const std::string collection_config_id = make_collection_config_id(options);
   return ShadowCalibrationRun{
       .options = options,
-      .search_identity = make_search_identity(root_hash, options),
+      .collection_config_id = collection_config_id,
+      .search_identity = make_search_identity(root_hash, options, collection_config_id),
   };
 }
 
@@ -289,7 +307,8 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
 
   const Score deep_score = deep_result.value().score;
   const Score shallow_score = shallow_result.value().score;
-  const ShadowDeepResult actual_deep_result = deep_result_for(deep_score, candidate);
+  const ShadowWindowResult actual_shallow_result = window_result_for(shallow_score, candidate);
+  const ShadowWindowResult actual_deep_result = window_result_for(deep_score, candidate);
   const ShadowNodeType node_type = node_type_for(candidate.pv_node, actual_deep_result);
   const std::optional<board_core::Move> shallow_best_move = best_move(shallow_result);
   const std::optional<board_core::Move> deep_best_move = best_move(deep_result);
@@ -305,6 +324,7 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
       .search_config_id = std::string(run.options.search_config_id),
       .evaluator_id = std::string(run.options.evaluator_id),
       .artifact_id = std::string(run.options.artifact_id),
+      .collection_config_id = run.collection_config_id,
       .canonical_position_hash = candidate.canonical_position_hash,
       .phase = calibration_phase(candidate.occupied_count),
       .occupied_count = candidate.occupied_count,
@@ -320,6 +340,7 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
       .beta = candidate.beta,
       .shallow_score = shallow_score,
       .deep_score = deep_score,
+      .shallow_bound = classify_bound(shallow_score, candidate.alpha, candidate.beta),
       .deep_bound = classify_bound(deep_score, candidate.alpha, candidate.beta),
       .shallow_best_move = shallow_best_move,
       .deep_best_move = deep_best_move,
@@ -327,6 +348,7 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
       .pass_state = candidate.pass_state,
       .terminal_state = candidate.terminal_state,
       .exact_handoff_eligible = candidate.exact_handoff_eligible,
+      .actual_shallow_result = actual_shallow_result,
       .actual_deep_result = actual_deep_result,
       .hypothetical_cut_high = hypothetical_cut_high,
       .hypothetical_cut_low = hypothetical_cut_low,

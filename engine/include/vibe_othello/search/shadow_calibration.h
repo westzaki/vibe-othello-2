@@ -11,7 +11,7 @@
 
 namespace vibe_othello::search {
 
-inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 1;
+inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 2;
 inline constexpr std::uint32_t kShadowCalibrationSampleRateScale = 1'000'000;
 
 enum class ShadowNodeType : std::uint8_t {
@@ -20,7 +20,7 @@ enum class ShadowNodeType : std::uint8_t {
   all,
 };
 
-enum class ShadowDeepResult : std::uint8_t {
+enum class ShadowWindowResult : std::uint8_t {
   fail_low,
   exact,
   fail_high,
@@ -32,6 +32,7 @@ struct ShadowCalibrationSample {
   std::string search_config_id;
   std::string evaluator_id;
   std::string artifact_id;
+  std::string collection_config_id;
   std::uint64_t canonical_position_hash = 0;
   std::uint8_t phase = 0;
   std::uint8_t occupied_count = 0;
@@ -47,6 +48,7 @@ struct ShadowCalibrationSample {
   Score beta = 0;
   Score shallow_score = 0;
   Score deep_score = 0;
+  BoundType shallow_bound = BoundType::exact;
   BoundType deep_bound = BoundType::exact;
   std::optional<board_core::Move> shallow_best_move;
   std::optional<board_core::Move> deep_best_move;
@@ -54,7 +56,8 @@ struct ShadowCalibrationSample {
   bool pass_state = false;
   bool terminal_state = false;
   bool exact_handoff_eligible = false;
-  ShadowDeepResult actual_deep_result = ShadowDeepResult::exact;
+  ShadowWindowResult actual_shallow_result = ShadowWindowResult::exact;
+  ShadowWindowResult actual_deep_result = ShadowWindowResult::exact;
   bool hypothetical_cut_high = false;
   bool hypothetical_cut_low = false;
   bool false_cut_high_candidate = false;

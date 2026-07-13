@@ -15,6 +15,7 @@ struct ShadowCalibrationRun {
   SelectiveSearchOptionsV1 options{};
   ShadowCalibrationStats stats{};
   NodeCount reserved_samples = 0;
+  std::string collection_config_id;
   std::string search_identity;
 };
 

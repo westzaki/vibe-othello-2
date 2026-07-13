@@ -158,6 +158,7 @@ TEST_CASE("shadow sampling is deterministic and metadata is complete",
     REQUIRE(sample.search_config_id == "test-search-v1");
     REQUIRE(sample.evaluator_id == "disc-difference-test");
     REQUIRE(sample.artifact_id == "none");
+    REQUIRE(sample.collection_config_id.size() == 16);
     REQUIRE(sample.canonical_position_hash != 0);
     REQUIRE(sample.occupied_count + sample.empties == board_core::kSquareCount);
     const int normalized_count =
@@ -168,10 +169,52 @@ TEST_CASE("shadow sampling is deterministic and metadata is complete",
     REQUIRE(sample.alpha < sample.beta);
     REQUIRE(sample.sampling_seed == 42);
     REQUIRE(sample.search_identity.size() == 16);
+    const ShadowWindowResult expected_shallow_result =
+        sample.shallow_score <= sample.alpha
+            ? ShadowWindowResult::fail_low
+            : (sample.shallow_score >= sample.beta ? ShadowWindowResult::fail_high
+                                                   : ShadowWindowResult::exact);
+    REQUIRE(sample.actual_shallow_result == expected_shallow_result);
+    REQUIRE(sample.shallow_bound ==
+            internal::classify_bound(sample.shallow_score, sample.alpha, sample.beta));
+    REQUIRE(sample.deep_bound ==
+            internal::classify_bound(sample.deep_score, sample.alpha, sample.beta));
     REQUIRE((sample.node_type == ShadowNodeType::pv || sample.node_type == ShadowNodeType::cut ||
              sample.node_type == ShadowNodeType::all));
     REQUIRE(sample.cut_node == (sample.node_type == ShadowNodeType::cut));
     REQUIRE(sample.all_node == (sample.node_type == ShadowNodeType::all));
+  }
+}
+
+TEST_CASE("collection policy changes collection and search identities",
+          "[search][shadow_calibration]") {
+  Collector collector;
+  const SelectiveSearchOptionsV1 baseline_options = enabled_shadow(&collector);
+  const auto baseline =
+      internal::make_shadow_calibration_run(board_core::initial_position(), baseline_options);
+  REQUIRE(baseline.has_value());
+
+  std::vector<SelectiveSearchOptionsV1> variants;
+  variants.push_back(baseline_options);
+  variants.back().sample_rate -= 1;
+  variants.push_back(baseline_options);
+  variants.back().max_samples_per_search += 1;
+  variants.push_back(baseline_options);
+  variants.back().minimum_deep_depth += 1;
+  variants.push_back(baseline_options);
+  variants.back().shallow_depth_reduction += 1;
+  variants.push_back(baseline_options);
+  variants.back().include_pv_nodes = !variants.back().include_pv_nodes;
+  variants.push_back(baseline_options);
+  variants.back().include_pass_nodes = !variants.back().include_pass_nodes;
+  variants.push_back(baseline_options);
+  variants.back().include_near_exact_nodes = !variants.back().include_near_exact_nodes;
+
+  for (const SelectiveSearchOptionsV1& variant : variants) {
+    const auto run = internal::make_shadow_calibration_run(board_core::initial_position(), variant);
+    REQUIRE(run.has_value());
+    REQUIRE(run->collection_config_id != baseline->collection_config_id);
+    REQUIRE(run->search_identity != baseline->search_identity);
   }
 }
 
