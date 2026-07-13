@@ -7,6 +7,7 @@
 #include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
+#include <list>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,27 @@ std::array<ProbCutCalibrationEntryV1, 13> probcut_entries(Depth deep_depth, Dept
 template <std::size_t Size>
 ProbCutCalibrationProfileV1
 probcut_profile(const std::array<ProbCutCalibrationEntryV1, Size>& entries) {
+  static std::list<std::vector<ProbCutSchedulerEvidenceV1>> evidence_storage;
+  std::vector<ProbCutSchedulerEvidenceV1>& evidence = evidence_storage.emplace_back();
+  for (const ProbCutCalibrationEntryV1& entry : entries) {
+    evidence.push_back(ProbCutSchedulerEvidenceV1{
+        .pair_prefix_length = 1,
+        .maximum_probes_per_node = 1,
+        .phase = entry.phase,
+        .search_mode = entry.search_mode,
+        .minimum_empties = entry.minimum_empties,
+        .maximum_empties = entry.maximum_empties,
+        .deep_depth = entry.deep_depth,
+        .exact_handoff_enabled = entry.exact_handoff_enabled,
+        .exact_handoff_threshold = entry.exact_handoff_threshold,
+        .minimum_exact_handoff_distance = entry.minimum_exact_handoff_distance,
+        .maximum_exact_handoff_distance = entry.maximum_exact_handoff_distance,
+        .holdout_node_count = 100,
+        .false_cut_count = 0,
+        .cut_candidate_count = 100,
+        .false_cut_rate_upper_bound = 0.05,
+    });
+  }
   return ProbCutCalibrationProfileV1{
       .profile_id = "shadow-isolation-fixture-v1",
       .source_calibration_report_checksum_sha256 = kProbCutTestChecksum,
@@ -79,6 +101,7 @@ probcut_profile(const std::array<ProbCutCalibrationEntryV1, Size>& entries) {
       .joint_false_cut_count = 0,
       .joint_cut_candidate_count = 100,
       .joint_false_cut_rate_upper_bound = 0.05,
+      .scheduler_evidence = evidence,
       .entries = entries,
   };
 }

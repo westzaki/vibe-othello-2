@@ -9,7 +9,9 @@
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include <list>
 #include <thread>
+#include <vector>
 
 namespace vibe_othello::search::internal {
 namespace {
@@ -86,23 +88,85 @@ ProbCutCalibrationEntryV1 entry(std::uint8_t phase, Depth deep_depth, Depth shal
   };
 }
 
+bool same_domain(const ProbCutSchedulerEvidenceV1& evidence,
+                 const ProbCutCalibrationEntryV1& value) {
+  return evidence.phase == value.phase && evidence.search_mode == value.search_mode &&
+         evidence.minimum_empties == value.minimum_empties &&
+         evidence.maximum_empties == value.maximum_empties &&
+         evidence.deep_depth == value.deep_depth &&
+         evidence.exact_handoff_enabled == value.exact_handoff_enabled &&
+         evidence.exact_handoff_threshold == value.exact_handoff_threshold &&
+         evidence.minimum_exact_handoff_distance == value.minimum_exact_handoff_distance &&
+         evidence.maximum_exact_handoff_distance == value.maximum_exact_handoff_distance;
+}
+
 template <std::size_t Size>
 ProbCutCalibrationProfileV1 profile_for(const std::array<ProbCutCalibrationEntryV1, Size>& entries,
+                                        std::span<const ProbCutDepthPairV1> pairs,
+                                        std::uint8_t validated_maximum_probes,
                                         std::string_view id = "synthetic-probcut-v1") {
+  static std::list<std::vector<ProbCutSchedulerEvidenceV1>> evidence_storage;
+  std::vector<ProbCutSchedulerEvidenceV1>& evidence = evidence_storage.emplace_back();
+  for (std::size_t prefix_length = 1; prefix_length <= pairs.size(); ++prefix_length) {
+    for (std::uint8_t probes = 1;
+         probes <= std::min<std::size_t>(prefix_length, validated_maximum_probes); ++probes) {
+      for (const ProbCutCalibrationEntryV1& value : entries) {
+        const ProbCutDepthPairV1 pair{
+            .deep_depth = value.deep_depth,
+            .shallow_depth = value.shallow_depth,
+        };
+        if (std::find(pairs.begin(), pairs.begin() + static_cast<std::ptrdiff_t>(prefix_length),
+                      pair) == pairs.begin() + static_cast<std::ptrdiff_t>(prefix_length) ||
+            std::any_of(evidence.begin(), evidence.end(),
+                        [prefix_length, probes, &value](const auto& previous) {
+                          return previous.pair_prefix_length == prefix_length &&
+                                 previous.maximum_probes_per_node == probes &&
+                                 same_domain(previous, value);
+                        })) {
+          continue;
+        }
+        evidence.push_back(ProbCutSchedulerEvidenceV1{
+            .pair_prefix_length = static_cast<std::uint16_t>(prefix_length),
+            .maximum_probes_per_node = probes,
+            .phase = value.phase,
+            .search_mode = value.search_mode,
+            .minimum_empties = value.minimum_empties,
+            .maximum_empties = value.maximum_empties,
+            .deep_depth = value.deep_depth,
+            .exact_handoff_enabled = value.exact_handoff_enabled,
+            .exact_handoff_threshold = value.exact_handoff_threshold,
+            .minimum_exact_handoff_distance = value.minimum_exact_handoff_distance,
+            .maximum_exact_handoff_distance = value.maximum_exact_handoff_distance,
+            .holdout_node_count = 100,
+            .false_cut_count = 0,
+            .cut_candidate_count = 100,
+            .false_cut_rate_upper_bound = 0.05,
+        });
+      }
+    }
+  }
   return ProbCutCalibrationProfileV1{
       .profile_id = id,
       .source_calibration_report_checksum_sha256 = kTestChecksum,
       .evaluator_family = "synthetic-disc-difference",
       .artifact_family = "none",
       .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
-      .validated_pair_order = pair_for(entries.front().deep_depth, entries.front().shallow_depth),
-      .validated_maximum_probes_per_node = 1,
+      .validated_pair_order = pairs,
+      .validated_maximum_probes_per_node = validated_maximum_probes,
       .joint_holdout_checksum_sha256 = kTestChecksum,
       .joint_false_cut_count = 0,
       .joint_cut_candidate_count = 100,
       .joint_false_cut_rate_upper_bound = 0.05,
+      .scheduler_evidence = evidence,
       .entries = entries,
   };
+}
+
+template <std::size_t Size>
+ProbCutCalibrationProfileV1 profile_for(const std::array<ProbCutCalibrationEntryV1, Size>& entries,
+                                        std::string_view id = "synthetic-probcut-v1") {
+  return profile_for(entries, pair_for(entries.front().deep_depth, entries.front().shallow_depth),
+                     std::uint8_t{1}, id);
 }
 
 SearchOptions options_for(const ProbCutCalibrationProfileV1* profile, Depth minimum_depth,
@@ -644,9 +708,7 @@ TEST_CASE("Multi-ProbCut probes reviewed pairs in order and stops at first succe
       entry(0, Depth{4}, Depth{1}, -1000.0),
       entry(0, Depth{4}, Depth{2}, 100.0),
   };
-  ProbCutCalibrationProfileV1 profile = profile_for(entries);
-  profile.validated_pair_order = pairs;
-  profile.validated_maximum_probes_per_node = 2;
+  ProbCutCalibrationProfileV1 profile = profile_for(entries, pairs, 2);
   SearchOptions options = options_for(&profile, Depth{4}, Depth{3});
   options.probcut_options.ordered_depth_pairs = pairs;
   options.probcut_options.maximum_probes_per_node = 2;
@@ -671,9 +733,7 @@ TEST_CASE("Multi-ProbCut probes reviewed pairs in order and stops at first succe
 
   std::array successful_entries = entries;
   successful_entries[0].intercept = 100.0;
-  ProbCutCalibrationProfileV1 first_success_profile = profile_for(successful_entries);
-  first_success_profile.validated_pair_order = pairs;
-  first_success_profile.validated_maximum_probes_per_node = 2;
+  ProbCutCalibrationProfileV1 first_success_profile = profile_for(successful_entries, pairs, 2);
   SearchOptions first_success = options_for(&first_success_profile, Depth{4}, Depth{3});
   first_success.probcut_options.ordered_depth_pairs = pairs;
   first_success.probcut_options.maximum_probes_per_node = 2;
@@ -695,9 +755,7 @@ TEST_CASE("Multi-ProbCut enforces probe and cumulative shallow overhead limits",
       entry(0, Depth{4}, Depth{1}, -1000.0),
       entry(0, Depth{4}, Depth{2}, -1000.0),
   };
-  ProbCutCalibrationProfileV1 profile = profile_for(entries);
-  profile.validated_pair_order = pairs;
-  profile.validated_maximum_probes_per_node = 2;
+  ProbCutCalibrationProfileV1 profile = profile_for(entries, pairs, 2);
 
   SearchOptions limited = options_for(&profile, Depth{4}, Depth{3});
   limited.probcut_options.ordered_depth_pairs = pairs;
@@ -726,9 +784,7 @@ TEST_CASE("Multi-ProbCut shallow search suppresses nested pair probes",
       entry(0, Depth{4}, Depth{2}, -1000.0),
       entry(0, Depth{2}, Depth{1}, 100.0),
   };
-  ProbCutCalibrationProfileV1 profile = profile_for(entries);
-  profile.validated_pair_order = pairs;
-  profile.validated_maximum_probes_per_node = 2;
+  ProbCutCalibrationProfileV1 profile = profile_for(entries, pairs, 2);
   SearchOptions options = options_for(&profile, Depth{2}, Depth{2});
   options.probcut_options.ordered_depth_pairs = pairs;
   options.probcut_options.maximum_probes_per_node = 2;

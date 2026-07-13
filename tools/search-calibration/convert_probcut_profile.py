@@ -13,9 +13,9 @@ from typing import Any, Sequence
 
 
 REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v5"
-ADOPTION_SCHEMA_VERSION = "probcut-profile-adoption-v2"
+ADOPTION_SCHEMA_VERSION = "probcut-profile-adoption-v3"
 NODE_CLASS = "non_pv_scout_beta_only"
-PROFILE_SCHEMA_VERSION = 2
+PROFILE_SCHEMA_VERSION = 3
 SCORE_LOSS = -30_000
 SCORE_WIN = 30_000
 SCORE_SENTINEL_GUARD = 256
@@ -31,6 +31,7 @@ HEADER = (
     "joint_false_cut_count",
     "joint_cut_candidate_count",
     "joint_false_cut_rate_upper_bound",
+    "scheduler_domain_evidence",
     "phase",
     "search_mode",
     "minimum_empties",
@@ -219,6 +220,45 @@ def confidence_accepts(entry: dict[str, Any], shallow_score: int, beta: int) -> 
     return score_is_safely_heuristic(conservative_lower) and conservative_lower >= beta
 
 
+def scheduler_domain(entry: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        entry["phase"],
+        entry["search_mode"],
+        entry["minimum_empties"],
+        entry["maximum_empties"],
+        entry["deep_depth"],
+        entry["exact_handoff_enabled"],
+        entry["exact_handoff_threshold"],
+        entry["minimum_exact_handoff_distance"],
+        entry["maximum_exact_handoff_distance"],
+    )
+
+
+def node_matches_scheduler_domain(node: dict[str, Any], domain: tuple[Any, ...]) -> bool:
+    (
+        phase,
+        search_mode,
+        minimum_empties,
+        maximum_empties,
+        deep_depth,
+        exact_handoff_enabled,
+        exact_handoff_threshold,
+        minimum_exact_handoff_distance,
+        maximum_exact_handoff_distance,
+    ) = domain
+    return (
+        node.get("phase") == phase
+        and node.get("search_mode") == search_mode
+        and minimum_empties <= node.get("empties", -1) <= maximum_empties
+        and node.get("deep_depth") == deep_depth
+        and node.get("exact_handoff_enabled") == exact_handoff_enabled
+        and node.get("exact_handoff_threshold") == exact_handoff_threshold
+        and minimum_exact_handoff_distance
+        <= node.get("exact_handoff_distance", -1)
+        <= maximum_exact_handoff_distance
+    )
+
+
 def wilson_upper_bound(false_cuts: int, candidates: int) -> float:
     if candidates == 0:
         return 1.0
@@ -235,13 +275,18 @@ def replay_joint_scheduler(
     entries: Sequence[dict[str, Any]],
     pair_order: Sequence[tuple[int, int]],
     maximum_probes: int,
-) -> tuple[int, int, float]:
+    domain: tuple[Any, ...] | None = None,
+) -> tuple[int, int, int, float]:
     observations = holdout.get("scheduler_observations")
     require(isinstance(observations, list) and bool(observations), "joint holdout has no scheduler observations")
     false_cuts = 0
     candidates = 0
+    holdout_nodes = 0
     for node_index, node in enumerate(observations):
         require(isinstance(node, dict), f"joint holdout observation {node_index} is invalid")
+        if domain is not None and not node_matches_scheduler_domain(node, domain):
+            continue
+        holdout_nodes += 1
         beta = integer(node.get("official_beta"), f"joint holdout observation {node_index}.official_beta")
         deep_score = integer(
             node.get("deep_verification_score"),
@@ -271,7 +316,27 @@ def replay_joint_scheduler(
                 candidates += 1
                 false_cuts += deep_score < beta
                 break
-    return false_cuts, candidates, wilson_upper_bound(false_cuts, candidates)
+    return holdout_nodes, false_cuts, candidates, wilson_upper_bound(false_cuts, candidates)
+
+
+def serialize_scheduler_evidence(evidence: Sequence[dict[str, Any]]) -> str:
+    records: list[str] = []
+    for item in evidence:
+        domain = item["domain"]
+        fields = (
+            item["pair_prefix_length"],
+            item["maximum_probes_per_node"],
+            *domain[:5],
+            "true" if domain[5] else "false",
+            *domain[6:],
+            item["holdout_node_count"],
+            item["false_cut_count"],
+            item["cut_candidate_count"],
+            format(item["false_cut_rate_upper_bound"], ".17g"),
+        )
+        records.append(":".join(str(value) for value in fields))
+    require(bool(records), "no scheduler/domain holdout configuration passed review")
+    return ";".join(records)
 
 
 def render_profile(
@@ -461,11 +526,62 @@ def render_profile(
         entries.append(selection)
 
     require(selected_pairs == set(pair_order), "every validated depth pair must have an entry")
-    false_cuts, candidates, joint_upper = replay_joint_scheduler(
+    _, false_cuts, candidates, joint_upper = replay_joint_scheduler(
         joint_holdout, entries, pair_order, maximum_probes
     )
     require(candidates >= minimum_joint_candidates, "joint holdout has too few cut candidates")
     require(joint_upper <= maximum_joint_upper, "joint scheduler false-cut upper bound exceeds the reviewed limit")
+
+    exact_domains = sorted({scheduler_domain(entry) for entry in entries})
+    scheduler_evidence: list[dict[str, Any]] = []
+    for prefix_length in range(1, len(pair_order) + 1):
+        prefix_pairs = set(pair_order[:prefix_length])
+        for probe_count in range(1, min(prefix_length, maximum_probes) + 1):
+            for domain in exact_domains:
+                domain_enabled = any(
+                    scheduler_domain(entry) == domain
+                    and (entry["deep_depth"], entry["shallow_depth"]) in prefix_pairs
+                    for entry in entries
+                )
+                if not domain_enabled:
+                    continue
+                holdout_node_count, domain_false_cuts, domain_candidates, domain_upper = (
+                    replay_joint_scheduler(
+                        joint_holdout,
+                        entries,
+                        pair_order[:prefix_length],
+                        probe_count,
+                        domain,
+                    )
+                )
+                if (
+                    domain_candidates >= minimum_joint_candidates
+                    and domain_upper <= maximum_joint_upper
+                ):
+                    scheduler_evidence.append(
+                        {
+                            "pair_prefix_length": prefix_length,
+                            "maximum_probes_per_node": probe_count,
+                            "domain": domain,
+                            "holdout_node_count": holdout_node_count,
+                            "false_cut_count": domain_false_cuts,
+                            "cut_candidate_count": domain_candidates,
+                            "false_cut_rate_upper_bound": domain_upper,
+                        }
+                    )
+
+    full_scheduler_domains = {
+        item["domain"]
+        for item in scheduler_evidence
+        if item["pair_prefix_length"] == len(pair_order)
+        and item["maximum_probes_per_node"] == maximum_probes
+    }
+    missing_full_domains = [domain for domain in exact_domains if domain not in full_scheduler_domains]
+    require(
+        not missing_full_domains,
+        "joint holdout has an unaudited exact profile domain for the full scheduler",
+    )
+    serialized_scheduler_evidence = serialize_scheduler_evidence(scheduler_evidence)
 
     source_checksum = hashlib.sha256(report_raw).hexdigest()
     holdout_checksum = hashlib.sha256(joint_holdout_raw).hexdigest()
@@ -490,6 +606,7 @@ def render_profile(
                     str(false_cuts),
                     str(candidates),
                     format(joint_upper, ".17g"),
+                    serialized_scheduler_evidence,
                     str(entry["phase"]),
                     entry["search_mode"],
                     str(entry["minimum_empties"]),

@@ -141,7 +141,7 @@ from allocation failure.
 ## Multi-ProbCut Campaign Layer
 
 The Multi-ProbCut campaign uses one artifact and reviewed calibration identity
-for off/off sanity, first-reviewed-pair versus off, ordered multi-pair versus
+for off/off sanity, separately audited first-pair versus off, ordered multi-pair versus
 off, multi-pair versus the first-pair policy, and shadow multi-pair versus off,
 all in both policy assignments. Fixed-depth, fixed-node, and fixed-time cells
 share openings, exact policy, TT size, and session-retention settings.

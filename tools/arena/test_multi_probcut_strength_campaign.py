@@ -26,14 +26,17 @@ def profile_text() -> str:
         "schema_version\tprofile_id\tsource_checksum_sha256\tjoint_holdout_checksum_sha256\t"
         "evaluator_family\tartifact_family\tnode_class\tvalidated_maximum_probes_per_node\t"
         "joint_false_cut_count\tjoint_cut_candidate_count\tjoint_false_cut_rate_upper_bound\t"
+        "scheduler_domain_evidence\t"
         "phase\tsearch_mode\tminimum_empties\tmaximum_empties\tdeep_depth\tshallow_depth\t"
         "exact_handoff_enabled\texact_handoff_threshold\tminimum_exact_handoff_distance\t"
         "maximum_exact_handoff_distance\tregression_slope\tintercept\tresidual_sigma\t"
         "confidence_multiplier\tminimum_shallow_score\tmaximum_shallow_score\tminimum_beta\tmaximum_beta"
     )
     identity = (
-        "2\tfixture-v2\t" + "1" * 64 + "\t" + "2" * 64
-        + "\tfixture-eval\tfixture-artifact\tnon_pv_scout_beta_only\t2\t0\t100\t0.04"
+        "3\tfixture-v3\t" + "1" * 64 + "\t" + "2" * 64
+        + "\tfixture-eval\tfixture-artifact\tnon_pv_scout_beta_only\t2\t0\t100\t0.04\t"
+        + "1:1:3:move:20:20:8:false:0:0:0:100:0:100:0.04;"
+        + "2:2:3:move:20:20:8:false:0:0:0:100:0:100:0.04"
     )
     domain = "\t3\tmove\t20\t20\t8\t{}\tfalse\t0\t0\t0\t1\t0\t1\t3\t-100\t100\t-80\t80"
     return "\n".join((header, identity + domain.format(3), identity + domain.format(4))) + "\n"
@@ -59,6 +62,7 @@ class CampaignTests(unittest.TestCase):
             identity = self.runner.profile_identity(path)
         self.assertEqual(identity["validated_maximum_probes_per_node"], 2)
         self.assertEqual(identity["joint_cut_candidate_count"], 100)
+        self.assertEqual(identity["scheduler_domain_evidence_count"], 2)
         self.assertEqual(
             identity["validated_pair_order"],
             [
@@ -188,6 +192,7 @@ class CampaignTests(unittest.TestCase):
                 "joint_false_cut_count": 0,
                 "joint_cut_candidate_count": 100,
                 "joint_false_cut_rate_upper_bound": 0.04,
+                "scheduler_domain_evidence_count": 2,
                 "evaluator_family": "fixture-eval",
                 "artifact_family": "fixture-artifact",
                 "ordered_depth_pairs": profile["validated_pair_order"],

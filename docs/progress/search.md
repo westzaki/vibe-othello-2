@@ -137,12 +137,12 @@ The current search implementation includes:
   pair, result-independent role, search mode, observed empties bucket, and
   exact-handoff-distance bucket; strict same-node pair completeness and
   provenance isolation; a checked converter that requires a disjoint holdout
-  report and replays the ordered first-success scheduler before emitting joint
-  false-cut evidence
+  report and replays the ordered first-success scheduler for each
+  prefix/probe/exact-domain combination before emitting joint false-cut evidence
 * off-by-default Multi-ProbCut cut-high capability with exact phase, empties,
   deep/shallow pair, node-class, search mode, exact-handoff threshold/proximity,
-  evaluator-family, and artifact-family selection; only a reviewed pair-order
-  prefix and reviewed probe maximum are accepted; cumulative overhead gate;
+  evaluator-family, and artifact-family selection; only a pair-order
+  prefix/probe/domain combination with explicit passing evidence is accepted; cumulative overhead gate;
   isolated shallow TT/ordering state; and phase/pair telemetry
 
 Existing search tests include:
@@ -169,7 +169,7 @@ Existing search tests include:
 * Multi-ProbCut exact profile selection, unsupported fallback, pair ordering,
   first-success stop, probe/overhead limits, shallow recursion and TT isolation,
   bound/PV/pass/root/exact/stopped-search safety, deterministic pair telemetry,
-  reviewed-prefix/probe-cap enforcement, joint holdout conversion, strength
+  prefix/probe/exact-domain evidence enforcement, joint holdout conversion, strength
   campaign matrix/gate coverage, and session semantic invalidation
 * deterministic search golden-check tooling
 * checked-in search benchmark aggregate baseline data for local comparison
@@ -260,7 +260,7 @@ Status values:
 | Add Multi-PV top-N root search | not started | `multi_pv > 1` currently behaves like default all-root exact reporting |
 | Add advanced time management | not started | Soft/hard allocation and clock policy are deferred |
 | Add conservative non-PV beta ProbCut | done | Typed profile-backed option; exact `non_pv_scout_beta_only` population and phase/depth match, mutually isolated MPC verification, subtree-local selective TT provenance, off by default, no production profile committed |
-| Extend cut-high to bounded Multi-ProbCut | done | Multiple reviewed depth pairs, exact observed-domain matching, reviewed prefix/probe-cap enforcement, joint first-success holdout evidence, isolated shallow state, semantic fingerprinting, benchmark/Arena telemetry, and multi-vs-single/shadow strength gates; still off by default |
+| Extend cut-high to bounded Multi-ProbCut | done | Multiple reviewed depth pairs, exact observed-domain matching, per-prefix/probe/domain first-success holdout evidence, isolated shallow state, semantic fingerprinting, benchmark/Arena telemetry, and multi-vs-single/shadow strength gates; still off by default |
 | Add MPC shadow calibration | done | Diagnostics-only ordered multi-pair sampling with one deep verification per node; no official cutoff or runtime coefficient |
 | Adopt reviewed production ProbCut coefficients | deferred | Requires report checksum, evaluator/artifact match, false-cut/fixed-depth/exact holdouts, and local off/single/multi fixed-time strength evidence; no default or preset enablement |
 | Add optional parallel search after single-thread search is stable | deferred | `use_parallel` currently safe no-op |

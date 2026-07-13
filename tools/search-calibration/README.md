@@ -180,7 +180,9 @@ then create a versioned `ProbCutCalibrationProfileV1` that records:
 - evaluator and artifact families
 - exact node class `non_pv_scout_beta_only`
 - `validated_pair_order` and `validated_maximum_probes_per_node`
-- joint first-success false-cut count, cut-candidate count, and Wilson 95% upper bound
+- full-scheduler joint false-cut count, cut-candidate count, and Wilson 95% upper bound
+- per-prefix/per-probe/per-exact-domain holdout node count, cut-candidate count,
+  false-cut count, and Wilson 95% upper bound
 - exact phase/search mode, inclusive empties range, and exact-handoff
   enabled/threshold/distance domain
 - regression slope/intercept and residual sigma
@@ -196,8 +198,11 @@ and artifact family to `artifact_id`; benchmark callers must provide the same
 actual identity.
 Runtime `ordered_depth_pairs` may only be an identical prefix of
 `validated_pair_order`, and `maximum_probes_per_node` may not exceed the
-reviewed maximum. Reordering, suffix-only selection, or an unreviewed extra
-probe disables MPC during option normalization.
+reviewed maximum. That structural match is not sufficient: the exact prefix
+length and probe count must have passing evidence for every profile domain
+enabled by that prefix. Reordering, suffix-only selection, an unreviewed extra
+probe, or a prefix/domain combination missing from the evidence inventory
+disables MPC during option normalization.
 
 Do not manually translate analyzer coefficient names. Create a local reviewed
 adoption specification containing only the explicit decisions that the report
@@ -212,7 +217,7 @@ python3 tools/search-calibration/convert_probcut_profile.py \
   --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/reviewed-profile.tsv"
 ```
 
-The adoption file uses `schema_version: "probcut-profile-adoption-v2"`, exact
+The adoption file uses `schema_version: "probcut-profile-adoption-v3"`, exact
 report `evaluator_id`/`artifact_id` values as `evaluator_family` and
 `artifact_family`, `node_class: "non_pv_scout_beta_only"`, an explicit unique
 `validated_pair_order` array, `validated_maximum_probes_per_node`,
@@ -230,10 +235,13 @@ converter selects exactly one eligible
 `intercept`, copies residual sigma, verifies that the preference exactly matches
 the collected pair order, and records both report SHA-256 values. Training and
 holdout provenance/collection policy must match and their sampled-node
-identities must be disjoint. The converter then replays the runtime scheduler
-on holdout nodes—pair 1, then pair 2 after a rejection, stopping at the first
-success—and refuses output unless the joint candidate minimum and reviewed
-false-cut upper bound pass. Pair-local margins alone cannot authorize a
+identities must be disjoint. The converter replays the runtime scheduler—pair
+1, then pair 2 after a rejection, stopping at the first success—for every pair
+prefix, probe cap, and exact profile domain. Only combinations meeting the
+candidate minimum and reviewed false-cut upper bound are stored. The full
+validated scheduler must pass every enabled domain or conversion fails; an
+optional prefix that fails remains absent and cannot be selected at runtime.
+Pair-local margins and a global aggregate alone cannot authorize a
 Multi-ProbCut profile.
 
 The one-sided integer condition is:
@@ -256,7 +264,15 @@ header. Row order carries the reviewed first-occurrence pair preference; rows
 within a pair are ordered by the converter's exact domain key:
 
 ```text
-schema_version	profile_id	source_checksum_sha256	joint_holdout_checksum_sha256	evaluator_family	artifact_family	node_class	validated_maximum_probes_per_node	joint_false_cut_count	joint_cut_candidate_count	joint_false_cut_rate_upper_bound	phase	search_mode	minimum_empties	maximum_empties	deep_depth	shallow_depth	exact_handoff_enabled	exact_handoff_threshold	minimum_exact_handoff_distance	maximum_exact_handoff_distance	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+schema_version	profile_id	source_checksum_sha256	joint_holdout_checksum_sha256	evaluator_family	artifact_family	node_class	validated_maximum_probes_per_node	joint_false_cut_count	joint_cut_candidate_count	joint_false_cut_rate_upper_bound	scheduler_domain_evidence	phase	search_mode	minimum_empties	maximum_empties	deep_depth	shallow_depth	exact_handoff_enabled	exact_handoff_threshold	minimum_exact_handoff_distance	maximum_exact_handoff_distance	regression_slope	intercept	residual_sigma	confidence_multiplier	minimum_shallow_score	maximum_shallow_score	minimum_beta	maximum_beta
+```
+
+Profile schema v3 serializes each scheduler evidence record in the repeated
+`scheduler_domain_evidence` field as colon-separated values, with records
+separated by semicolons:
+
+```text
+prefix_length:maximum_probes:phase:search_mode:min_empties:max_empties:deep_depth:exact_enabled:exact_threshold:min_distance:max_distance:holdout_nodes:false_cuts:cut_candidates:wilson95_upper
 ```
 
 The benchmark requires an explicit positive `--probcut-maximum-margin`; it does

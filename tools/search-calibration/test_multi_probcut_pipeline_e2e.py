@@ -104,7 +104,7 @@ def adoption() -> dict[str, object]:
     second_entry = dict(base_entry)
     second_entry["shallow_depth"] = 4
     return {
-        "schema_version": "probcut-profile-adoption-v2",
+        "schema_version": "probcut-profile-adoption-v3",
         "profile_id": "same-population-multi-pair-e2e",
         "evaluator_family": "fixed-pattern-fixture-v1",
         "artifact_family": "candidate.manifest",

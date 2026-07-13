@@ -344,7 +344,7 @@ artifacts must not be committed.
 ## Multi-ProbCut Strength Campaign
 
 `run_multi_probcut_strength_campaign.py` runs the same reviewed calibration
-profile and artifact through MPC off, conservative first-pair ProbCut, ordered
+profile and artifact through MPC off, separately audited first-pair ProbCut, ordered
 Multi-ProbCut, and shadow Multi-ProbCut. In addition to each policy versus off,
 the matrix directly runs multi versus single and swaps every policy assignment.
 It covers fixed depth, fixed nodes, and 50/100/500 ms by default, repeats
@@ -368,7 +368,7 @@ python3 tools/arena/run_multi_probcut_strength_campaign.py \
 ```
 
 The profile evaluator/artifact families, training checksum, joint holdout
-checksum, scheduler evidence, ordered pairs, and reviewed probe cap must match
+checksum, per-prefix/probe/domain scheduler evidence, ordered pairs, and reviewed probe cap must match
 the resolved Arena options. The runner also binds requested node/depth/time
 limits, bootstrap settings, opening checksum/count, artifact runtime identity,
 TT/session settings, and Arena strength-gate eligibility. Primary 500-ms cells

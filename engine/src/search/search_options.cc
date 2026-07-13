@@ -51,6 +51,71 @@ bool valid_sha256(std::string_view checksum) noexcept {
   return true;
 }
 
+bool same_scheduler_domain(const ProbCutSchedulerEvidenceV1& evidence,
+                           const ProbCutCalibrationEntryV1& entry) noexcept {
+  return evidence.phase == entry.phase && evidence.search_mode == entry.search_mode &&
+         evidence.minimum_empties == entry.minimum_empties &&
+         evidence.maximum_empties == entry.maximum_empties &&
+         evidence.deep_depth == entry.deep_depth &&
+         evidence.exact_handoff_enabled == entry.exact_handoff_enabled &&
+         evidence.exact_handoff_threshold == entry.exact_handoff_threshold &&
+         evidence.minimum_exact_handoff_distance == entry.minimum_exact_handoff_distance &&
+         evidence.maximum_exact_handoff_distance == entry.maximum_exact_handoff_distance;
+}
+
+bool same_scheduler_evidence_key(const ProbCutSchedulerEvidenceV1& lhs,
+                                 const ProbCutSchedulerEvidenceV1& rhs) noexcept {
+  return lhs.pair_prefix_length == rhs.pair_prefix_length &&
+         lhs.maximum_probes_per_node == rhs.maximum_probes_per_node && lhs.phase == rhs.phase &&
+         lhs.search_mode == rhs.search_mode && lhs.minimum_empties == rhs.minimum_empties &&
+         lhs.maximum_empties == rhs.maximum_empties && lhs.deep_depth == rhs.deep_depth &&
+         lhs.exact_handoff_enabled == rhs.exact_handoff_enabled &&
+         lhs.exact_handoff_threshold == rhs.exact_handoff_threshold &&
+         lhs.minimum_exact_handoff_distance == rhs.minimum_exact_handoff_distance &&
+         lhs.maximum_exact_handoff_distance == rhs.maximum_exact_handoff_distance;
+}
+
+bool pair_is_in_prefix(const ProbCutCalibrationProfileV1& profile,
+                       const ProbCutCalibrationEntryV1& entry, std::size_t prefix_length) noexcept {
+  const ProbCutDepthPairV1 pair{
+      .deep_depth = entry.deep_depth,
+      .shallow_depth = entry.shallow_depth,
+  };
+  return std::find(profile.validated_pair_order.begin(),
+                   profile.validated_pair_order.begin() +
+                       static_cast<std::ptrdiff_t>(prefix_length),
+                   pair) !=
+         profile.validated_pair_order.begin() + static_cast<std::ptrdiff_t>(prefix_length);
+}
+
+bool scheduler_evidence_covers_entry(const ProbCutCalibrationProfileV1& profile,
+                                     std::size_t prefix_length, std::uint8_t maximum_probes,
+                                     const ProbCutCalibrationEntryV1& entry) noexcept {
+  return std::any_of(
+      profile.scheduler_evidence.begin(), profile.scheduler_evidence.end(),
+      [prefix_length, maximum_probes, &entry](const ProbCutSchedulerEvidenceV1& evidence) {
+        return evidence.pair_prefix_length == prefix_length &&
+               evidence.maximum_probes_per_node == maximum_probes &&
+               same_scheduler_domain(evidence, entry);
+      });
+}
+
+bool scheduler_configuration_is_reviewed(const ProbCutCalibrationProfileV1& profile,
+                                         std::size_t prefix_length,
+                                         std::uint8_t maximum_probes) noexcept {
+  bool enables_a_domain = false;
+  for (const ProbCutCalibrationEntryV1& entry : profile.entries) {
+    if (!pair_is_in_prefix(profile, entry, prefix_length)) {
+      continue;
+    }
+    enables_a_domain = true;
+    if (!scheduler_evidence_covers_entry(profile, prefix_length, maximum_probes, entry)) {
+      return false;
+    }
+  }
+  return enables_a_domain;
+}
+
 bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) noexcept {
   const ProbCutCalibrationProfileV1* profile = options.calibration_profile;
   if (profile == nullptr || profile->schema_version != kProbCutCalibrationProfileSchemaVersion ||
@@ -67,7 +132,7 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
       profile->joint_false_cut_rate_upper_bound <
           static_cast<double>(profile->joint_false_cut_count) /
               static_cast<double>(profile->joint_cut_candidate_count) ||
-      profile->entries.empty()) {
+      profile->scheduler_evidence.empty() || profile->entries.empty()) {
     return false;
   }
 
@@ -145,8 +210,54 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
     }
   }
 
+  for (std::size_t index = 0; index < profile->scheduler_evidence.size(); ++index) {
+    const ProbCutSchedulerEvidenceV1& evidence = profile->scheduler_evidence[index];
+    if (evidence.pair_prefix_length == 0 ||
+        evidence.pair_prefix_length > profile->validated_pair_order.size() ||
+        evidence.maximum_probes_per_node == 0 ||
+        evidence.maximum_probes_per_node > profile->validated_maximum_probes_per_node ||
+        evidence.maximum_probes_per_node > evidence.pair_prefix_length || evidence.phase > 12 ||
+        static_cast<std::uint8_t>(evidence.search_mode) >
+            static_cast<std::uint8_t>(SearchMode::win_loss_draw) ||
+        evidence.minimum_empties > evidence.maximum_empties || evidence.maximum_empties > 60 ||
+        evidence.deep_depth <= 0 || evidence.exact_handoff_threshold > 60 ||
+        evidence.exact_handoff_enabled != (evidence.exact_handoff_threshold != 0) ||
+        (!evidence.exact_handoff_enabled && (evidence.minimum_exact_handoff_distance != 0 ||
+                                             evidence.maximum_exact_handoff_distance != 0)) ||
+        evidence.minimum_exact_handoff_distance > evidence.maximum_exact_handoff_distance ||
+        evidence.maximum_exact_handoff_distance > 60 || evidence.holdout_node_count == 0 ||
+        evidence.cut_candidate_count == 0 ||
+        evidence.false_cut_count > evidence.cut_candidate_count ||
+        !std::isfinite(evidence.false_cut_rate_upper_bound) ||
+        evidence.false_cut_rate_upper_bound < 0.0 || evidence.false_cut_rate_upper_bound > 1.0 ||
+        evidence.false_cut_rate_upper_bound <
+            static_cast<double>(evidence.false_cut_count) /
+                static_cast<double>(evidence.cut_candidate_count)) {
+      return false;
+    }
+    const bool matches_enabled_entry =
+        std::any_of(profile->entries.begin(), profile->entries.end(),
+                    [&profile, &evidence](const ProbCutCalibrationEntryV1& entry) {
+                      return pair_is_in_prefix(*profile, entry, evidence.pair_prefix_length) &&
+                             same_scheduler_domain(evidence, entry);
+                    });
+    if (!matches_enabled_entry ||
+        std::any_of(profile->scheduler_evidence.begin(),
+                    profile->scheduler_evidence.begin() + static_cast<std::ptrdiff_t>(index),
+                    [&evidence](const ProbCutSchedulerEvidenceV1& previous) {
+                      return same_scheduler_evidence_key(previous, evidence);
+                    })) {
+      return false;
+    }
+  }
+
+  if (!scheduler_configuration_is_reviewed(*profile, profile->validated_pair_order.size(),
+                                           profile->validated_maximum_probes_per_node)) {
+    return false;
+  }
+
   std::uint64_t hash = kFnvOffset;
-  mix_string("probcut-calibration-profile-v2", &hash);
+  mix_string("probcut-calibration-profile-v3", &hash);
   mix_integer(profile->schema_version, &hash);
   mix_string(profile->profile_id, &hash);
   mix_string(profile->source_calibration_report_checksum_sha256, &hash);
@@ -162,6 +273,24 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
   for (const ProbCutDepthPairV1 pair : profile->validated_pair_order) {
     mix_integer(pair.deep_depth, &hash);
     mix_integer(pair.shallow_depth, &hash);
+  }
+  mix_integer(static_cast<std::uint64_t>(profile->scheduler_evidence.size()), &hash);
+  for (const ProbCutSchedulerEvidenceV1& evidence : profile->scheduler_evidence) {
+    mix_integer(evidence.pair_prefix_length, &hash);
+    mix_integer(evidence.maximum_probes_per_node, &hash);
+    mix_integer(evidence.phase, &hash);
+    mix_integer(static_cast<std::uint8_t>(evidence.search_mode), &hash);
+    mix_integer(evidence.minimum_empties, &hash);
+    mix_integer(evidence.maximum_empties, &hash);
+    mix_integer(evidence.deep_depth, &hash);
+    mix_integer(static_cast<std::uint8_t>(evidence.exact_handoff_enabled), &hash);
+    mix_integer(evidence.exact_handoff_threshold, &hash);
+    mix_integer(evidence.minimum_exact_handoff_distance, &hash);
+    mix_integer(evidence.maximum_exact_handoff_distance, &hash);
+    mix_integer(evidence.holdout_node_count, &hash);
+    mix_integer(evidence.false_cut_count, &hash);
+    mix_integer(evidence.cut_candidate_count, &hash);
+    mix_double(evidence.false_cut_rate_upper_bound, &hash);
   }
   mix_integer(static_cast<std::uint64_t>(profile->entries.size()), &hash);
   for (const ProbCutCalibrationEntryV1& entry : profile->entries) {
@@ -224,11 +353,17 @@ bool valid_probcut_options(const ProbCutOptionsV1& options, bool use_legacy_sear
       return false;
     }
   }
+  if (options.maximum_probes_per_node > preference.size() ||
+      !scheduler_configuration_is_reviewed(profile, preference.size(),
+                                           options.maximum_probes_per_node)) {
+    return false;
+  }
 
   std::uint64_t hash = *profile_fingerprint;
   mix_string(options.evaluator_family, &hash);
   mix_string(options.artifact_family, &hash);
   mix_integer(static_cast<std::uint64_t>(preference.size()), &hash);
+  mix_integer(options.maximum_probes_per_node, &hash);
   for (const ProbCutDepthPairV1 pair : preference) {
     mix_integer(pair.deep_depth, &hash);
     mix_integer(pair.shallow_depth, &hash);

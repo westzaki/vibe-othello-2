@@ -80,9 +80,11 @@ rules, including the report-to-TSV converter and required
 `non_pv_scout_beta_only` node class, are in
 `tools/search-calibration/README.md`. `--probcut all` expands each
 variant to `off`, `single`, `multi`, and `shadow`; `on` is accepted as a
-compatibility alias for `multi`. `single` uses only the first reviewed pair,
-while `multi` follows the reviewed pair preference subject to the per-node
-probe and overhead caps. `--pvs on` is required because pruning is attempted
+compatibility alias for `multi`. `single` requests the first pair with one
+probe, but it is enabled only when that exact prefix/domain configuration has
+its own passing holdout evidence. `multi` follows the reviewed pair preference
+subject to the per-node probe and overhead caps and the same evidence rule.
+`--pvs on` is required because pruning is attempted
 only at cut-node-equivalent PVS scout entries.
 
 Fixed-depth comparison:
@@ -119,7 +121,8 @@ raise it because runtime uses the maximum of profile and option multipliers.
 none of these options derives calibration values.
 
 Output includes root phase, requested ProbCut mode, profile ID, training and
-joint-holdout checksums, validated probe cap, joint false-cut evidence,
+joint-holdout checksums, validated probe cap, joint false-cut evidence and
+the scheduler/domain evidence inventory,
 node/time limits, nodes, completed depth, score/best move, attempts,
 successes, shallow-node overhead, rejection reasons, real beta cutoffs, and
 shadow false-cut counts. JSONL also emits the enabled pair order and telemetry

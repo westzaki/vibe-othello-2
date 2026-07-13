@@ -136,8 +136,8 @@ def adoption() -> dict[str, object]:
     second = dict(entry)
     second["shallow_depth"] = 4
     return {
-        "schema_version": "probcut-profile-adoption-v2",
-        "profile_id": "fixture-reviewed-v2",
+        "schema_version": "probcut-profile-adoption-v3",
+        "profile_id": "fixture-reviewed-v3",
         "evaluator_family": "fixture-eval",
         "artifact_family": "none",
         "node_class": "non_pv_scout_beta_only",
@@ -176,6 +176,9 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(first[header.index("joint_false_cut_count")], "0")
         self.assertEqual(first[header.index("joint_cut_candidate_count")], "3")
         self.assertEqual(first[header.index("validated_maximum_probes_per_node")], "2")
+        evidence = first[header.index("scheduler_domain_evidence")].split(";")
+        self.assertEqual(len(evidence), 1)
+        self.assertTrue(evidence[0].startswith("2:2:3:move:20:20:8:false:0:0:0:"))
         self.assertEqual(
             [(row[header.index("deep_depth")], row[header.index("shallow_depth")]) for row in (first, second)],
             [("8", "3"), ("8", "4")],
@@ -192,6 +195,55 @@ class ConverterTests(unittest.TestCase):
         header, row = [line.split("\t") for line in rendered.splitlines()[:2]]
         self.assertEqual(row[header.index("joint_cut_candidate_count")], "1")
         self.assertEqual(row[header.index("joint_false_cut_count")], "0")
+
+    def test_full_scheduler_can_pass_while_unsafe_prefix_is_not_authorized(self) -> None:
+        rendered = self.render()
+        header, row = [line.split("\t") for line in rendered.splitlines()[:2]]
+        evidence = row[header.index("scheduler_domain_evidence")].split(";")
+        self.assertTrue(any(record.startswith("2:2:") for record in evidence))
+        self.assertFalse(any(record.startswith("1:1:") for record in evidence))
+
+    def test_rejects_enabled_domain_without_holdout_candidates(self) -> None:
+        training = report()
+        reviewed = adoption()
+        for source in list(training["groups"]):
+            extra_group = copy.deepcopy(source)
+            extra_group["phase"] = 4
+            training["groups"].append(extra_group)
+        for source in list(reviewed["entries"]):
+            extra_entry = copy.deepcopy(source)
+            extra_entry["phase"] = 4
+            reviewed["entries"].append(extra_entry)
+        with self.assertRaisesRegex(
+            self.converter.ProfileConversionError, "unaudited exact profile domain"
+        ):
+            self.render(training=training, reviewed=reviewed)
+
+    def test_all_enabled_domains_are_saved_when_each_passes(self) -> None:
+        training = report()
+        reviewed = adoption()
+        reviewed["minimum_joint_cut_candidates"] = 1
+        holdout = report(holdout=True)
+        for source in list(training["groups"]):
+            extra_group = copy.deepcopy(source)
+            extra_group["phase"] = 4
+            training["groups"].append(extra_group)
+        for source in list(reviewed["entries"]):
+            extra_entry = copy.deepcopy(source)
+            extra_entry["phase"] = 4
+            reviewed["entries"].append(extra_entry)
+        extra_observations = copy.deepcopy(holdout["scheduler_observations"])
+        for index, node in enumerate(extra_observations):
+            node["node_id"] = f"holdout-phase-4-{index}"
+            node["phase"] = 4
+        holdout["scheduler_observations"].extend(extra_observations)
+        rendered = self.render(training=training, reviewed=reviewed, holdout=holdout)
+        header, row = [line.split("\t") for line in rendered.splitlines()[:2]]
+        evidence = row[header.index("scheduler_domain_evidence")].split(";")
+        full_domains = [record for record in evidence if record.startswith("2:2:")]
+        single_domains = [record for record in evidence if record.startswith("1:1:")]
+        self.assertEqual(len(full_domains), 2)
+        self.assertEqual(len(single_domains), 2)
 
     def test_rejects_unobserved_adoption_domain(self) -> None:
         reviewed = adoption()

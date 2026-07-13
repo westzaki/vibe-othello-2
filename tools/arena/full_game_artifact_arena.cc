@@ -141,6 +141,8 @@ struct LoadedProbCutProfile {
   search::NodeCount joint_false_cut_count = 0;
   search::NodeCount joint_cut_candidate_count = 0;
   double joint_false_cut_rate_upper_bound = 1.0;
+  std::string scheduler_evidence_serialized;
+  std::vector<search::ProbCutSchedulerEvidenceV1> scheduler_evidence;
   std::vector<search::ProbCutCalibrationEntryV1> entries;
 
   [[nodiscard]] search::ProbCutCalibrationProfileV1 view() const noexcept {
@@ -157,6 +159,7 @@ struct LoadedProbCutProfile {
         .joint_false_cut_count = joint_false_cut_count,
         .joint_cut_candidate_count = joint_cut_candidate_count,
         .joint_false_cut_rate_upper_bound = joint_false_cut_rate_upper_bound,
+        .scheduler_evidence = scheduler_evidence,
         .entries = entries,
     };
   }
@@ -642,13 +645,96 @@ std::vector<std::string_view> split_tabs(std::string_view line) {
   return fields;
 }
 
+std::vector<std::string_view> split_delimited(std::string_view value, char delimiter) {
+  std::vector<std::string_view> fields;
+  std::size_t begin = 0;
+  while (begin <= value.size()) {
+    const std::size_t separator = value.find(delimiter, begin);
+    if (separator == std::string_view::npos) {
+      fields.push_back(value.substr(begin));
+      break;
+    }
+    fields.push_back(value.substr(begin, separator - begin));
+    begin = separator + 1;
+  }
+  return fields;
+}
+
+std::optional<std::vector<search::ProbCutSchedulerEvidenceV1>>
+parse_scheduler_evidence(std::string_view serialized) {
+  if (serialized.empty()) {
+    return std::nullopt;
+  }
+  std::vector<search::ProbCutSchedulerEvidenceV1> result;
+  for (const std::string_view record : split_delimited(serialized, ';')) {
+    const std::vector<std::string_view> fields = split_delimited(record, ':');
+    if (fields.size() != 15) {
+      return std::nullopt;
+    }
+    const auto prefix_length = parse_int(fields[0]);
+    const auto maximum_probes = parse_int(fields[1]);
+    const auto phase = parse_int(fields[2]);
+    const std::optional<search::SearchMode> search_mode =
+        fields[3] == "move"            ? std::optional{search::SearchMode::move}
+        : fields[3] == "analyze"       ? std::optional{search::SearchMode::analyze}
+        : fields[3] == "exact_score"   ? std::optional{search::SearchMode::exact_score}
+        : fields[3] == "win_loss_draw" ? std::optional{search::SearchMode::win_loss_draw}
+                                       : std::nullopt;
+    const auto minimum_empties = parse_int(fields[4]);
+    const auto maximum_empties = parse_int(fields[5]);
+    const auto deep = parse_int(fields[6]);
+    const bool valid_handoff = fields[7] == "true" || fields[7] == "false";
+    const auto exact_handoff_threshold = parse_int(fields[8]);
+    const auto minimum_handoff = parse_int(fields[9]);
+    const auto maximum_handoff = parse_int(fields[10]);
+    const auto holdout_nodes = parse_u64(fields[11]);
+    const auto false_cuts = parse_u64(fields[12]);
+    const auto candidates = parse_u64(fields[13]);
+    const auto upper = parse_double(fields[14]);
+    if (!prefix_length.has_value() || *prefix_length <= 0 || *prefix_length > 65535 ||
+        !maximum_probes.has_value() || *maximum_probes <= 0 || *maximum_probes > 255 ||
+        !phase.has_value() || *phase < 0 || *phase > 12 || !search_mode.has_value() ||
+        !minimum_empties.has_value() || !maximum_empties.has_value() || *minimum_empties < 0 ||
+        *minimum_empties > *maximum_empties || *maximum_empties > 60 || !deep.has_value() ||
+        *deep <= 0 || *deep > std::numeric_limits<search::Depth>::max() || !valid_handoff ||
+        !exact_handoff_threshold.has_value() || *exact_handoff_threshold < 0 ||
+        *exact_handoff_threshold > 60 ||
+        ((fields[7] == "true") != (*exact_handoff_threshold != 0)) ||
+        !minimum_handoff.has_value() || !maximum_handoff.has_value() || *minimum_handoff < 0 ||
+        *minimum_handoff > *maximum_handoff || *maximum_handoff > 60 ||
+        !holdout_nodes.has_value() || *holdout_nodes == 0 || !false_cuts.has_value() ||
+        !candidates.has_value() || *candidates == 0 || *false_cuts > *candidates ||
+        !upper.has_value() || *upper < 0.0 || *upper > 1.0) {
+      return std::nullopt;
+    }
+    result.push_back(search::ProbCutSchedulerEvidenceV1{
+        .pair_prefix_length = static_cast<std::uint16_t>(*prefix_length),
+        .maximum_probes_per_node = static_cast<std::uint8_t>(*maximum_probes),
+        .phase = static_cast<std::uint8_t>(*phase),
+        .search_mode = *search_mode,
+        .minimum_empties = static_cast<std::uint8_t>(*minimum_empties),
+        .maximum_empties = static_cast<std::uint8_t>(*maximum_empties),
+        .deep_depth = static_cast<search::Depth>(*deep),
+        .exact_handoff_enabled = fields[7] == "true",
+        .exact_handoff_threshold = static_cast<std::uint8_t>(*exact_handoff_threshold),
+        .minimum_exact_handoff_distance = static_cast<std::uint8_t>(*minimum_handoff),
+        .maximum_exact_handoff_distance = static_cast<std::uint8_t>(*maximum_handoff),
+        .holdout_node_count = *holdout_nodes,
+        .false_cut_count = *false_cuts,
+        .cut_candidate_count = *candidates,
+        .false_cut_rate_upper_bound = *upper,
+    });
+  }
+  return result.empty() ? std::nullopt : std::optional{std::move(result)};
+}
+
 std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::path& path) {
   std::ifstream input(path);
   if (!input) {
     std::cerr << "cannot read ProbCut profile: " << path << '\n';
     return std::nullopt;
   }
-  const std::array<std::string_view, 29> expected_header{
+  const std::array<std::string_view, 30> expected_header{
       "schema_version",
       "profile_id",
       "source_checksum_sha256",
@@ -660,6 +746,7 @@ std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::
       "joint_false_cut_count",
       "joint_cut_candidate_count",
       "joint_false_cut_rate_upper_bound",
+      "scheduler_domain_evidence",
       "phase",
       "search_mode",
       "minimum_empties",
@@ -705,41 +792,43 @@ std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::
     const auto joint_false_cuts = parse_u64(fields[8]);
     const auto joint_candidates = parse_u64(fields[9]);
     const auto joint_upper = parse_double(fields[10]);
-    const auto phase = parse_int(fields[11]);
+    const auto scheduler_evidence = parse_scheduler_evidence(fields[11]);
+    const auto phase = parse_int(fields[12]);
     const std::optional<search::SearchMode> search_mode =
-        fields[12] == "move"            ? std::optional{search::SearchMode::move}
-        : fields[12] == "analyze"       ? std::optional{search::SearchMode::analyze}
-        : fields[12] == "exact_score"   ? std::optional{search::SearchMode::exact_score}
-        : fields[12] == "win_loss_draw" ? std::optional{search::SearchMode::win_loss_draw}
+        fields[13] == "move"            ? std::optional{search::SearchMode::move}
+        : fields[13] == "analyze"       ? std::optional{search::SearchMode::analyze}
+        : fields[13] == "exact_score"   ? std::optional{search::SearchMode::exact_score}
+        : fields[13] == "win_loss_draw" ? std::optional{search::SearchMode::win_loss_draw}
                                         : std::nullopt;
-    const auto minimum_empties = parse_int(fields[13]);
-    const auto maximum_empties = parse_int(fields[14]);
-    const auto deep = parse_int(fields[15]);
-    const auto shallow = parse_int(fields[16]);
-    const bool valid_handoff = fields[17] == "true" || fields[17] == "false";
-    const auto exact_handoff_threshold = parse_int(fields[18]);
-    const auto minimum_handoff = parse_int(fields[19]);
-    const auto maximum_handoff = parse_int(fields[20]);
-    const auto slope = parse_double(fields[21]);
-    const auto intercept = parse_double(fields[22]);
-    const auto sigma = parse_double(fields[23]);
-    const auto confidence = parse_double(fields[24]);
-    const auto minimum_shallow = parse_int(fields[25]);
-    const auto maximum_shallow = parse_int(fields[26]);
-    const auto minimum_beta = parse_int(fields[27]);
-    const auto maximum_beta = parse_int(fields[28]);
-    if (!schema.has_value() || *schema != 2 || !validated_maximum_probes.has_value() ||
+    const auto minimum_empties = parse_int(fields[14]);
+    const auto maximum_empties = parse_int(fields[15]);
+    const auto deep = parse_int(fields[16]);
+    const auto shallow = parse_int(fields[17]);
+    const bool valid_handoff = fields[18] == "true" || fields[18] == "false";
+    const auto exact_handoff_threshold = parse_int(fields[19]);
+    const auto minimum_handoff = parse_int(fields[20]);
+    const auto maximum_handoff = parse_int(fields[21]);
+    const auto slope = parse_double(fields[22]);
+    const auto intercept = parse_double(fields[23]);
+    const auto sigma = parse_double(fields[24]);
+    const auto confidence = parse_double(fields[25]);
+    const auto minimum_shallow = parse_int(fields[26]);
+    const auto maximum_shallow = parse_int(fields[27]);
+    const auto minimum_beta = parse_int(fields[28]);
+    const auto maximum_beta = parse_int(fields[29]);
+    if (!schema.has_value() || *schema != 3 || !validated_maximum_probes.has_value() ||
         *validated_maximum_probes <= 0 || *validated_maximum_probes > 255 ||
         !joint_false_cuts.has_value() || !joint_candidates.has_value() || *joint_candidates == 0 ||
         *joint_false_cuts > *joint_candidates || !joint_upper.has_value() || *joint_upper < 0.0 ||
-        *joint_upper > 1.0 || !search_mode.has_value() || !phase.has_value() || *phase < 0 ||
-        *phase > 12 || !minimum_empties.has_value() || !maximum_empties.has_value() ||
-        *minimum_empties < 0 || *minimum_empties > *maximum_empties || *maximum_empties > 60 ||
-        !deep.has_value() || !shallow.has_value() || *shallow <= 0 || *deep <= *shallow ||
+        *joint_upper > 1.0 || !scheduler_evidence.has_value() || !search_mode.has_value() ||
+        !phase.has_value() || *phase < 0 || *phase > 12 || !minimum_empties.has_value() ||
+        !maximum_empties.has_value() || *minimum_empties < 0 ||
+        *minimum_empties > *maximum_empties || *maximum_empties > 60 || !deep.has_value() ||
+        !shallow.has_value() || *shallow <= 0 || *deep <= *shallow ||
         *deep > std::numeric_limits<search::Depth>::max() || !valid_handoff ||
         !exact_handoff_threshold.has_value() || *exact_handoff_threshold < 0 ||
         *exact_handoff_threshold > 60 ||
-        ((fields[17] == "true") != (*exact_handoff_threshold != 0)) ||
+        ((fields[18] == "true") != (*exact_handoff_threshold != 0)) ||
         !minimum_handoff.has_value() || !maximum_handoff.has_value() || *minimum_handoff < 0 ||
         *minimum_handoff > *maximum_handoff || *maximum_handoff > 60 || !slope.has_value() ||
         *slope <= 0.0 || !intercept.has_value() || !sigma.has_value() || *sigma < 0.0 ||
@@ -763,6 +852,8 @@ std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::
       profile.joint_false_cut_count = *joint_false_cuts;
       profile.joint_cut_candidate_count = *joint_candidates;
       profile.joint_false_cut_rate_upper_bound = *joint_upper;
+      profile.scheduler_evidence_serialized = fields[11];
+      profile.scheduler_evidence = *scheduler_evidence;
       if (fields[6] != "non_pv_scout_beta_only") {
         std::cerr << "unsupported ProbCut node class: " << path << '\n';
         return std::nullopt;
@@ -775,7 +866,8 @@ std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::
                profile.validated_maximum_probes_per_node != *validated_maximum_probes ||
                profile.joint_false_cut_count != *joint_false_cuts ||
                profile.joint_cut_candidate_count != *joint_candidates ||
-               profile.joint_false_cut_rate_upper_bound != *joint_upper) {
+               profile.joint_false_cut_rate_upper_bound != *joint_upper ||
+               profile.scheduler_evidence_serialized != fields[11]) {
       std::cerr << "mixed ProbCut profile identity: " << path << '\n';
       return std::nullopt;
     }
@@ -794,7 +886,7 @@ std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::
         .maximum_empties = static_cast<std::uint8_t>(*maximum_empties),
         .deep_depth = pair.deep_depth,
         .shallow_depth = pair.shallow_depth,
-        .exact_handoff_enabled = fields[17] == "true",
+        .exact_handoff_enabled = fields[18] == "true",
         .exact_handoff_threshold = static_cast<std::uint8_t>(*exact_handoff_threshold),
         .minimum_exact_handoff_distance = static_cast<std::uint8_t>(*minimum_handoff),
         .maximum_exact_handoff_distance = static_cast<std::uint8_t>(*maximum_handoff),
@@ -816,7 +908,7 @@ std::optional<LoadedProbCutProfile> load_probcut_profile(const std::filesystem::
   if (!saw_header || profile.entries.empty() || profile.profile_id.empty() ||
       profile.evaluator_family.empty() || profile.artifact_family.empty() ||
       !checksum_valid(profile.source_checksum) || !checksum_valid(profile.joint_holdout_checksum) ||
-      profile.validated_pair_order.empty() ||
+      profile.validated_pair_order.empty() || profile.scheduler_evidence.empty() ||
       profile.validated_maximum_probes_per_node > profile.validated_pair_order.size()) {
     std::cerr << "incomplete ProbCut profile: " << path << '\n';
     return std::nullopt;
@@ -1523,6 +1615,10 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
          << (probcut.use_probcut && probcut.calibration_profile != nullptr
                  ? probcut.calibration_profile->joint_false_cut_rate_upper_bound
                  : 1.0);
+  output << ", \"scheduler_domain_evidence_count\": "
+         << (probcut.use_probcut && probcut.calibration_profile != nullptr
+                 ? probcut.calibration_profile->scheduler_evidence.size()
+                 : 0);
   output << ", \"evaluator_family\": ";
   write_json_string(output, probcut.evaluator_family);
   output << ", \"artifact_family\": ";
@@ -2133,6 +2229,24 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
       for (const search::ProbCutDepthPairV1 pair :
            probcut.calibration_profile->validated_pair_order) {
         output << pair.deep_depth << '\n' << pair.shallow_depth << '\n';
+      }
+      for (const search::ProbCutSchedulerEvidenceV1& evidence :
+           probcut.calibration_profile->scheduler_evidence) {
+        output << evidence.pair_prefix_length << '\n'
+               << static_cast<int>(evidence.maximum_probes_per_node) << '\n'
+               << static_cast<int>(evidence.phase) << '\n'
+               << static_cast<int>(evidence.search_mode) << '\n'
+               << static_cast<int>(evidence.minimum_empties) << '\n'
+               << static_cast<int>(evidence.maximum_empties) << '\n'
+               << evidence.deep_depth << '\n'
+               << evidence.exact_handoff_enabled << '\n'
+               << static_cast<int>(evidence.exact_handoff_threshold) << '\n'
+               << static_cast<int>(evidence.minimum_exact_handoff_distance) << '\n'
+               << static_cast<int>(evidence.maximum_exact_handoff_distance) << '\n'
+               << evidence.holdout_node_count << '\n'
+               << evidence.false_cut_count << '\n'
+               << evidence.cut_candidate_count << '\n'
+               << evidence.false_cut_rate_upper_bound << '\n';
       }
       for (const search::ProbCutCalibrationEntryV1& entry : probcut.calibration_profile->entries) {
         output << static_cast<int>(entry.phase) << '\n'

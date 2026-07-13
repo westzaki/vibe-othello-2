@@ -94,6 +94,7 @@ def profile_identity(path: Path) -> dict[str, Any]:
         "joint_false_cut_count",
         "joint_cut_candidate_count",
         "joint_false_cut_rate_upper_bound",
+        "scheduler_domain_evidence",
     )
     row = dict(zip(header, values, strict=True))
     if any(not row.get(field) for field in required):
@@ -134,6 +135,22 @@ def profile_identity(path: Path) -> dict[str, Any]:
         or not 0.0 <= joint_upper <= 1.0
     ):
         raise CampaignError("ProbCut scheduler evidence is invalid")
+    scheduler_domain_evidence = identity["scheduler_domain_evidence"].split(";")
+    if not scheduler_domain_evidence or any(record.count(":") != 14 for record in scheduler_domain_evidence):
+        raise CampaignError("ProbCut scheduler/domain evidence is malformed")
+    try:
+        reviewed_scheduler_configurations = {
+            (int(record.split(":", 2)[0]), int(record.split(":", 2)[1]))
+            for record in scheduler_domain_evidence
+        }
+    except ValueError as error:
+        raise CampaignError(f"ProbCut scheduler/domain evidence is malformed: {error}") from error
+    required_scheduler_configurations = {
+        (1, 1),
+        (len(pairs), validated_maximum_probes),
+    }
+    if not required_scheduler_configurations.issubset(reviewed_scheduler_configurations):
+        raise CampaignError("ProbCut profile does not authorize both single and multi campaign modes")
     return {
         **identity,
         "profile_file_sha256": sha256_file(path),
@@ -142,6 +159,10 @@ def profile_identity(path: Path) -> dict[str, Any]:
         "joint_false_cut_count": joint_false_cuts,
         "joint_cut_candidate_count": joint_candidates,
         "joint_false_cut_rate_upper_bound": joint_upper,
+        "scheduler_domain_evidence_count": len(scheduler_domain_evidence),
+        "scheduler_domain_evidence_sha256": hashlib.sha256(
+            identity["scheduler_domain_evidence"].encode("utf-8")
+        ).hexdigest(),
     }
 
 
@@ -272,6 +293,8 @@ def validate_report(
             or multi.get("joint_cut_candidate_count") != profile["joint_cut_candidate_count"]
             or multi.get("joint_false_cut_rate_upper_bound")
             != profile["joint_false_cut_rate_upper_bound"]
+            or multi.get("scheduler_domain_evidence_count")
+            != profile["scheduler_domain_evidence_count"]
             or multi.get("evaluator_family") != profile["evaluator_family"]
             or multi.get("artifact_family") != profile["artifact_family"]
             or multi.get("ordered_depth_pairs") != selected_pairs

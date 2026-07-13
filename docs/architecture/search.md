@@ -375,9 +375,10 @@ option only when its caller-owned profile is complete and internally valid,
 the profile ID matches, both report checksums are lowercase SHA-256 values, the
 profile node class is exactly `non_pv_scout_beta_only`, calibration entries are
 finite and non-overlapping, every profile carries a complete unique validated
-pair order plus internally consistent joint scheduler evidence, the caller's
+pair order plus internally consistent scheduler/domain evidence, the caller's
 pair selection is a reviewed prefix, the probe count is within the reviewed
-maximum, the caller's evaluator/artifact family exactly matches the profile,
+maximum, every domain enabled by that exact prefix/probe combination has
+passing holdout evidence, the caller's evaluator/artifact family exactly matches the profile,
 all conservative scope
 flags remain true, margins are ordered, and the legacy kernel is disabled.
 Invalid or incomplete configuration normalizes to disabled; it never invents a
@@ -1401,9 +1402,11 @@ Only beta-direction cut-high is implemented. Easy/normal/hard WASM presets leave
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
 source calibration report SHA-256, independent joint holdout SHA-256, evaluator
 family, artifact family, `node_class = non_pv_scout_beta_only`,
-`validated_pair_order`, and the validated maximum probes per node. Joint
-first-success evidence records false-cut count, cut-candidate count, and its
-95% upper bound. Runtime requires this node class to match the explicit PVS scout role;
+`validated_pair_order`, and the validated maximum probes per node. The full
+scheduler retains aggregate joint evidence, while scheduler evidence records
+holdout nodes, false cuts, cut candidates, and the 95% upper bound separately
+for each pair-prefix length, probe cap, and exact profile domain. Runtime
+requires this node class to match the explicit PVS scout role;
 post-result `cut` groups are not an adoption population. Entries are keyed by
 phase, search mode, inclusive empties range, deep/shallow pair, exact-handoff
 enabled state and threshold, and inclusive exact-handoff-distance range. They also contain slope
@@ -1413,8 +1416,12 @@ artifact family actually in use; both must exactly match the reviewed profile.
 Missing or ambiguous domains are rejected. Adjacent phase, empties, depth,
 handoff, evaluator, and artifact profiles are never extrapolated.
 Runtime pair options must be an identical prefix of `validated_pair_order`, and
-the requested probe count must not exceed the reviewed maximum. A reordered or
-suffix-only selection disables MPC during normalization.
+the requested probe count must not exceed the reviewed maximum or prefix
+length. It is enabled only when that exact prefix/probe combination has a
+passing evidence record for every domain reached by its selected entries. A
+reordered or suffix-only selection, unsafe prefix, or unobserved domain disables
+MPC during normalization. Thus a full scheduler may be accepted while a
+statistically unsafe single-pair prefix remains unavailable.
 
 At a node, the scheduler walks the configured pair preference, considering
 only pairs whose deep depth exactly equals the current depth. It stops at the
