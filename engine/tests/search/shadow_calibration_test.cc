@@ -105,6 +105,7 @@ TEST_CASE("shadow mode preserves official result nodes and PV", "[search][shadow
   REQUIRE(actual.shadow_calibration.shadow_samples == collector.samples.size());
   REQUIRE(actual.shadow_calibration.shadow_samples == 12);
   REQUIRE(actual.shadow_calibration.shadow_shallow_nodes > 0);
+  REQUIRE(actual.shadow_calibration.shadow_deep_verification_nodes > 0);
   REQUIRE(actual.stats.selective_cuts == 0);
 }
 
@@ -166,23 +167,50 @@ TEST_CASE("shadow sampling is deterministic and metadata is complete",
     REQUIRE(sample.phase == std::min(12, (normalized_count * 13) / 60));
     REQUIRE(sample.deep_depth >= 2);
     REQUIRE(sample.shallow_depth == sample.deep_depth - 1);
-    REQUIRE(sample.alpha < sample.beta);
+    REQUIRE(sample.official_alpha < sample.official_beta);
     REQUIRE(sample.sampling_seed == 42);
     REQUIRE(sample.search_identity.size() == 16);
-    const ShadowWindowResult expected_shallow_result =
-        sample.shallow_score <= sample.alpha
+    const ShadowWindowResult expected_official_result =
+        sample.official_deep_score <= sample.official_alpha
             ? ShadowWindowResult::fail_low
-            : (sample.shallow_score >= sample.beta ? ShadowWindowResult::fail_high
-                                                   : ShadowWindowResult::exact);
-    REQUIRE(sample.actual_shallow_result == expected_shallow_result);
-    REQUIRE(sample.shallow_bound ==
-            internal::classify_bound(sample.shallow_score, sample.alpha, sample.beta));
-    REQUIRE(sample.deep_bound ==
-            internal::classify_bound(sample.deep_score, sample.alpha, sample.beta));
+            : (sample.official_deep_score >= sample.official_beta ? ShadowWindowResult::fail_high
+                                                                  : ShadowWindowResult::exact);
+    REQUIRE(sample.actual_official_deep_result == expected_official_result);
+    REQUIRE(sample.official_deep_bound == internal::classify_bound(sample.official_deep_score,
+                                                                   sample.official_alpha,
+                                                                   sample.official_beta));
+    REQUIRE(sample.shallow_verification_bound ==
+            internal::classify_bound(sample.shallow_verification_score, kScoreLoss, kScoreWin));
+    REQUIRE(sample.deep_verification_bound ==
+            internal::classify_bound(sample.deep_verification_score, kScoreLoss, kScoreWin));
     REQUIRE((sample.node_type == ShadowNodeType::pv || sample.node_type == ShadowNodeType::cut ||
              sample.node_type == ShadowNodeType::all));
     REQUIRE(sample.cut_node == (sample.node_type == ShadowNodeType::cut));
     REQUIRE(sample.all_node == (sample.node_type == ShadowNodeType::all));
+  }
+}
+
+TEST_CASE("non-PV null-window samples have exact full-window verification pairs",
+          "[search][shadow_calibration]") {
+  Collector collector;
+  SearchOptions options{};
+  options.midgame.use_pvs = true;
+  options.selective = enabled_shadow(&collector);
+  options.selective.include_pv_nodes = false;
+  options.selective.max_samples_per_search = 4;
+
+  const SearchResult result = run_fixed(board_core::initial_position(), Depth{5}, options);
+
+  REQUIRE_FALSE(collector.samples.empty());
+  REQUIRE(result.shadow_calibration.shadow_samples == collector.samples.size());
+  REQUIRE(result.shadow_calibration.shadow_deep_verification_nodes > 0);
+  for (const ShadowCalibrationSample& sample : collector.samples) {
+    REQUIRE_FALSE(sample.pv_node);
+    REQUIRE(sample.official_beta == sample.official_alpha + 1);
+    REQUIRE(sample.official_deep_bound != BoundType::exact);
+    REQUIRE(sample.shallow_verification_bound == BoundType::exact);
+    REQUIRE(sample.deep_verification_bound == BoundType::exact);
+    REQUIRE((sample.node_type == ShadowNodeType::cut || sample.node_type == ShadowNodeType::all));
   }
 }
 

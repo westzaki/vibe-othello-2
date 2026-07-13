@@ -18,14 +18,14 @@ fields own their values. A local collector may copy it for retention or
 serialize one object per line. Serialize enums and moves as:
 
 - `node_type`: `pv`, `cut`, or `all`
-- `shallow_bound` and `deep_bound`: `upper`, `exact`, or `lower`
-- `actual_shallow_result` and `actual_deep_result`: `fail_low`, `exact`, or
-  `fail_high`
+- `official_deep_bound`, `shallow_verification_bound`, and
+  `deep_verification_bound`: `upper`, `exact`, or `lower`
+- `actual_official_deep_result`: `fail_low`, `exact`, or `fail_high`
 - moves: `a1` through `h8`, `pass`, or JSON `null`
 - `canonical_position_hash`: 16 lowercase hexadecimal characters
 
 JSON field names match the C++ member names exactly. Every JSON/JSONL sample
-must contain all schema-v2 fields validated by `analyze_shadow_samples.py`.
+must contain all schema-v3 fields validated by `analyze_shadow_samples.py`.
 `repo_sha`, `search_config_id`, `evaluator_id`, and `artifact_id` must identify
 the actual run; `repo_sha` is a 7-64 character lowercase hexadecimal Git SHA.
 Use `artifact_id: "none"` only for an evaluator with no
@@ -45,12 +45,33 @@ store key. Phase v1 uses
 `min(12, floor(max(0, occupied_count - 4) * 13 / 60))`; it matches the current
 13-phase artifact layout.
 
-Shadow searches use isolated TT and ordering state and never contribute to
+After the official search completes at a sampled node, collection runs two
+isolated searches over `[kScoreLoss, kScoreWin]`: one at `shallow_depth` and one
+at `deep_depth`. Schema v3 separates their exact value observations from the
+official window result:
+
+- `official_alpha`, `official_beta`, `official_deep_score`, and
+  `official_deep_bound` retain the official result for `pv`/`cut`/`all`
+  classification and window diagnostics.
+- `shallow_verification_score` / `bound` and
+  `deep_verification_score` / `bound` are the value-regression pair.
+- verification best moves and agreement are also independent of the official
+  result PV.
+
+This separation is required for non-PV nodes: their one-point integer
+null-window cannot produce an exact official score, while their full-window
+verification searches can. `hypothetical_cut_high` and `_low` compare the
+shallow verification score with the official window. False-cut candidates use
+the deep verification score.
+
+Verification searches use isolated TT and ordering state and never contribute to
 official `SearchStats`, `SearchResult::nodes`, root move nodes, or node limits.
-The dedicated counters are in `SearchResult::shadow_calibration`. Fixed-time
-deadline accounting excludes shallow work, but local calibration should still
-use fixed-depth or fixed-node runs: an external stop can naturally arrive while
-any diagnostic callback is running.
+The dedicated counters are in `SearchResult::shadow_calibration`, including
+separate shallow and deep-verification node counts. Fixed-time deadline
+accounting excludes verification work, but local calibration should still use
+fixed-depth or fixed-node runs: an external stop can naturally arrive while any
+diagnostic callback is running. Deep verification is intentionally expensive;
+control it with sample rate and the per-search cap.
 
 Normal C++ defaults, runtime presets, WASM `easy`/`normal`/`hard` presets,
 benchmarks, and Arena runs remain disabled. Long collection runs belong under a
@@ -92,7 +113,7 @@ group reports:
 
 - total sample count, exact-pair count, and bound-observation count
 - `deep = a + b * shallow` regression using only rows where both
-  `shallow_bound` and `deep_bound` are `exact`
+  `shallow_verification_bound` and `deep_verification_bound` are `exact`
 - residual mean, population standard deviation, and residual percentiles
 - MAE and RMSE for fitted regression residuals
 - best-move agreement
@@ -101,9 +122,10 @@ group reports:
 - `ceil(p99 absolute fitted residual)` as a conservative diagnostic margin
   only when the minimum exact-pair threshold is met
 
-Upper/lower-bound rows are censored observations. They remain available for
-hypothetical-cut and false-cut window diagnostics, but they never enter OLS or
-residual estimation. A one-row or otherwise under-threshold group reports
+Upper/lower verification rows are censored observations and never enter OLS or
+residual estimation. An upper/lower `official_deep_bound` does not exclude an
+otherwise exact verification pair; it remains the basis for non-PV node
+classification and window diagnostics. A one-row or otherwise under-threshold group reports
 `insufficient_samples: true`, `recommendation_eligible: false`, and a null
 margin. A fit also requires at least two exact pairs with non-zero shallow-score
 variance.

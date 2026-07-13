@@ -42,6 +42,6 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
                                                       Score beta, Depth depth, Ply ply);
 
 void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& candidate,
-                               const SearchNodeResult& deep_result);
+                               const SearchNodeResult& official_deep_result);
 
 } // namespace vibe_othello::search::internal

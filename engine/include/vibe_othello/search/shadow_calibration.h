@@ -11,7 +11,7 @@
 
 namespace vibe_othello::search {
 
-inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 2;
+inline constexpr std::uint32_t kShadowCalibrationSchemaVersion = 3;
 inline constexpr std::uint32_t kShadowCalibrationSampleRateScale = 1'000'000;
 
 enum class ShadowNodeType : std::uint8_t {
@@ -44,20 +44,21 @@ struct ShadowCalibrationSample {
   bool all_node = false;
   Depth deep_depth = 0;
   Depth shallow_depth = 0;
-  Score alpha = 0;
-  Score beta = 0;
-  Score shallow_score = 0;
-  Score deep_score = 0;
-  BoundType shallow_bound = BoundType::exact;
-  BoundType deep_bound = BoundType::exact;
-  std::optional<board_core::Move> shallow_best_move;
-  std::optional<board_core::Move> deep_best_move;
-  bool best_move_agreement = false;
+  Score official_alpha = 0;
+  Score official_beta = 0;
+  Score official_deep_score = 0;
+  BoundType official_deep_bound = BoundType::exact;
+  Score shallow_verification_score = 0;
+  Score deep_verification_score = 0;
+  BoundType shallow_verification_bound = BoundType::exact;
+  BoundType deep_verification_bound = BoundType::exact;
+  std::optional<board_core::Move> shallow_verification_best_move;
+  std::optional<board_core::Move> deep_verification_best_move;
+  bool verification_best_move_agreement = false;
   bool pass_state = false;
   bool terminal_state = false;
   bool exact_handoff_eligible = false;
-  ShadowWindowResult actual_shallow_result = ShadowWindowResult::exact;
-  ShadowWindowResult actual_deep_result = ShadowWindowResult::exact;
+  ShadowWindowResult actual_official_deep_result = ShadowWindowResult::exact;
   bool hypothetical_cut_high = false;
   bool hypothetical_cut_low = false;
   bool false_cut_high_candidate = false;
@@ -108,6 +109,7 @@ struct ShadowCalibrationStats {
   NodeCount shadow_candidates = 0;
   NodeCount shadow_samples = 0;
   NodeCount shadow_shallow_nodes = 0;
+  NodeCount shadow_deep_verification_nodes = 0;
   NodeCount shadow_best_move_agreements = 0;
   NodeCount hypothetical_cut_highs = 0;
   NodeCount hypothetical_cut_lows = 0;

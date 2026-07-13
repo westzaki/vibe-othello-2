@@ -159,6 +159,31 @@ ShadowWindowResult window_result_for(Score score, const ShadowCandidate& candida
   return ShadowWindowResult::exact;
 }
 
+BoundType verification_bound_for(Score score) noexcept {
+  return classify_bound(score, kScoreLoss, kScoreWin);
+}
+
+SearchNodeResult run_verification_search(board_core::Position position, Depth depth,
+                                         const Evaluator& evaluator,
+                                         const ResolvedSearchOptions& options, NodeCount* nodes) {
+  MidgameOrderingState ordering_state{};
+  SearchContext verification_context{
+      .position_state = make_search_position(position, &evaluator, depth),
+      .evaluator = evaluator,
+      .limits = SearchLimits{.max_depth = depth},
+      .options = options,
+      .ordering_state = &ordering_state,
+  };
+  if (verification_context.position_state.evaluation_state.has_value()) {
+    verification_context.stats.incremental_eval_enabled = true;
+    ++verification_context.stats.incremental_state_initializations;
+  }
+  SearchNodeResult result =
+      full_window_search(&verification_context, kScoreLoss, kScoreWin, depth, Ply{0});
+  *nodes = verification_context.stats.nodes;
+  return result;
+}
+
 ShadowNodeType node_type_for(bool pv_node, ShadowWindowResult deep_result) noexcept {
   if (pv_node) {
     return ShadowNodeType::pv;
@@ -274,8 +299,9 @@ std::optional<ShadowCandidate> begin_shadow_candidate(SearchContext* context, Sc
 }
 
 void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& candidate,
-                               const SearchNodeResult& deep_result) {
-  if (context == nullptr || context->shadow_calibration == nullptr || !deep_result.is_complete()) {
+                               const SearchNodeResult& official_deep_result) {
+  if (context == nullptr || context->shadow_calibration == nullptr ||
+      !official_deep_result.is_complete()) {
     return;
   }
   ShadowCalibrationRun& run = *context->shadow_calibration;
@@ -285,39 +311,41 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
   shadow_options.selective = {};
   shadow_options.endgame.exact_endgame = false;
   shadow_options.endgame.endgame_exact_empties = 0;
-  MidgameOrderingState ordering_state{};
-  SearchContext shallow_context{
-      .position_state =
-          make_search_position(candidate.position, &context->evaluator, candidate.shallow_depth),
-      .evaluator = context->evaluator,
-      .limits = SearchLimits{.max_depth = candidate.shallow_depth},
-      .options = shadow_options,
-      .ordering_state = &ordering_state,
-  };
-  if (shallow_context.position_state.evaluation_state.has_value()) {
-    shallow_context.stats.incremental_eval_enabled = true;
-    ++shallow_context.stats.incremental_state_initializations;
+  NodeCount shallow_nodes = 0;
+  const SearchNodeResult shallow_verification =
+      run_verification_search(candidate.position, candidate.shallow_depth, context->evaluator,
+                              shadow_options, &shallow_nodes);
+  run.stats.shadow_shallow_nodes += shallow_nodes;
+  if (!shallow_verification.is_complete()) {
+    return;
   }
-  const SearchNodeResult shallow_result = full_window_search(
-      &shallow_context, candidate.alpha, candidate.beta, candidate.shallow_depth, Ply{0});
-  run.stats.shadow_shallow_nodes += shallow_context.stats.nodes;
-  if (!shallow_result.is_complete()) {
+  NodeCount deep_verification_nodes = 0;
+  const SearchNodeResult deep_verification =
+      run_verification_search(candidate.position, candidate.deep_depth, context->evaluator,
+                              shadow_options, &deep_verification_nodes);
+  run.stats.shadow_deep_verification_nodes += deep_verification_nodes;
+  if (!deep_verification.is_complete()) {
     return;
   }
 
-  const Score deep_score = deep_result.value().score;
-  const Score shallow_score = shallow_result.value().score;
-  const ShadowWindowResult actual_shallow_result = window_result_for(shallow_score, candidate);
-  const ShadowWindowResult actual_deep_result = window_result_for(deep_score, candidate);
-  const ShadowNodeType node_type = node_type_for(candidate.pv_node, actual_deep_result);
-  const std::optional<board_core::Move> shallow_best_move = best_move(shallow_result);
-  const std::optional<board_core::Move> deep_best_move = best_move(deep_result);
-  const bool best_move_agreement = shallow_best_move.has_value() && deep_best_move.has_value() &&
-                                   shallow_best_move == deep_best_move;
-  const bool hypothetical_cut_high = shallow_score >= candidate.beta;
-  const bool hypothetical_cut_low = shallow_score <= candidate.alpha;
-  const bool false_cut_high_candidate = hypothetical_cut_high && deep_score < candidate.beta;
-  const bool false_cut_low_candidate = hypothetical_cut_low && deep_score > candidate.alpha;
+  const Score official_deep_score = official_deep_result.value().score;
+  const Score shallow_verification_score = shallow_verification.value().score;
+  const Score deep_verification_score = deep_verification.value().score;
+  const ShadowWindowResult actual_official_deep_result =
+      window_result_for(official_deep_score, candidate);
+  const ShadowNodeType node_type = node_type_for(candidate.pv_node, actual_official_deep_result);
+  const std::optional<board_core::Move> shallow_verification_best_move =
+      best_move(shallow_verification);
+  const std::optional<board_core::Move> deep_verification_best_move = best_move(deep_verification);
+  const bool verification_best_move_agreement =
+      shallow_verification_best_move.has_value() && deep_verification_best_move.has_value() &&
+      shallow_verification_best_move == deep_verification_best_move;
+  const bool hypothetical_cut_high = shallow_verification_score >= candidate.beta;
+  const bool hypothetical_cut_low = shallow_verification_score <= candidate.alpha;
+  const bool false_cut_high_candidate =
+      hypothetical_cut_high && deep_verification_score < candidate.beta;
+  const bool false_cut_low_candidate =
+      hypothetical_cut_low && deep_verification_score > candidate.alpha;
 
   ShadowCalibrationSample sample{
       .repo_sha = std::string(run.options.repo_sha),
@@ -336,20 +364,21 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
       .all_node = node_type == ShadowNodeType::all,
       .deep_depth = candidate.deep_depth,
       .shallow_depth = candidate.shallow_depth,
-      .alpha = candidate.alpha,
-      .beta = candidate.beta,
-      .shallow_score = shallow_score,
-      .deep_score = deep_score,
-      .shallow_bound = classify_bound(shallow_score, candidate.alpha, candidate.beta),
-      .deep_bound = classify_bound(deep_score, candidate.alpha, candidate.beta),
-      .shallow_best_move = shallow_best_move,
-      .deep_best_move = deep_best_move,
-      .best_move_agreement = best_move_agreement,
+      .official_alpha = candidate.alpha,
+      .official_beta = candidate.beta,
+      .official_deep_score = official_deep_score,
+      .official_deep_bound = classify_bound(official_deep_score, candidate.alpha, candidate.beta),
+      .shallow_verification_score = shallow_verification_score,
+      .deep_verification_score = deep_verification_score,
+      .shallow_verification_bound = verification_bound_for(shallow_verification_score),
+      .deep_verification_bound = verification_bound_for(deep_verification_score),
+      .shallow_verification_best_move = shallow_verification_best_move,
+      .deep_verification_best_move = deep_verification_best_move,
+      .verification_best_move_agreement = verification_best_move_agreement,
       .pass_state = candidate.pass_state,
       .terminal_state = candidate.terminal_state,
       .exact_handoff_eligible = candidate.exact_handoff_eligible,
-      .actual_shallow_result = actual_shallow_result,
-      .actual_deep_result = actual_deep_result,
+      .actual_official_deep_result = actual_official_deep_result,
       .hypothetical_cut_high = hypothetical_cut_high,
       .hypothetical_cut_low = hypothetical_cut_low,
       .false_cut_high_candidate = false_cut_high_candidate,
@@ -359,7 +388,7 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
   };
 
   ++run.stats.shadow_samples;
-  run.stats.shadow_best_move_agreements += best_move_agreement ? 1 : 0;
+  run.stats.shadow_best_move_agreements += verification_best_move_agreement ? 1 : 0;
   run.stats.hypothetical_cut_highs += hypothetical_cut_high ? 1 : 0;
   run.stats.hypothetical_cut_lows += hypothetical_cut_low ? 1 : 0;
   run.stats.false_cut_high_candidates += false_cut_high_candidate ? 1 : 0;

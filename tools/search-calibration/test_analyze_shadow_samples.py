@@ -28,7 +28,7 @@ def sample(index: int = 0) -> dict[str, object]:
     alpha = -20
     beta = 20
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "repo_sha": "0123456789abcdef",
         "search_config_id": "tiny-v1",
         "evaluator_id": "fixture-eval",
@@ -45,20 +45,21 @@ def sample(index: int = 0) -> dict[str, object]:
         "all_node": False,
         "deep_depth": 6,
         "shallow_depth": 3,
-        "alpha": alpha,
-        "beta": beta,
-        "shallow_score": shallow,
-        "deep_score": deep,
-        "shallow_bound": "exact",
-        "deep_bound": "exact",
-        "shallow_best_move": "d3",
-        "deep_best_move": "d3" if index % 2 == 0 else "c4",
-        "best_move_agreement": index % 2 == 0,
+        "official_alpha": alpha,
+        "official_beta": beta,
+        "official_deep_score": deep,
+        "official_deep_bound": "exact",
+        "shallow_verification_score": shallow,
+        "deep_verification_score": deep,
+        "shallow_verification_bound": "exact",
+        "deep_verification_bound": "exact",
+        "shallow_verification_best_move": "d3",
+        "deep_verification_best_move": "d3" if index % 2 == 0 else "c4",
+        "verification_best_move_agreement": index % 2 == 0,
         "pass_state": False,
         "terminal_state": False,
         "exact_handoff_eligible": False,
-        "actual_shallow_result": "exact",
-        "actual_deep_result": "exact",
+        "actual_official_deep_result": "exact",
         "hypothetical_cut_high": shallow >= beta,
         "hypothetical_cut_low": shallow <= alpha,
         "false_cut_high_candidate": shallow >= beta and deep < beta,
@@ -112,7 +113,7 @@ class AnalyzerTests(unittest.TestCase):
 
     def test_invalid_schema_is_rejected(self) -> None:
         bad = sample()
-        bad["schema_version"] = 1
+        bad["schema_version"] = 2
         with self.assertRaises(self.analyzer.CalibrationInputError):
             self.analyzer.validate_sample(bad, "fixture")
 
@@ -123,12 +124,13 @@ class AnalyzerTests(unittest.TestCase):
             {
                 "canonical_position_hash": "0000000000000100",
                 "ply": 10,
-                "shallow_score": 1000,
-                "deep_score": 3000,
-                "shallow_bound": "lower",
-                "deep_bound": "lower",
-                "actual_shallow_result": "fail_high",
-                "actual_deep_result": "fail_high",
+                "official_deep_score": 0,
+                "official_deep_bound": "exact",
+                "actual_official_deep_result": "exact",
+                "shallow_verification_score": 30_000,
+                "deep_verification_score": 30_000,
+                "shallow_verification_bound": "lower",
+                "deep_verification_bound": "lower",
                 "hypothetical_cut_high": True,
                 "hypothetical_cut_low": False,
                 "false_cut_high_candidate": False,
@@ -140,12 +142,13 @@ class AnalyzerTests(unittest.TestCase):
             {
                 "canonical_position_hash": "0000000000000101",
                 "ply": 11,
-                "shallow_score": -1000,
-                "deep_score": -3000,
-                "shallow_bound": "upper",
-                "deep_bound": "upper",
-                "actual_shallow_result": "fail_low",
-                "actual_deep_result": "fail_low",
+                "official_deep_score": 0,
+                "official_deep_bound": "exact",
+                "actual_official_deep_result": "exact",
+                "shallow_verification_score": -30_000,
+                "deep_verification_score": -30_000,
+                "shallow_verification_bound": "upper",
+                "deep_verification_bound": "upper",
                 "hypothetical_cut_high": False,
                 "hypothetical_cut_low": True,
                 "false_cut_high_candidate": False,
@@ -175,6 +178,40 @@ class AnalyzerTests(unittest.TestCase):
         with self.assertRaisesRegex(self.analyzer.CalibrationInputError, "mixed provenance"):
             self.analyzer.build_report([first, second], "a" * 64, 1)
 
+    def test_non_pv_null_window_uses_exact_verification_pairs(self) -> None:
+        rows = []
+        for index in range(6):
+            row = sample(index)
+            row.update(
+                {
+                    "node_type": "cut",
+                    "pv_node": False,
+                    "cut_node": True,
+                    "all_node": False,
+                    "official_alpha": 0,
+                    "official_beta": 1,
+                    "official_deep_score": 1,
+                    "official_deep_bound": "lower",
+                    "actual_official_deep_result": "fail_high",
+                }
+            )
+            shallow = int(row["shallow_verification_score"])
+            deep = int(row["deep_verification_score"])
+            row["hypothetical_cut_high"] = shallow >= 1
+            row["hypothetical_cut_low"] = shallow <= 0
+            row["false_cut_high_candidate"] = shallow >= 1 and deep < 1
+            row["false_cut_low_candidate"] = shallow <= 0 and deep > 0
+            rows.append(self.analyzer.validate_sample(row, f"cut[{index}]"))
+
+        report = self.analyzer.build_report(rows, "c" * 64, 1, 4)
+        group = report["groups"][0]
+        self.assertEqual(group["node_type"], "cut")
+        self.assertEqual(group["sample_count"], 6)
+        self.assertEqual(group["exact_pair_count"], 6)
+        self.assertEqual(group["bound_observation_count"], 0)
+        self.assertTrue(group["recommendation_eligible"])
+        self.assertEqual(group["linear_regression"], {"a": 1.0, "b": 2.0})
+
     def test_mixed_collection_policy_is_rejected(self) -> None:
         first = self.analyzer.validate_sample(sample(0), "first")
         second = sample(1)
@@ -196,7 +233,7 @@ class AnalyzerTests(unittest.TestCase):
 
     def test_missing_field_is_rejected(self) -> None:
         bad = sample()
-        del bad["deep_score"]
+        del bad["deep_verification_score"]
         with self.assertRaises(self.analyzer.CalibrationInputError):
             self.analyzer.validate_sample(bad, "fixture")
 

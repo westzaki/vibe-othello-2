@@ -562,6 +562,7 @@ struct ShadowCalibrationStats {
   NodeCount shadow_candidates;
   NodeCount shadow_samples;
   NodeCount shadow_shallow_nodes;
+  NodeCount shadow_deep_verification_nodes;
   NodeCount shadow_best_move_agreements;
   NodeCount hypothetical_cut_highs;
   NodeCount hypothetical_cut_lows;
@@ -587,7 +588,7 @@ struct SearchResult {
 ```
 
 `SearchStats` and `SearchResult::nodes` account only for official search.
-Shadow candidates, emitted samples, and shallow-search nodes live exclusively
+Shadow candidates, emitted samples, and shallow/deep verification nodes live exclusively
 in `SearchResult::shadow_calibration`. This separation is intentional:
 collecting calibration data must not change official node-limit accounting,
 TT statistics, result bounds, PVs, or completed depth.
@@ -1341,11 +1342,12 @@ They must not be enabled in exact endgame modes.
 The current implementation provides calibration-only shadow mode. It never
 cuts off the official tree and does not apply fitted coefficients at runtime.
 At a deterministically sampled eligible node, it first completes the normal
-deep search, then runs a reduced-depth search in an isolated context. The
-shadow context has no official TT, no shared history/killer state, no official
-node/time budget, no exact handoff, and no nested shadow collection. Its wall
-time is excluded from the cooperative official deadline. The main search
-position is already restored before the shadow search begins.
+deep search, then runs reduced-depth and deep-depth full-window verification
+searches in separate isolated contexts over `[kScoreLoss, kScoreWin]`. The
+verification contexts have no official TT, no shared history/killer state, no
+official node/time budget, no exact handoff, and no nested shadow collection.
+Their wall time is excluded from the cooperative official deadline. The main
+search position is already restored before verification begins.
 
 Disabled mode leaves the context shadow pointer null. The hot path then pays
 only a predictable null check at completed, expanded midgame nodes; it performs
@@ -1359,7 +1361,7 @@ recursive candidates complete. Given the same root, config, artifact, seed,
 and repository SHA, traversal and the emitted sample set are deterministic.
 The engine also derives `collection_config_id` from the effective sampling
 rate, cap, depth requirements and PV/pass/near-exact inclusion flags plus the
-sample schema version. It is persisted in each schema-v2 sample and mixed into
+sample schema version. It is persisted in each schema-v3 sample and mixed into
 `search_identity`; a collection-policy change therefore creates a distinct
 population identity without relying on a caller-maintained config string.
 
@@ -1367,15 +1369,20 @@ By default, PV nodes, forced-pass nodes, and positions at or below the enabled
 exact-handoff threshold are excluded. They can be included independently for
 diagnostic strata. A node is recorded as `pv` for a full-window request;
 non-PV fail-high nodes are `cut`, and non-PV fail-low nodes are `all`.
-`hypothetical_cut_high` means only `shallow_score >= beta`, and
-`hypothetical_cut_low` means only `shallow_score <= alpha`. These raw window
-crossings are observations, not unverified runtime coefficients or margins.
+Schema v3 preserves the official alpha/beta, score, bound, and result for this
+classification. It separately records shallow and deep full-window
+verification scores, bounds, and best moves. `hypothetical_cut_high` means the
+shallow verification score crossed the official beta; `_low` means it crossed
+the official alpha. False-cut candidates compare that crossing with the deep
+verification score. These are observations, not runtime cutoffs.
 
 Samples contain compact scalar metadata, hashes, scores, bounds, and moves;
 they never contain a `Position`, search stack, TT, evaluator state, or PV tree.
-Both shallow and deep window classifications are recorded. Offline value OLS
-uses only exact/exact pairs; upper/lower bounds are censored observations used
-only for window/cut diagnostics. The analyzer rejects mixed repository/search
+Offline value OLS uses only exact/exact shallow/deep verification pairs. The
+official null-window bound is not a regression teacher, but it remains usable
+for cut/all classification and window diagnostics. Consequently non-PV
+cut/all groups can accumulate their own exact value pairs rather than borrowing
+PV coefficients. The analyzer rejects mixed repository/search
 config/evaluator/artifact provenance and mixed collection policy, records the
 accepted inventories, and withholds margins from under-threshold groups.
 Separate-seed or holdout validation remains mandatory before any coefficient

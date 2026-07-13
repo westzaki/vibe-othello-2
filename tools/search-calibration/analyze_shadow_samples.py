@@ -14,9 +14,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-SAMPLE_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v2"
+SAMPLE_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v3"
 DEFAULT_MINIMUM_EXACT_PAIRS = 30
+VERIFICATION_ALPHA = -30_000
+VERIFICATION_BETA = 30_000
 HEX64 = re.compile(r"^[0-9a-f]{16}$")
 REPO_SHA = re.compile(r"^[0-9a-f]{7,64}$")
 MOVE = re.compile(r"^(?:pass|[a-h][1-8])$")
@@ -39,20 +41,21 @@ REQUIRED_FIELDS = {
     "all_node",
     "deep_depth",
     "shallow_depth",
-    "alpha",
-    "beta",
-    "shallow_score",
-    "deep_score",
-    "shallow_bound",
-    "deep_bound",
-    "shallow_best_move",
-    "deep_best_move",
-    "best_move_agreement",
+    "official_alpha",
+    "official_beta",
+    "official_deep_score",
+    "official_deep_bound",
+    "shallow_verification_score",
+    "deep_verification_score",
+    "shallow_verification_bound",
+    "deep_verification_bound",
+    "shallow_verification_best_move",
+    "deep_verification_best_move",
+    "verification_best_move_agreement",
     "pass_state",
     "terminal_state",
     "exact_handoff_eligible",
-    "actual_shallow_result",
-    "actual_deep_result",
+    "actual_official_deep_result",
     "hypothetical_cut_high",
     "hypothetical_cut_low",
     "false_cut_high_candidate",
@@ -123,7 +126,7 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
         "pv_node",
         "cut_node",
         "all_node",
-        "best_move_agreement",
+        "verification_best_move_agreement",
         "pass_state",
         "terminal_state",
         "exact_handoff_eligible",
@@ -137,52 +140,120 @@ def validate_sample(sample: Any, location: str) -> dict[str, Any]:
     _require(sample["cut_node"] == (sample["node_type"] == "cut"), location, "cut_node disagrees with node_type")
     _require(sample["all_node"] == (sample["node_type"] == "all"), location, "all_node disagrees with node_type")
 
-    for field in ("deep_depth", "shallow_depth", "alpha", "beta", "shallow_score", "deep_score"):
+    for field in (
+        "deep_depth",
+        "shallow_depth",
+        "official_alpha",
+        "official_beta",
+        "official_deep_score",
+        "shallow_verification_score",
+        "deep_verification_score",
+    ):
         _require(_is_int(sample[field]), location, f"{field} must be an integer")
     _require(sample["deep_depth"] > sample["shallow_depth"] >= 0, location, "depths must satisfy deep_depth > shallow_depth >= 0")
-    _require(sample["alpha"] < sample["beta"], location, "alpha must be less than beta")
+    _require(
+        sample["official_alpha"] < sample["official_beta"],
+        location,
+        "official_alpha must be less than official_beta",
+    )
+    official_score = sample["official_deep_score"]
+    if official_score <= sample["official_alpha"]:
+        expected_official_result = "fail_low"
+    elif official_score >= sample["official_beta"]:
+        expected_official_result = "fail_high"
+    else:
+        expected_official_result = "exact"
+    expected_official_bound = {
+        "fail_low": "upper",
+        "exact": "exact",
+        "fail_high": "lower",
+    }[expected_official_result]
+    _require(
+        sample["actual_official_deep_result"] == expected_official_result,
+        location,
+        "actual_official_deep_result disagrees with score/window",
+    )
+    _require(
+        sample["official_deep_bound"] == expected_official_bound,
+        location,
+        "official_deep_bound disagrees with score/window",
+    )
+    expected_node_type = (
+        "pv"
+        if sample["pv_node"]
+        else ("cut" if expected_official_result == "fail_high" else "all")
+    )
+    _require(
+        sample["node_type"] == expected_node_type,
+        location,
+        "node_type disagrees with PV state and official result",
+    )
     for prefix in ("shallow", "deep"):
-        bound_field = f"{prefix}_bound"
-        result_field = f"actual_{prefix}_result"
-        score = sample[f"{prefix}_score"]
-        _require(sample[bound_field] in ("upper", "exact", "lower"), location, f"invalid {bound_field}")
+        score_field = f"{prefix}_verification_score"
+        bound_field = f"{prefix}_verification_bound"
+        score = sample[score_field]
         _require(
-            sample[result_field] in ("fail_low", "exact", "fail_high"),
+            sample[bound_field] in ("upper", "exact", "lower"),
             location,
-            f"invalid {result_field}",
+            f"invalid {bound_field}",
         )
-        if score <= sample["alpha"]:
-            expected_result = "fail_low"
-        elif score >= sample["beta"]:
-            expected_result = "fail_high"
-        else:
-            expected_result = "exact"
-        expected_bound = {"fail_low": "upper", "exact": "exact", "fail_high": "lower"}[
-            expected_result
-        ]
-        _require(
-            sample[result_field] == expected_result,
-            location,
-            f"{result_field} disagrees with score/window",
+        expected_bound = (
+            "upper"
+            if score <= VERIFICATION_ALPHA
+            else ("lower" if score >= VERIFICATION_BETA else "exact")
         )
         _require(
             sample[bound_field] == expected_bound,
             location,
-            f"{bound_field} disagrees with score/window",
+            f"{bound_field} disagrees with the full verification window",
         )
 
-    for field in ("shallow_best_move", "deep_best_move"):
+    for field in ("shallow_verification_best_move", "deep_verification_best_move"):
         value = sample[field]
         _require(value is None or (isinstance(value, str) and MOVE.fullmatch(value) is not None), location, f"invalid {field}")
-    expected_agreement = sample["shallow_best_move"] is not None and sample["shallow_best_move"] == sample["deep_best_move"]
-    _require(sample["best_move_agreement"] == expected_agreement, location, "best_move_agreement disagrees with moves")
+    expected_agreement = (
+        sample["shallow_verification_best_move"] is not None
+        and sample["shallow_verification_best_move"]
+        == sample["deep_verification_best_move"]
+    )
+    _require(
+        sample["verification_best_move_agreement"] == expected_agreement,
+        location,
+        "verification_best_move_agreement disagrees with moves",
+    )
     _require(_is_int(sample["sampling_seed"]) and sample["sampling_seed"] >= 0, location, "sampling_seed must be non-negative")
     _require(isinstance(sample["search_identity"], str) and HEX64.fullmatch(sample["search_identity"]) is not None, location, "search_identity must be 16 lowercase hexadecimal characters")
 
-    _require(sample["hypothetical_cut_high"] == (sample["shallow_score"] >= sample["beta"]), location, "hypothetical_cut_high disagrees with score/window")
-    _require(sample["hypothetical_cut_low"] == (sample["shallow_score"] <= sample["alpha"]), location, "hypothetical_cut_low disagrees with score/window")
-    _require(sample["false_cut_high_candidate"] == (sample["hypothetical_cut_high"] and sample["deep_score"] < sample["beta"]), location, "false_cut_high_candidate disagrees with scores")
-    _require(sample["false_cut_low_candidate"] == (sample["hypothetical_cut_low"] and sample["deep_score"] > sample["alpha"]), location, "false_cut_low_candidate disagrees with scores")
+    _require(
+        sample["hypothetical_cut_high"]
+        == (sample["shallow_verification_score"] >= sample["official_beta"]),
+        location,
+        "hypothetical_cut_high disagrees with verification score/official window",
+    )
+    _require(
+        sample["hypothetical_cut_low"]
+        == (sample["shallow_verification_score"] <= sample["official_alpha"]),
+        location,
+        "hypothetical_cut_low disagrees with verification score/official window",
+    )
+    _require(
+        sample["false_cut_high_candidate"]
+        == (
+            sample["hypothetical_cut_high"]
+            and sample["deep_verification_score"] < sample["official_beta"]
+        ),
+        location,
+        "false_cut_high_candidate disagrees with verification scores",
+    )
+    _require(
+        sample["false_cut_low_candidate"]
+        == (
+            sample["hypothetical_cut_low"]
+            and sample["deep_verification_score"] > sample["official_alpha"]
+        ),
+        location,
+        "false_cut_low_candidate disagrees with verification scores",
+    )
     return sample
 
 
@@ -234,7 +305,7 @@ def load_samples(paths: Sequence[Path]) -> tuple[list[dict[str, Any]], str, int]
                 samples.append(validate_sample(sample, f"{path}:samples[{index}]"))
 
     checksum = hashlib.sha256()
-    checksum.update(b"mpc-shadow-input-v2\0")
+    checksum.update(b"mpc-shadow-input-v3\0")
     for digest in sorted(content_digests):
         checksum.update(digest)
     return samples, checksum.hexdigest(), len(files)
@@ -271,7 +342,8 @@ def analyze_group(
     exact_pairs = [
         row
         for row in ordered
-        if row["shallow_bound"] == "exact" and row["deep_bound"] == "exact"
+        if row["shallow_verification_bound"] == "exact"
+        and row["deep_verification_bound"] == "exact"
     ]
     regression: dict[str, float] | None = None
     residual_mean: float | None = None
@@ -284,8 +356,8 @@ def analyze_group(
     intercept = 0.0
     slope = 0.0
     if len(exact_pairs) >= 2:
-        xs = [float(row["shallow_score"]) for row in exact_pairs]
-        ys = [float(row["deep_score"]) for row in exact_pairs]
+        xs = [float(row["shallow_verification_score"]) for row in exact_pairs]
+        ys = [float(row["deep_verification_score"]) for row in exact_pairs]
         mean_x = sum(xs) / len(xs)
         mean_y = sum(ys) / len(ys)
         denominator = sum((value - mean_x) ** 2 for value in xs)
@@ -322,7 +394,7 @@ def analyze_group(
     hypothetical_low = sum(bool(row["hypothetical_cut_low"]) for row in ordered)
     false_high = sum(bool(row["false_cut_high_candidate"]) for row in ordered)
     false_low = sum(bool(row["false_cut_low_candidate"]) for row in ordered)
-    agreements = sum(bool(row["best_move_agreement"]) for row in ordered)
+    agreements = sum(bool(row["verification_best_move_agreement"]) for row in ordered)
 
     insufficient_samples = len(exact_pairs) < minimum_exact_pairs
     recommendation_eligible = not insufficient_samples and regression is not None
@@ -334,13 +406,17 @@ def analyze_group(
             cut_low = 0
             false_cuts = 0
             for row in ordered:
-                predicted = intercept + slope * float(row["shallow_score"])
-                high = predicted - margin >= row["beta"]
-                low = predicted + margin <= row["alpha"]
+                predicted = intercept + slope * float(row["shallow_verification_score"])
+                high = predicted - margin >= row["official_beta"]
+                low = predicted + margin <= row["official_alpha"]
                 cut_high += high
                 cut_low += low
-                false_cuts += high and row["deep_score"] < row["beta"]
-                false_cuts += low and row["deep_score"] > row["alpha"]
+                false_cuts += (
+                    high and row["deep_verification_score"] < row["official_beta"]
+                )
+                false_cuts += (
+                    low and row["deep_verification_score"] > row["official_alpha"]
+                )
             cut_count = cut_high + cut_low
             confidence_coverage.append(
                 {
@@ -441,6 +517,7 @@ def build_report(
         "sample_count": len(samples),
         "exact_pair_count": exact_pair_count,
         "minimum_exact_pairs_per_group": minimum_exact_pairs,
+        "verification_window": {"alpha": VERIFICATION_ALPHA, "beta": VERIFICATION_BETA},
         "insufficient_samples": not analyzed or insufficient_group_count > 0,
         "recommendation_eligible": eligible_group_count > 0,
         "eligible_group_count": eligible_group_count,
@@ -452,8 +529,9 @@ def build_report(
         "groups": analyzed,
         "notes": [
             "diagnostic only; no coefficient or margin is applied by runtime search",
-            "value regression uses only rows where shallow_bound and deep_bound are both exact",
-            "bound observations are retained only for window and cut diagnostics",
+            "value regression uses only rows where shallow_verification_bound and deep_verification_bound are both exact",
+            "official bounds are retained only for node classification and window/cut diagnostics",
+            "verification scores are collected by isolated full-window searches",
             "recommended_conservative_margin is null below the exact-pair threshold",
             "recommendations are in-sample diagnostics and require separate-seed or holdout validation before runtime adoption",
             "generated reports and source samples are local-only",
@@ -470,6 +548,7 @@ def markdown_summary(report: dict[str, Any]) -> str:
         f"- Exact pairs: {report['exact_pair_count']}",
         f"- Groups: {report['group_count']}",
         f"- Minimum exact pairs per group: {report['minimum_exact_pairs_per_group']}",
+        f"- Verification window: [{report['verification_window']['alpha']}, {report['verification_window']['beta']}]",
         "- Status: diagnostic only; runtime search uses no fitted coefficient or margin.",
         "",
     ]
