@@ -6,6 +6,7 @@
 #include "vibe_othello/search/result.h"
 #include "vibe_othello/search/score.h"
 #include "vibe_othello/search/search_session.h"
+#include "vibe_othello/search/shadow_calibration.h"
 
 #include <atomic>
 #include <chrono>
@@ -95,6 +96,7 @@ struct SearchOptions {
   EndgameSearchOptions endgame{};
   SearchReportingOptions reporting{};
   ExperimentalSearchOptions experimental{};
+  SelectiveSearchOptionsV1 selective{};
   SearchMode mode = SearchMode::move;
 };
 

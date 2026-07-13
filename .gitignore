@@ -5,3 +5,6 @@ __pycache__/
 
 # Local-only corpus payloads and extracted third-party data.
 /data/corpora/local/**
+
+# Local-only selective-search samples and fitted reports.
+/tools/search-calibration/results/

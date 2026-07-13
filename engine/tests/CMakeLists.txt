@@ -51,6 +51,7 @@ add_executable(
   search/reference_search_test.cc
   search/search_result_invariant_test.cc
   search/search_session_test.cc
+  search/shadow_calibration_test.cc
   search/search_limits_test.cc
   search/search_options_test.cc
   search/transposition_table_test.cc)

@@ -1,5 +1,6 @@
 add_subdirectory(engine-smoke)
 add_subdirectory(engine-cli)
+add_subdirectory(search-calibration)
 add_subdirectory(arena)
 add_subdirectory(data-policy)
 add_subdirectory(data-import)

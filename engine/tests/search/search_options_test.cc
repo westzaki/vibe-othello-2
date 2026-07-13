@@ -29,6 +29,8 @@ void require_default_resolved_options(const internal::ResolvedSearchOptions& opt
   REQUIRE_FALSE(options.experimental.use_pv_table);
   REQUIRE_FALSE(options.experimental.use_parallel);
   REQUIRE(options.experimental.selectivity_level == 0);
+
+  REQUIRE(options.selective == SelectiveSearchOptionsV1{});
 }
 
 } // namespace
@@ -284,6 +286,31 @@ TEST_CASE("typed true bool search options enable features when legacy fields are
   REQUIRE(resolved.experimental.probcut);
   REQUIRE(resolved.experimental.use_pv_table);
   REQUIRE(resolved.experimental.use_parallel);
+}
+
+TEST_CASE("versioned selective search config normalizes without widening legacy fields",
+          "[search][options]") {
+  const SelectiveSearchOptionsV1 selective{
+      .enable_shadow_calibration = true,
+      .sample_rate = 125'000,
+      .max_samples_per_search = 17,
+      .minimum_deep_depth = 6,
+      .shallow_depth_reduction = 3,
+      .include_pv_nodes = true,
+      .include_pass_nodes = true,
+      .include_near_exact_nodes = true,
+      .sampling_seed = 99,
+      .repo_sha = "repo",
+      .search_config_id = "config",
+      .evaluator_id = "eval",
+      .artifact_id = "artifact",
+  };
+
+  const internal::ResolvedSearchOptions resolved =
+      internal::normalize_search_options(SearchOptions{.selective = selective});
+
+  REQUIRE(resolved.selective == selective);
+  REQUIRE_FALSE(resolved.experimental.probcut);
 }
 
 } // namespace vibe_othello::search

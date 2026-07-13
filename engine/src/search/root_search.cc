@@ -255,13 +255,11 @@ void finalize_completed_root_result(SearchResult* result, const SearchContext& c
                                 metadata_from_context(context, start));
 }
 
-SearchResult search_depth_with_aspiration(board_core::Position position, const Evaluator& evaluator,
-                                          Depth depth, MoveOrderingHints root_hints,
-                                          ResolvedSearchOptions options, TranspositionTable* tt,
-                                          Score previous_score,
-                                          MidgameOrderingState* ordering_state,
-                                          SearchLimitState* limit_state,
-                                          std::uint32_t incremental_eval_verify_interval) {
+SearchResult search_depth_with_aspiration(
+    board_core::Position position, const Evaluator& evaluator, Depth depth,
+    MoveOrderingHints root_hints, ResolvedSearchOptions options, TranspositionTable* tt,
+    Score previous_score, MidgameOrderingState* ordering_state, SearchLimitState* limit_state,
+    std::uint32_t incremental_eval_verify_interval, ShadowCalibrationRun* shadow_calibration) {
   SearchStats depth_stats{};
   Score low_margin = kAspirationInitialWindow;
   Score high_margin = kAspirationInitialWindow;
@@ -269,9 +267,9 @@ SearchResult search_depth_with_aspiration(board_core::Position position, const E
 
   SearchResult current{};
   for (;;) {
-    current =
-        search_fixed_depth_with_hint(position, evaluator, depth, root_hints, options, tt, window,
-                                     ordering_state, limit_state, incremental_eval_verify_interval);
+    current = search_fixed_depth_with_hint(position, evaluator, depth, root_hints, options, tt,
+                                           window, ordering_state, limit_state,
+                                           incremental_eval_verify_interval, shadow_calibration);
     add_stats(&depth_stats, current.stats);
     if (current.stopped) {
       current.nodes = depth_stats.nodes;
@@ -323,10 +321,11 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           RootSearchWindow root_window,
                                           MidgameOrderingState* ordering_state,
                                           SearchLimitState* limit_state,
-                                          std::uint32_t incremental_eval_verify_interval) {
+                                          std::uint32_t incremental_eval_verify_interval,
+                                          ShadowCalibrationRun* shadow_calibration) {
   return search_fixed_depth_with_hint(
       position, evaluator, depth, root_hints, normalize_search_options(options), tt, root_window,
-      ordering_state, limit_state, incremental_eval_verify_interval);
+      ordering_state, limit_state, incremental_eval_verify_interval, shadow_calibration);
 }
 
 SearchResult search_fixed_depth_with_hint(board_core::Position position, const Evaluator& evaluator,
@@ -335,7 +334,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
                                           RootSearchWindow root_window,
                                           MidgameOrderingState* ordering_state,
                                           SearchLimitState* limit_state,
-                                          std::uint32_t incremental_eval_verify_interval) {
+                                          std::uint32_t incremental_eval_verify_interval,
+                                          ShadowCalibrationRun* shadow_calibration) {
   require_invariant(!root_window.enabled || root_window.alpha < root_window.beta);
   const auto start = std::chrono::steady_clock::now();
   const Depth completed_depth = depth < 0 ? Depth{0} : depth;
@@ -348,6 +348,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       .transposition_table = tt,
       .ordering_state = ordering_state == nullptr ? &local_ordering_state : ordering_state,
       .limit_state = limit_state,
+      .shadow_calibration = shadow_calibration,
       .incremental_eval_verify_interval = incremental_eval_verify_interval,
   };
   if (context.position_state.evaluation_state.has_value()) {
@@ -564,10 +565,17 @@ SearchResult search_fixed_depth(SearchSession& session, board_core::Position pos
           : nullptr;
   internal::SearchLimitState limit_state =
       internal::initialize_limit_state(SearchLimits{.max_depth = depth});
-  return internal::search_fixed_depth_with_hint(
+  std::optional<internal::ShadowCalibrationRun> shadow_calibration =
+      internal::make_shadow_calibration_run(position, resolved.selective);
+  SearchResult result = internal::search_fixed_depth_with_hint(
       position, evaluator, depth, internal::MoveOrderingHints{}, resolved, tt,
       internal::RootSearchWindow{}, internal::SearchSessionAccess::ordering_state(session),
-      &limit_state, internal::SearchSessionAccess::incremental_eval_verify_interval(session));
+      &limit_state, internal::SearchSessionAccess::incremental_eval_verify_interval(session),
+      shadow_calibration.has_value() ? &*shadow_calibration : nullptr);
+  if (shadow_calibration.has_value()) {
+    result.shadow_calibration = shadow_calibration->stats;
+  }
+  return result;
 }
 
 SearchResult search_iterative(board_core::Position position, const Evaluator& evaluator,
@@ -588,6 +596,10 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
   const Depth max_depth = limits.max_depth < 0 ? Depth{0} : limits.max_depth;
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
+  std::optional<internal::ShadowCalibrationRun> shadow_calibration =
+      internal::make_shadow_calibration_run(position, resolved_options.selective);
+  internal::ShadowCalibrationRun* shadow_run =
+      shadow_calibration.has_value() ? &*shadow_calibration : nullptr;
   internal::SearchLimitState limit_state = internal::initialize_limit_state(limits);
   SearchStats total_stats{};
   const bool use_wld_endgame = internal::should_use_wld_endgame(position, resolved_options);
@@ -609,19 +621,32 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
   if (use_wld_endgame) {
     internal::TranspositionTable* tt =
         resolved_options.endgame.use_endgame_tt ? session_tt : nullptr;
-    return internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
+    SearchResult result = internal::solve_wld_endgame(position, limits, options, tt, &limit_state);
+    if (shadow_calibration.has_value()) {
+      result.shadow_calibration = shadow_calibration->stats;
+    }
+    return result;
   }
 
   if (use_exact_endgame) {
     internal::TranspositionTable* tt =
         resolved_options.endgame.use_endgame_tt ? session_tt : nullptr;
-    return internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
+    SearchResult result =
+        internal::solve_exact_endgame(position, limits, options, tt, &limit_state);
+    if (shadow_calibration.has_value()) {
+      result.shadow_calibration = shadow_calibration->stats;
+    }
+    return result;
   }
 
   if (!limits.infinite && max_depth == 0) {
     SearchResult result = internal::search_fixed_depth_with_hint(
         position, evaluator, Depth{0}, internal::MoveOrderingHints{}, resolved_options, nullptr,
-        internal::RootSearchWindow{}, nullptr, &limit_state, incremental_eval_verify_interval);
+        internal::RootSearchWindow{}, nullptr, &limit_state, incremental_eval_verify_interval,
+        shadow_run);
+    if (shadow_calibration.has_value()) {
+      result.shadow_calibration = shadow_calibration->stats;
+    }
     result.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
     return result;
@@ -671,11 +696,11 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
         resolved_options.midgame.use_aspiration && depth >= 2 && previous_score.has_value()
             ? internal::search_depth_with_aspiration(
                   position, evaluator, depth, root_hints, resolved_options, tt, *previous_score,
-                  ordering_state, &limit_state, incremental_eval_verify_interval)
+                  ordering_state, &limit_state, incremental_eval_verify_interval, shadow_run)
             : internal::search_fixed_depth_with_hint(
                   position, evaluator, depth, root_hints, resolved_options, tt,
                   internal::RootSearchWindow{}, ordering_state, &limit_state,
-                  incremental_eval_verify_interval);
+                  incremental_eval_verify_interval, shadow_run);
     internal::add_stats(&total_stats, current.stats);
     if (current.stopped) {
       if (best_completed.completed_depth == 0 && !best_completed.exact) {
@@ -692,6 +717,9 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
 
   best_completed.nodes = total_stats.nodes;
   best_completed.stats = total_stats;
+  if (shadow_calibration.has_value()) {
+    best_completed.shadow_calibration = shadow_calibration->stats;
+  }
   best_completed.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start);
   return best_completed;

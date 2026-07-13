@@ -11,6 +11,7 @@ struct ResolvedSearchOptions {
   EndgameSearchOptions endgame{};
   SearchReportingOptions reporting{};
   ExperimentalSearchOptions experimental{};
+  SelectiveSearchOptionsV1 selective{};
 
   friend constexpr bool operator==(const ResolvedSearchOptions&,
                                    const ResolvedSearchOptions&) = default;
@@ -65,6 +66,7 @@ inline ResolvedSearchOptions normalize_search_options(SearchOptions options) noe
               .use_legacy_search_kernel =
                   options.use_legacy_search_kernel || options.experimental.use_legacy_search_kernel,
           },
+      .selective = options.selective,
   };
   return resolved;
 }
