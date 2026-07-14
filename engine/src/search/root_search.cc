@@ -167,6 +167,30 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
                              child.is_selective());
 }
 
+std::optional<RootMoveInfo>
+research_preferred_upper_bound_tie(SearchContext* context, Depth depth, RootMoveInfo root_move,
+                                   Score best_score, std::optional<board_core::Move> best_move,
+                                   Score beta) {
+  if (best_score <= kScoreLoss || root_move.bound != BoundType::upper ||
+      root_move.score != best_score ||
+      !is_better_root_move(root_move.score, root_move.move, best_score, best_move)) {
+    return root_move;
+  }
+
+  const NodeCount initial_nodes = root_move.nodes;
+  std::optional<RootMoveInfo> researched =
+      evaluate_root_move(context, depth, root_move.move,
+                         RootSearchWindow{
+                             .alpha = static_cast<Score>(best_score - 1),
+                             .beta = beta,
+                             .enabled = true,
+                         });
+  if (researched.has_value()) {
+    researched->nodes += initial_nodes;
+  }
+  return researched;
+}
+
 void update_best_root_move(const RootMoveInfo& root_move, Score* best_score, Line* best_line,
                            SearchResult* result) {
   if (is_better_root_move(root_move.score, root_move.move, *best_score, result->best_move)) {
@@ -473,10 +497,14 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
         move.square.index < result.best_move->square.index && best_score > kScoreLoss) {
       pvs_alpha = static_cast<Score>(best_score - 1);
     }
-    const std::optional<RootMoveInfo> root_move =
+    std::optional<RootMoveInfo> root_move =
         context.options.midgame.use_pvs && move_index != 0
             ? evaluate_root_move_pvs(&context, completed_depth, move, pvs_alpha, beta)
             : evaluate_root_move(&context, completed_depth, move, move_window);
+    if (!context.options.midgame.use_pvs && root_move.has_value()) {
+      root_move = research_preferred_upper_bound_tie(&context, completed_depth, *root_move,
+                                                     best_score, result.best_move, beta);
+    }
     if (!root_move.has_value()) {
       result.stopped = true;
       break;

@@ -1983,4 +1983,6 @@ endgame empties never decrease on pass.
 Root PVS searches the first move with a full window, later moves with a null
 window, and performs a full re-search only for a score strictly between alpha
 and beta. `multi_pv != 1` preserves exact per-move reports by re-searching only
-root reports that remain bounded.
+root reports that remain bounded. Before either root PVS or root alpha-beta
+selects a lexicographically preferred upper-bound tie, it re-searches that move
+from `best_score - 1` so the selected tie is exact rather than merely bounded.

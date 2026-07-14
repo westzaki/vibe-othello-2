@@ -92,6 +92,29 @@ board_core::Position position_after_fixed_choices(std::initializer_list<std::siz
   return position;
 }
 
+board_core::Position deterministic_playout_position(std::uint64_t seed) {
+  board_core::Position position = board_core::initial_position();
+  std::uint64_t state = seed + 0x9e3779b97f4a7c15ULL;
+  const int target_plies = 8 + static_cast<int>(seed % 32);
+  for (int ply = 0; ply < target_plies && !board_core::is_terminal(position); ++ply) {
+    board_core::Bitboard legal = board_core::legal_moves(position);
+    board_core::Move move = board_core::make_pass();
+    if (legal != 0) {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      std::size_t choice = static_cast<std::size_t>(state % std::popcount(legal));
+      while (choice > 0) {
+        legal &= legal - 1;
+        --choice;
+      }
+      move = board_core::make_move(
+          board_core::square_from_index(static_cast<int>(std::countr_zero(legal))));
+    }
+    board_core::MoveDelta delta{};
+    REQUIRE(board_core::apply_move(&position, move, &delta));
+  }
+  return position;
+}
+
 std::pair<board_core::Move, board_core::Move>
 smallest_and_largest_legal_moves(board_core::Position position) {
   const board_core::Bitboard legal = board_core::legal_moves(position);
@@ -107,6 +130,28 @@ void require_replayable_pv(board_core::Position position, Line pv) {
     board_core::MoveDelta delta{};
     REQUIRE(board_core::apply_move(&position, pv.moves[index], &delta));
   }
+}
+
+void require_completed_full_window_best_is_proven(const SearchResult& result,
+                                                  board_core::Position position) {
+  REQUIRE_FALSE(result.stopped);
+  REQUIRE(result.bound == BoundType::exact);
+  require_replayable_pv(position, result.pv);
+
+  if (!result.best_move.has_value()) {
+    REQUIRE(result.root_moves.empty());
+    return;
+  }
+
+  REQUIRE(result.pv.size > 0);
+  REQUIRE(result.pv.moves[0] == *result.best_move);
+  const auto selected = std::find_if(
+      result.root_moves.begin(), result.root_moves.end(),
+      [&result](const RootMoveInfo& root_move) { return root_move.move == *result.best_move; });
+  REQUIRE(selected != result.root_moves.end());
+  REQUIRE(selected->score == result.score);
+  REQUIRE(selected->bound == BoundType::exact);
+  REQUIRE_FALSE(selected->selective);
 }
 
 void require_root_move_scores_match(const SearchResult& actual, const SearchResult& expected) {
@@ -253,6 +298,54 @@ TEST_CASE("root PVS does not replace an exact best move with an upper-bound tie"
   REQUIRE(smaller->bound == BoundType::upper);
 }
 
+TEST_CASE("root alpha-beta does not replace an exact best move with an upper-bound tie",
+          "[search][alphabeta][tt]") {
+  const board_core::Position position = board_core::initial_position();
+  const auto [smaller_move, larger_move] = smallest_and_largest_legal_moves(position);
+  RootMoveScoreEvaluator evaluator{larger_move.square, 10, smaller_move.square, 5};
+  internal::TranspositionTable tt{1024};
+  board_core::Position smaller_child = position;
+  board_core::MoveDelta delta{};
+  REQUIRE(board_core::apply_move(&smaller_child, smaller_move, &delta));
+  SearchStats store_stats{};
+  tt.store_value(board_core::hash_position(smaller_child), Depth{1}, Score{-10}, BoundType::lower,
+                 internal::TTEntryKind::midgame, &store_stats);
+
+  SearchOptions options{};
+  options.midgame.use_midgame_tt = true;
+  options.reporting.multi_pv = 1;
+  const SearchResult result = internal::search_fixed_depth_with_hint(
+      position, evaluator, Depth{2}, internal::MoveOrderingHints{.root_best_move = larger_move},
+      options, &tt);
+
+  REQUIRE(result.best_move == larger_move);
+  REQUIRE(result.score == 10);
+  require_completed_full_window_best_is_proven(result, position);
+  const auto smaller = std::find_if(
+      result.root_moves.begin(), result.root_moves.end(),
+      [smaller_move](const RootMoveInfo& root_move) { return root_move.move == smaller_move; });
+  REQUIRE(smaller != result.root_moves.end());
+  REQUIRE(smaller->score == 5);
+  REQUIRE(smaller->bound == BoundType::upper);
+}
+
+TEST_CASE("root alpha-beta proves a preferred exact tie before replacing the best move",
+          "[search][alphabeta]") {
+  const board_core::Position position = board_core::initial_position();
+  const auto [smaller_move, larger_move] = smallest_and_largest_legal_moves(position);
+  RootMoveScoreEvaluator evaluator{larger_move.square, 10, smaller_move.square, 10};
+  SearchOptions options{};
+  options.reporting.multi_pv = 1;
+
+  const SearchResult result = internal::search_fixed_depth_with_hint(
+      position, evaluator, Depth{2}, internal::MoveOrderingHints{.root_best_move = larger_move},
+      options, nullptr);
+
+  REQUIRE(result.best_move == smaller_move);
+  REQUIRE(result.score == 10);
+  require_completed_full_window_best_is_proven(result, position);
+}
+
 TEST_CASE("root PVS move nodes include null-window and full re-search work",
           "[search][pvs][stats]") {
   const board_core::Position position = board_core::initial_position();
@@ -271,6 +364,53 @@ TEST_CASE("root PVS move nodes include null-window and full re-search work",
     root_move_nodes += root_move.nodes;
   }
   REQUIRE(result.nodes == root_move_nodes + 1);
+}
+
+TEST_CASE("root PVS and alpha-beta agree across deterministic TT on and off corpora",
+          "[search][pvs][differential]") {
+  for (const std::size_t tt_capacity : {std::size_t{0}, std::size_t{65'536}}) {
+    SearchSession pvs_session{SearchSessionConfig{
+        .profile = SearchPlatformProfile::native,
+        .transposition_table = TranspositionTableConfig{.capacity = tt_capacity},
+    }};
+    SearchSession alphabeta_session{SearchSessionConfig{
+        .profile = SearchPlatformProfile::native,
+        .transposition_table = TranspositionTableConfig{.capacity = tt_capacity},
+    }};
+    DiscDifferenceEvaluator pvs_evaluator;
+    DiscDifferenceEvaluator alphabeta_evaluator;
+    SearchOptions pvs_options{};
+    pvs_options.midgame.use_pvs = true;
+    pvs_options.midgame.use_midgame_tt = true;
+    pvs_options.ordering.use_tt_best_move_ordering = true;
+    pvs_options.reporting.multi_pv = 1;
+    SearchOptions alphabeta_options = pvs_options;
+    alphabeta_options.midgame.use_pvs = false;
+
+    for (std::uint64_t seed = 0; seed < 256; ++seed) {
+      const board_core::Position position = deterministic_playout_position(seed);
+      const SearchResult pvs =
+          search_fixed_depth(pvs_session, position, pvs_evaluator, Depth{3}, pvs_options);
+      const SearchResult alphabeta = search_fixed_depth(
+          alphabeta_session, position, alphabeta_evaluator, Depth{3}, alphabeta_options);
+      INFO("tt_capacity=" << tt_capacity << " seed=" << seed);
+      REQUIRE(pvs.score == alphabeta.score);
+      REQUIRE(pvs.score_kind == alphabeta.score_kind);
+      REQUIRE(pvs.bound == alphabeta.bound);
+      REQUIRE(pvs.best_move == alphabeta.best_move);
+      REQUIRE(pvs.completed_depth == alphabeta.completed_depth);
+      REQUIRE(pvs.exact == alphabeta.exact);
+      REQUIRE(pvs.stopped == alphabeta.stopped);
+      require_completed_full_window_best_is_proven(pvs, position);
+      require_completed_full_window_best_is_proven(alphabeta, position);
+      if (tt_capacity == 0) {
+        REQUIRE(pvs.stats.tt_probes == 0);
+        REQUIRE(pvs.stats.tt_stores == 0);
+        REQUIRE(alphabeta.stats.tt_probes == 0);
+        REQUIRE(alphabeta.stats.tt_stores == 0);
+      }
+    }
+  }
 }
 
 TEST_CASE("PVS preserves iterative TT option decisions", "[search][pvs]") {
