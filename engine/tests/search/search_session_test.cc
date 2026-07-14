@@ -47,19 +47,20 @@ SearchOptions tt_options() {
   return options;
 }
 
-TEST_CASE("legacy and session search APIs have score and legal PV parity", "[search][session]") {
+TEST_CASE("non-session and session search APIs have score and legal PV parity",
+          "[search][session]") {
   DiscEvaluator evaluator;
   const SearchLimits limits{.max_depth = Depth{5}};
   const SearchOptions options = tt_options();
-  const SearchResult legacy =
+  const SearchResult temporary_session =
       search_iterative(board_core::initial_position(), evaluator, limits, options);
   SearchSession session;
   const SearchResult retained =
       search_iterative(session, board_core::initial_position(), evaluator, limits, options);
 
-  REQUIRE(retained.score == legacy.score);
-  REQUIRE(retained.best_move == legacy.best_move);
-  REQUIRE(retained.pv == legacy.pv);
+  REQUIRE(retained.score == temporary_session.score);
+  REQUIRE(retained.best_move == temporary_session.best_move);
+  REQUIRE(retained.pv == temporary_session.pv);
 }
 
 TEST_CASE("search session retains across roots and clears deterministically", "[search][session]") {
@@ -99,6 +100,60 @@ TEST_CASE("disabled session TT is reported and produces no TT telemetry", "[sear
                                                SearchLimits{.max_depth = Depth{3}}, tt_options());
   REQUIRE(result.stats.tt_probes == 0);
   REQUIRE(result.stats.tt_stores == 0);
+}
+
+TEST_CASE("session fingerprint tracks TT-relevant typed search semantics",
+          "[search][session][tt]") {
+  DiscEvaluator evaluator_a;
+  DiscEvaluator evaluator_b;
+  const internal::ResolvedSearchOptions resolved = internal::normalize_search_options(tt_options());
+  const internal::SearchSemanticFingerprint baseline = internal::make_search_semantic_fingerprint(
+      &evaluator_a, resolved, internal::SearchSemanticDomain::midgame);
+
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_b, resolved, internal::SearchSemanticDomain::midgame) != baseline);
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, resolved, internal::SearchSemanticDomain::exact_endgame) != baseline);
+
+  internal::ResolvedSearchOptions changed = resolved;
+  changed.midgame.pass_consumes_depth = !changed.midgame.pass_consumes_depth;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.ordering.use_history = !changed.ordering.use_history;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.endgame.endgame_exact_empties = 1;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.reporting.multi_pv = 2;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.mode = SearchMode::win_loss_draw;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.probcut.maximum_probes_per_node = 2;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.probcut_profile_semantic_fingerprint = 1;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
+  changed.selective.enable_shadow_calibration = true;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) == baseline);
 }
 
 TEST_CASE("session clears TT when evaluator identity or revision changes",

@@ -92,29 +92,6 @@ board_core::Position position_after_fixed_choices(std::initializer_list<std::siz
   return position;
 }
 
-board_core::Position deterministic_playout_position(std::uint64_t seed) {
-  board_core::Position position = board_core::initial_position();
-  std::uint64_t state = seed + 0x9e3779b97f4a7c15ULL;
-  const int target_plies = 8 + static_cast<int>(seed % 32);
-  for (int ply = 0; ply < target_plies && !board_core::is_terminal(position); ++ply) {
-    board_core::Bitboard legal = board_core::legal_moves(position);
-    board_core::Move move = board_core::make_pass();
-    if (legal != 0) {
-      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
-      std::size_t choice = static_cast<std::size_t>(state % std::popcount(legal));
-      while (choice > 0) {
-        legal &= legal - 1;
-        --choice;
-      }
-      move = board_core::make_move(
-          board_core::square_from_index(static_cast<int>(std::countr_zero(legal))));
-    }
-    board_core::MoveDelta delta{};
-    REQUIRE(board_core::apply_move(&position, move, &delta));
-  }
-  return position;
-}
-
 std::pair<board_core::Move, board_core::Move>
 smallest_and_largest_legal_moves(board_core::Position position) {
   const board_core::Bitboard legal = board_core::legal_moves(position);
@@ -178,8 +155,9 @@ void require_fixed_depth_pvs_matches_alphabeta(board_core::Position position, De
   DiscDifferenceEvaluator pvs_evaluator;
   DiscDifferenceEvaluator alphabeta_evaluator;
 
-  const SearchResult actual = search_fixed_depth_with_options(position, pvs_evaluator, depth,
-                                                              SearchOptions{.use_pvs = true});
+  const SearchResult actual = search_fixed_depth_with_options(
+      position, pvs_evaluator, depth,
+      SearchOptions{.midgame = MidgameSearchOptions{.use_pvs = true}});
   const SearchResult expected =
       search_fixed_depth_with_options(position, alphabeta_evaluator, depth, SearchOptions{});
 
@@ -225,7 +203,8 @@ TEST_CASE("PVS fixed-depth search handles depth zero", "[search][pvs]") {
   ConstantEvaluator alphabeta_evaluator{19};
 
   const SearchResult actual = search_fixed_depth_with_options(
-      board_core::initial_position(), pvs_evaluator, Depth{0}, SearchOptions{.use_pvs = true});
+      board_core::initial_position(), pvs_evaluator, Depth{0},
+      SearchOptions{.midgame = MidgameSearchOptions{.use_pvs = true}});
   const SearchResult expected = search_fixed_depth_with_options(
       board_core::initial_position(), alphabeta_evaluator, Depth{0}, SearchOptions{});
 
@@ -235,31 +214,12 @@ TEST_CASE("PVS fixed-depth search handles depth zero", "[search][pvs]") {
 }
 
 TEST_CASE("PVS iterative search matches alpha-beta decisions", "[search][pvs]") {
-  require_iterative_pvs_matches_alphabeta(board_core::initial_position(),
-                                          SearchOptions{.use_pvs = true}, SearchOptions{});
   require_iterative_pvs_matches_alphabeta(
-      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}), SearchOptions{.use_pvs = true},
-      SearchOptions{});
-}
-
-TEST_CASE("legacy root kernel rollback switch preserves score and legal PV", "[search][pvs]") {
-  DiscDifferenceEvaluator new_evaluator;
-  DiscDifferenceEvaluator legacy_evaluator;
-  SearchOptions new_options{};
-  new_options.midgame.use_pvs = true;
-  new_options.reporting.multi_pv = 1;
-  SearchOptions legacy_options = new_options;
-  legacy_options.experimental.use_legacy_search_kernel = true;
-
-  const SearchResult current = search_iterative(board_core::initial_position(), new_evaluator,
-                                                SearchLimits{.max_depth = Depth{5}}, new_options);
-  const SearchResult legacy = search_iterative(board_core::initial_position(), legacy_evaluator,
-                                               SearchLimits{.max_depth = Depth{5}}, legacy_options);
-
-  REQUIRE(current.score == legacy.score);
-  REQUIRE(current.best_move == legacy.best_move);
-  require_replayable_pv(board_core::initial_position(), current.pv);
-  require_replayable_pv(board_core::initial_position(), legacy.pv);
+      board_core::initial_position(),
+      SearchOptions{.midgame = MidgameSearchOptions{.use_pvs = true}}, SearchOptions{});
+  require_iterative_pvs_matches_alphabeta(
+      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}),
+      SearchOptions{.midgame = MidgameSearchOptions{.use_pvs = true}}, SearchOptions{});
 }
 
 TEST_CASE("root PVS does not replace an exact best move with an upper-bound tie",
@@ -313,74 +273,39 @@ TEST_CASE("root PVS move nodes include null-window and full re-search work",
   REQUIRE(result.nodes == root_move_nodes + 1);
 }
 
-TEST_CASE("new and legacy root kernels agree across persistent TT on and off corpora",
-          "[search][pvs][differential]") {
-  for (const std::size_t tt_capacity : {std::size_t{0}, std::size_t{65'536}}) {
-    SearchSession current_session{SearchSessionConfig{
-        .profile = SearchPlatformProfile::native,
-        .transposition_table = TranspositionTableConfig{.capacity = tt_capacity},
-    }};
-    SearchSession legacy_session{SearchSessionConfig{
-        .profile = SearchPlatformProfile::native,
-        .transposition_table = TranspositionTableConfig{.capacity = tt_capacity},
-    }};
-    DiscDifferenceEvaluator current_evaluator;
-    DiscDifferenceEvaluator legacy_evaluator;
-    SearchOptions current_options{};
-    current_options.midgame.use_pvs = true;
-    current_options.midgame.use_midgame_tt = true;
-    current_options.ordering.use_tt_best_move_ordering = true;
-    current_options.reporting.multi_pv = 1;
-    SearchOptions legacy_options = current_options;
-    legacy_options.experimental.use_legacy_search_kernel = true;
-
-    for (std::uint64_t seed = 0; seed < 256; ++seed) {
-      const board_core::Position position = deterministic_playout_position(seed);
-      const SearchResult current = search_fixed_depth(current_session, position, current_evaluator,
-                                                      Depth{3}, current_options);
-      const SearchResult legacy =
-          search_fixed_depth(legacy_session, position, legacy_evaluator, Depth{3}, legacy_options);
-      INFO("tt_capacity=" << tt_capacity << " seed=" << seed);
-      REQUIRE(current.score == legacy.score);
-      REQUIRE(current.best_move == legacy.best_move);
-      require_replayable_pv(position, current.pv);
-      require_replayable_pv(position, legacy.pv);
-      if (current.best_move.has_value()) {
-        REQUIRE(current.pv.size > 0);
-        REQUIRE(current.pv.moves[0] == *current.best_move);
-      }
-      if (legacy.best_move.has_value()) {
-        REQUIRE(legacy.pv.size > 0);
-        REQUIRE(legacy.pv.moves[0] == *legacy.best_move);
-      }
-      if (tt_capacity == 0) {
-        REQUIRE(current.stats.tt_probes == 0);
-        REQUIRE(current.stats.tt_stores == 0);
-        REQUIRE(legacy.stats.tt_probes == 0);
-        REQUIRE(legacy.stats.tt_stores == 0);
-      }
-    }
-  }
-}
-
 TEST_CASE("PVS preserves iterative TT option decisions", "[search][pvs]") {
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
 
-  require_iterative_pvs_matches_alphabeta(position,
-                                          SearchOptions{.use_pvs = true, .use_midgame_tt = true},
-                                          SearchOptions{.use_midgame_tt = true});
   require_iterative_pvs_matches_alphabeta(
-      position, SearchOptions{.use_pvs = true, .use_tt_best_move_ordering = true},
-      SearchOptions{.use_tt_best_move_ordering = true});
+      position,
+      SearchOptions{.midgame = MidgameSearchOptions{.use_pvs = true, .use_midgame_tt = true}},
+      SearchOptions{.midgame = MidgameSearchOptions{.use_midgame_tt = true}});
+  require_iterative_pvs_matches_alphabeta(
+      position,
+      SearchOptions{.midgame = MidgameSearchOptions{.use_pvs = true},
+                    .ordering = MoveOrderingOptions{.use_tt_best_move_ordering = true}},
+      SearchOptions{.ordering = MoveOrderingOptions{.use_tt_best_move_ordering = true}});
   require_iterative_pvs_matches_alphabeta(position,
                                           SearchOptions{
-                                              .use_pvs = true,
-                                              .use_midgame_tt = true,
-                                              .use_tt_best_move_ordering = true,
+                                              .midgame =
+                                                  MidgameSearchOptions{
+                                                      .use_pvs = true,
+                                                      .use_midgame_tt = true,
+                                                  },
+                                              .ordering =
+                                                  MoveOrderingOptions{
+                                                      .use_tt_best_move_ordering = true,
+                                                  },
                                           },
                                           SearchOptions{
-                                              .use_midgame_tt = true,
-                                              .use_tt_best_move_ordering = true,
+                                              .midgame =
+                                                  MidgameSearchOptions{
+                                                      .use_midgame_tt = true,
+                                                  },
+                                              .ordering =
+                                                  MoveOrderingOptions{
+                                                      .use_tt_best_move_ordering = true,
+                                                  },
                                           });
 }
 

@@ -474,7 +474,6 @@ std::optional<LabelRow> solve_candidate(const Candidate& candidate, std::string*
   }
 
   vibe_othello::search::SearchOptions options;
-  options.use_endgame_tt = true;
   options.endgame.use_endgame_tt = true;
   const vibe_othello::search::SearchResult result = vibe_othello::search::solve_exact_endgame(
       *position, vibe_othello::search::SearchLimits{}, options);

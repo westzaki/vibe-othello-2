@@ -108,17 +108,6 @@ void finish_depth_zero_or_terminal_result(SearchResult* result, const SearchCont
       metadata_from_context(context, start));
 }
 
-RootSearchWindow root_window_for_move(RootSearchWindow root_window, Score alpha) noexcept {
-  if (!root_window.enabled) {
-    return RootSearchWindow{};
-  }
-  return RootSearchWindow{
-      .alpha = alpha,
-      .beta = root_window.beta,
-      .enabled = true,
-  };
-}
-
 std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth depth,
                                                board_core::Move move,
                                                RootSearchWindow move_window) {
@@ -469,7 +458,6 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
   Score best_score = kScoreLoss;
   Line best_line{};
-  const bool legacy_kernel = context.options.experimental.use_legacy_search_kernel;
   Score alpha = root_window.enabled ? root_window.alpha : kScoreLoss;
   const Score beta = root_window.enabled ? root_window.beta : kScoreWin;
   for (std::uint8_t move_index = 0; move_index < root_moves.size; ++move_index) {
@@ -478,9 +466,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       break;
     }
     const board_core::Move move = root_moves.moves[move_index];
-    const RootSearchWindow move_window =
-        legacy_kernel ? root_window_for_move(root_window, alpha)
-                      : RootSearchWindow{.alpha = alpha, .beta = beta, .enabled = true};
+    const RootSearchWindow move_window{.alpha = alpha, .beta = beta, .enabled = true};
     Score pvs_alpha = alpha;
     if (result.best_move.has_value() && move.kind == board_core::MoveKind::normal &&
         result.best_move->kind == board_core::MoveKind::normal &&
@@ -488,7 +474,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       pvs_alpha = static_cast<Score>(best_score - 1);
     }
     const std::optional<RootMoveInfo> root_move =
-        !legacy_kernel && context.options.midgame.use_pvs && move_index != 0
+        context.options.midgame.use_pvs && move_index != 0
             ? evaluate_root_move_pvs(&context, completed_depth, move, pvs_alpha, beta)
             : evaluate_root_move(&context, completed_depth, move, move_window);
     if (!root_move.has_value()) {
@@ -497,11 +483,11 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     }
     const Score score = root_move->score;
     publish_root_move(*root_move, &context, &best_score, &best_line, &result);
-    if ((!legacy_kernel || root_window.enabled) && score > alpha) {
+    if (score > alpha) {
       ++context.stats.alpha_updates;
       alpha = score;
     }
-    if ((!legacy_kernel || root_window.enabled) && alpha >= beta) {
+    if (alpha >= beta) {
       ++context.stats.beta_cutoffs;
       update_midgame_ordering_on_beta_cutoff(&context, move, completed_depth, Ply{0});
       break;
@@ -743,7 +729,6 @@ SearchResult solve_exact_endgame(board_core::Position position, SearchLimits lim
 
 SearchResult solve_exact_endgame(SearchSession& session, board_core::Position position,
                                  SearchLimits limits, SearchOptions options) {
-  options.exact_endgame = true;
   options.endgame.exact_endgame = true;
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);
@@ -766,7 +751,6 @@ SearchResult solve_wld_endgame(board_core::Position position, SearchLimits limit
 
 SearchResult solve_wld_endgame(SearchSession& session, board_core::Position position,
                                SearchLimits limits, SearchOptions options) {
-  options.exact_endgame = true;
   options.endgame.exact_endgame = true;
   const internal::ResolvedSearchOptions resolved_options =
       internal::normalize_search_options(options);

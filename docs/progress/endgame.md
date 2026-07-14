@@ -40,7 +40,6 @@ Existing `SearchOptions` include:
 * `EndgameSearchOptions::exact_endgame`
 * `EndgameSearchOptions::endgame_exact_empties`
 * `EndgameSearchOptions::endgame_wld_empties`
-* legacy flat endgame fields normalized into the typed config during migration
 
 Existing `SearchStats` include:
 
@@ -70,8 +69,7 @@ The current exact endgame implementation includes:
   `SearchOptions::endgame.exact_endgame` is enabled, the request is not WLD, and
   the leaf has at most `min(endgame_exact_empties, 4)` empty squares
 * typed `SearchOptions::endgame.exact_endgame` and
-  `SearchOptions::endgame.endgame_exact_empties` threshold checks, with legacy
-  flat-field compatibility through internal normalization
+  `SearchOptions::endgame.endgame_exact_empties` threshold checks
 * dedicated endgame move-ordering entry points that currently preserve the
   existing static Othello ordering
 * dedicated endgame stack frames separate from the midgame `SearchContext`
@@ -131,8 +129,8 @@ implemented when the root threshold is met and as a conservative internal leaf
 cutover at four empties or fewer for non-WLD requests.
 `SearchOptions::reporting.multi_pv == 1` selects best-only exact/WLD root
 reporting for direct endgame solvers and root-triggered WLD/exact endgame
-search; `SearchOptions::reporting.multi_pv > 1` remains a safe all-root no-op
-until top-N reporting is implemented.
+search; values greater than one select all-root reporting until top-N reporting
+is implemented.
 
 ## Implementation Plan
 

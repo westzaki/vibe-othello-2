@@ -281,6 +281,7 @@ struct MidgameSearchOptions {
   bool use_aspiration;
   bool use_iid;
   bool use_midgame_tt;
+  bool pass_consumes_depth;
 };
 
 struct MoveOrderingOptions {
@@ -299,13 +300,6 @@ struct EndgameSearchOptions {
 
 struct SearchReportingOptions {
   std::uint8_t multi_pv;
-};
-
-struct ExperimentalSearchOptions {
-  bool probcut;
-  bool use_pv_table;
-  bool use_parallel;
-  std::uint8_t selectivity_level;
 };
 
 struct SelectiveSearchOptionsV1 {
@@ -353,7 +347,6 @@ struct SearchOptions {
   MoveOrderingOptions ordering;
   EndgameSearchOptions endgame;
   SearchReportingOptions reporting;
-  ExperimentalSearchOptions experimental;
   SelectiveSearchOptionsV1 selective;
   ProbCutOptionsV1 probcut_options;
   SearchMode mode;
@@ -368,10 +361,8 @@ of valid deep/shallow pairs. Pair storage, metadata strings, and the sink must
 outlive the search call. Normal runtime and WASM presets keep the whole config
 at its disabled default.
 
-`ProbCutOptionsV1` is the typed runtime option. It also defaults disabled. The
-legacy flat `probcut` and `experimental.probcut` flags remain compatibility
-placeholders and do not enable pruning. Runtime normalization enables the typed
-option only when its caller-owned profile is complete and internally valid,
+`ProbCutOptionsV1` is the typed runtime option and defaults disabled. Runtime
+resolution enables it only when its caller-owned profile is complete and internally valid,
 the profile ID matches, both report checksums are lowercase SHA-256 values, the
 profile node class is exactly `non_pv_scout_beta_only`, calibration entries are
 finite and non-overlapping, every profile carries a complete unique validated
@@ -379,9 +370,8 @@ pair order plus internally consistent scheduler/domain evidence, the caller's
 pair selection is a reviewed prefix, the probe count is within the reviewed
 maximum, every domain enabled by that exact prefix/probe combination has
 passing holdout evidence, the caller's evaluator/artifact family exactly matches the profile,
-all conservative scope
-flags remain true, margins are ordered, and the legacy kernel is disabled.
-Invalid or incomplete configuration normalizes to disabled; it never invents a
+all conservative scope flags remain true, and margins are ordered. Invalid or
+incomplete configuration resolves to disabled; it never invents a
 coefficient or fallback margin. Profile storage, entries, and strings must
 outlive the search call.
 
@@ -392,65 +382,15 @@ configuration. Engine normalization, Arena, and search benchmarks use this
 shared resolver so measurement tooling cannot label a raw request as active
 when search would normalize it to off.
 
-The public API still accepts legacy flat fields during migration:
-
-```cpp
-struct SearchOptions {
-  bool use_pvs;
-  bool use_aspiration;
-  bool use_iid;
-  bool use_history;
-  bool use_killers;
-  bool use_midgame_tt;
-  bool use_endgame_tt;
-  bool exact_endgame;
-  bool probcut;
-  bool use_pv_table;
-  bool use_parallel;
-  bool use_tt_best_move_ordering;
-  bool use_endgame_parity_ordering;
-  std::uint8_t multi_pv;
-  std::uint8_t endgame_exact_empties;
-  std::uint8_t endgame_wld_empties;
-  std::uint8_t selectivity_level;
-  MidgameSearchOptions midgame;
-  MoveOrderingOptions ordering;
-  EndgameSearchOptions endgame;
-  SearchReportingOptions reporting;
-  ExperimentalSearchOptions experimental;
-  SelectiveSearchOptionsV1 selective;
-  ProbCutOptionsV1 probcut_options;
-  SearchMode mode;
-};
-```
-
 Every non-baseline option must be independently disableable.
 
-Most options default to disabled. `ordering.use_endgame_parity_ordering` is the
-compatibility exception and defaults enabled because it is an ordering-only
-exact-endgame hint; either legacy or typed spelling can disable it during the
-compatibility period. Unimplemented options must be safely ignored or explicitly
-treated as disabled.
+Most options default to disabled. `ordering.use_endgame_parity_ordering` defaults
+enabled because it is an ordering-only exact-endgame hint.
 
-Search internals normalize public `SearchOptions` into a resolved typed config
-before dispatch. During the compatibility period, legacy flat fields and typed
-sub-configs express the same behavior. Existing legacy callers keep working,
-and new call sites should prefer the typed sub-configs.
-
-The compatibility normalizer has an explicit conflict policy:
-
-| Field kind | Resolution rule |
-| --- | --- |
-| `mode` | Use `SearchOptions::mode`. |
-| Boolean enable flags | Use legacy flat `true` OR typed sub-config `true`. |
-| `ordering.use_endgame_parity_ordering` | Use legacy flat value AND typed sub-config value. This option defaults enabled, so either spelling can disable it during the compatibility period. |
-| Numeric option fields | Use the legacy flat value when it is nonzero; otherwise use the typed sub-config value. |
-
-The current public `bool` fields cannot distinguish "not specified" from an
-explicit `false`. New callers should therefore avoid mixing legacy flat fields
-with typed sub-configs. Code inside the search implementation should consume
-only `ResolvedSearchOptions` after the API boundary has normalized public
-options.
+The typed sub-configs in `SearchOptions` are the only configuration source of
+truth. Search internals resolve public options once at the API boundary, validate
+typed ProbCut configuration, and consume only `ResolvedSearchOptions` after that
+boundary.
 
 `midgame.use_pvs` switches the recursive full-window search path from plain alpha-beta
 to Principal Variation Search. It is disabled by default.
@@ -480,8 +420,6 @@ Endgame TT entries may only be probed or stored by exact endgame search paths.
 `ordering.use_endgame_parity_ordering` controls ordering-only parity hints in exact
 endgame search. It must not prune legal moves or change exact results.
 
-`experimental.use_pv_table` controls a dedicated PV table, if one is used.
-
 `ordering.use_tt_best_move_ordering` controls transposition-table best-move ordering.
 
 TT best-move ordering may reorder legal moves.
@@ -495,10 +433,10 @@ may be enabled without TT cutoffs.
 Disabling one table must not silently disable or weaken the semantics of another
 table.
 
-`reporting.multi_pv` controls root line reporting only where implemented. For exact
-endgame root search, `0` keeps backward-compatible all-root exact reporting, `1`
-selects best-only exact reporting, and values greater than one are currently a
-safe no-op that behave like `0` until top-N reporting is implemented.
+`reporting.multi_pv` controls root line reporting. For exact endgame root search,
+`0` selects all-root exact reporting, `1` selects best-only exact reporting, and
+values greater than one currently select all-root reporting because top-N
+reporting is not implemented.
 
 `mode` is the caller's requested search result mode. `SearchMode::move` is the
 default. Root-triggered WLD endgame search is used only when `mode` is
@@ -556,7 +494,7 @@ not final disc-difference margins. `endgame.use_endgame_tt`,
 
 `search_iterative` can also route the root to WLD endgame search when
 `SearchOptions::mode == SearchMode::win_loss_draw` and the root empty count is
-less than or equal to `SearchOptions::endgame_wld_empties`. This path returns
+less than or equal to `SearchOptions::endgame.endgame_wld_empties`. This path returns
 the same WLD score semantics as `solve_wld_endgame`; it does not expose final
 disc-difference margins.
 
@@ -1014,7 +952,7 @@ PVS depends on good move ordering.
 
 PVS must be disableable.
 
-Default search uses alpha-beta unless `SearchOptions::use_pvs` is enabled.
+Default search uses alpha-beta unless `SearchOptions::midgame.use_pvs` is enabled.
 
 PVS with selective pruning disabled must return the same score as alpha-beta at
 the same depth.
@@ -1045,7 +983,7 @@ The root result should remain valid after every completed depth.
 Aspiration windows use the previous depth score as a guess.
 
 Aspiration is an optional iterative-deepening wrapper controlled by
-`SearchOptions::use_aspiration`.
+`SearchOptions::midgame.use_aspiration`.
 
 Aspiration is disabled by default.
 
@@ -1054,7 +992,7 @@ Fixed-depth search always uses the normal full-window root search.
 Depth 1 of iterative deepening always uses a full window.
 
 Recursive searches inside an aspiration window must go through
-`full_window_search()` so `SearchOptions::use_pvs` continues to dispatch between
+`full_window_search()` so `SearchOptions::midgame.use_pvs` continues to dispatch between
 alpha-beta and PVS.
 
 Initial non-trivial depths may search with a full window.
@@ -1399,7 +1337,7 @@ profile. Its default depths and margins are zero/invalid as an additional guard;
 callers must supply every runtime value from a reviewed profile and adoption
 decision. It is attempted only at an explicit PVS scout/null-window entry marked
 as cut-node-equivalent. Plain PV/full-window nodes, recursive alpha-beta nodes
-without that marker, IID work, the legacy kernel, root/terminal/pass nodes,
+without that marker, IID work, root/terminal/pass nodes,
 depths below `minimum_depth`, disabled phases, unsupported complete profile
 domains, sentinel-adjacent windows, and positions at or below the configured
 near-exact threshold cannot cut.
@@ -1997,8 +1935,8 @@ Use board-core primitives rather than duplicating board rules.
 
 `SearchSession` owns mutable single-thread search knowledge: the transposition
 table, history and killer ordering state, root generation, and reusable stack
-state where applicable. Compatibility entry points construct a temporary
-session. Session overloads let a caller retain knowledge across sequential
+state where applicable. Non-session entry points construct a temporary session.
+Session overloads let a caller retain knowledge across sequential
 moves without putting mutable hash state in `board_core::Position`.
 
 Session policy is explicit:
@@ -2011,11 +1949,13 @@ Session policy is explicit:
 * one session is single-thread-only and must not serve concurrent searches.
 
 Every root binds the session TT to the evaluator object identity, the
-evaluator's `transposition_table_revision()`, normalized pass/endgame/mode and
-experimental semantics, and the direct-search domain. A binding change clears
-the TT before probing. Mutable evaluators must increment their revision whenever
-their scoring behavior changes in place. Ordering state is safe to retain across
-an automatic semantic rebind because it does not supply cutoff values.
+evaluator's `transposition_table_revision()`, resolved midgame, move-ordering,
+endgame, reporting, mode, and effective ProbCut runtime semantics, plus the
+direct-search domain. A binding change clears the TT before probing. Shadow
+calibration configuration is observational and is deliberately excluded from
+the binding. Mutable evaluators must increment their revision whenever their
+scoring behavior changes in place. Ordering state is safe to retain across an
+automatic semantic rebind because it does not supply cutoff values.
 
 The binding also includes every Multi-ProbCut scheduler setting and the complete
 reviewed profile semantics: profile ID, calibration report SHA-256, evaluator
@@ -2037,16 +1977,10 @@ truth for tests.
 Normal node preparation computes the current legal mask once. Only a zero mask
 causes one opponent-mask computation to distinguish pass from terminal. Move
 ordering consumes the prepared mask. Midgame pass depth is controlled by
-`MidgameSearchOptions::pass_consumes_depth`; the compatibility default remains
-`true`. Exact endgame empties never decrease on pass.
+`MidgameSearchOptions::pass_consumes_depth`; the default is `true`. Exact
+endgame empties never decrease on pass.
 
 Root PVS searches the first move with a full window, later moves with a null
 window, and performs a full re-search only for a score strictly between alpha
 and beta. `multi_pv != 1` preserves exact per-move reports by re-searching only
 root reports that remain bounded.
-
-`ExperimentalSearchOptions::use_legacy_search_kernel` is the temporary rollback
-switch for the previous full-window root orchestration. It keeps the shared
-correctness, typed-TT, and hash infrastructure but disables root PVS and the new
-unconditional root-alpha carry. It is intended for A/B diagnosis and later
-removal, not as a second permanent search implementation.

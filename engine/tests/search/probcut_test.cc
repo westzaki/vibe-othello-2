@@ -269,7 +269,7 @@ TEST_CASE("disabled ProbCut has bit-exact parity", "[search][probcut]") {
   require_same_official_result(actual, expected);
 }
 
-TEST_CASE("ProbCut is disabled at PV nodes and by the legacy kernel", "[search][probcut]") {
+TEST_CASE("ProbCut is disabled at PV nodes", "[search][probcut]") {
   const std::array entries{entry(0, Depth{4}, Depth{2})};
   const ProbCutCalibrationProfileV1 profile = profile_for(entries);
   SearchOptions options = options_for(&profile, Depth{4}, Depth{2});
@@ -283,9 +283,6 @@ TEST_CASE("ProbCut is disabled at PV nodes and by the legacy kernel", "[search][
   const SearchNodeResult pv_result = alphabeta(&context, kScoreLoss, kScoreWin, Depth{4}, Ply{0});
   REQUIRE(pv_result.is_complete());
   REQUIRE(context.stats.probcut_attempts == 0);
-
-  options.experimental.use_legacy_search_kernel = true;
-  REQUIRE_FALSE(normalize_search_options(options).probcut.use_probcut);
 }
 
 TEST_CASE("ProbCut rejects pass and near-exact nodes", "[search][probcut]") {

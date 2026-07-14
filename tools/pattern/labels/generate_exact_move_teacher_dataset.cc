@@ -748,9 +748,7 @@ std::vector<board_core::Move> legal_root_moves(board_core::Position position, bo
 
 search::SearchOptions exact_root_solve_options() noexcept {
   search::SearchOptions options;
-  options.use_endgame_tt = true;
   options.endgame.use_endgame_tt = true;
-  options.multi_pv = 0;
   options.reporting.multi_pv = 0;
   return options;
 }

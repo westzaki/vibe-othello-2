@@ -61,42 +61,11 @@ struct SearchReportingOptions {
                                    const SearchReportingOptions&) = default;
 };
 
-struct ExperimentalSearchOptions {
-  bool probcut = false;
-  bool use_pv_table = false;
-  bool use_parallel = false;
-  std::uint8_t selectivity_level = 0;
-  bool use_legacy_search_kernel = false;
-
-  friend constexpr bool operator==(const ExperimentalSearchOptions&,
-                                   const ExperimentalSearchOptions&) = default;
-};
-
 struct SearchOptions {
-  bool use_pvs = false;
-  bool use_aspiration = false;
-  bool use_iid = false;
-  bool use_history = false;
-  bool use_killers = false;
-  bool use_midgame_tt = false;
-  bool pass_consumes_depth = true;
-  bool use_endgame_tt = false;
-  bool exact_endgame = false;
-  bool probcut = false;
-  bool use_pv_table = false;
-  bool use_parallel = false;
-  bool use_tt_best_move_ordering = false;
-  bool use_endgame_parity_ordering = true;
-  std::uint8_t multi_pv = 0;
-  std::uint8_t endgame_exact_empties = 0;
-  std::uint8_t endgame_wld_empties = 0;
-  std::uint8_t selectivity_level = 0;
-  bool use_legacy_search_kernel = false;
   MidgameSearchOptions midgame{};
   MoveOrderingOptions ordering{};
   EndgameSearchOptions endgame{};
   SearchReportingOptions reporting{};
-  ExperimentalSearchOptions experimental{};
   SelectiveSearchOptionsV1 selective{};
   ProbCutOptionsV1 probcut_options{};
   SearchMode mode = SearchMode::move;

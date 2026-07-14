@@ -168,8 +168,7 @@ probcut_configuration_is_reviewed(const ProbCutCalibrationProfileV1& profile,
 // checks used by search option normalization. Invalid requested options resolve
 // to a disabled default rather than retaining raw enablement fields.
 [[nodiscard]] ResolvedProbCutConfigurationV1
-resolve_probcut_configuration(ProbCutOptionsV1 options,
-                              bool use_legacy_search_kernel = false) noexcept;
+resolve_probcut_configuration(ProbCutOptionsV1 options) noexcept;
 
 } // namespace vibe_othello::search
 
