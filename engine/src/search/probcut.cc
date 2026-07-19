@@ -226,7 +226,6 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
     return std::nullopt;
   }
   if (static_cast<std::int64_t>(beta) - alpha != 1 || !options.non_pv_only || !options.beta_only ||
-      context->options.experimental.use_legacy_search_kernel ||
       options.calibration_profile == nullptr ||
       options.calibration_profile->node_class != ProbCutNodeClassV1::non_pv_scout_beta_only) {
     return std::nullopt;

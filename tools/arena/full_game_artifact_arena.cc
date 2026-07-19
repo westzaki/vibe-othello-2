@@ -1043,7 +1043,6 @@ make_search_config(const Args& args, const search::ProbCutCalibrationProfileV1* 
               .endgame_wld_empties = 0,
           },
       .reporting = search::SearchReportingOptions{.multi_pv = 1},
-      .experimental = search::ExperimentalSearchOptions{},
       .mode = search::SearchMode::move,
   };
   search::SearchOptions candidate_requested_options = base_options;
@@ -1627,12 +1626,12 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
          << static_cast<int>(options.endgame.endgame_exact_empties);
   output << ", \"endgame_wld_empties\": " << static_cast<int>(options.endgame.endgame_wld_empties);
   output << ", \"probcut\": ";
-  write_bool(output, options.experimental.probcut);
+  write_bool(output, false);
   output << ", \"use_pv_table\": ";
-  write_bool(output, options.experimental.use_pv_table);
+  write_bool(output, false);
   output << ", \"use_parallel\": ";
-  write_bool(output, options.experimental.use_parallel);
-  output << ", \"selectivity_level\": " << static_cast<int>(options.experimental.selectivity_level);
+  write_bool(output, false);
+  output << ", \"selectivity_level\": 0";
   const search::ProbCutOptionsV1& probcut = options.probcut_options;
   output << ", \"multi_probcut\": {\"requested_mode\": ";
   write_json_string(output, probcut_mode_name(requested_mode));
@@ -2259,13 +2258,14 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
          << search_config.tt_bytes << '\n';
   output << probcut_mode_name(search_config.candidate_probcut) << '\n'
          << probcut_mode_name(search_config.baseline_probcut) << '\n';
+  // Keep the retired v4 no-op option slots serialized as false so existing
+  // report checksums and schema readers remain compatible.
   const auto write_options_identity = [&output](const search::SearchOptions& options) {
     output << options.midgame.use_pvs << options.midgame.use_aspiration << options.midgame.use_iid
            << options.midgame.use_midgame_tt << options.ordering.use_tt_best_move_ordering
            << options.ordering.use_history << options.ordering.use_killers
            << options.ordering.use_endgame_parity_ordering << options.endgame.exact_endgame
-           << options.endgame.use_endgame_tt << options.experimental.probcut
-           << options.experimental.use_pv_table << options.experimental.use_parallel << '\n';
+           << options.endgame.use_endgame_tt << false << false << false << '\n';
     const search::ProbCutOptionsV1& probcut = options.probcut_options;
     output << probcut.use_probcut << '\n'
            << probcut.calibration_profile_id << '\n'

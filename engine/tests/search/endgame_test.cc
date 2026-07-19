@@ -49,11 +49,17 @@ SearchOptions exact_options(std::uint8_t threshold, bool use_endgame_tt = false,
                             bool use_endgame_parity_ordering = true,
                             std::uint8_t multi_pv = 0) noexcept {
   return SearchOptions{
-      .use_endgame_tt = use_endgame_tt,
-      .exact_endgame = true,
-      .use_endgame_parity_ordering = use_endgame_parity_ordering,
-      .multi_pv = multi_pv,
-      .endgame_exact_empties = threshold,
+      .ordering =
+          MoveOrderingOptions{
+              .use_endgame_parity_ordering = use_endgame_parity_ordering,
+          },
+      .endgame =
+          EndgameSearchOptions{
+              .exact_endgame = true,
+              .use_endgame_tt = use_endgame_tt,
+              .endgame_exact_empties = threshold,
+          },
+      .reporting = SearchReportingOptions{.multi_pv = multi_pv},
   };
 }
 
@@ -61,12 +67,18 @@ SearchOptions wld_options(std::uint8_t threshold, bool use_endgame_tt = false,
                           bool use_endgame_parity_ordering = true, std::uint8_t multi_pv = 0,
                           std::uint8_t exact_threshold = 0, bool exact_endgame = false) noexcept {
   return SearchOptions{
-      .use_endgame_tt = use_endgame_tt,
-      .exact_endgame = exact_endgame,
-      .use_endgame_parity_ordering = use_endgame_parity_ordering,
-      .multi_pv = multi_pv,
-      .endgame_exact_empties = exact_threshold,
-      .endgame_wld_empties = threshold,
+      .ordering =
+          MoveOrderingOptions{
+              .use_endgame_parity_ordering = use_endgame_parity_ordering,
+          },
+      .endgame =
+          EndgameSearchOptions{
+              .exact_endgame = exact_endgame,
+              .use_endgame_tt = use_endgame_tt,
+              .endgame_exact_empties = exact_threshold,
+              .endgame_wld_empties = threshold,
+          },
+      .reporting = SearchReportingOptions{.multi_pv = multi_pv},
       .mode = SearchMode::win_loss_draw,
   };
 }
@@ -118,13 +130,20 @@ SearchResult solve_direct_exact(board_core::Position position, SearchLimits limi
 
 SearchResult solve_direct_exact(board_core::Position position, bool use_endgame_tt,
                                 bool use_endgame_parity_ordering, std::uint8_t multi_pv = 0) {
-  return solve_exact_endgame(
-      position, SearchLimits{},
-      SearchOptions{.use_endgame_tt = use_endgame_tt,
-                    .exact_endgame = false,
-                    .use_endgame_parity_ordering = use_endgame_parity_ordering,
-                    .multi_pv = multi_pv,
-                    .endgame_exact_empties = 0});
+  return solve_exact_endgame(position, SearchLimits{},
+                             SearchOptions{
+                                 .ordering =
+                                     MoveOrderingOptions{
+                                         .use_endgame_parity_ordering = use_endgame_parity_ordering,
+                                     },
+                                 .endgame =
+                                     EndgameSearchOptions{
+                                         .exact_endgame = false,
+                                         .use_endgame_tt = use_endgame_tt,
+                                         .endgame_exact_empties = 0,
+                                     },
+                                 .reporting = SearchReportingOptions{.multi_pv = multi_pv},
+                             });
 }
 
 SearchResult solve_direct_wld(board_core::Position position, SearchLimits limits = {},
@@ -135,11 +154,19 @@ SearchResult solve_direct_wld(board_core::Position position, SearchLimits limits
 SearchResult solve_direct_wld(board_core::Position position, bool use_endgame_tt,
                               bool use_endgame_parity_ordering, std::uint8_t multi_pv = 0) {
   return solve_wld_endgame(position, SearchLimits{},
-                           SearchOptions{.use_endgame_tt = use_endgame_tt,
-                                         .exact_endgame = false,
-                                         .use_endgame_parity_ordering = use_endgame_parity_ordering,
-                                         .multi_pv = multi_pv,
-                                         .endgame_exact_empties = 0});
+                           SearchOptions{
+                               .ordering =
+                                   MoveOrderingOptions{
+                                       .use_endgame_parity_ordering = use_endgame_parity_ordering,
+                                   },
+                               .endgame =
+                                   EndgameSearchOptions{
+                                       .exact_endgame = false,
+                                       .use_endgame_tt = use_endgame_tt,
+                                       .endgame_exact_empties = 0,
+                                   },
+                               .reporting = SearchReportingOptions{.multi_pv = multi_pv},
+                           });
 }
 
 std::string endgame_corpus_path() {
@@ -380,11 +407,16 @@ TEST_CASE("public direct exact endgame bypasses exact endgame threshold options"
 
   const SearchResult gated_off =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                       SearchOptions{.exact_endgame = false, .endgame_exact_empties = 0});
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = false,
+                                         .endgame_exact_empties = 0,
+                                     }});
   const SearchResult through_iterative = search_exact(position, empties);
-  const SearchResult direct =
-      solve_direct_exact(position, SearchLimits{.max_depth = Depth{0}},
-                         SearchOptions{.exact_endgame = false, .endgame_exact_empties = 0});
+  const SearchResult direct = solve_direct_exact(position, SearchLimits{.max_depth = Depth{0}},
+                                                 SearchOptions{.endgame = EndgameSearchOptions{
+                                                                   .exact_endgame = false,
+                                                                   .endgame_exact_empties = 0,
+                                                               }});
 
   REQUIRE_FALSE(gated_off.exact);
   REQUIRE(gated_off.stats.eval_calls == 1);
@@ -566,9 +598,9 @@ TEST_CASE("root-triggered WLD requires explicit WLD mode and threshold",
   const std::uint8_t empties = test_support::endgame_empty_count(position);
 
   CountingEvaluator no_mode_evaluator{77};
-  const SearchResult no_mode =
-      search_iterative(position, no_mode_evaluator, SearchLimits{.max_depth = Depth{0}},
-                       SearchOptions{.endgame_wld_empties = empties});
+  const SearchResult no_mode = search_iterative(
+      position, no_mode_evaluator, SearchLimits{.max_depth = Depth{0}},
+      SearchOptions{.endgame = EndgameSearchOptions{.endgame_wld_empties = empties}});
   REQUIRE_FALSE(no_mode.exact);
   REQUIRE(no_mode.score == 77);
   REQUIRE(no_mode.stats.endgame_nodes == 0);
@@ -599,9 +631,12 @@ TEST_CASE("exact-score request is not changed by WLD threshold",
   CountingEvaluator evaluator{123};
 
   const SearchOptions options{
-      .exact_endgame = true,
-      .endgame_exact_empties = empties,
-      .endgame_wld_empties = empties,
+      .endgame =
+          EndgameSearchOptions{
+              .exact_endgame = true,
+              .endgame_exact_empties = empties,
+              .endgame_wld_empties = empties,
+          },
       .mode = SearchMode::exact_score,
   };
   const SearchResult through_iterative =
@@ -615,17 +650,11 @@ TEST_CASE("exact-score request is not changed by WLD threshold",
   REQUIRE(through_iterative.root_moves == direct.root_moves);
 }
 
-TEST_CASE("typed exact endgame threshold matches legacy flat options",
+TEST_CASE("typed exact endgame threshold matches the direct solver",
           "[search][endgame][iterative]") {
   const board_core::Position position = corpus_position("four_empty_simple");
   const std::uint8_t empties = test_support::endgame_empty_count(position);
-  CountingEvaluator legacy_evaluator{123};
-  CountingEvaluator typed_evaluator{123};
-
-  const SearchOptions legacy_options{
-      .exact_endgame = true,
-      .endgame_exact_empties = empties,
-  };
+  CountingEvaluator evaluator{123};
   const SearchOptions typed_options{
       .endgame =
           EndgameSearchOptions{
@@ -634,54 +663,41 @@ TEST_CASE("typed exact endgame threshold matches legacy flat options",
           },
   };
 
-  const SearchResult legacy = search_iterative(position, legacy_evaluator,
-                                               SearchLimits{.max_depth = Depth{0}}, legacy_options);
-  const SearchResult typed = search_iterative(position, typed_evaluator,
-                                              SearchLimits{.max_depth = Depth{0}}, typed_options);
+  const SearchResult typed =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}}, typed_options);
+  const SearchResult direct = solve_direct_exact(position);
 
-  REQUIRE(legacy_evaluator.calls == 0);
-  REQUIRE(typed_evaluator.calls == 0);
-  require_exact_result_invariants(position, legacy);
+  REQUIRE(evaluator.calls == 0);
   require_exact_result_invariants(position, typed);
-  REQUIRE(typed.best_move == legacy.best_move);
-  REQUIRE(typed.score == legacy.score);
-  REQUIRE(typed.completed_depth == legacy.completed_depth);
-  REQUIRE(typed.pv == legacy.pv);
-  REQUIRE(typed.root_moves == legacy.root_moves);
-  REQUIRE(typed.stats == legacy.stats);
+  require_same_exact_scores(position, typed, direct);
+  REQUIRE(typed.best_move == direct.best_move);
+  REQUIRE(typed.score == direct.score);
+  REQUIRE(typed.completed_depth == direct.completed_depth);
+  REQUIRE(typed.pv == direct.pv);
+  REQUIRE(typed.root_moves == direct.root_moves);
 }
 
-TEST_CASE("typed WLD endgame threshold matches legacy flat options",
+TEST_CASE("typed WLD endgame threshold matches the direct solver",
           "[search][endgame][wld][iterative]") {
   const board_core::Position position = corpus_position("four_empty_simple");
   const std::uint8_t empties = test_support::endgame_empty_count(position);
-  CountingEvaluator legacy_evaluator{123};
-  CountingEvaluator typed_evaluator{123};
-
-  const SearchOptions legacy_options{
-      .endgame_wld_empties = empties,
-      .mode = SearchMode::win_loss_draw,
-  };
+  CountingEvaluator evaluator{123};
   const SearchOptions typed_options{
       .endgame = EndgameSearchOptions{.endgame_wld_empties = empties},
       .mode = SearchMode::win_loss_draw,
   };
 
-  const SearchResult legacy = search_iterative(position, legacy_evaluator,
-                                               SearchLimits{.max_depth = Depth{0}}, legacy_options);
-  const SearchResult typed = search_iterative(position, typed_evaluator,
-                                              SearchLimits{.max_depth = Depth{0}}, typed_options);
+  const SearchResult typed =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}}, typed_options);
+  const SearchResult direct = solve_direct_wld(position);
 
-  REQUIRE(legacy_evaluator.calls == 0);
-  REQUIRE(typed_evaluator.calls == 0);
-  require_wld_result_invariants(position, legacy);
+  REQUIRE(evaluator.calls == 0);
   require_wld_result_invariants(position, typed);
-  REQUIRE(typed.best_move == legacy.best_move);
-  REQUIRE(typed.score == legacy.score);
-  REQUIRE(typed.completed_depth == legacy.completed_depth);
-  REQUIRE(typed.pv == legacy.pv);
-  REQUIRE(typed.root_moves == legacy.root_moves);
-  REQUIRE(typed.stats == legacy.stats);
+  REQUIRE(typed.best_move == direct.best_move);
+  REQUIRE(typed.score == direct.score);
+  REQUIRE(typed.completed_depth == direct.completed_depth);
+  REQUIRE(typed.pv == direct.pv);
+  REQUIRE(typed.root_moves == direct.root_moves);
 }
 
 TEST_CASE("root-triggered WLD TT and parity options preserve outcome",
@@ -874,7 +890,10 @@ TEST_CASE("midgame leaf cutover solves small exact endgames without evaluator",
 
   const SearchResult result =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{1}},
-                       SearchOptions{.exact_endgame = true, .endgame_exact_empties = 4});
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = true,
+                                         .endgame_exact_empties = 4,
+                                     }});
 
   REQUIRE_FALSE(result.stopped);
   REQUIRE_FALSE(result.exact);
@@ -903,7 +922,10 @@ TEST_CASE("disabled internal leaf cutover preserves evaluator behavior",
 
   const SearchResult result =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{1}},
-                       SearchOptions{.exact_endgame = false, .endgame_exact_empties = 4});
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = false,
+                                         .endgame_exact_empties = 4,
+                                     }});
 
   REQUIRE_FALSE(result.stopped);
   REQUIRE_FALSE(result.exact);
@@ -921,7 +943,10 @@ TEST_CASE("internal leaf cutover respects stopped limits safely",
 
   const SearchResult max_nodes_result = search_iterative(
       position, max_nodes_evaluator, SearchLimits{.max_depth = Depth{1}, .max_nodes = 2},
-      SearchOptions{.exact_endgame = true, .endgame_exact_empties = 4});
+      SearchOptions{.endgame = EndgameSearchOptions{
+                        .exact_endgame = true,
+                        .endgame_exact_empties = 4,
+                    }});
 
   REQUIRE(max_nodes_result.stopped);
   REQUIRE_FALSE(max_nodes_result.exact);
@@ -934,7 +959,10 @@ TEST_CASE("internal leaf cutover respects stopped limits safely",
   const SearchResult stop_result =
       search_iterative(position, stop_evaluator,
                        SearchLimits{.max_depth = Depth{1}, .stop_requested = &stop_requested},
-                       SearchOptions{.exact_endgame = true, .endgame_exact_empties = 4});
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = true,
+                                         .endgame_exact_empties = 4,
+                                     }});
 
   REQUIRE(stop_result.stopped);
   REQUIRE_FALSE(stop_result.exact);
@@ -951,7 +979,10 @@ TEST_CASE("disabled exact endgame preserves existing depth-zero behavior", "[sea
 
   const SearchResult result =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                       SearchOptions{.exact_endgame = false, .endgame_exact_empties = 1});
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = false,
+                                         .endgame_exact_empties = 1,
+                                     }});
 
   REQUIRE_FALSE(result.exact);
   REQUIRE(result.score == 91);
@@ -1012,44 +1043,8 @@ TEST_CASE("exact endgame multi pv one reports only the exact best root move", "[
   REQUIRE(best_only.stats.root_moves_searched == all_roots.root_moves.size());
 }
 
-TEST_CASE("typed multi pv one matches legacy best-only exact reporting", "[search][endgame]") {
-  const board_core::Position position = corpus_position("four_empty_simple");
-
-  const SearchOptions legacy_options{
-      .exact_endgame = true,
-      .multi_pv = 1,
-      .endgame_exact_empties = 4,
-  };
-  const SearchOptions typed_options{
-      .endgame =
-          EndgameSearchOptions{
-              .exact_endgame = true,
-              .endgame_exact_empties = 4,
-          },
-      .reporting = SearchReportingOptions{.multi_pv = 1},
-  };
-  CountingEvaluator legacy_evaluator{123};
-  CountingEvaluator typed_evaluator{123};
-
-  const SearchResult legacy = search_iterative(position, legacy_evaluator,
-                                               SearchLimits{.max_depth = Depth{0}}, legacy_options);
-  const SearchResult typed = search_iterative(position, typed_evaluator,
-                                              SearchLimits{.max_depth = Depth{0}}, typed_options);
-
-  REQUIRE(legacy_evaluator.calls == 0);
-  REQUIRE(typed_evaluator.calls == 0);
-  require_exact_result_invariants(position, legacy);
-  require_exact_result_invariants(position, typed);
-  REQUIRE(legacy.root_moves.size() == 1);
-  REQUIRE(typed.best_move == legacy.best_move);
-  REQUIRE(typed.score == legacy.score);
-  REQUIRE(typed.completed_depth == legacy.completed_depth);
-  REQUIRE(typed.pv == legacy.pv);
-  REQUIRE(typed.root_moves == legacy.root_moves);
-  REQUIRE(typed.stats == legacy.stats);
-}
-
-TEST_CASE("exact endgame multi pv greater than one is a safe all-root no-op", "[search][endgame]") {
+TEST_CASE("exact endgame multi pv greater than one selects all-root reporting",
+          "[search][endgame]") {
   const board_core::Position position = corpus_position("four_empty_simple");
 
   const SearchResult all_roots = search_exact(position, 4);

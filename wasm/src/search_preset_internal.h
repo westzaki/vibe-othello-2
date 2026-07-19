@@ -41,7 +41,6 @@ search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empti
               .endgame_wld_empties = 0,
           },
       .reporting = search::SearchReportingOptions{.multi_pv = 1},
-      .experimental = search::ExperimentalSearchOptions{},
       .selective = search::SelectiveSearchOptionsV1{},
       .mode = search::SearchMode::move,
   };

@@ -22,7 +22,12 @@ SearchResult solve_with_policy(board_core::Position position, SmallEndgamePolicy
   const std::uint8_t empties = empty_count(position);
   return solve_exact_endgame_with_small_endgame_policy(
       position, SearchLimits{.max_depth = Depth{0}},
-      SearchOptions{.exact_endgame = true, .endgame_exact_empties = empties}, nullptr, policy);
+      SearchOptions{.endgame =
+                        EndgameSearchOptions{
+                            .exact_endgame = true,
+                            .endgame_exact_empties = empties,
+                        }},
+      nullptr, policy);
 }
 
 SearchResult solve_with_policy(board_core::Position position, SmallEndgamePolicy policy,
@@ -32,10 +37,18 @@ SearchResult solve_with_policy(board_core::Position position, SmallEndgamePolicy
   TranspositionTable tt;
   return solve_exact_endgame_with_small_endgame_policy(
       position, limits,
-      SearchOptions{.use_endgame_tt = use_endgame_tt,
-                    .exact_endgame = true,
-                    .use_endgame_parity_ordering = use_endgame_parity_ordering,
-                    .endgame_exact_empties = empties},
+      SearchOptions{
+          .ordering =
+              MoveOrderingOptions{
+                  .use_endgame_parity_ordering = use_endgame_parity_ordering,
+              },
+          .endgame =
+              EndgameSearchOptions{
+                  .exact_endgame = true,
+                  .use_endgame_tt = use_endgame_tt,
+                  .endgame_exact_empties = empties,
+              },
+      },
       use_endgame_tt ? &tt : nullptr, policy);
 }
 

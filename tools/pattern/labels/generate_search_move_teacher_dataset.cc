@@ -550,7 +550,6 @@ SearchConfig make_search_config(const Args& args) {
                       .endgame_wld_empties = 0,
                   },
               .reporting = search::SearchReportingOptions{},
-              .experimental = search::ExperimentalSearchOptions{},
               .mode = search::SearchMode::move,
           },
       .exact_endgame_empties = args.exact_endgame_empties,

@@ -287,10 +287,15 @@ TEST_CASE("limited PVS and transposition table search keeps published PV replaya
                            .max_depth = Depth{5},
                            .max_nodes = static_cast<NodeCount>(depth_one_nodes + 4),
                        },
-                       SearchOptions{.use_pvs = true,
-                                     .use_aspiration = true,
-                                     .use_midgame_tt = true,
-                                     .use_tt_best_move_ordering = true});
+                       SearchOptions{
+                           .midgame =
+                               MidgameSearchOptions{
+                                   .use_pvs = true,
+                                   .use_aspiration = true,
+                                   .use_midgame_tt = true,
+                               },
+                           .ordering = MoveOrderingOptions{.use_tt_best_move_ordering = true},
+                       });
 
   REQUIRE(result.stopped);
   require_basic_limit_invariants(position, result);

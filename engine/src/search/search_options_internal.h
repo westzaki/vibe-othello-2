@@ -12,7 +12,6 @@ struct ResolvedSearchOptions {
   MoveOrderingOptions ordering{};
   EndgameSearchOptions endgame{};
   SearchReportingOptions reporting{};
-  ExperimentalSearchOptions experimental{};
   SelectiveSearchOptionsV1 selective{};
   ProbCutOptionsV1 probcut{};
   std::uint64_t probcut_profile_semantic_fingerprint = 0;

@@ -56,7 +56,10 @@ SearchResult production_exact_endgame(board_core::Position position) {
   const std::uint8_t empties = test_support::endgame_empty_count(position);
   const SearchResult result =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
-                       SearchOptions{.exact_endgame = true, .endgame_exact_empties = empties});
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = true,
+                                         .endgame_exact_empties = empties,
+                                     }});
   REQUIRE(evaluator.calls == 0);
   return result;
 }

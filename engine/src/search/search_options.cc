@@ -317,14 +317,14 @@ bool valid_profile(const ProbCutOptionsV1& options, std::uint64_t* fingerprint) 
   return true;
 }
 
-bool valid_probcut_options(const ProbCutOptionsV1& options, bool use_legacy_search_kernel,
+bool valid_probcut_options(const ProbCutOptionsV1& options,
                            std::uint64_t* profile_fingerprint) noexcept {
-  if (!options.use_probcut || use_legacy_search_kernel || options.minimum_depth <= 0 ||
-      options.maximum_probes_per_node == 0 || !options.stop_after_first_success ||
-      !std::isfinite(options.confidence_multiplier) || options.confidence_multiplier < 0.0 ||
-      !std::isfinite(options.minimum_confidence) || options.minimum_confidence < 0.0 ||
-      options.minimum_margin < 0 || options.maximum_margin < options.minimum_margin ||
-      options.maximum_margin <= 0 || !std::isfinite(options.maximum_shallow_overhead_ratio) ||
+  if (!options.use_probcut || options.minimum_depth <= 0 || options.maximum_probes_per_node == 0 ||
+      !options.stop_after_first_success || !std::isfinite(options.confidence_multiplier) ||
+      options.confidence_multiplier < 0.0 || !std::isfinite(options.minimum_confidence) ||
+      options.minimum_confidence < 0.0 || options.minimum_margin < 0 ||
+      options.maximum_margin < options.minimum_margin || options.maximum_margin <= 0 ||
+      !std::isfinite(options.maximum_shallow_overhead_ratio) ||
       options.maximum_shallow_overhead_ratio < 0.0 || options.enabled_phase_mask == 0 ||
       (options.enabled_phase_mask & ~kAllProbCutPhasesMask) != 0 || !options.non_pv_only ||
       !options.beta_only || !options.disable_near_exact ||
@@ -390,10 +390,9 @@ bool probcut_configuration_is_reviewed(const ProbCutCalibrationProfileV1& profil
                                                  maximum_probes_per_node);
 }
 
-ResolvedProbCutConfigurationV1
-resolve_probcut_configuration(ProbCutOptionsV1 options, bool use_legacy_search_kernel) noexcept {
+ResolvedProbCutConfigurationV1 resolve_probcut_configuration(ProbCutOptionsV1 options) noexcept {
   std::uint64_t profile_fingerprint = 0;
-  if (!valid_probcut_options(options, use_legacy_search_kernel, &profile_fingerprint)) {
+  if (!valid_probcut_options(options, &profile_fingerprint)) {
     return {};
   }
   return ResolvedProbCutConfigurationV1{
@@ -403,59 +402,17 @@ resolve_probcut_configuration(ProbCutOptionsV1 options, bool use_legacy_search_k
 }
 
 internal::ResolvedSearchOptions internal::normalize_search_options(SearchOptions options) noexcept {
-  // Compatibility rule for the staged migration: legacy flat fields remain
-  // sticky, while typed config can express the same behavior for new callers.
   internal::ResolvedSearchOptions resolved{
       .mode = options.mode,
-      .midgame =
-          MidgameSearchOptions{
-              .use_pvs = options.use_pvs || options.midgame.use_pvs,
-              .use_aspiration = options.use_aspiration || options.midgame.use_aspiration,
-              .use_iid = options.use_iid || options.midgame.use_iid,
-              .use_midgame_tt = options.use_midgame_tt || options.midgame.use_midgame_tt,
-              .pass_consumes_depth =
-                  options.pass_consumes_depth && options.midgame.pass_consumes_depth,
-          },
-      .ordering =
-          MoveOrderingOptions{
-              .use_tt_best_move_ordering =
-                  options.use_tt_best_move_ordering || options.ordering.use_tt_best_move_ordering,
-              .use_history = options.use_history || options.ordering.use_history,
-              .use_killers = options.use_killers || options.ordering.use_killers,
-              .use_endgame_parity_ordering = options.use_endgame_parity_ordering &&
-                                             options.ordering.use_endgame_parity_ordering,
-          },
-      .endgame =
-          EndgameSearchOptions{
-              .exact_endgame = options.exact_endgame || options.endgame.exact_endgame,
-              .use_endgame_tt = options.use_endgame_tt || options.endgame.use_endgame_tt,
-              .endgame_exact_empties = options.endgame_exact_empties != 0
-                                           ? options.endgame_exact_empties
-                                           : options.endgame.endgame_exact_empties,
-              .endgame_wld_empties = options.endgame_wld_empties != 0
-                                         ? options.endgame_wld_empties
-                                         : options.endgame.endgame_wld_empties,
-          },
-      .reporting =
-          SearchReportingOptions{
-              .multi_pv = options.multi_pv != 0 ? options.multi_pv : options.reporting.multi_pv,
-          },
-      .experimental =
-          ExperimentalSearchOptions{
-              .probcut = options.probcut || options.experimental.probcut,
-              .use_pv_table = options.use_pv_table || options.experimental.use_pv_table,
-              .use_parallel = options.use_parallel || options.experimental.use_parallel,
-              .selectivity_level = options.selectivity_level != 0
-                                       ? options.selectivity_level
-                                       : options.experimental.selectivity_level,
-              .use_legacy_search_kernel =
-                  options.use_legacy_search_kernel || options.experimental.use_legacy_search_kernel,
-          },
+      .midgame = options.midgame,
+      .ordering = options.ordering,
+      .endgame = options.endgame,
+      .reporting = options.reporting,
       .selective = options.selective,
   };
 
-  const ResolvedProbCutConfigurationV1 probcut_resolution = resolve_probcut_configuration(
-      options.probcut_options, resolved.experimental.use_legacy_search_kernel);
+  const ResolvedProbCutConfigurationV1 probcut_resolution =
+      resolve_probcut_configuration(options.probcut_options);
   resolved.probcut = probcut_resolution.options;
   resolved.probcut_profile_semantic_fingerprint = probcut_resolution.semantic_fingerprint;
   return resolved;

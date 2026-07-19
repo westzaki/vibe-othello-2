@@ -101,8 +101,6 @@ void require_search_result_invariants(board_core::Position position, const Searc
 
 SearchOptions exact_root_options(std::uint8_t threshold) noexcept {
   return SearchOptions{
-      .exact_endgame = true,
-      .endgame_exact_empties = threshold,
       .endgame =
           EndgameSearchOptions{
               .exact_endgame = true,
@@ -113,7 +111,6 @@ SearchOptions exact_root_options(std::uint8_t threshold) noexcept {
 
 SearchOptions wld_options() noexcept {
   return SearchOptions{
-      .endgame_wld_empties = 8,
       .endgame =
           EndgameSearchOptions{
               .endgame_wld_empties = 8,
@@ -134,7 +131,6 @@ TEST_CASE("midgame root publication satisfies SearchResult invariants",
 
   DiscDifferenceEvaluator iterative_evaluator;
   SearchOptions options{
-      .use_aspiration = true,
       .midgame = MidgameSearchOptions{.use_aspiration = true},
   };
   const SearchResult iterative =

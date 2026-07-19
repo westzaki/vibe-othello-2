@@ -395,7 +395,6 @@ vibe_othello::search::SearchOptions smoke_search_options() noexcept {
   options.endgame.endgame_exact_empties = 0;
   options.endgame.endgame_wld_empties = 0;
   options.reporting.multi_pv = 0;
-  options.experimental.use_parallel = false;
   return options;
 }
 

@@ -41,7 +41,7 @@ shared with benchmarks or golden generation scripts lives in `../fixtures/`.
 | `search/null_window_search_test.cc` | Internal null-window fail-high and fail-low bound semantics. |
 | `search/pvs_test.cc` | PVS correctness neutrality against alpha-beta when enabled. |
 | `search/search_limits_test.cc` | Cooperative node, time, infinite, and external-stop limit behavior. |
-| `search/search_options_test.cc` | Search option normalization defaults, legacy/typed equivalence, and conflict compatibility rules. |
+| `search/search_options_test.cc` | Typed search option defaults, resolution, and ProbCut validation rules. |
 | `search/search_result_invariant_test.cc` | Cross-cutting `SearchResult` publication invariants for midgame, endgame, stopped, terminal, and forced-pass roots. |
 | `search/transposition_table_test.cc` | Midgame, exact-score endgame, and WLD endgame transposition-table storage, probing, cutoff, and kind-separation semantics. |
 | `search/endgame_test.cc` | Root exact/WLD endgame integration, pass handling, flags, legality, and PV replay. |

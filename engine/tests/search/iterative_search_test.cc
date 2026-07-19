@@ -206,8 +206,13 @@ NodeCount fixed_depth_node_sum(board_core::Position position, Depth max_depth) {
 }
 
 SearchOptions enable_aspiration(SearchOptions options) noexcept {
-  options.use_aspiration = true;
+  options.midgame.use_aspiration = true;
   return options;
+}
+
+SearchOptions make_options(MidgameSearchOptions midgame = {},
+                           MoveOrderingOptions ordering = {}) noexcept {
+  return SearchOptions{.midgame = midgame, .ordering = ordering};
 }
 
 void require_aspiration_matches_without(board_core::Position position, Depth depth,
@@ -316,9 +321,9 @@ TEST_CASE("iterative aspiration uses full-window search at depth one",
   ConstantEvaluator aspiration_evaluator{100};
   ConstantEvaluator baseline_evaluator{100};
 
-  const SearchResult with_aspiration =
-      search_iterative(board_core::initial_position(), aspiration_evaluator,
-                       SearchLimits{.max_depth = Depth{1}}, SearchOptions{.use_aspiration = true});
+  const SearchResult with_aspiration = search_iterative(
+      board_core::initial_position(), aspiration_evaluator, SearchLimits{.max_depth = Depth{1}},
+      make_options(MidgameSearchOptions{.use_aspiration = true}));
   const SearchResult without_aspiration = search_iterative(
       board_core::initial_position(), baseline_evaluator, SearchLimits{.max_depth = Depth{1}});
 
@@ -338,10 +343,11 @@ TEST_CASE("iterative aspiration preserves deterministic search results",
   };
   const std::array<SearchOptions, 5> option_cases{
       SearchOptions{},
-      SearchOptions{.use_pvs = true},
-      SearchOptions{.use_midgame_tt = true},
-      SearchOptions{.use_tt_best_move_ordering = true},
-      SearchOptions{.use_pvs = true, .use_midgame_tt = true, .use_tt_best_move_ordering = true},
+      make_options(MidgameSearchOptions{.use_pvs = true}),
+      make_options(MidgameSearchOptions{.use_midgame_tt = true}),
+      make_options({}, MoveOrderingOptions{.use_tt_best_move_ordering = true}),
+      make_options(MidgameSearchOptions{.use_pvs = true, .use_midgame_tt = true},
+                   MoveOrderingOptions{.use_tt_best_move_ordering = true}),
   };
 
   for (const board_core::Position position : positions) {
@@ -356,12 +362,12 @@ TEST_CASE("iterative aspiration counts fail-low and fail-high searches",
   ConstantEvaluator fail_high_evaluator{100};
   ConstantEvaluator fail_low_evaluator{-100};
 
-  const SearchResult fail_high =
-      search_iterative(board_core::initial_position(), fail_high_evaluator,
-                       SearchLimits{.max_depth = Depth{2}}, SearchOptions{.use_aspiration = true});
-  const SearchResult fail_low =
-      search_iterative(board_core::initial_position(), fail_low_evaluator,
-                       SearchLimits{.max_depth = Depth{2}}, SearchOptions{.use_aspiration = true});
+  const SearchResult fail_high = search_iterative(
+      board_core::initial_position(), fail_high_evaluator, SearchLimits{.max_depth = Depth{2}},
+      make_options(MidgameSearchOptions{.use_aspiration = true}));
+  const SearchResult fail_low = search_iterative(
+      board_core::initial_position(), fail_low_evaluator, SearchLimits{.max_depth = Depth{2}},
+      make_options(MidgameSearchOptions{.use_aspiration = true}));
 
   require_basic_stats_invariants(fail_high);
   require_basic_stats_invariants(fail_low);
@@ -396,7 +402,7 @@ TEST_CASE("iterative TT best-move ordering preserves fixed-depth result", "[sear
 
   const SearchResult actual =
       search_iterative(position, tt_evaluator, SearchLimits{.max_depth = Depth{4}},
-                       SearchOptions{.use_tt_best_move_ordering = true});
+                       make_options({}, MoveOrderingOptions{.use_tt_best_move_ordering = true}));
   const SearchResult expected =
       search_iterative(position, no_tt_evaluator, SearchLimits{.max_depth = Depth{4}});
 
@@ -426,9 +432,9 @@ TEST_CASE("iterative TT ordering is correctness-neutral across depths", "[search
       DiscDifferenceEvaluator tt_evaluator;
       DiscDifferenceEvaluator no_tt_evaluator;
 
-      const SearchResult with_tt =
-          search_iterative(position, tt_evaluator, SearchLimits{.max_depth = depth},
-                           SearchOptions{.use_tt_best_move_ordering = true});
+      const SearchResult with_tt = search_iterative(
+          position, tt_evaluator, SearchLimits{.max_depth = depth},
+          make_options({}, MoveOrderingOptions{.use_tt_best_move_ordering = true}));
       const SearchResult without_tt =
           search_iterative(position, no_tt_evaluator, SearchLimits{.max_depth = depth});
 
@@ -444,9 +450,9 @@ TEST_CASE("iterative midgame TT cutoffs preserve search decisions", "[search][it
   DiscDifferenceEvaluator tt_evaluator;
   DiscDifferenceEvaluator no_tt_evaluator;
 
-  const SearchResult with_tt =
-      search_iterative(board_core::initial_position(), tt_evaluator,
-                       SearchLimits{.max_depth = Depth{5}}, SearchOptions{.use_midgame_tt = true});
+  const SearchResult with_tt = search_iterative(
+      board_core::initial_position(), tt_evaluator, SearchLimits{.max_depth = Depth{5}},
+      make_options(MidgameSearchOptions{.use_midgame_tt = true}));
   const SearchResult without_tt = search_iterative(board_core::initial_position(), no_tt_evaluator,
                                                    SearchLimits{.max_depth = Depth{5}});
 
@@ -475,13 +481,14 @@ TEST_CASE("iterative TT ordering and cutoff options are independent", "[search][
       search_iterative(position, baseline_evaluator, SearchLimits{.max_depth = Depth{5}});
   const SearchResult ordering_only =
       search_iterative(position, ordering_evaluator, SearchLimits{.max_depth = Depth{5}},
-                       SearchOptions{.use_tt_best_move_ordering = true});
+                       make_options({}, MoveOrderingOptions{.use_tt_best_move_ordering = true}));
   const SearchResult cutoff_only =
       search_iterative(position, cutoff_evaluator, SearchLimits{.max_depth = Depth{5}},
-                       SearchOptions{.use_midgame_tt = true});
+                       make_options(MidgameSearchOptions{.use_midgame_tt = true}));
   const SearchResult ordering_and_cutoff =
       search_iterative(position, both_evaluator, SearchLimits{.max_depth = Depth{5}},
-                       SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true});
+                       make_options(MidgameSearchOptions{.use_midgame_tt = true},
+                                    MoveOrderingOptions{.use_tt_best_move_ordering = true}));
 
   require_same_decision(ordering_only, baseline);
   require_same_decision(cutoff_only, baseline);
@@ -527,9 +534,10 @@ TEST_CASE("iterative TT ordering handles depth zero pass and terminal roots",
       ConstantEvaluator tt_evaluator{5};
       ConstantEvaluator no_tt_evaluator{5};
 
-      const SearchResult with_tt = search_iterative(
-          position, tt_evaluator, SearchLimits{.max_depth = depth},
-          SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true});
+      const SearchResult with_tt =
+          search_iterative(position, tt_evaluator, SearchLimits{.max_depth = depth},
+                           make_options(MidgameSearchOptions{.use_midgame_tt = true},
+                                        MoveOrderingOptions{.use_tt_best_move_ordering = true}));
       const SearchResult without_tt =
           search_iterative(position, no_tt_evaluator, SearchLimits{.max_depth = depth});
 
@@ -560,10 +568,11 @@ TEST_CASE("iterative killer and history ordering preserves search decisions",
       position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}),
   };
   const std::array<SearchOptions, 4> option_cases{
-      SearchOptions{.use_history = true},
-      SearchOptions{.use_killers = true},
-      SearchOptions{.use_history = true, .use_killers = true},
-      SearchOptions{.use_pvs = true, .use_history = true, .use_killers = true},
+      make_options({}, MoveOrderingOptions{.use_history = true}),
+      make_options({}, MoveOrderingOptions{.use_killers = true}),
+      make_options({}, MoveOrderingOptions{.use_history = true, .use_killers = true}),
+      make_options(MidgameSearchOptions{.use_pvs = true},
+                   MoveOrderingOptions{.use_history = true, .use_killers = true}),
   };
 
   for (const board_core::Position position : positions) {
@@ -575,7 +584,9 @@ TEST_CASE("iterative killer and history ordering preserves search decisions",
           position, ordering_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
       const SearchResult without_ordering =
           search_iterative(position, baseline_evaluator, SearchLimits{.max_depth = Depth{5}},
-                           SearchOptions{.use_pvs = options.use_pvs});
+                           make_options(MidgameSearchOptions{
+                               .use_pvs = options.midgame.use_pvs,
+                           }));
 
       require_same_decision(with_ordering, without_ordering);
       require_basic_stats_invariants(with_ordering);
@@ -590,7 +601,9 @@ TEST_CASE("iterative killer and history ordering is deterministic", "[search][it
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
   DiscDifferenceEvaluator first_evaluator;
   DiscDifferenceEvaluator second_evaluator;
-  const SearchOptions options{.use_pvs = true, .use_history = true, .use_killers = true};
+  const SearchOptions options =
+      make_options(MidgameSearchOptions{.use_pvs = true},
+                   MoveOrderingOptions{.use_history = true, .use_killers = true});
 
   const SearchResult first =
       search_iterative(position, first_evaluator, SearchLimits{.max_depth = Depth{5}}, options);
@@ -607,18 +620,21 @@ TEST_CASE("iterative IID preserves search decisions across midgame TT modes",
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
   const std::array<SearchOptions, 8> option_cases{
       SearchOptions{},
-      SearchOptions{.use_midgame_tt = true},
-      SearchOptions{.use_tt_best_move_ordering = true},
-      SearchOptions{.use_midgame_tt = true, .use_tt_best_move_ordering = true},
-      SearchOptions{.use_pvs = true},
-      SearchOptions{.use_pvs = true, .use_midgame_tt = true},
-      SearchOptions{.use_pvs = true, .use_tt_best_move_ordering = true},
-      SearchOptions{.use_pvs = true, .use_midgame_tt = true, .use_tt_best_move_ordering = true},
+      make_options(MidgameSearchOptions{.use_midgame_tt = true}),
+      make_options({}, MoveOrderingOptions{.use_tt_best_move_ordering = true}),
+      make_options(MidgameSearchOptions{.use_midgame_tt = true},
+                   MoveOrderingOptions{.use_tt_best_move_ordering = true}),
+      make_options(MidgameSearchOptions{.use_pvs = true}),
+      make_options(MidgameSearchOptions{.use_pvs = true, .use_midgame_tt = true}),
+      make_options(MidgameSearchOptions{.use_pvs = true},
+                   MoveOrderingOptions{.use_tt_best_move_ordering = true}),
+      make_options(MidgameSearchOptions{.use_pvs = true, .use_midgame_tt = true},
+                   MoveOrderingOptions{.use_tt_best_move_ordering = true}),
   };
 
   for (const SearchOptions baseline_options : option_cases) {
     SearchOptions iid_options = baseline_options;
-    iid_options.use_iid = true;
+    iid_options.midgame.use_iid = true;
 
     DiscDifferenceEvaluator baseline_evaluator;
     DiscDifferenceEvaluator iid_evaluator;
@@ -641,8 +657,9 @@ TEST_CASE("iterative IID starts shallow searches when no TT best move is availab
   const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
   DiscDifferenceEvaluator evaluator;
 
-  const SearchResult result = search_iterative(
-      position, evaluator, SearchLimits{.max_depth = Depth{5}}, SearchOptions{.use_iid = true});
+  const SearchResult result =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{5}},
+                       make_options(MidgameSearchOptions{.use_iid = true}));
 
   require_basic_stats_invariants(result);
   require_replayable_pv(position, result.pv);
@@ -652,14 +669,17 @@ TEST_CASE("iterative IID starts shallow searches when no TT best move is availab
 
 TEST_CASE("iterative IID is deterministic", "[search][iterative][iid]") {
   const board_core::Position position = position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1});
-  const SearchOptions options{
-      .use_pvs = true,
-      .use_iid = true,
-      .use_history = true,
-      .use_killers = true,
-      .use_midgame_tt = true,
-      .use_tt_best_move_ordering = true,
-  };
+  const SearchOptions options = make_options(
+      MidgameSearchOptions{
+          .use_pvs = true,
+          .use_iid = true,
+          .use_midgame_tt = true,
+      },
+      MoveOrderingOptions{
+          .use_tt_best_move_ordering = true,
+          .use_history = true,
+          .use_killers = true,
+      });
   DiscDifferenceEvaluator first_evaluator;
   DiscDifferenceEvaluator second_evaluator;
 
@@ -678,105 +698,11 @@ TEST_CASE("iterative IID respects max node cancellation", "[search][iterative][i
 
   const SearchResult result = search_iterative(board_core::initial_position(), evaluator,
                                                SearchLimits{.max_depth = Depth{5}, .max_nodes = 8},
-                                               SearchOptions{.use_iid = true});
+                                               make_options(MidgameSearchOptions{.use_iid = true}));
 
   require_basic_stats_invariants(result);
   REQUIRE(result.stopped);
   REQUIRE(result.nodes <= 8);
-}
-
-TEST_CASE("iterative safely ignores unimplemented search options", "[search][iterative]") {
-  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
-  DiscDifferenceEvaluator actual_evaluator;
-  DiscDifferenceEvaluator expected_evaluator;
-
-  const SearchOptions options{
-      .use_endgame_tt = true,
-      .exact_endgame = true,
-      .probcut = true,
-      .use_pv_table = true,
-      .use_parallel = true,
-      .multi_pv = 3,
-      .endgame_exact_empties = 8,
-      .endgame_wld_empties = 10,
-      .selectivity_level = 2,
-  };
-
-  const SearchResult actual =
-      search_iterative(position, actual_evaluator, SearchLimits{.max_depth = Depth{3}}, options);
-  const SearchResult expected =
-      search_iterative(position, expected_evaluator, SearchLimits{.max_depth = Depth{3}});
-
-  require_same_final_result(actual, expected);
-  require_basic_stats_invariants(actual);
-  require_root_move_set_matches(actual, expected);
-  REQUIRE(actual.stats == expected.stats);
-}
-
-TEST_CASE("iterative typed midgame config matches legacy flat options", "[search][iterative]") {
-  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
-  DiscDifferenceEvaluator legacy_evaluator;
-  DiscDifferenceEvaluator typed_evaluator;
-
-  const SearchOptions legacy_options{
-      .use_pvs = true,
-      .use_iid = true,
-      .use_history = true,
-      .use_killers = true,
-      .use_midgame_tt = true,
-      .use_tt_best_move_ordering = true,
-  };
-  const SearchOptions typed_options{
-      .midgame =
-          MidgameSearchOptions{
-              .use_pvs = true,
-              .use_iid = true,
-              .use_midgame_tt = true,
-          },
-      .ordering =
-          MoveOrderingOptions{
-              .use_tt_best_move_ordering = true,
-              .use_history = true,
-              .use_killers = true,
-          },
-  };
-
-  const SearchResult legacy = search_iterative(position, legacy_evaluator,
-                                               SearchLimits{.max_depth = Depth{5}}, legacy_options);
-  const SearchResult typed = search_iterative(position, typed_evaluator,
-                                              SearchLimits{.max_depth = Depth{5}}, typed_options);
-
-  require_same_final_result(typed, legacy);
-  require_basic_stats_invariants(typed);
-  require_root_move_set_matches(typed, legacy);
-  REQUIRE(typed.stats == legacy.stats);
-}
-
-TEST_CASE("iterative typed safe no-op options remain ignored", "[search][iterative]") {
-  const board_core::Position position = position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1});
-  DiscDifferenceEvaluator actual_evaluator;
-  DiscDifferenceEvaluator expected_evaluator;
-
-  const SearchOptions options{
-      .reporting = SearchReportingOptions{.multi_pv = 3},
-      .experimental =
-          ExperimentalSearchOptions{
-              .probcut = true,
-              .use_pv_table = true,
-              .use_parallel = true,
-              .selectivity_level = 2,
-          },
-  };
-
-  const SearchResult actual =
-      search_iterative(position, actual_evaluator, SearchLimits{.max_depth = Depth{3}}, options);
-  const SearchResult expected =
-      search_iterative(position, expected_evaluator, SearchLimits{.max_depth = Depth{3}});
-
-  require_same_final_result(actual, expected);
-  require_basic_stats_invariants(actual);
-  require_root_move_set_matches(actual, expected);
-  REQUIRE(actual.stats == expected.stats);
 }
 
 TEST_CASE("iterative handles root pass like fixed-depth search", "[search][iterative]") {

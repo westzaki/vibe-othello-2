@@ -25,9 +25,7 @@ std::uint8_t empty_count(board_core::Position position) noexcept {
 
 SearchOptions exact_all_root_move_options() noexcept {
   SearchOptions options;
-  options.use_endgame_tt = true;
   options.endgame.use_endgame_tt = true;
-  options.multi_pv = 0;
   options.reporting.multi_pv = 0;
   return options;
 }

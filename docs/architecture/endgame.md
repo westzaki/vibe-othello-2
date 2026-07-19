@@ -211,9 +211,6 @@ explicitly requests `SearchMode::win_loss_draw` and the root empty count is less
 than or equal to `SearchOptions::endgame.endgame_wld_empties`; it returns only
 `-1`, `0`, or `1`.
 
-Legacy flat `SearchOptions` fields are still normalized into the typed endgame
-config during the compatibility period.
-
 Recommended initial thresholds:
 
 * `endgame_exact_empties = 10`
