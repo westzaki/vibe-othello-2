@@ -93,7 +93,7 @@ private:
   [[nodiscard]] search::Score finish_score(std::int64_t scaled_score) const noexcept;
   [[nodiscard]] search::Score flat_weight(std::size_t offset) const noexcept;
   [[nodiscard]] std::size_t active_instance_count(std::uint8_t occupied_count) const noexcept;
-  [[nodiscard]] bool has_later_instance_expansion(std::uint8_t occupied_count) const noexcept;
+  [[nodiscard]] bool has_later_active_instance_change(std::uint8_t occupied_count) const noexcept;
 
   std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phase_by_disc_count_{};
   std::vector<std::uint32_t> active_instance_counts_;

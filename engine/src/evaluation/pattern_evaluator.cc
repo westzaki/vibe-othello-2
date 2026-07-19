@@ -584,12 +584,13 @@ std::size_t PatternEvaluator::active_instance_count(std::uint8_t occupied_count)
   return active_instance_counts_[phase_by_disc_count_[occupied_count]];
 }
 
-bool PatternEvaluator::has_later_instance_expansion(std::uint8_t occupied_count) const noexcept {
+bool PatternEvaluator::has_later_active_instance_change(
+    std::uint8_t occupied_count) const noexcept {
   std::size_t previous_count = active_instance_count(occupied_count);
   for (std::size_t discs = static_cast<std::size_t>(occupied_count) + 1;
        discs < phase_by_disc_count_.size(); ++discs) {
     const std::size_t current_count = active_instance_counts_[phase_by_disc_count_[discs]];
-    if (current_count > previous_count) {
+    if (current_count != previous_count) {
       return true;
     }
     previous_count = current_count;
@@ -687,7 +688,7 @@ PatternEvaluator::IncrementalState::IncrementalState(const PatternEvaluator* eva
       occupied_count_(static_cast<std::uint8_t>(std::popcount(board_core::occupied(position)))),
       side_to_move_(position.side_to_move), black_discs_(board_core::black_discs(position)),
       white_discs_(board_core::white_discs(position)),
-      maintain_absolute_discs_(evaluator->has_later_instance_expansion(occupied_count_)) {
+      maintain_absolute_discs_(evaluator->has_later_active_instance_change(occupied_count_)) {
   rebuild_indices(0, evaluator_->active_instance_count(occupied_count_));
 }
 
