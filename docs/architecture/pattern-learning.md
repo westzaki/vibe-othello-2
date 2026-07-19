@@ -191,12 +191,18 @@ Generated teacher-label, move-teacher, and child-normalized files are local-only
 intermediate outputs. They are not Elo results, self-play results, production
 strength claims, or runtime artifacts.
 
-Search move-teacher TSV v2 carries mandatory teacher provenance. A trainer must
-reject a v2 input unless `teacher_kind`, `teacher_source`,
+Search move-teacher TSV v3 carries mandatory teacher provenance and a
+`child_baseline_score_side_to_move` field for residual training. A trainer must
+reject a v3 input unless `teacher_kind`, `teacher_source`,
 `teacher_artifact_id`, `teacher_artifact_checksum`, and
-`teacher_search_config_id` are identical across the complete input file.
+`teacher_search_config_id` are identical across each input TSV. Progressive
+training passes retained shallow roots and deeper overlay roots as disjoint
+sidecars, preserving one explicit provenance per file in the trainer report.
 Per-move depth and node counts may differ and are not part of this equality
-check. Trainer reports preserve the accepted v2 provenance for local review.
+check.
+Ordinary teacher coverage requires declared phases `0..12`; an explicit
+phase-aware bootstrap may use reported fallback phases, but legacy implicit
+coverage remains invalid.
 
 ## Pattern Dataset Contract
 
@@ -272,7 +278,12 @@ by child board id, groups rows by `root_board_id`, excludes teacher ties from
 the ranking loss according to its explicit tie margin, and may add a small
 Huber child-value calibration loss to keep score scale usable. Its output uses
 the existing phase-bias and sparse pattern-weight schema; it does not alter the
-runtime pattern set or artifact format.
+runtime pattern set or artifact format. When an inclusive residual boundary is
+selected, `V(child)` becomes the v3 static baseline plus the learned phase bias
+and pattern term through that boundary. The baseline is constant for gradient
+calculation. Export must carry the identical
+`fallback_additive_through_phase`, otherwise training and runtime semantics do
+not match.
 
 Future pattern-set investigations such as `pattern-v3` or larger objective
 changes are not part of the current architecture contract until adopted through

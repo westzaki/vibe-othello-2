@@ -8,7 +8,7 @@ committed only after a specific promotion decision and validation summary.
 The current committed artifact is:
 
 ```text
-data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/
+data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/
 ```
 
 It is the experimental default, not a production strength claim.
@@ -41,10 +41,10 @@ Schema:
 ```json
 {
   "schema_version": 1,
-  "default_artifact_id": "pattern-v2-endgame-lite-100k-mt-v0",
+  "default_artifact_id": "pattern-v2-progressive-search-d5-fast6-p5-v1",
   "status": "experimental-default",
-  "artifact_manifest": "artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json",
-  "artifact_provenance": "artifacts/pattern-v2-endgame-lite-100k-mt-v0/provenance.json",
+  "artifact_manifest": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/provenance.json",
   "reason": "...",
   "override": {
     "custom_artifact": "--eval-artifact <manifest-path>",
@@ -122,9 +122,9 @@ the hot runtime loader:
 * validation summary
 * non-claims
 
-The committed v0 artifact attributes its source to locally processed Egaroucid
+The current v1 artifact attributes its source to locally processed Egaroucid
 training data transcripts and states that it is not an official Egaroucid
-artifact.
+artifact. The previous v0 artifact remains committed as the rollback target.
 
 ## Resolution Order
 
@@ -180,7 +180,7 @@ It validates:
 
 ## Promotion
 
-To promote a future v1:
+To promote a future artifact:
 
 1. create a new artifact id and directory under `data/eval/artifacts/`
 2. copy only the final runtime `weights.bin`

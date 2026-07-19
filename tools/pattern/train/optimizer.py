@@ -22,6 +22,7 @@ from objectives import (
     PatternWeights,
     huber_loss_and_gradient,
     pairwise_logistic_loss_and_child_gradients,
+    pattern_rank_child_value,
     pattern_sgd_score,
     phase_bias_score,
     sampled_rank_pairs,
@@ -545,6 +546,7 @@ def _rank_epoch_metrics(
         pattern_weights,
         args.tie_margin,
         args.rank_temperature,
+        args.residual_baseline_through_phase,
     )
 
 
@@ -576,6 +578,7 @@ def train_pattern_rank_v0e(
         "roots_with_no_selected_pairs": 0,
     }
     updated_child_phases: set[int] = set()
+    trainable_pattern_ids = args.trainable_pattern_ids
 
     for epoch in range(1, args.epochs + 1):
         epochs_completed = epoch
@@ -593,7 +596,12 @@ def train_pattern_rank_v0e(
 
         for root_index, root in enumerate(epoch_roots, start=1):
             child_values = [
-                pattern_sgd_score(move.example, phase_bias, pattern_weights)
+                pattern_rank_child_value(
+                    move,
+                    phase_bias,
+                    pattern_weights,
+                    args.residual_baseline_through_phase,
+                )
                 for move in root.moves
             ]
             pairs, eligible_pair_count = sampled_rank_pairs(
@@ -638,17 +646,24 @@ def train_pattern_rank_v0e(
             phase_bias_gradients: dict[str, float] = {}
             pattern_gradients: dict[tuple[int, str, int], float] = {}
             for move_index, move in enumerate(root.moves):
+                if move.example.phase in frozen_phases:
+                    continue
                 value_gradient = value_gradients[move_index]
                 phase_key = str(move.example.phase)
-                phase_bias_gradients[phase_key] = phase_bias_gradients.get(phase_key, 0.0) + value_gradient
+                phase_bias_gradients[phase_key] = (
+                    phase_bias_gradients.get(phase_key, 0.0) + value_gradient
+                )
                 for feature in move.example.features:
+                    if (
+                        trainable_pattern_ids
+                        and feature.pattern_id not in trainable_pattern_ids
+                    ):
+                        continue
                     key = (move.example.phase, feature.pattern_id, feature.ternary_index)
                     pattern_gradients[key] = pattern_gradients.get(key, 0.0) + value_gradient
                     updated_feature_occurrence_count += 1
 
             for phase_key in sorted(phase_bias_gradients):
-                if int(phase_key) in frozen_phases:
-                    continue
                 gradient, clipped = _clip_gradient(phase_bias_gradients[phase_key], args.gradient_clip)
                 gradient_clip_count += int(clipped)
                 phase_bias[phase_key] -= learning_rate * gradient
@@ -727,6 +742,7 @@ def train_pattern_rank_v0e(
         "final_validation_pairwise_logistic_loss": final_metrics["by_split"]["validation"][
             "pairwise_logistic_loss"
         ],
+        "trainable_pattern_ids": sorted(trainable_pattern_ids),
     }
     return (
         stable_float(phase_bias),

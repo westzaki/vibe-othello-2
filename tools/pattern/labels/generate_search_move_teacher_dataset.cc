@@ -1,4 +1,5 @@
 #include "vibe_othello/board_core/board.h"
+#include "vibe_othello/evaluation/early_midgame_heuristic_evaluator.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/search.h"
@@ -33,19 +34,26 @@ constexpr std::string_view kNormalizedHeaderV2 =
     "record_id\tposition_id\tgame_group_id\tboard_id\tsource_occurrence_id\tsource_dataset_id\t"
     "split\tboard_a1_to_h8\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_"
     "move\toccupied_count\tphase\tplayer_disc_count\topponent_disc_count\tempty_count";
-constexpr std::string_view kMoveTeacherHeaderV2 =
+constexpr std::string_view kMoveTeacherHeaderV3 =
     "root_board_id\troot_record_id\troot_split\troot_phase\troot_empty_count\tmove\tchild_"
     "board_id\tchild_board_a1_to_h8\tchild_empty_count\tchild_phase\troot_move_score_side_to_"
-    "move\tchild_label_score_side_to_move\tis_best_move\tbest_move_tie_count\tmove_rank\tbest_"
-    "score_margin\tteacher_kind\tteacher_source\tteacher_artifact_id\tteacher_artifact_checksum\t"
-    "teacher_depth\tteacher_nodes\tteacher_search_config_id";
+    "move\tchild_label_score_side_to_move\tchild_baseline_score_side_to_move\tis_best_move\tbest_"
+    "move_tie_count\tmove_rank\tbest_score_margin\tteacher_kind\tteacher_source\tteacher_artifact_"
+    "id\tteacher_artifact_checksum\tteacher_depth\tteacher_nodes\tteacher_search_config_id";
 constexpr std::string_view kTeacherKind = "artifact_search";
-constexpr std::string_view kTeacherSource = "search-move-teacher-v1";
+constexpr std::string_view kFullCoverageTeacherSource = "search-move-teacher-v1";
+constexpr std::string_view kExplicitPhaseAwareTeacherSource =
+    "search-move-teacher-v2-explicit-phase-aware";
 constexpr std::string_view kChildLabelKind = "teacher_search_final_disc_diff";
 
 enum class SearchPreset {
   basic,
   full,
+};
+
+enum class TeacherCoveragePolicy {
+  require_all,
+  explicit_phase_aware,
 };
 
 struct Args {
@@ -59,6 +67,7 @@ struct Args {
   search::NodeCount max_nodes = 0;
   std::chrono::milliseconds max_time{0};
   SearchPreset search_preset = SearchPreset::full;
+  TeacherCoveragePolicy teacher_coverage_policy = TeacherCoveragePolicy::require_all;
   std::uint8_t exact_endgame_empties = 0;
   int min_phase = 0;
   int max_phase = 9;
@@ -98,6 +107,7 @@ struct MoveRow {
   int child_opponent_disc_count = 0;
   int root_move_score_side_to_move = 0;
   int child_label_score_side_to_move = 0;
+  int child_baseline_score_side_to_move = 0;
   bool is_best_move = false;
   int best_move_tie_count = 0;
   int move_rank = 0;
@@ -115,11 +125,36 @@ struct SearchConfig {
   std::string id;
 };
 
+class DiscDiffClampedEvaluator final : public search::Evaluator {
+public:
+  explicit DiscDiffClampedEvaluator(std::unique_ptr<search::Evaluator> evaluator)
+      : evaluator_(std::move(evaluator)) {}
+
+  search::Score evaluate(const board_core::Position& position) const noexcept override {
+    return std::clamp(evaluator_->evaluate(position),
+                      -static_cast<search::Score>(board_core::kSquareCount),
+                      static_cast<search::Score>(board_core::kSquareCount));
+  }
+
+  std::uint64_t transposition_table_revision() const noexcept override {
+    return evaluator_->transposition_table_revision();
+  }
+
+private:
+  std::unique_ptr<search::Evaluator> evaluator_;
+};
+
 struct Teacher {
   std::string artifact_id;
   std::string artifact_checksum;
   std::string pattern_set_id;
-  std::unique_ptr<evaluation::PhaseAwareEvaluator> evaluator;
+  std::string source;
+  std::string coverage_policy;
+  std::vector<std::uint8_t> trained_phases;
+  std::vector<std::uint8_t> fallback_phases;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
+  std::string score_normalization;
+  std::unique_ptr<search::Evaluator> evaluator;
 };
 
 struct Report {
@@ -516,6 +551,10 @@ std::string preset_name(SearchPreset preset) {
   return preset == SearchPreset::basic ? "basic" : "full";
 }
 
+std::string_view coverage_policy_name(TeacherCoveragePolicy policy) {
+  return policy == TeacherCoveragePolicy::require_all ? "require-all" : "explicit-phase-aware";
+}
+
 SearchConfig make_search_config(const Args& args) {
   const bool full = args.search_preset == SearchPreset::full;
   SearchConfig config{
@@ -561,7 +600,8 @@ SearchConfig make_search_config(const Args& args) {
             << config.limits.max_nodes << '\n'
             << config.limits.max_time.count() << '\n'
             << static_cast<int>(config.exact_endgame_empties) << '\n'
-            << full;
+            << full << '\n'
+            << coverage_policy_name(args.teacher_coverage_policy);
   config.id =
       "fnv1a64:" + checksum_string(fnv1a64_update(14695981039346656037ull, canonical.str()));
   return config;
@@ -576,24 +616,63 @@ std::optional<Teacher> load_teacher(const Args& args) {
   }
   try {
     evaluation::LoadedPatternArtifact artifact = std::move(*result.artifact);
-    if (!artifact.trained_phases.has_value() || artifact.trained_phases->size() != 13) {
-      std::cerr << "teacher artifact must explicitly cover every phase 0..12; phase-aware "
-                   "fallback is not a teacher evaluator\n";
+    if (!artifact.trained_phases.has_value()) {
+      std::cerr << "teacher artifact must report trained_phases; legacy implicit coverage "
+                   "cannot be used for teacher generation\n";
       return std::nullopt;
     }
-    for (std::size_t index = 0; index < artifact.trained_phases->size(); ++index) {
-      if ((*artifact.trained_phases)[index] != index) {
-        std::cerr << "teacher artifact trained_phases must be exactly [0, ..., 12]\n";
+    if (args.teacher_coverage_policy == TeacherCoveragePolicy::require_all) {
+      if (artifact.trained_phases->size() != 13) {
+        std::cerr << "teacher artifact must explicitly cover every phase 0..12; use "
+                     "--teacher-coverage-policy explicit-phase-aware only when fallback "
+                     "teaching is an intentional, provenance-reviewed bootstrap\n";
         return std::nullopt;
       }
+      for (std::size_t index = 0; index < artifact.trained_phases->size(); ++index) {
+        if ((*artifact.trained_phases)[index] != index) {
+          std::cerr << "teacher artifact trained_phases must be exactly [0, ..., 12]\n";
+          return std::nullopt;
+        }
+      }
+    }
+    std::vector<std::uint8_t> fallback_phases;
+    for (int phase = 0; phase < 13; ++phase) {
+      if (std::find(artifact.trained_phases->begin(), artifact.trained_phases->end(),
+                    static_cast<std::uint8_t>(phase)) == artifact.trained_phases->end()) {
+        fallback_phases.push_back(static_cast<std::uint8_t>(phase));
+      }
+    }
+    if (args.teacher_coverage_policy == TeacherCoveragePolicy::require_all &&
+        !fallback_phases.empty()) {
+      std::cerr << "teacher artifact trained_phases must be exactly [0, ..., 12]\n";
+      return std::nullopt;
+    }
+    std::vector<std::uint8_t> trained_phases = *artifact.trained_phases;
+    const std::optional<std::uint8_t> fallback_additive_through_phase =
+        artifact.fallback_additive_through_phase;
+    std::unique_ptr<search::Evaluator> evaluator =
+        std::make_unique<evaluation::PhaseAwareEvaluator>(
+            std::move(artifact.weights), std::move(artifact.feature_set),
+            std::move(artifact.trained_phases), fallback_additive_through_phase);
+    std::string score_normalization = "artifact-disc-diff";
+    if (args.teacher_coverage_policy == TeacherCoveragePolicy::explicit_phase_aware ||
+        fallback_additive_through_phase.has_value()) {
+      evaluator = std::make_unique<DiscDiffClampedEvaluator>(std::move(evaluator));
+      score_normalization = "clamp-phase-aware-to-disc-diff-v1";
     }
     Teacher teacher{
         .artifact_id = artifact.artifact_id,
         .artifact_checksum = artifact.weights_checksum,
         .pattern_set_id = artifact.pattern_set_id,
-        .evaluator = std::make_unique<evaluation::PhaseAwareEvaluator>(
-            std::move(artifact.weights), std::move(artifact.feature_set),
-            std::move(artifact.trained_phases)),
+        .source = args.teacher_coverage_policy == TeacherCoveragePolicy::require_all
+                      ? std::string{kFullCoverageTeacherSource}
+                      : std::string{kExplicitPhaseAwareTeacherSource},
+        .coverage_policy = std::string{coverage_policy_name(args.teacher_coverage_policy)},
+        .trained_phases = trained_phases,
+        .fallback_phases = std::move(fallback_phases),
+        .fallback_additive_through_phase = fallback_additive_through_phase,
+        .score_normalization = std::move(score_normalization),
+        .evaluator = std::move(evaluator),
     };
     return teacher;
   } catch (const std::exception& error) {
@@ -660,6 +739,8 @@ std::optional<MoveRow> evaluate_child(const RootRow& root, board_core::Position 
   const int opponent_count = std::popcount(position.opponent);
   const int occupied_count = player_count + opponent_count;
   const int empty_count = board_core::kSquareCount - occupied_count;
+  const evaluation::EarlyMidgameHeuristicEvaluator baseline_evaluator;
+  const int child_baseline_score = baseline_evaluator.evaluate(position);
   const std::string move_text = move_to_string(move);
   const std::string child_board = relative_board_from_position(position);
   return MoveRow{
@@ -678,6 +759,7 @@ std::optional<MoveRow> evaluate_child(const RootRow& root, board_core::Position 
       .child_opponent_disc_count = opponent_count,
       .root_move_score_side_to_move = -result.score,
       .child_label_score_side_to_move = result.score,
+      .child_baseline_score_side_to_move = child_baseline_score,
       .teacher_depth = static_cast<int>(result.completed_depth),
       .teacher_nodes = result.nodes,
       .root_game_group_id = root.game_group_id,
@@ -717,19 +799,19 @@ std::string move_teacher_line(const MoveRow& row, const Teacher& teacher,
          << row.root_phase << '\t' << row.root_empty_count << '\t' << row.move << '\t'
          << row.child_board_id << '\t' << row.child_board << '\t' << row.child_empty_count << '\t'
          << row.child_phase << '\t' << row.root_move_score_side_to_move << '\t'
-         << row.child_label_score_side_to_move << '\t' << (row.is_best_move ? '1' : '0') << '\t'
-         << row.best_move_tie_count << '\t' << row.move_rank << '\t' << row.best_score_margin
-         << '\t' << kTeacherKind << '\t' << kTeacherSource << '\t' << teacher.artifact_id << '\t'
-         << teacher.artifact_checksum << '\t' << row.teacher_depth << '\t' << row.teacher_nodes
-         << '\t' << config.id;
+         << row.child_label_score_side_to_move << '\t' << row.child_baseline_score_side_to_move
+         << '\t' << (row.is_best_move ? '1' : '0') << '\t' << row.best_move_tie_count << '\t'
+         << row.move_rank << '\t' << row.best_score_margin << '\t' << kTeacherKind << '\t'
+         << teacher.source << '\t' << teacher.artifact_id << '\t' << teacher.artifact_checksum
+         << '\t' << row.teacher_depth << '\t' << row.teacher_nodes << '\t' << config.id;
   return output.str();
 }
 
-std::string child_normalized_line(const MoveRow& row) {
+std::string child_normalized_line(const MoveRow& row, const Teacher& teacher) {
   std::ostringstream output;
   output << row.child_board_id << '\t' << row.child_board_id << '\t' << row.root_game_group_id
          << '\t' << row.child_board_id << '\t' << row.child_board_id << ":source\t"
-         << kTeacherSource << '\t' << row.root_split << '\t' << row.child_board << '\t'
+         << teacher.source << '\t' << row.root_split << '\t' << row.child_board << '\t'
          << kChildLabelKind << "\tdisc\tside_to_move\t" << row.child_label_score_side_to_move
          << '\t' << row.child_occupied_count << '\t' << row.child_phase << '\t'
          << row.child_player_disc_count << '\t' << row.child_opponent_disc_count << '\t'
@@ -816,7 +898,7 @@ bool write_outputs(const Args& args, const std::vector<MoveRow>& rows, const Tea
     std::cerr << "cannot open teacher output TSVs\n";
     return false;
   }
-  move_output << kMoveTeacherHeaderV2 << '\n';
+  move_output << kMoveTeacherHeaderV3 << '\n';
   child_output << kNormalizedHeaderV2 << '\n';
   for (const MoveRow& row : rows) {
     const std::string move_line = move_teacher_line(row, teacher, config);
@@ -824,7 +906,7 @@ bool write_outputs(const Args& args, const std::vector<MoveRow>& rows, const Tea
     mix_output_checksum(move_line, report);
   }
   for (const MoveRow* row : child_rows) {
-    const std::string child_line = child_normalized_line(*row);
+    const std::string child_line = child_normalized_line(*row, teacher);
     child_output << child_line << '\n';
     mix_output_checksum(child_line, report);
   }
@@ -839,10 +921,11 @@ bool write_report(const Args& args, const Teacher* teacher, const SearchConfig* 
     return false;
   }
   output << "{\n";
-  output << "  \"schema_version\": 1,\n";
-  output << "  \"move_teacher_schema\": \"move-teacher-tsv-v2\",\n";
+  output << "  \"schema_version\": 2,\n";
+  output << "  \"move_teacher_schema\": \"move-teacher-tsv-v3\",\n";
   output << "  \"teacher_kind\": \"" << kTeacherKind << "\",\n";
-  output << "  \"teacher_source\": \"" << kTeacherSource << "\",\n";
+  output << "  \"teacher_source\": \"" << (teacher == nullptr ? "" : json_escape(teacher->source))
+         << "\",\n";
   output << "  \"normalized_input_path\": \"" << json_escape(report_path(args.normalized_tsv_path))
          << "\",\n";
   output << "  \"phase_range\": [" << args.min_phase << ", " << args.max_phase << "],\n";
@@ -872,6 +955,33 @@ bool write_report(const Args& args, const Teacher* teacher, const SearchConfig* 
     output << "  \"teacher_artifact_checksum\": \"" << json_escape(teacher->artifact_checksum)
            << "\",\n";
     output << "  \"teacher_pattern_set_id\": \"" << json_escape(teacher->pattern_set_id) << "\",\n";
+    output << "  \"teacher_coverage_policy\": \"" << json_escape(teacher->coverage_policy)
+           << "\",\n";
+    output << "  \"teacher_score_normalization\": \"" << json_escape(teacher->score_normalization)
+           << "\",\n";
+    output << "  \"teacher_trained_phases\": [";
+    for (std::size_t index = 0; index < teacher->trained_phases.size(); ++index) {
+      if (index != 0) {
+        output << ", ";
+      }
+      output << static_cast<int>(teacher->trained_phases[index]);
+    }
+    output << "],\n";
+    output << "  \"teacher_fallback_phases\": [";
+    for (std::size_t index = 0; index < teacher->fallback_phases.size(); ++index) {
+      if (index != 0) {
+        output << ", ";
+      }
+      output << static_cast<int>(teacher->fallback_phases[index]);
+    }
+    output << "],\n";
+    output << "  \"teacher_fallback_additive_through_phase\": ";
+    if (teacher->fallback_additive_through_phase.has_value()) {
+      output << static_cast<int>(*teacher->fallback_additive_through_phase);
+    } else {
+      output << "null";
+    }
+    output << ",\n";
   }
   if (config != nullptr) {
     output << "  \"teacher_search_config_id\": \"" << config->id << "\",\n";
@@ -894,6 +1004,7 @@ void print_usage() {
                "--normalized-tsv PATH --teacher-manifest PATH --teacher-weights PATH "
                "--move-teacher-out PATH --child-normalized-out PATH --report-out PATH "
                "--max-depth N --max-nodes N --max-time-ms N --search-preset basic|full "
+               "[--teacher-coverage-policy require-all|explicit-phase-aware] "
                "--exact-endgame-empties N [--min-phase 0] [--max-phase 9] "
                "[--progress-every N]\n";
 }
@@ -961,6 +1072,15 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.saw_preset = true;
+    } else if (arg == "--teacher-coverage-policy") {
+      if (value == "require-all") {
+        args.teacher_coverage_policy = TeacherCoveragePolicy::require_all;
+      } else if (value == "explicit-phase-aware") {
+        args.teacher_coverage_policy = TeacherCoveragePolicy::explicit_phase_aware;
+      } else {
+        std::cerr << "--teacher-coverage-policy must be require-all or explicit-phase-aware\n";
+        return std::nullopt;
+      }
     } else if (arg == "--exact-endgame-empties") {
       const std::optional<int> parsed = parse_int(value);
       if (!parsed.has_value() || *parsed < 0 || *parsed > 60) {

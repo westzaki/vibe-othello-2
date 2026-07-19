@@ -23,6 +23,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-nodes", required=True, type=int)
     parser.add_argument("--max-time-ms", required=True, type=int)
     parser.add_argument("--search-preset", required=True, choices=("basic", "full"))
+    parser.add_argument(
+        "--teacher-coverage-policy",
+        choices=("require-all", "explicit-phase-aware"),
+        default="require-all",
+    )
     parser.add_argument("--exact-endgame-empties", required=True, type=int)
     parser.add_argument("--min-phase", default=0, type=int)
     parser.add_argument("--max-phase", default=9, type=int)
@@ -79,6 +84,8 @@ def command(args: argparse.Namespace, move_teacher: Path, child_normalized: Path
         str(args.max_time_ms),
         "--search-preset",
         args.search_preset,
+        "--teacher-coverage-policy",
+        args.teacher_coverage_policy,
         "--exact-endgame-empties",
         str(args.exact_endgame_empties),
         "--min-phase",

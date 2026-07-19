@@ -90,18 +90,24 @@ Move-teacher and child-normalized TSVs are generated local outputs and must
 stay out of the repository unless a future tiny repo-owned fixture is added for
 tests.
 
-Search move-teacher TSV schema v2 preserves the existing root/child, score,
-rank, tie, and margin fields and adds `teacher_kind`, `teacher_artifact_id`,
-`teacher_artifact_checksum`, and `teacher_search_config_id`. This provenance is
-mandatory for search-generated labels. Search child-normalized rows use
-`teacher_search_final_disc_diff`; exact child rows retain
+Search move-teacher TSV schema v3 preserves the v2 root/child, score, rank,
+tie, provenance, and search-configuration fields and adds
+`child_baseline_score_side_to_move`. The baseline value is the static
+deterministic early/midgame heuristic before a learned residual is added. It
+may use the wider search evaluator range; teacher and normalized child scores
+remain disc-difference values in `[-64,64]`. This provenance and baseline field
+are mandatory for search-generated residual training. Search child-normalized
+rows use `teacher_search_final_disc_diff`; exact child rows retain
 `teacher_exact_move_child_final_disc_diff`.
 
 Child `board_id` values use the canonical `board-v1` SHA-256 identity derived
 only from `board_a1_to_h8`. Search materialization de-duplicates equal child
 boards only within one split and rejects a canonical child board that crosses
-splits. Search scores written to normalized schema v2 must remain in `[-64,64]`;
-out-of-range values are rejected rather than clamped.
+splits. Search scores written to normalized schema v2 must remain in
+`[-64,64]`. Fully learned non-residual teachers reject unexpected out-of-range
+scores. Explicit phase-aware bootstrap and residual-routing teachers normalize
+their wider heuristic result at the teacher boundary and record that policy in
+the generation report.
 
 ## Directory Rules
 

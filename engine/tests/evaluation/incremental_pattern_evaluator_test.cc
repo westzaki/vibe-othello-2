@@ -72,6 +72,128 @@ PatternWeights make_phase_weights(std::uint16_t score_scale) {
   };
 }
 
+template <std::size_t PhaseCount>
+std::vector<search::Score>
+active_single_square_weights(const std::array<bool, PhaseCount>& active_phases) {
+  std::vector<search::Score> weights;
+  weights.reserve(PhaseCount * pattern_size(1));
+  for (const bool active : active_phases) {
+    weights.push_back(0);
+    weights.push_back(active ? 100 : 0);
+    weights.push_back(active ? -100 : 0);
+  }
+  return weights;
+}
+
+PatternFeatureSet active_prefix_transition_feature_set() {
+  return PatternFeatureSet{
+      .id = "active-prefix-transition-fixture-v1",
+      .tables =
+          {
+              PatternFeatureTable{
+                  .pattern_id = "always-active-prefix",
+                  .pattern_length = 1,
+                  .instances =
+                      {
+                          {board_core::square_from_file_rank(0, 0)},
+                          {board_core::square_from_file_rank(1, 0)},
+                          {board_core::square_from_file_rank(2, 0)},
+                          {board_core::square_from_file_rank(3, 0)},
+                          {board_core::square_from_file_rank(4, 0)},
+                      },
+              },
+              PatternFeatureTable{
+                  .pattern_id = "reactivated-middle",
+                  .pattern_length = 1,
+                  .instances =
+                      {
+                          {board_core::square_from_file_rank(3, 2)},
+                          {board_core::square_from_file_rank(0, 1)},
+                          {board_core::square_from_file_rank(1, 1)},
+                      },
+              },
+              PatternFeatureTable{
+                  .pattern_id = "early-only-suffix",
+                  .pattern_length = 1,
+                  .instances =
+                      {
+                          {board_core::square_from_file_rank(4, 3)},
+                          {board_core::square_from_file_rank(4, 4)},
+                      },
+              },
+          },
+  };
+}
+
+PatternWeights nonmonotonic_active_prefix_weights() {
+  constexpr std::uint8_t phase_count = 3;
+  // The three table layouts below produce active instance prefixes 10 -> 5 -> 8.
+  std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phases{};
+  phases.fill(2);
+  for (std::uint8_t discs = 0; discs <= 4; ++discs) {
+    phases[discs] = 0;
+  }
+  phases[5] = 1;
+
+  return PatternWeights{
+      phase_count,
+      phases,
+      {0, 0, 0},
+      {
+          PatternWeightTable{
+              .pattern_id = "always-active-prefix",
+              .pattern_length = 1,
+              .weights = active_single_square_weights(std::array{true, true, true}),
+          },
+          PatternWeightTable{
+              .pattern_id = "reactivated-middle",
+              .pattern_length = 1,
+              .weights = active_single_square_weights(std::array{true, false, true}),
+          },
+          PatternWeightTable{
+              .pattern_id = "early-only-suffix",
+              .pattern_length = 1,
+              .weights = active_single_square_weights(std::array{true, false, false}),
+          },
+      },
+      100,
+  };
+}
+
+PatternWeights decreasing_active_prefix_weights() {
+  constexpr std::uint8_t phase_count = 2;
+  // Root and the first move use 10 instances; the second move and later positions use 5.
+  std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phases{};
+  phases.fill(1);
+  for (std::uint8_t discs = 0; discs <= 5; ++discs) {
+    phases[discs] = 0;
+  }
+
+  return PatternWeights{
+      phase_count,
+      phases,
+      {0, 0},
+      {
+          PatternWeightTable{
+              .pattern_id = "always-active-prefix",
+              .pattern_length = 1,
+              .weights = active_single_square_weights(std::array{true, true}),
+          },
+          PatternWeightTable{
+              .pattern_id = "reactivated-middle",
+              .pattern_length = 1,
+              .weights = active_single_square_weights(std::array{true, false}),
+          },
+          PatternWeightTable{
+              .pattern_id = "early-only-suffix",
+              .pattern_length = 1,
+              .weights = active_single_square_weights(std::array{true, false}),
+          },
+      },
+      100,
+  };
+}
+
 board_core::Position position_with_discs(std::uint8_t discs, board_core::Color side_to_move) {
   const board_core::Bitboard occupied = discs == board_core::kSquareCount
                                             ? ~board_core::Bitboard{0}
@@ -114,6 +236,23 @@ void require_score_parity(const PhaseAwareEvaluator& evaluator,
   const search::Score reference = evaluator.evaluate_reference(position);
   REQUIRE(evaluator.evaluate(position) == reference);
   REQUIRE(evaluator.evaluate_incremental(state, position) == reference);
+}
+
+void require_pattern_score_parity_and_antisymmetry(const PatternEvaluator& evaluator,
+                                                   const PatternEvaluator::IncrementalState& state,
+                                                   const board_core::Position& position) {
+  const search::Score reference = evaluator.evaluate_reference(position);
+  REQUIRE(evaluator.evaluate(position) == reference);
+  REQUIRE(state.evaluate() == reference);
+
+  const board_core::Position opposite_perspective{
+      .player = position.opponent,
+      .opponent = position.player,
+      .side_to_move = board_core::opposite(position.side_to_move),
+  };
+  REQUIRE(evaluator.evaluate(opposite_perspective) == -reference);
+  REQUIRE(evaluator.evaluate_reference(opposite_perspective) == -reference);
+  REQUIRE(evaluator.make_incremental_state(opposite_perspective).evaluate() == -reference);
 }
 
 class DelegatingEvaluator final : public search::Evaluator {
@@ -174,6 +313,33 @@ TEST_CASE("incremental pattern evaluation preserves half-away-from-zero rounding
   REQUIRE(negative.make_incremental_state(empty).evaluate() == -1);
 }
 
+TEST_CASE("pattern evaluation preserves the signed-32-bit weight fallback",
+          "[evaluation][pattern][incremental]") {
+  const PatternWeights weights{
+      1,
+      std::array<std::uint8_t, PatternWeights::kDiscCountEntries>{},
+      {0},
+      {
+          PatternWeightTable{
+              .pattern_id = "single-square",
+              .pattern_length = 1,
+              .weights = {0, 40'000, -40'000},
+          },
+      },
+      1'000,
+  };
+  const PatternEvaluator evaluator{weights, single_square_feature_set()};
+  const board_core::Position position{
+      .player = board_core::bit(board_core::square_from_file_rank(0, 0)),
+      .opponent = 0,
+      .side_to_move = board_core::Color::black,
+  };
+
+  REQUIRE(evaluator.evaluate_reference(position) == 40);
+  REQUIRE(evaluator.evaluate(position) == 40);
+  REQUIRE(evaluator.make_incremental_state(position).evaluate() == 40);
+}
+
 TEST_CASE("incremental paired indices preserve perspective antisymmetry",
           "[evaluation][pattern][incremental]") {
   const PatternWeights weights{
@@ -205,6 +371,64 @@ TEST_CASE("incremental paired indices preserve perspective antisymmetry",
   REQUIRE(evaluator.make_incremental_state(position).evaluate() == evaluator.evaluate(position));
   REQUIRE(evaluator.make_incremental_state(opposite_perspective).evaluate() ==
           evaluator.evaluate(opposite_perspective));
+}
+
+TEST_CASE("incremental state preserves absolute discs across a later prefix re-expansion",
+          "[evaluation][pattern][incremental]") {
+  const PatternEvaluator evaluator{nonmonotonic_active_prefix_weights(),
+                                   active_prefix_transition_feature_set()};
+  board_core::Position position = board_core::initial_position();
+  PatternEvaluator::IncrementalState state = evaluator.make_incremental_state(position);
+
+  require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+  std::vector<board_core::MoveDelta> history;
+  for (const board_core::Square square :
+       {board_core::square_from_file_rank(3, 2), board_core::square_from_file_rank(2, 2)}) {
+    board_core::MoveDelta delta{};
+    REQUIRE(board_core::apply_move(&position, board_core::make_move(square), &delta));
+    state.apply_move(delta);
+    history.push_back(delta);
+    require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+  }
+
+  while (!history.empty()) {
+    const board_core::MoveDelta delta = history.back();
+    history.pop_back();
+    state.undo_move(delta);
+    board_core::undo_move(&position, delta);
+    require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+  }
+  REQUIRE(position == board_core::initial_position());
+}
+
+TEST_CASE("incremental state preserves updated discs when undo expands a decreased prefix",
+          "[evaluation][pattern][incremental]") {
+  const PatternEvaluator evaluator{decreasing_active_prefix_weights(),
+                                   active_prefix_transition_feature_set()};
+  board_core::Position position = board_core::initial_position();
+  PatternEvaluator::IncrementalState state = evaluator.make_incremental_state(position);
+  require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+
+  board_core::MoveDelta first_delta{};
+  REQUIRE(board_core::apply_move(
+      &position, board_core::make_move(board_core::square_from_file_rank(3, 2)), &first_delta));
+  state.apply_move(first_delta);
+  require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+
+  board_core::MoveDelta second_delta{};
+  REQUIRE(board_core::apply_move(
+      &position, board_core::make_move(board_core::square_from_file_rank(2, 2)), &second_delta));
+  state.apply_move(second_delta);
+  require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+
+  state.undo_move(second_delta);
+  board_core::undo_move(&position, second_delta);
+  require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+
+  state.undo_move(first_delta);
+  board_core::undo_move(&position, first_delta);
+  require_pattern_score_parity_and_antisymmetry(evaluator, state, position);
+  REQUIRE(position == board_core::initial_position());
 }
 
 TEST_CASE("phase-aware incremental routing preserves fallback replacement and residual modes",
@@ -381,6 +605,8 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(direct.stats.incremental_eval_calls == direct.stats.eval_calls);
   REQUIRE(direct.stats.stateless_eval_calls == 0);
   REQUIRE(direct.stats.incremental_updates > 0);
+  // The direct evaluator sees the artifact's dormant early-phase table values
+  // even though PhaseAwareEvaluator routes those phases to fallback.
   REQUIRE(direct.stats.incremental_touched_instances > 0);
 }
 

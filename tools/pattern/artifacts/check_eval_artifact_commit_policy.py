@@ -227,7 +227,7 @@ def trained_phases(path: Path, payload: dict[str, Any], errors: list[str]) -> li
     return sorted(value)
 
 
-def phase_weight_diagnostics(path: Path) -> list[dict[str, int | bool]]:
+def phase_weight_diagnostics(path: Path) -> tuple[int, list[dict[str, int | bool]]]:
     payload = path.read_bytes()
     if len(payload) < WEIGHTS_HEADER_SIZE + 4:
         raise ValueError(f"{path}: weights.bin is too small for phase diagnostics")
@@ -245,7 +245,7 @@ def phase_weight_diagnostics(path: Path) -> list[dict[str, int | bool]]:
         _reserved,
         weight_count,
     ) = struct.unpack_from(WEIGHTS_HEADER_FORMAT, payload, 8)
-    if (format_version, bit_order, score_unit, score_scale) != (1, 1, 1, 1):
+    if (format_version, bit_order, score_unit) != (1, 1, 1) or score_scale == 0:
         raise ValueError(f"{path}: weights.bin header is not a runtime v1 artifact")
     if phase_count != RUNTIME_PHASE_COUNT:
         raise ValueError(f"{path}: weights.bin phase_count must be {RUNTIME_PHASE_COUNT}")
@@ -272,7 +272,7 @@ def phase_weight_diagnostics(path: Path) -> list[dict[str, int | bool]]:
                 "max_absolute_weight": max((abs(weight) for weight in pattern_weights), default=0),
             }
         )
-    return diagnostics
+    return score_scale, diagnostics
 
 
 def check_phase_weight_diagnostics(
@@ -363,10 +363,16 @@ def check_artifact_metadata(repo_root: Path) -> list[str]:
             )
 
         try:
-            diagnostics = phase_weight_diagnostics(weights)
+            binary_score_scale, diagnostics = phase_weight_diagnostics(weights)
         except ValueError as exc:
             errors.append(str(exc))
         else:
+            if manifest.get("score_scale") != binary_score_scale:
+                errors.append(
+                    f"{relative_to_repo(manifest_path, repo_root)}: score_scale "
+                    f"{manifest.get('score_scale')!r} does not match weights.bin "
+                    f"{binary_score_scale}"
+                )
             check_phase_weight_diagnostics(manifest_path, manifest, diagnostics, errors)
 
         require_bool(provenance_path, provenance, "raw_data_redistributed", False, errors)

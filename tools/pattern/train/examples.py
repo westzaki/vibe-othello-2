@@ -96,6 +96,7 @@ class MoveTeacherMove:
     move: str
     teacher_root_score: int
     child_label_score: int
+    child_baseline_score: int | None
     child_phase: int
     provenance: "MoveTeacherProvenance | None"
     example: Example

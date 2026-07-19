@@ -38,6 +38,12 @@ constexpr std::string_view kMoveTeacherHeaderV2 =
     "move\tchild_label_score_side_to_move\tis_best_move\tbest_move_tie_count\tmove_rank\tbest_"
     "score_margin\tteacher_kind\tteacher_source\tteacher_artifact_id\tteacher_artifact_checksum\t"
     "teacher_depth\tteacher_nodes\tteacher_search_config_id";
+constexpr std::string_view kMoveTeacherHeaderV3 =
+    "root_board_id\troot_record_id\troot_split\troot_phase\troot_empty_count\tmove\tchild_"
+    "board_id\tchild_board_a1_to_h8\tchild_empty_count\tchild_phase\troot_move_score_side_to_"
+    "move\tchild_label_score_side_to_move\tchild_baseline_score_side_to_move\tis_best_move\tbest_"
+    "move_tie_count\tmove_rank\tbest_score_margin\tteacher_kind\tteacher_source\tteacher_artifact_"
+    "id\tteacher_artifact_checksum\tteacher_depth\tteacher_nodes\tteacher_search_config_id";
 
 struct Args {
   std::string move_teacher_path;
@@ -343,30 +349,35 @@ std::optional<board_core::Position> position_from_relative_board(std::string_vie
   return position;
 }
 
-bool parse_move_teacher_row(std::string_view line, bool schema_v2, MoveTeacherRow* row,
+bool parse_move_teacher_row(std::string_view line, int schema_version, MoveTeacherRow* row,
                             std::string* error) {
   const std::vector<std::string_view> fields = split_tabs(trim_trailing_cr(line));
-  if (fields.size() != (schema_v2 ? 23u : 19u)) {
-    *error = schema_v2 ? "expected 23 TSV fields for move-teacher schema v2"
-                       : "expected 19 TSV fields for move-teacher schema v1";
+  const std::size_t expected_fields = schema_version == 3 ? 24u : schema_version == 2 ? 23u : 19u;
+  if (fields.size() != expected_fields) {
+    *error = "expected " + std::to_string(expected_fields) +
+             " TSV fields for move-teacher schema v" + std::to_string(schema_version);
     return false;
   }
+  const std::size_t shifted = schema_version == 3 ? 1u : 0u;
   const std::optional<int> root_phase = parse_int(fields[3]);
   const std::optional<int> root_empty = parse_int(fields[4]);
   const std::optional<int> child_empty = parse_int(fields[8]);
   const std::optional<int> child_phase = parse_int(fields[9]);
   const std::optional<int> root_score = parse_int(fields[10]);
   const std::optional<int> child_score = parse_int(fields[11]);
-  const std::optional<int> best_tie = parse_int(fields[13]);
-  const std::optional<int> move_rank = parse_int(fields[14]);
-  const std::optional<int> best_margin = parse_int(fields[15]);
+  const std::optional<int> baseline_score =
+      schema_version == 3 ? parse_int(fields[12]) : std::optional<int>{0};
+  const std::optional<int> best_tie = parse_int(fields[13 + shifted]);
+  const std::optional<int> move_rank = parse_int(fields[14 + shifted]);
+  const std::optional<int> best_margin = parse_int(fields[15 + shifted]);
   if (!root_phase.has_value() || !root_empty.has_value() || !child_empty.has_value() ||
       !child_phase.has_value() || !root_score.has_value() || !child_score.has_value() ||
-      !best_tie.has_value() || !move_rank.has_value() || !best_margin.has_value()) {
+      !baseline_score.has_value() || !best_tie.has_value() || !move_rank.has_value() ||
+      !best_margin.has_value()) {
     *error = "numeric fields must be integers";
     return false;
   }
-  if (fields[12] != "0" && fields[12] != "1") {
+  if (fields[12 + shifted] != "0" && fields[12 + shifted] != "1") {
     *error = "is_best_move must be 0 or 1";
     return false;
   }
@@ -395,23 +406,24 @@ bool parse_move_teacher_row(std::string_view line, bool schema_v2, MoveTeacherRo
   row->child_phase = *child_phase;
   row->root_move_score_side_to_move = *root_score;
   row->child_label_score_side_to_move = *child_score;
-  row->is_best_move = fields[12] == "1";
+  row->is_best_move = fields[12 + shifted] == "1";
   row->best_move_tie_count = *best_tie;
   row->move_rank = *move_rank;
   row->best_score_margin = *best_margin;
-  if (schema_v2) {
-    if (fields[16].empty() || fields[17].empty() || fields[18].empty() || fields[19].empty() ||
-        fields[22].empty()) {
-      *error = "schema v2 teacher identity fields must be non-empty";
+  if (schema_version >= 2) {
+    if (fields[16 + shifted].empty() || fields[17 + shifted].empty() ||
+        fields[18 + shifted].empty() || fields[19 + shifted].empty() ||
+        fields[22 + shifted].empty()) {
+      *error = "schema v2/v3 teacher identity fields must be non-empty";
       return false;
     }
-    row->teacher_kind = std::string(fields[16]);
-    row->teacher_source = std::string(fields[17]);
-    row->teacher_artifact_id = std::string(fields[18]);
-    row->teacher_artifact_checksum = std::string(fields[19]);
-    row->teacher_depth = std::string(fields[20]);
-    row->teacher_nodes = std::string(fields[21]);
-    row->teacher_search_config_id = std::string(fields[22]);
+    row->teacher_kind = std::string(fields[16 + shifted]);
+    row->teacher_source = std::string(fields[17 + shifted]);
+    row->teacher_artifact_id = std::string(fields[18 + shifted]);
+    row->teacher_artifact_checksum = std::string(fields[19 + shifted]);
+    row->teacher_depth = std::string(fields[20 + shifted]);
+    row->teacher_nodes = std::string(fields[21 + shifted]);
+    row->teacher_search_config_id = std::string(fields[22 + shifted]);
   } else {
     row->teacher_kind = "exact";
     row->teacher_source = std::string(fields[16]);
@@ -434,8 +446,10 @@ load_move_teacher(const std::string& path, EvaluationReport* report) {
     return std::nullopt;
   }
   const std::string_view header = trim_trailing_cr(line);
-  const bool schema_v2 = header == kMoveTeacherHeaderV2;
-  if (!schema_v2 && header != kMoveTeacherHeaderV1) {
+  const int schema_version = header == kMoveTeacherHeaderV3   ? 3
+                             : header == kMoveTeacherHeaderV2 ? 2
+                                                              : 1;
+  if (schema_version == 1 && header != kMoveTeacherHeaderV1) {
     std::cerr << "move-teacher TSV header mismatch\n";
     return std::nullopt;
   }
@@ -449,7 +463,7 @@ load_move_teacher(const std::string& path, EvaluationReport* report) {
     }
     MoveTeacherRow row;
     std::string error;
-    if (!parse_move_teacher_row(line, schema_v2, &row, &error)) {
+    if (!parse_move_teacher_row(line, schema_version, &row, &error)) {
       std::cerr << "line " << line_number << ": " << error << '\n';
       return std::nullopt;
     }

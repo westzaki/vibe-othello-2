@@ -1,0 +1,152 @@
+{
+  "schema_version": 2,
+  "artifact_id": "pattern-v2-progressive-search-d5-fast6-p5-v1",
+  "artifact_version": 1,
+  "status": "experimental-default",
+  "pattern_set": "pattern-v2-endgame-lite",
+  "trainer_mode": "pattern-rank-v0e",
+  "trained_phases": [
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "fallback_additive_through_phase": 9,
+  "trainable_pattern_ids": [
+    "edge-8",
+    "near-edge-8",
+    "diagonal-8",
+    "diagonal-7",
+    "corner-2x5",
+    "corner-3x3"
+  ],
+  "frozen_phases": [
+    10,
+    11,
+    12
+  ],
+  "teacher_kind": "progressive_artifact_search_move_teacher",
+  "teacher_artifact_id": "pattern-v2-endgame-lite-100k-mt-v0",
+  "teacher_artifact_checksum": "0x3d50ed72",
+  "source_normalized_checksum": "sha256:07cd0afb24cbaa09b6a8f76dc0a73c79ab9d79719421d0770a51f5d310382bea",
+  "base_move_teacher_checksum": "sha256:645851efbce6800ac79770b14f384312e2812d841343aadb7031d684ec54ef13",
+  "deep_root_selection": {
+    "policy": "phase-balanced-baseline-regret-v1",
+    "seed": 423,
+    "selected_roots": 5000,
+    "changed_split_assignments_from_normalized_input": 705,
+    "selected_cross_split_board_collision_count": 0,
+    "selected_cross_split_game_group_collision_count": 0,
+    "selection_checksum": "sha256:f44d5bdd34cde2b1b08a67c151f5a73437076852bc450c266c2f5f79a4548a45",
+    "mean_baseline_regret": 9.7786,
+    "median_baseline_regret": 8.0
+  },
+  "depth_5_teacher": {
+    "search_preset": "full",
+    "maximum_depth": 5,
+    "maximum_nodes_per_child": 500000,
+    "exact_endgame_empties": 8,
+    "completed_roots": 5000,
+    "move_rows": 49269,
+    "child_rows": 49248,
+    "teacher_nodes": 466505662,
+    "mixed_depth_roots": 0,
+    "child_split_collisions": 0,
+    "move_teacher_checksum": "sha256:8cc8cf12c9bbd7d0bd9399fffa6e7f6ef7ec6583536f54456385c44ead5ce5f6",
+    "child_checksum": "sha256:7bb39314c5fffd3ee5392c5c1a68ea94caa1ea6e1aa6d1516c171422db1aaf03"
+  },
+  "teacher_overlay": {
+    "policy": "replace-complete-roots-overlay-children-win-v1",
+    "merged_roots": 18224,
+    "retained_depth_4_roots": 13224,
+    "depth_5_roots": 5000,
+    "excluded_cross_depth_child_conflict_roots": 12,
+    "merged_move_rows": 179087,
+    "merged_child_rows": 179048,
+    "move_teacher_checksum": "sha256:1efa9efd275258c6c0c060862b992799ac79d6a38fe45d77bbfdfbe18ea565e0",
+    "child_checksum": "sha256:378d9c18289e6bf5b416b22de879c5471626d9e95eb74f20e8dcef08ecaaa706"
+  },
+  "training": {
+    "epochs": 8,
+    "best_epoch": 8,
+    "learning_rate": 0.01,
+    "weight_decay": 0.0001,
+    "rank_temperature": 1.0,
+    "value_loss_weight": 0.05,
+    "pair_sampling_cap": 64,
+    "dataset_rows": 179048,
+    "dataset_checksum": "0xf025877545148760",
+    "cross_split_board_collisions": 0,
+    "trainer_weights_checksum": "sha256:ce346d0b3c67b6f99a4068cd3f96d17dd2a5f7760cd8440db3be42e05aee1c86"
+  },
+  "weights_sha256": "sha256:2d4328e83b96189dbab1d0a929786ff68fb37b2bfb00b4bc05787f30dda9a309",
+  "runtime_checksum": "0xefdb135d",
+  "validation_summary": {
+    "fixed_depth_3": {
+      "opening_pairs": 512,
+      "games": 1024,
+      "candidate_score_rate": 0.528809,
+      "paired_bootstrap_95": [
+        0.505371,
+        0.552246
+      ],
+      "average_disc_difference": 1.498047,
+      "failed_games": 0,
+      "illegal_games": 0,
+      "report_checksum": "fnv1a64:2c30fe52b071db50"
+    },
+    "fixed_time_10ms_primary": {
+      "opening_pairs": 256,
+      "games": 512,
+      "candidate_score_rate": 0.537109,
+      "paired_bootstrap_95": [
+        0.504883,
+        0.571289
+      ],
+      "failed_games": 0,
+      "illegal_games": 0,
+      "candidate_nodes_per_second": 2222705.11979,
+      "baseline_nodes_per_second": 2514973.962874,
+      "candidate_median_completed_depth": 6,
+      "baseline_median_completed_depth": 6,
+      "report_checksum": "fnv1a64:e69e80f4326b8ad7"
+    },
+    "fixed_time_10ms_broader": {
+      "opening_pairs": 512,
+      "games": 1024,
+      "candidate_score_rate": 0.512207,
+      "paired_bootstrap_95": [
+        0.487305,
+        0.537109
+      ],
+      "failed_games": 0,
+      "illegal_games": 0,
+      "assessment": "non-negative point estimate; interval overlaps neutral",
+      "report_checksum": "fnv1a64:7a1040e859e0f61f"
+    }
+  },
+  "rejected_followups": [
+    "hard-root-only depth-5 training regressed to 41.11 percent at fixed depth 3",
+    "depth-6 progressive overlay was neutral at 50.00 percent in a 1024-game fixed-time arena",
+    "direct pattern replacement lost offline ranking accuracy",
+    "phase-6 activation reduced fixed-depth score to 50.68 percent",
+    "black-plus-occupied incremental indices did not improve normalized throughput"
+  ],
+  "source_attribution": "Egaroucid training data: Egaroucid 7.8.0 lv.11 vs Edax 4.5.5 lv.11 game transcripts",
+  "raw_data_redistributed": false,
+  "normalized_data_redistributed": false,
+  "teacher_labels_redistributed": false,
+  "local_reports_redistributed": false,
+  "not_official_egaroucid_artifact": true,
+  "non_claims": [
+    "not an Elo result",
+    "not a self-play improvement claim",
+    "not a production strength claim",
+    "not publication readiness",
+    "not an official Egaroucid artifact"
+  ]
+}
