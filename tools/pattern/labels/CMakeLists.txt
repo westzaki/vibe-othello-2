@@ -136,4 +136,20 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/check_select_phase_stratified_roots_smoke.py
       --selector
       ${CMAKE_CURRENT_SOURCE_DIR}/select_phase_stratified_roots.py)
+
+  add_test(
+    NAME vibe_othello_pattern_select_hard_search_teacher_roots_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_select_hard_search_teacher_roots_smoke.py
+      --selector
+      ${CMAKE_CURRENT_SOURCE_DIR}/select_hard_search_teacher_roots.py)
+
+  add_test(
+    NAME vibe_othello_pattern_overlay_search_move_teacher_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_overlay_search_move_teacher_smoke.py
+      --overlay
+      ${CMAKE_CURRENT_SOURCE_DIR}/overlay_search_move_teacher.py)
 endif()

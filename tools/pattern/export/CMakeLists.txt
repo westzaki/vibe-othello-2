@@ -39,6 +39,19 @@ if(BUILD_TESTING)
       $<TARGET_FILE:vibe_othello_pattern_catalog_dump>)
 
   add_test(
+    NAME vibe_othello_pattern_artifact_import_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_artifact_import_smoke.py
+      --importer ${CMAKE_CURRENT_SOURCE_DIR}/import_artifact_weights.py
+      --exporter ${CMAKE_CURRENT_SOURCE_DIR}/export_v0b.py
+      --catalog-dump-exe $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
+      --manifest
+      ${CMAKE_SOURCE_DIR}/data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json
+      --weights
+      ${CMAKE_SOURCE_DIR}/data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/weights.bin)
+
+  add_test(
     NAME vibe_othello_pattern_evaluation_roundtrip_smoke
     COMMAND
       ${Python3_EXECUTABLE}

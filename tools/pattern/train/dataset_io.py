@@ -36,6 +36,15 @@ MOVE_TEACHER_HEADER_V2 = [
     "teacher_artifact_id", "teacher_artifact_checksum", "teacher_depth", "teacher_nodes",
     "teacher_search_config_id",
 ]
+MOVE_TEACHER_HEADER_V3 = [
+    "root_board_id", "root_record_id", "root_split", "root_phase", "root_empty_count",
+    "move", "child_board_id", "child_board_a1_to_h8", "child_empty_count", "child_phase",
+    "root_move_score_side_to_move", "child_label_score_side_to_move",
+    "child_baseline_score_side_to_move", "is_best_move", "best_move_tie_count",
+    "move_rank", "best_score_margin", "teacher_kind", "teacher_source",
+    "teacher_artifact_id", "teacher_artifact_checksum", "teacher_depth", "teacher_nodes",
+    "teacher_search_config_id",
+]
 
 def validate_row(
     row: dict[str, str], line_number: int
@@ -356,9 +365,18 @@ def load_move_teacher_roots(
     move_rows = 0
     with input_file:
         reader = csv.DictReader(input_file, delimiter="\t")
-        if reader.fieldnames not in (MOVE_TEACHER_HEADER_V1, MOVE_TEACHER_HEADER_V2):
+        if reader.fieldnames not in (
+            MOVE_TEACHER_HEADER_V1,
+            MOVE_TEACHER_HEADER_V2,
+            MOVE_TEACHER_HEADER_V3,
+        ):
             raise RuntimeError("unexpected move-teacher TSV header")
-        schema_version = 2 if reader.fieldnames == MOVE_TEACHER_HEADER_V2 else 1
+        if reader.fieldnames == MOVE_TEACHER_HEADER_V3:
+            schema_version = 3
+        elif reader.fieldnames == MOVE_TEACHER_HEADER_V2:
+            schema_version = 2
+        else:
+            schema_version = 1
         file_provenance: MoveTeacherProvenance | None = None
         for line_number, row in enumerate(reader, start=2):
             move_rows += 1
@@ -388,8 +406,18 @@ def load_move_teacher_roots(
                     f"line {line_number}: child_label_score_side_to_move must equal "
                     "-root_move_score_side_to_move"
                 )
+            child_baseline_score: int | None = None
+            if schema_version == 3:
+                child_baseline_score = _parse_move_teacher_int(
+                    row, "child_baseline_score_side_to_move", line_number
+                )
+                if not -30_000 < child_baseline_score < 30_000:
+                    raise RuntimeError(
+                        f"line {line_number}: child_baseline_score_side_to_move "
+                        "must be inside the search sentinel range"
+                    )
             provenance: MoveTeacherProvenance | None = None
-            if schema_version == 2:
+            if schema_version >= 2:
                 provenance = MoveTeacherProvenance(
                     teacher_kind=_require_move_teacher_field(row, "teacher_kind", line_number),
                     teacher_source=_require_move_teacher_field(row, "teacher_source", line_number),
@@ -407,8 +435,8 @@ def load_move_teacher_roots(
                     file_provenance = provenance
                 elif file_provenance != provenance:
                     raise RuntimeError(
-                        f"line {line_number}: move-teacher v2 provenance must be identical "
-                        "across the whole file"
+                        f"line {line_number}: move-teacher v{schema_version} provenance "
+                        "must be identical across the whole file"
                     )
             metadata = (root_record_id, root_split, root_phase)
             existing_metadata = root_metadata.setdefault(root_board_id, metadata)
@@ -441,6 +469,7 @@ def load_move_teacher_roots(
                     move=move,
                     teacher_root_score=teacher_root_score,
                     child_label_score=child_label_score,
+                    child_baseline_score=child_baseline_score,
                     child_phase=child_phase,
                     provenance=provenance,
                     example=example,

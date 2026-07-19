@@ -8,7 +8,7 @@ import random
 from dataclasses import dataclass
 
 from dataset_contract import PHASES
-from examples import Example, MoveTeacherRoot
+from examples import Example, MoveTeacherMove, MoveTeacherRoot
 
 def mean(values: list[int]) -> float:
     return sum(values) / len(values) if values else 0.0
@@ -47,6 +47,26 @@ def pattern_sgd_score(
             (example.phase, feature.pattern_id, feature.ternary_index), 0.0
         )
     return score
+
+
+def pattern_rank_child_value(
+    move: MoveTeacherMove,
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    residual_baseline_through_phase: int | None,
+) -> float:
+    value = pattern_sgd_score(move.example, phase_bias, pattern_weights)
+    if (
+        residual_baseline_through_phase is not None
+        and move.example.phase <= residual_baseline_through_phase
+    ):
+        if move.child_baseline_score is None:
+            raise RuntimeError(
+                "residual training requires move-teacher v3 baseline scores "
+                f"through phase {residual_baseline_through_phase}"
+            )
+        value += move.child_baseline_score
+    return value
 
 
 @dataclass(frozen=True)

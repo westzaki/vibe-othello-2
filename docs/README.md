@@ -28,6 +28,7 @@ Read only the document needed for the current task.
 | Pattern learning corpus data policy | `../data/corpora/README.md` |
 | Pattern learning teacher label data policy | `../data/labels/README.md` |
 | Pattern label/cache operations | `../tools/pattern/labels/README.md` |
+| Progressive pattern training | `../tools/pattern/train/README.md` |
 | Evaluation artifact data policy | `../data/eval/README.md` |
 | Pattern experiment log archive | `experiments/README.md` |
 | Progress documentation rules | `progress/README.md` |

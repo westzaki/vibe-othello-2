@@ -30,6 +30,14 @@ root and updates only instances touched by placed or flipped squares. Pass and
 undo are supported without rebuilding indices. Phase-aware fallback-only roots
 remain on the generic stateless path.
 
+The compiled layout also records the last nonzero pattern-family instance for
+each phase, so dormant suffix tables are neither extracted nor incrementally
+updated. When a later phase activates more families, the incremental state
+rebuilds the newly active prefix from its maintained absolute board. Runtime
+weights use a compact signed-16-bit array when the loaded values fit exactly
+and retain the signed-32-bit path otherwise; evaluator parity tests cover both
+the flat/reference paths and full apply/undo games.
+
 `PhaseAwareEvaluator` is the artifact-facing runtime composition. It uses
 `PatternEvaluator` only in metadata-declared `trained_phases` and otherwise
 uses the small deterministic `EarlyMidgameHeuristicEvaluator`. The fallback is
@@ -48,24 +56,26 @@ as a simple deterministic reference path for tooling and tests.
 
 ## Runtime and Artifact Status
 
-`pattern-v2-endgame-lite-100k-mt-v0` is the committed learned evaluation
-artifact v0 and is the current experimental default.
+`pattern-v2-progressive-search-d5-fast6-p5-v1` is the current learned
+experimental default. It supersedes
+`pattern-v2-endgame-lite-100k-mt-v0`, which remains committed for rollback and
+comparison.
 
 Default resolution is controlled by `data/eval/default-artifact.json`, whose
 status is `experimental-default` and whose manifest pointer resolves to:
 
 ```text
-data/eval/artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json
+data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json
 ```
 
 The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 `provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
-The current default reports reviewed learning coverage for phases 10, 11, and
-12. The phase-aware runtime uses learned pattern evaluation for those phases
-and deterministic fallback evaluation for phases 0 through 9. The current
-runtime mapping therefore selects learned evaluation from 51 occupied discs
-(13 empties) onward. No search option changes are required.
+The current default reports reviewed learning coverage for phases 5 through
+12. Phases 0 through 4 use the deterministic fallback, phases 5 through 9 add
+a learned search-teacher residual to that fallback, and phases 10 through 12
+retain the previous exact-teacher pattern weights. No search option changes are
+required.
 
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
@@ -90,9 +100,10 @@ is supplied. `--eval-artifact` selects a specific artifact manifest.
 missing, corrupt, or incompatible artifact data exits with an error instead of
 silently falling back to static evaluation.
 
-The current default artifact is not an Elo result, not a self-play improvement
-claim, not a production-strength claim, not publication readiness, and not an
-official Egaroucid artifact.
+The current artifact cleared paired fixed-depth and fixed-time local arena
+gates against the previous default. It is still not an Elo result, not a
+self-play improvement claim, not a production-strength claim, not publication
+readiness, and not an official Egaroucid artifact.
 
 ## Known Gaps
 

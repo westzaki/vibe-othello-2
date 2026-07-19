@@ -3,6 +3,9 @@ build-*/
 out/
 __pycache__/
 
+# Local-only training corpora, artifacts, and arena reports.
+/local/
+
 # Local-only corpus payloads and extracted third-party data.
 /data/corpora/local/**
 

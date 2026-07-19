@@ -29,7 +29,7 @@ public:
     [[nodiscard]] std::uint8_t occupied_count() const noexcept {
       return occupied_count_;
     }
-    // Returns the unique instance count from the most recent apply or undo.
+    // Returns the active unique instance count from the most recent apply or undo.
     // Pass transitions report zero.
     [[nodiscard]] std::uint32_t last_touched_instances() const noexcept {
       return last_touched_instances_;
@@ -41,6 +41,9 @@ public:
 
     [[nodiscard]] std::uint32_t update_normal_move(board_core::MoveDelta delta,
                                                    board_core::Color mover, int direction) noexcept;
+    void rebuild_indices(std::size_t begin, std::size_t end) noexcept;
+    void update_absolute_discs(board_core::MoveDelta delta, board_core::Color mover,
+                               int direction) noexcept;
 
     const PatternEvaluator* evaluator_ = nullptr;
     std::vector<std::uint32_t> black_indices_;
@@ -53,6 +56,9 @@ public:
     std::uint32_t last_touched_instances_ = 0;
     std::uint8_t occupied_count_ = 0;
     board_core::Color side_to_move_ = board_core::Color::black;
+    board_core::Bitboard black_discs_ = 0;
+    board_core::Bitboard white_discs_ = 0;
+    bool maintain_absolute_discs_ = false;
   };
 
   PatternEvaluator(PatternWeights weights, PatternFeatureSet feature_set);
@@ -85,11 +91,16 @@ private:
                                                const std::uint32_t* black_indices,
                                                const std::uint32_t* white_indices) const noexcept;
   [[nodiscard]] search::Score finish_score(std::int64_t scaled_score) const noexcept;
+  [[nodiscard]] search::Score flat_weight(std::size_t offset) const noexcept;
+  [[nodiscard]] std::size_t active_instance_count(std::uint8_t occupied_count) const noexcept;
+  [[nodiscard]] bool has_later_instance_expansion(std::uint8_t occupied_count) const noexcept;
 
   std::array<std::uint8_t, PatternWeights::kDiscCountEntries> phase_by_disc_count_{};
+  std::vector<std::uint32_t> active_instance_counts_;
   std::vector<search::Score> phase_biases_;
   std::uint16_t score_scale_ = 1;
   std::vector<search::Score> flat_weights_;
+  std::vector<std::int16_t> compact_flat_weights_;
   std::vector<std::size_t> table_phase_offsets_;
   std::vector<std::size_t> instance_phase_offsets_;
   std::vector<InstanceDescriptor> instances_;

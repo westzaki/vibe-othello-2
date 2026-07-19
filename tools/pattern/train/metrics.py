@@ -8,7 +8,14 @@ from typing import Any
 
 from dataset_contract import PHASES, SPLITS
 from examples import Example, MoveTeacherRoot, split_examples
-from objectives import PatternWeights, pairwise_logistic_loss_and_child_gradients, pattern_sgd_score, phase_bias_score, sign
+from objectives import (
+    PatternWeights,
+    pairwise_logistic_loss_and_child_gradients,
+    pattern_rank_child_value,
+    pattern_sgd_score,
+    phase_bias_score,
+    sign,
+)
 
 def metrics_for_examples(
     examples: list[Example],
@@ -189,12 +196,18 @@ class RankingAccumulator:
         pattern_weights: PatternWeights,
         tie_margin: float,
         rank_temperature: float,
+        residual_baseline_through_phase: int | None,
     ) -> None:
-        predictions = [
-            -pattern_sgd_score(move.example, phase_bias, pattern_weights)
+        child_values = [
+            pattern_rank_child_value(
+                move,
+                phase_bias,
+                pattern_weights,
+                residual_baseline_through_phase,
+            )
             for move in root.moves
         ]
-        child_values = [-prediction for prediction in predictions]
+        predictions = [-value for value in child_values]
         teacher_scores = [move.teacher_root_score for move in root.moves]
         ordered_indices = sorted(
             range(len(root.moves)), key=lambda index: (-predictions[index], root.moves[index].move)
@@ -321,17 +334,35 @@ def ranking_metrics_for_roots(
     pattern_weights: PatternWeights,
     tie_margin: float,
     rank_temperature: float,
+    residual_baseline_through_phase: int | None = None,
 ) -> dict[str, Any]:
     overall = RankingAccumulator()
     by_split = {split: RankingAccumulator() for split in SPLITS}
     by_phase = {str(phase): RankingAccumulator() for phase in PHASES}
     for root in roots:
-        overall.add_root(root, phase_bias, pattern_weights, tie_margin, rank_temperature)
+        overall.add_root(
+            root,
+            phase_bias,
+            pattern_weights,
+            tie_margin,
+            rank_temperature,
+            residual_baseline_through_phase,
+        )
         by_split[root.split].add_root(
-            root, phase_bias, pattern_weights, tie_margin, rank_temperature
+            root,
+            phase_bias,
+            pattern_weights,
+            tie_margin,
+            rank_temperature,
+            residual_baseline_through_phase,
         )
         by_phase[str(root.phase)].add_root(
-            root, phase_bias, pattern_weights, tie_margin, rank_temperature
+            root,
+            phase_bias,
+            pattern_weights,
+            tie_margin,
+            rank_temperature,
+            residual_baseline_through_phase,
         )
     return {
         "overall": overall.as_dict(),

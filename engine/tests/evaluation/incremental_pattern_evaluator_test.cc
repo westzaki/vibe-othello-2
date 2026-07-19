@@ -174,6 +174,33 @@ TEST_CASE("incremental pattern evaluation preserves half-away-from-zero rounding
   REQUIRE(negative.make_incremental_state(empty).evaluate() == -1);
 }
 
+TEST_CASE("pattern evaluation preserves the signed-32-bit weight fallback",
+          "[evaluation][pattern][incremental]") {
+  const PatternWeights weights{
+      1,
+      std::array<std::uint8_t, PatternWeights::kDiscCountEntries>{},
+      {0},
+      {
+          PatternWeightTable{
+              .pattern_id = "single-square",
+              .pattern_length = 1,
+              .weights = {0, 40'000, -40'000},
+          },
+      },
+      1'000,
+  };
+  const PatternEvaluator evaluator{weights, single_square_feature_set()};
+  const board_core::Position position{
+      .player = board_core::bit(board_core::square_from_file_rank(0, 0)),
+      .opponent = 0,
+      .side_to_move = board_core::Color::black,
+  };
+
+  REQUIRE(evaluator.evaluate_reference(position) == 40);
+  REQUIRE(evaluator.evaluate(position) == 40);
+  REQUIRE(evaluator.make_incremental_state(position).evaluate() == 40);
+}
+
 TEST_CASE("incremental paired indices preserve perspective antisymmetry",
           "[evaluation][pattern][incremental]") {
   const PatternWeights weights{
@@ -381,6 +408,8 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(direct.stats.incremental_eval_calls == direct.stats.eval_calls);
   REQUIRE(direct.stats.stateless_eval_calls == 0);
   REQUIRE(direct.stats.incremental_updates > 0);
+  // The direct evaluator sees the artifact's dormant early-phase table values
+  // even though PhaseAwareEvaluator routes those phases to fallback.
   REQUIRE(direct.stats.incremental_touched_instances > 0);
 }
 

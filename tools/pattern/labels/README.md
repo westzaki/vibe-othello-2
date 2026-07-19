@@ -87,19 +87,28 @@ datasets preserve the selected-root split produced by this policy.
 `vibe-othello-generate-search-move-teacher-dataset` generates every legal
 root move for selected phases (default `0..9`) by searching each after-move
 child from the child side-to-move perspective. The stored root score is the
-negative child score. It writes explicit `move-teacher-tsv-v2` rows and
+negative child score. It writes explicit `move-teacher-tsv-v3` rows and
 normalized-v2 child rows with `label_kind = teacher_search_final_disc_diff`.
+Schema v3 also records the deterministic static fallback value for each child,
+allowing the trainer to fit an additive residual without replacing the
+existing early/midgame heuristic.
 
 Each `child_board_id` is the importer-compatible `board-v1` SHA-256 identity
 of its normalized child board, not a root/move-derived name. Move-teacher rows
 retain every root move, while child-normalized rows dedupe equal canonical child
 boards within a split. A canonical child board appearing across splits rejects
 the transaction. Search scores outside the normalized disc-difference range
-`[-64, 64]` also reject the transaction rather than being clamped.
+`[-64, 64]` reject ordinary fully learned teachers. An explicitly selected
+phase-aware bootstrap or a teacher artifact with residual routing is normalized
+at the teacher boundary; the generation report records that policy and the v3
+baseline column retains the unnormalized static heuristic value.
 
-The teacher manifest and weights are required explicitly. The tool rejects an
-artifact without complete declared phase coverage `0..12`, so the runtime
-phase-aware fallback cannot silently become a teacher. Depth, node, time,
+The teacher manifest and weights are required explicitly. The default
+`require-all` policy rejects an artifact without complete declared phase
+coverage `0..12`. `--teacher-coverage-policy explicit-phase-aware` is an
+intentional bootstrap exception: its report names trained and fallback phases,
+and its distinct teacher source remains visible through training. Legacy
+artifacts without `trained_phases` are always rejected. Depth, node, time,
 preset, and exact-endgame threshold are also required explicitly. Use fixed
 depth or fixed nodes; wall-clock-only runs are rejected. A stopped node-limited
 child is accepted only after at least one completed depth; incomplete roots
@@ -123,6 +132,23 @@ python3 tools/pattern/labels/run_search_move_teacher_generation.py \
 The runner validates checksums for the generator, input, teacher manifest,
 teacher weights, and all outputs before reuse. It is a complete-output resume
 contract, not the exact per-root cache contract below.
+
+## Progressive hard-root teaching
+
+`select_hard_search_teacher_roots.py` compares the current evaluator's best
+move with a completed search-teacher root, ranks roots by evaluator regret, and
+selects a deterministic phase-balanced subset for deeper relabeling. It joins
+back to the normalized root by record id, preserves the teacher split, rejects
+leakage or incomplete roots, and emits checksums and regret statistics.
+
+`overlay_search_move_teacher.py` then replaces those complete shallow roots
+with their deeper versions. It never appends two labels for the same root. If a
+retained shallow root shares a child whose deeper label differs, the complete
+shallow root is excluded; the deeper child row wins. The output report records
+both teacher provenances, excluded conflicts, split counts, and all input and
+output checksums. When the search configurations differ, pass the retained-base
+output and the overlay move-teacher as separate trainer sidecars; each TSV
+keeps one provenance. Inputs, outputs, and reports are local-only.
 
 ## Contract
 
@@ -205,3 +231,8 @@ path as CLI, WASM, and full-game arena consumers. Reported move scores therefore
 respect `trained_phases`, fallback routing, fixed-point `score_scale`, and any
 `fallback_additive_through_phase` residual policy; they are not raw pattern-table
 scores detached from artifact policy.
+
+The v0e trainer accepts `--residual-baseline-through-phase`; export must use the
+same inclusive `fallback_additive_through_phase`. For affected child phases,
+trainer predictions are `static baseline + learned pattern residual`;
+gradients update only the learned term.

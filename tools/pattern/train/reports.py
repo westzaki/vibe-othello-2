@@ -517,6 +517,20 @@ def run_pattern_rank_v0e(
         else initial.phase_bias
     )
     initial_pattern_weights: PatternWeights = {} if initial is None else initial.pattern_weights
+    available_pattern_ids = {
+        feature.pattern_id
+        for root in move_teacher_result.roots
+        for move in root.moves
+        for feature in move.example.features
+    }
+    missing_trainable_pattern_ids = sorted(
+        args.trainable_pattern_ids - available_pattern_ids
+    )
+    if missing_trainable_pattern_ids:
+        raise RuntimeError(
+            "trainable pattern IDs are absent from move-teacher examples: "
+            + ", ".join(missing_trainable_pattern_ids)
+        )
     phase_bias, pattern_weights, metrics_by_epoch, training_state, sampling_totals, updated_phases = (
         train_pattern_rank_v0e(
             move_teacher_result.roots,
@@ -544,6 +558,7 @@ def run_pattern_rank_v0e(
             pattern_weights,
             args.tie_margin,
             args.rank_temperature,
+            args.residual_baseline_through_phase,
         )
     report: dict[str, Any] = {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -597,6 +612,7 @@ def run_pattern_rank_v0e(
                 "schema_version": initial.schema_version,
                 "initial_trained_phases": args.initial_trained_phases,
                 "frozen_phases": sorted(args.frozen_phases),
+                "trainable_pattern_ids": sorted(args.trainable_pattern_ids),
                 "initial_nonzero_pattern_weight_count": len(initial.pattern_weights),
             }
         ),
@@ -616,6 +632,8 @@ def run_pattern_rank_v0e(
             "value_loss": "Huber(delta=1.0)",
             "pair_sampling_cap": args.pair_sampling_cap,
             "tie_margin": args.tie_margin,
+            "residual_baseline_through_phase": args.residual_baseline_through_phase,
+            "trainable_pattern_ids": sorted(args.trainable_pattern_ids),
             "pair_sampling": "deterministic seed/root_board_id sampling; 0 means all pairs",
             "root_order": "deterministic seed + epoch shuffle",
             "pair_order": "deterministic seed + epoch + root_board_id shuffle",
@@ -637,11 +655,32 @@ def run_pattern_rank_v0e(
         "gradient_clip": args.gradient_clip,
         "early_stop_patience": args.early_stop_patience,
         "update_rule": {
-            "model": "V(child) = phase_bias[child_phase] + sum(pattern_weight[child_phase, pattern_id, ternary_index])",
+            "model": (
+                "V(child) = baseline(child) + learned_residual(child)"
+                if args.residual_baseline_through_phase is not None
+                else "V(child) = phase_bias[child_phase] + sum(pattern_weight[child_phase, pattern_id, ternary_index])"
+            ),
             "root_move_score": "-V(child)",
             "ranking_loss": "softplus(-(root_score_better - root_score_worse) / rank_temperature)",
             "tie_policy": "teacher pairs with abs(score difference) <= tie_margin are excluded from ranking loss",
             "value_calibration": "optional Huber child-value loss; value_loss_weight=0 disables it",
+            "residual_baseline": (
+                None
+                if args.residual_baseline_through_phase is None
+                else {
+                    "source": "move-teacher-v3 child_baseline_score_side_to_move",
+                    "through_phase": args.residual_baseline_through_phase,
+                    "learned_term": "phase_bias + pattern weights",
+                }
+            ),
+            "trainable_parameters": {
+                "phase_bias": True,
+                "pattern_ids": (
+                    "all"
+                    if not args.trainable_pattern_ids
+                    else sorted(args.trainable_pattern_ids)
+                ),
+            },
             "weight_key": "phase + pattern_id + ternary_index; instance is excluded",
             "feature_occurrences": "duplicate occurrences contribute repeatedly to the linear score and gradient",
         },

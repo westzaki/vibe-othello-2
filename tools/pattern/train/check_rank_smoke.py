@@ -25,6 +25,14 @@ HEADER_V2 = (
     "teacher_artifact_id\tteacher_artifact_checksum\tteacher_depth\tteacher_nodes\t"
     "teacher_search_config_id\n"
 )
+HEADER_V3 = (
+    "root_board_id\troot_record_id\troot_split\troot_phase\troot_empty_count\tmove\t"
+    "child_board_id\tchild_board_a1_to_h8\tchild_empty_count\tchild_phase\t"
+    "root_move_score_side_to_move\tchild_label_score_side_to_move\t"
+    "child_baseline_score_side_to_move\tis_best_move\tbest_move_tie_count\tmove_rank\t"
+    "best_score_margin\tteacher_kind\tteacher_source\tteacher_artifact_id\t"
+    "teacher_artifact_checksum\tteacher_depth\tteacher_nodes\tteacher_search_config_id\n"
+)
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -39,17 +47,17 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
 def write_fixture(dataset: Path, move_teacher: Path) -> None:
     dataset.write_text(
         "record_id\tply\tsplit\tlabel_final_disc_diff\tphase\tpattern_features\n"
-        "a\t0\ttrain\t-4\t0\tedge-8:0:1,edge-8:0:1\n"
-        "b\t0\ttrain\t4\t0\tedge-8:0:2\n"
-        "three-a\t0\ttrain\t-6\t0\tedge-8:0:3\n"
-        "three-b\t0\ttrain\t0\t0\tedge-8:0:4\n"
-        "three-c\t0\ttrain\t6\t0\tedge-8:0:5\n"
-        "phase-a\t0\ttrain\t5\t1\tedge-8:0:6\n"
-        "phase-b\t0\ttrain\t-5\t1\tedge-8:0:7\n"
-        "tie-a\t0\ttrain\t-2\t0\tedge-8:0:8\n"
-        "tie-b\t0\ttrain\t-2\t0\tedge-8:0:9\n"
-        "validation-a\t0\tvalidation\t-3\t0\tedge-8:0:10\n"
-        "validation-b\t0\tvalidation\t3\t0\tedge-8:0:11\n",
+        "a\t0\ttrain\t-4\t0\tedge-8:0:1,edge-8:0:1,corner-3x3:0:1\n"
+        "b\t0\ttrain\t4\t0\tedge-8:0:2,corner-3x3:0:2\n"
+        "three-a\t0\ttrain\t-6\t0\tedge-8:0:3,corner-3x3:0:3\n"
+        "three-b\t0\ttrain\t0\t0\tedge-8:0:4,corner-3x3:0:4\n"
+        "three-c\t0\ttrain\t6\t0\tedge-8:0:5,corner-3x3:0:5\n"
+        "phase-a\t0\ttrain\t5\t1\tedge-8:0:6,corner-3x3:0:6\n"
+        "phase-b\t0\ttrain\t-5\t1\tedge-8:0:7,corner-3x3:0:7\n"
+        "tie-a\t0\ttrain\t-2\t0\tedge-8:0:8,corner-3x3:0:8\n"
+        "tie-b\t0\ttrain\t-2\t0\tedge-8:0:9,corner-3x3:0:9\n"
+        "validation-a\t0\tvalidation\t-3\t0\tedge-8:0:10,corner-3x3:0:10\n"
+        "validation-b\t0\tvalidation\t3\t0\tedge-8:0:11,corner-3x3:0:11\n",
         encoding="utf-8",
     )
     rows = [
@@ -74,12 +82,21 @@ def write_fixture(dataset: Path, move_teacher: Path) -> None:
     move_teacher.write_text("".join(lines), encoding="utf-8")
 
 
-def write_v2_fixture(source: Path, destination: Path, *, mismatch: bool) -> None:
+def write_v2_fixture(
+    source: Path,
+    destination: Path,
+    *,
+    mismatch: bool,
+) -> None:
     rows = source.read_text(encoding="utf-8").splitlines()
     converted = [HEADER_V2]
     for row_index, line in enumerate(rows[1:]):
         fields = line.split("\t")
-        artifact_checksum = "sha256:artifact-b" if mismatch and row_index == 1 else "sha256:artifact-a"
+        artifact_checksum = (
+            "sha256:artifact-b"
+            if (mismatch and row_index == 1)
+            else "sha256:artifact-a"
+        )
         converted.append(
             "\t".join(
                 fields[:16]
@@ -94,6 +111,17 @@ def write_v2_fixture(source: Path, destination: Path, *, mismatch: bool) -> None
                 ]
             )
             + "\n"
+        )
+    destination.write_text("".join(converted), encoding="utf-8")
+
+
+def write_v3_fixture(source_v2: Path, destination: Path) -> None:
+    rows = source_v2.read_text(encoding="utf-8").splitlines()
+    converted = [HEADER_V3]
+    for line in rows[1:]:
+        fields = line.split("\t")
+        converted.append(
+            "\t".join(fields[:12] + [fields[11]] + fields[12:]) + "\n"
         )
     destination.write_text("".join(converted), encoding="utf-8")
 
@@ -241,6 +269,48 @@ def main() -> int:
             ):
                 raise RuntimeError(f"warm-start provenance was not retained: {warm_data!r}")
 
+            selective_weights = temp / "selective.weights.json"
+            selective_report = temp / "selective.report.json"
+            train(
+                args.trainer,
+                dataset,
+                move_teacher,
+                report_input,
+                selective_weights,
+                selective_report,
+                [
+                    "--initial-weights",
+                    str(first_weights),
+                    "--initial-trained-phases",
+                    "0",
+                    "1",
+                    "--trainable-pattern-id",
+                    "edge-8",
+                ],
+            )
+            selective_payload = json.loads(selective_weights.read_text(encoding="utf-8"))
+            selective_data = json.loads(selective_report.read_text(encoding="utf-8"))
+            selective_values = weight_map(selective_payload)
+            initial_corner = {
+                key: value for key, value in values.items() if key[1] == "corner-3x3"
+            }
+            selective_corner = {
+                key: value
+                for key, value in selective_values.items()
+                if key[1] == "corner-3x3"
+            }
+            if selective_corner != initial_corner:
+                raise RuntimeError("selective training changed a non-trainable pattern table")
+            if {
+                key: value for key, value in selective_values.items() if key[1] == "edge-8"
+            } == {key: value for key, value in values.items() if key[1] == "edge-8"}:
+                raise RuntimeError("selective training did not update its trainable pattern table")
+            ranking_config = selective_data.get("ranking_config", {})
+            if ranking_config.get("trainable_pattern_ids") != ["edge-8"]:
+                raise RuntimeError(
+                    f"selective training configuration was not retained: {selective_data!r}"
+                )
+
             first_sidecar = temp / "first-move-teacher.tsv"
             second_sidecar = temp / "second-move-teacher.tsv"
             split_sidecar(move_teacher, first_sidecar, second_sidecar)
@@ -274,6 +344,34 @@ def main() -> int:
                 "teacher_search_config_id": "depth-8",
             }:
                 raise RuntimeError(f"v2 provenance was not retained in trainer report: {provenance!r}")
+            residual_v3 = temp / "move-teacher-v3.tsv"
+            write_v3_fixture(valid_v2, residual_v3)
+            residual_report = temp / "residual.report.json"
+            train(
+                args.trainer,
+                dataset,
+                residual_v3,
+                report_input,
+                temp / "residual.weights.json",
+                residual_report,
+                ["--residual-baseline-through-phase", "1"],
+            )
+            residual = json.loads(residual_report.read_text(encoding="utf-8"))
+            if (
+                residual.get("move_teacher_schema_version") != 3
+                or residual.get("ranking_config", {}).get(
+                    "residual_baseline_through_phase"
+                )
+                != 1
+                or residual.get("update_rule", {}).get("residual_baseline", {}).get(
+                    "source"
+                )
+                != "move-teacher-v3 child_baseline_score_side_to_move"
+            ):
+                raise RuntimeError(
+                    f"v3 residual training configuration was not retained: {residual!r}"
+                )
+
             mixed_v2 = temp / "mixed-v2.tsv"
             write_v2_fixture(move_teacher, mixed_v2, mismatch=True)
             rejected = subprocess.run(
@@ -287,6 +385,29 @@ def main() -> int:
             )
             if rejected.returncode == 0 or "v2 provenance must be identical" not in rejected.stderr:
                 raise RuntimeError(f"mixed v2 provenance was accepted: {rejected.stderr!r}")
+            residual_v2_rejected = subprocess.run(
+                trainer_command(
+                    args.trainer,
+                    dataset,
+                    valid_v2,
+                    report_input,
+                    temp / "residual-v2.weights.json",
+                    temp / "residual-v2.report.json",
+                )
+                + ["--residual-baseline-through-phase", "1"],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if (
+                residual_v2_rejected.returncode == 0
+                or "residual training requires move-teacher v3 baseline scores"
+                not in residual_v2_rejected.stderr
+            ):
+                raise RuntimeError(
+                    "residual training accepted a v2 teacher without baseline scores: "
+                    f"{residual_v2_rejected.stderr!r}"
+                )
 
             stopped_weights = temp / "stopped.weights.json"
             stopped_report = temp / "stopped.report.json"

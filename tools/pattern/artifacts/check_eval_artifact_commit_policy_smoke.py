@@ -22,7 +22,7 @@ def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def tiny_weights() -> tuple[bytes, list[dict[str, int | bool]]]:
+def tiny_weights(score_scale: int = 100) -> tuple[bytes, list[dict[str, int | bool]]]:
     pattern_set_id = b"tiny"
     phase_count = 13
     phase_stride = 2
@@ -36,7 +36,7 @@ def tiny_weights() -> tuple[bytes, list[dict[str, int | bool]]]:
             1,
             1,
             1,
-            1,
+            score_scale,
             phase_count,
             1,
             len(pattern_set_id),
@@ -86,7 +86,7 @@ def make_valid_repo(repo: Path) -> None:
             "format_version": 1,
             "bit_order": "a1-lsb",
             "score_unit": "disc-diff",
-            "score_scale": 1,
+            "score_scale": 100,
             "phase_count": 13,
             "pattern_set_id": "fixed-pattern-fixture-v1",
             "weights_file": "weights.bin",
@@ -179,6 +179,13 @@ def main() -> int:
         duplicate_manifest["trained_phases"] = [10, 10]
         write_json(manifest_path, duplicate_manifest)
         if not require_failure(checker, repo, "trained_phases entries must be unique"):
+            return 1
+        write_json(manifest_path, valid_manifest)
+
+        mismatched_scale = dict(valid_manifest)
+        mismatched_scale["score_scale"] = 1
+        write_json(manifest_path, mismatched_scale)
+        if not require_failure(checker, repo, "does not match weights.bin 100"):
             return 1
         write_json(manifest_path, valid_manifest)
 

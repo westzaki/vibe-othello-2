@@ -21,11 +21,12 @@ NORMALIZED_HEADER = [
     "label_perspective", "label_score_side_to_move", "occupied_count", "phase",
     "player_disc_count", "opponent_disc_count", "empty_count",
 ]
-MOVE_HEADER_V2 = [
+MOVE_HEADER_V3 = [
     "root_board_id", "root_record_id", "root_split", "root_phase", "root_empty_count",
     "move", "child_board_id", "child_board_a1_to_h8", "child_empty_count", "child_phase",
-    "root_move_score_side_to_move", "child_label_score_side_to_move", "is_best_move",
-    "best_move_tie_count", "move_rank", "best_score_margin", "teacher_kind",
+    "root_move_score_side_to_move", "child_label_score_side_to_move",
+    "child_baseline_score_side_to_move", "is_best_move", "best_move_tie_count",
+    "move_rank", "best_score_margin", "teacher_kind",
     "teacher_source", "teacher_artifact_id", "teacher_artifact_checksum", "teacher_depth",
     "teacher_nodes", "teacher_search_config_id",
 ]
@@ -83,7 +84,7 @@ def write_tsv(path: Path, rows: list[dict[str, str]]) -> None:
 def read_tsv(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != MOVE_HEADER_V2:
+        if reader.fieldnames != MOVE_HEADER_V3:
             raise RuntimeError(f"unexpected move-teacher header: {reader.fieldnames}")
         return list(reader)
 
@@ -126,13 +127,15 @@ def make_full_coverage_artifact(source_manifest: Path, source_weights: Path, out
 
 def core_command(generator: Path, normalized: Path, manifest: Path, weights: Path, output: Path,
                  *, depth: int = 1, nodes: int = 0, time_ms: int = 0, exact: int = 0,
-                 min_phase: int = 0, max_phase: int = 9) -> list[str]:
+                 min_phase: int = 0, max_phase: int = 9,
+                 coverage_policy: str = "require-all") -> list[str]:
     return [
         str(generator), "--normalized-tsv", str(normalized), "--teacher-manifest", str(manifest),
         "--teacher-weights", str(weights), "--move-teacher-out", str(output / "moves.tsv"),
         "--child-normalized-out", str(output / "children.tsv"), "--report-out", str(output / "report.json"),
         "--max-depth", str(depth), "--max-nodes", str(nodes), "--max-time-ms", str(time_ms),
-        "--search-preset", "basic", "--exact-endgame-empties", str(exact), "--min-phase",
+        "--search-preset", "basic", "--teacher-coverage-policy", coverage_policy,
+        "--exact-endgame-empties", str(exact), "--min-phase",
         str(min_phase), "--max-phase", str(max_phase),
     ]
 
@@ -187,7 +190,7 @@ def main() -> int:
                 "--report-out", str(ranking), "--summary-out", str(summary),
             ])
             if json.loads(ranking.read_text(encoding="utf-8"))["root_count"] != 1:
-                raise RuntimeError("ranking evaluator did not accept move-teacher schema v2")
+                raise RuntimeError("ranking evaluator did not accept move-teacher schema v3")
 
             asymmetric = root / "asymmetric.tsv"
             write_tsv(asymmetric, [normalized_row("asymmetric-early", asymmetric_early)])
@@ -243,6 +246,31 @@ def main() -> int:
             uncovered = root / "uncovered"
             uncovered.mkdir()
             run(core_command(args.generator, early, default_manifest, default_weights, uncovered), 1)
+            explicit_fallback = root / "explicit-fallback"
+            explicit_fallback.mkdir()
+            run(
+                core_command(
+                    args.generator,
+                    early,
+                    default_manifest,
+                    default_weights,
+                    explicit_fallback,
+                    coverage_policy="explicit-phase-aware",
+                )
+            )
+            explicit_report = json.loads(
+                (explicit_fallback / "report.json").read_text(encoding="utf-8")
+            )
+            if (
+                explicit_report.get("teacher_coverage_policy") != "explicit-phase-aware"
+                or explicit_report.get("teacher_trained_phases") != [10, 11, 12]
+                or explicit_report.get("teacher_fallback_phases") != list(range(10))
+                or explicit_report.get("teacher_source")
+                != "search-move-teacher-v2-explicit-phase-aware"
+            ):
+                raise RuntimeError(
+                    f"explicit phase-aware teacher provenance is incomplete: {explicit_report!r}"
+                )
             run(core_command(args.generator, early, manifest, weights, root / "wall-clock", time_ms=1), 2)
 
             out_of_range_weights, out_of_range_manifest = make_full_coverage_artifact(

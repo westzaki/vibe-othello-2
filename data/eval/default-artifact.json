@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "default_artifact_id": "pattern-v2-endgame-lite-100k-mt-v0",
+  "default_artifact_id": "pattern-v2-progressive-search-d5-fast6-p5-v1",
   "status": "experimental-default",
-  "artifact_manifest": "artifacts/pattern-v2-endgame-lite-100k-mt-v0/manifest.json",
-  "artifact_provenance": "artifacts/pattern-v2-endgame-lite-100k-mt-v0/provenance.json",
-  "reason": "first committed learned evaluation artifact after fair connected 100k move-teacher validation and broader bounded arena validation",
+  "artifact_manifest": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/provenance.json",
+  "reason": "progressive depth-4/depth-5 search-teacher residual with significant paired fixed-depth and fixed-time arena wins over the previous default",
   "override": {
     "custom_artifact": "--eval-artifact <manifest-path>",
     "static_eval": "--eval-mode static"

@@ -29,11 +29,12 @@ MOVE_TEACHER_HEADER_V1 = [
     "root_move_score_side_to_move", "child_label_score_side_to_move", "is_best_move", "best_move_tie_count",
     "move_rank", "best_score_margin", "teacher_source", "teacher_depth", "teacher_nodes",
 ]
-MOVE_TEACHER_HEADER_V2 = [
+MOVE_TEACHER_HEADER_V3 = [
     "root_board_id", "root_record_id", "root_split", "root_phase", "root_empty_count", "move",
     "child_board_id", "child_board_a1_to_h8", "child_empty_count", "child_phase",
-    "root_move_score_side_to_move", "child_label_score_side_to_move", "is_best_move", "best_move_tie_count",
-    "move_rank", "best_score_margin", "teacher_kind", "teacher_source", "teacher_artifact_id",
+    "root_move_score_side_to_move", "child_label_score_side_to_move",
+    "child_baseline_score_side_to_move", "is_best_move", "best_move_tie_count", "move_rank",
+    "best_score_margin", "teacher_kind", "teacher_source", "teacher_artifact_id",
     "teacher_artifact_checksum", "teacher_depth", "teacher_nodes", "teacher_search_config_id",
 ]
 PHASES = tuple(range(13))
@@ -265,9 +266,11 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return load_json(path)
 
 
-def check_full_teacher_coverage(path: Path) -> None:
+def check_teacher_coverage(path: Path, policy: str) -> None:
     values = load_manifest(path).get("trained_phases")
-    if values != list(range(13)):
+    if not isinstance(values, list):
+        raise CycleError("--teacher-manifest must explicitly report trained_phases")
+    if policy == "require-all" and values != list(range(13)):
         raise CycleError("--teacher-manifest must declare trained_phases [0, ..., 12] for search teaching")
 
 
@@ -284,7 +287,7 @@ def merge_teacher_outputs(
     output_children: Path,
     bundle_out: Path,
 ) -> None:
-    early_moves = read_tsv(early_move_teacher, MOVE_TEACHER_HEADER_V2)
+    early_moves = read_tsv(early_move_teacher, MOVE_TEACHER_HEADER_V3)
     late_moves = read_tsv(late_move_teacher, MOVE_TEACHER_HEADER_V1)
     early_rows = read_tsv(early_children, NORMALIZED_HEADER)
     late_rows = read_tsv(late_children, NORMALIZED_HEADER)
@@ -335,13 +338,13 @@ def merge_teacher_outputs(
         for key in ("teacher_kind", "teacher_source", "teacher_artifact_id", "teacher_artifact_checksum", "teacher_search_config_id")
     }
     if any({key: row[key] for key in search_provenance} != search_provenance for row in early_moves):
-        raise CycleError("search move-teacher v2 provenance differs within its sidecar")
+        raise CycleError("search move-teacher v3 provenance differs within its sidecar")
     write_json(
         bundle_out,
         {
             "schema_version": 1,
             "teacher_inputs": [
-                {"kind": "artifact_search", "schema": "move-teacher-tsv-v2", "move_rows": len(early_moves), "provenance": search_provenance},
+                {"kind": "artifact_search", "schema": "move-teacher-tsv-v3", "move_rows": len(early_moves), "provenance": search_provenance},
                 {"kind": "exact", "schema": "move-teacher-tsv-v1", "move_rows": len(late_moves), "teacher_source": late_moves[0]["teacher_source"]},
             ],
             "child_rows": len(by_record),
@@ -607,6 +610,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--search-max-nodes", type=int, default=200_000)
     parser.add_argument("--search-max-time-ms", type=int, default=0)
     parser.add_argument("--search-preset", choices=("basic", "full"), default="full")
+    parser.add_argument(
+        "--teacher-coverage-policy",
+        choices=("require-all", "explicit-phase-aware"),
+        default="require-all",
+        help="Require learned coverage for every phase or explicitly allow phase-aware fallback bootstrap teaching.",
+    )
     parser.add_argument("--search-exact-endgame-empties", type=int, default=8)
     parser.add_argument("--exact-max-empty", type=int, default=14)
     parser.add_argument("--epochs", type=int, default=8)
@@ -627,6 +636,12 @@ def parse_args() -> argparse.Namespace:
         "--freeze-phases",
         default=[],
         type=lambda value: parse_int_list(value, "--freeze-phases"),
+    )
+    parser.add_argument(
+        "--trainable-pattern-id",
+        action="append",
+        default=[],
+        help="Restrict rank training updates to this pattern table; repeat as needed.",
     )
     parser.add_argument("--gradient-clip", type=float)
     parser.add_argument("--early-stop-patience", type=int)
@@ -698,6 +713,11 @@ def parse_args() -> argparse.Namespace:
         parser.error("warm-start phases must be in [0, 12]")
     if not set(args.freeze_phases).issubset(initial_phases):
         parser.error("--freeze-phases must be a subset of --initial-trained-phases")
+    if any(not pattern_id for pattern_id in args.trainable_pattern_id):
+        parser.error("--trainable-pattern-id must be non-empty")
+    if len(set(args.trainable_pattern_id)) != len(args.trainable_pattern_id):
+        parser.error("--trainable-pattern-id must not repeat a pattern")
+    args.trainable_pattern_ids = tuple(args.trainable_pattern_id)
     return args
 
 
@@ -713,7 +733,7 @@ def preflight(args: argparse.Namespace) -> dict[str, Any]:
         for path in [*paths, *required_tools(args)]:
             if not path.is_file():
                 raise CycleError(f"required local input/tool is missing: {path}")
-        check_full_teacher_coverage(args.teacher_manifest)
+        check_teacher_coverage(args.teacher_manifest, args.teacher_coverage_policy)
     return {
         "status": "planned" if args.dry_run else "ok",
         "scale": args.scale,
@@ -728,9 +748,11 @@ def preflight(args: argparse.Namespace) -> dict[str, Any]:
         "train_only_phases": sorted(args.train_only_phases),
         "artifact_score_scale": args.artifact_score_scale,
         "fallback_additive_through_phase": args.fallback_additive_through_phase,
+        "teacher_coverage_policy": args.teacher_coverage_policy,
         "initial_weights": None if args.initial_weights is None else report_path(args.initial_weights),
         "initial_trained_phases": args.initial_trained_phases,
         "freeze_phases": args.freeze_phases,
+        "trainable_pattern_ids": list(args.trainable_pattern_ids),
         "seeds": args.seeds,
         "warnings": LOCAL_ONLY_WARNINGS,
     }
@@ -772,7 +794,7 @@ def main() -> int:
             search_move = search_dir / "search-move-teacher.tsv"
             search_children = search_dir / "search-move-teacher-child-normalized.tsv"
             search_report = search_dir / "search-move-teacher-report.json"
-            search_command = [sys.executable, str(args.search_teacher_runner), "--generator", str(args.search_generator), "--normalized-tsv", str(early_selected), "--teacher-manifest", str(args.teacher_manifest), "--teacher-weights", str(args.teacher_weights), "--output-dir", str(search_dir), "--max-depth", str(args.search_max_depth), "--max-nodes", str(args.search_max_nodes), "--max-time-ms", str(args.search_max_time_ms), "--search-preset", args.search_preset, "--exact-endgame-empties", str(args.search_exact_endgame_empties), "--min-phase", "0", "--max-phase", "9"]
+            search_command = [sys.executable, str(args.search_teacher_runner), "--generator", str(args.search_generator), "--normalized-tsv", str(early_selected), "--teacher-manifest", str(args.teacher_manifest), "--teacher-weights", str(args.teacher_weights), "--output-dir", str(search_dir), "--max-depth", str(args.search_max_depth), "--max-nodes", str(args.search_max_nodes), "--max-time-ms", str(args.search_max_time_ms), "--search-preset", args.search_preset, "--teacher-coverage-policy", args.teacher_coverage_policy, "--exact-endgame-empties", str(args.search_exact_endgame_empties), "--min-phase", "0", "--max-phase", "9"]
             stages["midgame_search_teacher"] = execute_stage(args=args, name="midgame_search_teacher", run_dir=run_dir, repo_sha=commit_sha, config={"command": search_command}, inputs=[("selected_midgame", early_selected), ("teacher_manifest", args.teacher_manifest), ("teacher_weights", args.teacher_weights)], tools=[args.search_teacher_runner, args.search_generator], outputs=[search_move, search_children, search_report], action=lambda: run_command(search_command))
 
             exact_dir = run_dir / "late_game_exact_teacher"
@@ -801,6 +823,13 @@ def main() -> int:
                 train_command.extend(["--gradient-clip", str(args.gradient_clip)])
             if args.early_stop_patience is not None:
                 train_command.extend(["--early-stop-patience", str(args.early_stop_patience)])
+            if args.fallback_additive_through_phase is not None:
+                train_command.extend(
+                    [
+                        "--residual-baseline-through-phase",
+                        str(args.fallback_additive_through_phase),
+                    ]
+                )
             if args.initial_weights is not None:
                 train_command.extend(["--initial-weights", str(args.initial_weights)])
                 train_command.extend(
@@ -808,6 +837,8 @@ def main() -> int:
                 )
                 for phase in args.freeze_phases:
                     train_command.extend(["--freeze-phase", str(phase)])
+            for pattern_id in args.trainable_pattern_ids:
+                train_command.extend(["--trainable-pattern-id", pattern_id])
             train_inputs = [
                 ("dataset", dataset),
                 ("dataset_report", dataset_report),

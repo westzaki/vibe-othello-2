@@ -119,6 +119,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-trained-phases", nargs="+", type=int)
     parser.add_argument("--freeze-phase", action="append", default=[], type=int)
     parser.add_argument(
+        "--trainable-pattern-id",
+        action="append",
+        default=[],
+        help=(
+            "Restrict pattern-rank-v0e updates to this pattern table; repeat for "
+            "multiple tables. Phase bias remains trainable."
+        ),
+    )
+    parser.add_argument(
         "--rank-temperature",
         type=float,
         help="Positive pairwise logistic-loss temperature for pattern-rank-v0e. Defaults to 1.0.",
@@ -137,6 +146,11 @@ def parse_args() -> argparse.Namespace:
         "--tie-margin",
         type=float,
         help="Teacher-score difference treated as a tie for pattern-rank-v0e. Defaults to 0.",
+    )
+    parser.add_argument(
+        "--residual-baseline-through-phase",
+        type=int,
+        help="Train learned values as additive residuals over the move-teacher v3 baseline through this inclusive phase.",
     )
     parser.add_argument("--weights-out", required=True, type=Path)
     parser.add_argument("--report-out", required=True, type=Path)
@@ -196,10 +210,12 @@ def parse_args() -> argparse.Namespace:
         or args.initial_weights is not None
         or args.initial_trained_phases is not None
         or bool(args.freeze_phase)
+        or bool(args.trainable_pattern_id)
         or args.rank_temperature is not None
         or args.value_loss_weight is not None
         or args.pair_sampling_cap is not None
         or args.tie_margin is not None
+        or args.residual_baseline_through_phase is not None
     )
     if args.mode != TRAINER_ALGORITHM_V0E and v0e_only_args:
         parser.error(
@@ -225,6 +241,10 @@ def parse_args() -> argparse.Namespace:
             parser.error("--pair-sampling-cap must be non-negative")
         if args.tie_margin < 0.0:
             parser.error("--tie-margin must be non-negative")
+        if args.residual_baseline_through_phase is not None and not (
+            0 <= args.residual_baseline_through_phase < PHASE_COUNT
+        ):
+            parser.error("--residual-baseline-through-phase must be in [0, 12]")
         if args.initial_weights is None and (
             args.initial_trained_phases is not None or args.freeze_phase
         ):
@@ -242,8 +262,13 @@ def parse_args() -> argparse.Namespace:
             parser.error("--freeze-phase must not repeat a phase")
         if not set(args.freeze_phase).issubset(initial_phases):
             parser.error("--freeze-phase entries must be included in --initial-trained-phases")
+        if any(not pattern_id for pattern_id in args.trainable_pattern_id):
+            parser.error("--trainable-pattern-id must be non-empty")
+        if len(set(args.trainable_pattern_id)) != len(args.trainable_pattern_id):
+            parser.error("--trainable-pattern-id must not repeat a pattern")
         args.initial_trained_phases = sorted(initial_phases)
         args.frozen_phases = frozenset(args.freeze_phase)
+        args.trainable_pattern_ids = frozenset(args.trainable_pattern_id)
     if args.phase_count is not None and args.phase_count != PHASE_COUNT:
         parser.error(f"--phase-count must be {PHASE_COUNT}")
     return args
