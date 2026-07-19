@@ -585,12 +585,14 @@ std::size_t PatternEvaluator::active_instance_count(std::uint8_t occupied_count)
 }
 
 bool PatternEvaluator::has_later_instance_expansion(std::uint8_t occupied_count) const noexcept {
-  const std::size_t current_count = active_instance_count(occupied_count);
+  std::size_t previous_count = active_instance_count(occupied_count);
   for (std::size_t discs = static_cast<std::size_t>(occupied_count) + 1;
        discs < phase_by_disc_count_.size(); ++discs) {
-    if (active_instance_counts_[phase_by_disc_count_[discs]] > current_count) {
+    const std::size_t current_count = active_instance_counts_[phase_by_disc_count_[discs]];
+    if (current_count > previous_count) {
       return true;
     }
+    previous_count = current_count;
   }
   return false;
 }

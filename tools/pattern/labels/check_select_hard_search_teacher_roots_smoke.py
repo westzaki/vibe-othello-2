@@ -154,6 +154,8 @@ def main() -> int:
             payload.get("selected_roots") != 4
             or payload.get("counts_by_phase") != {"0": 2, "1": 2}
             or payload.get("changed_split_assignments_from_normalized_input") != 0
+            or payload.get("selected_cross_split_board_collision_count") != 0
+            or payload.get("selected_cross_split_game_group_collision_count") != 0
             or len(selected) != 4
             or {row["record_id"] for row in selected} != {
                 "record-2",
@@ -168,6 +170,56 @@ def main() -> int:
         repeat = subprocess.run(command, capture_output=True, text=True, check=False)
         if repeat.returncode != 0 or json.loads(report.read_text(encoding="utf-8")) != payload:
             print("selection is not deterministic", file=sys.stderr)
+            return 1
+
+        collision_normalized = root / "collision-normalized.tsv"
+        collision_teacher = root / "collision-teacher.tsv"
+        collision_output = root / "collision-selected.tsv"
+        collision_report = root / "collision-report.json"
+        collision_roots = [normalized_row(10, 0), normalized_row(11, 1)]
+        for collision_root in collision_roots:
+            collision_root["game_group_id"] = "shared-game"
+            collision_root["split"] = "train"
+        collision_teacher_rows = teacher_rows(collision_roots[0], 2)
+        second_teacher_rows = teacher_rows(collision_roots[1], 3)
+        for row in second_teacher_rows:
+            row["root_split"] = "test"
+        collision_teacher_rows.extend(second_teacher_rows)
+        write_tsv(collision_normalized, NORMALIZED_FIELDS, collision_roots)
+        write_tsv(collision_teacher, TEACHER_FIELDS, collision_teacher_rows)
+        collision_command = [
+            sys.executable,
+            str(args.selector),
+            "--normalized-tsv",
+            str(collision_normalized),
+            "--move-teacher-tsv",
+            str(collision_teacher),
+            "--output-tsv",
+            str(collision_output),
+            "--report-out",
+            str(collision_report),
+            "--max-roots",
+            "2",
+            "--minimum-baseline-regret",
+            "1",
+            "--seed",
+            "7",
+        ]
+        collision_result = subprocess.run(
+            collision_command, capture_output=True, text=True, check=False
+        )
+        if (
+            collision_result.returncode == 0
+            or "selected roots have cross-split leakage after teacher split assignment"
+            not in collision_result.stderr
+            or collision_output.exists()
+            or collision_report.exists()
+        ):
+            print(
+                "game-group cross-split collision was not rejected before output: "
+                f"{collision_result.stderr}",
+                file=sys.stderr,
+            )
             return 1
 
     print("hard search-teacher root selector smoke passed")

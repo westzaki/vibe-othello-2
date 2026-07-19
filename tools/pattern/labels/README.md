@@ -138,8 +138,10 @@ contract, not the exact per-root cache contract below.
 `select_hard_search_teacher_roots.py` compares the current evaluator's best
 move with a completed search-teacher root, ranks roots by evaluator regret, and
 selects a deterministic phase-balanced subset for deeper relabeling. It joins
-back to the normalized root by record id, preserves the teacher split, rejects
-leakage or incomplete roots, and emits checksums and regret statistics.
+back to the normalized root by record id, requires normalized game-group and
+source-dataset identity, and preserves the teacher split. Before writing, it
+rejects board or game-group cross-split collisions after that split rewrite and
+records both audit counts alongside checksums and regret statistics.
 
 `overlay_search_move_teacher.py` then replaces those complete shallow roots
 with their deeper versions. It never appends two labels for the same root. If a

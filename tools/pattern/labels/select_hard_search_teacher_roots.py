@@ -224,9 +224,16 @@ def phase_balanced_selection(roots: list[HardRoot], maximum: int) -> list[HardRo
     return selected
 
 
+def cross_split_entity_count(rows: list[dict[str, str]], field: str) -> int:
+    splits_by_entity: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        splits_by_entity[row[field]].add(row["split"])
+    return sum(len(splits) > 1 for splits in splits_by_entity.values())
+
+
 def materialize_normalized(
     source: Path, output: Path, selected: list[HardRoot]
-) -> tuple[Counter[str], Counter[str], int]:
+) -> tuple[Counter[str], Counter[str], int, int, int]:
     by_record = {root.record_id: root for root in selected}
     if len(by_record) != len(selected):
         raise SelectionError("selected roots contain duplicate root_record_id values")
@@ -236,13 +243,25 @@ def materialize_normalized(
     changed_split_assignments = 0
     with source.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        required = {"record_id", "board_id", "split", "phase"}
+        required = {
+            "record_id",
+            "game_group_id",
+            "board_id",
+            "source_dataset_id",
+            "split",
+            "phase",
+        }
         require_fields(reader.fieldnames, required, source)
         fieldnames = reader.fieldnames
         for line_number, row in enumerate(reader, start=2):
             root = by_record.get(row["record_id"])
             if root is None:
                 continue
+            for field in ("game_group_id", "source_dataset_id"):
+                if not row[field]:
+                    raise SelectionError(
+                        f"{source.name}:{line_number}: empty required field {field}"
+                    )
             if (
                 row["board_id"] != root.board_id
                 or int(row["phase"]) != root.phase
@@ -267,6 +286,14 @@ def materialize_normalized(
         raise SelectionError(f"{len(missing)} selected roots are absent from normalized input: {preview}")
     assert fieldnames is not None
 
+    board_collision_count = cross_split_entity_count(rows, "board_id")
+    game_group_collision_count = cross_split_entity_count(rows, "game_group_id")
+    if board_collision_count or game_group_collision_count:
+        raise SelectionError(
+            "selected roots have cross-split leakage after teacher split assignment: "
+            f"board_id={board_collision_count}, game_group_id={game_group_collision_count}"
+        )
+
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w", newline="", encoding="utf-8", dir=output.parent, delete=False
@@ -280,6 +307,8 @@ def materialize_normalized(
         Counter(row["phase"] for row in rows),
         Counter(row["split"] for row in rows),
         changed_split_assignments,
+        board_collision_count,
+        game_group_collision_count,
     )
 
 
@@ -290,9 +319,13 @@ def main() -> int:
             args.move_teacher_tsv, args.minimum_baseline_regret, args.seed
         )
         selected = phase_balanced_selection(hard_roots, args.max_roots)
-        phase_counts, split_counts, changed_split_assignments = materialize_normalized(
-            args.normalized_tsv, args.output_tsv, selected
-        )
+        (
+            phase_counts,
+            split_counts,
+            changed_split_assignments,
+            board_collision_count,
+            game_group_collision_count,
+        ) = materialize_normalized(args.normalized_tsv, args.output_tsv, selected)
         regrets = [root.baseline_regret for root in selected]
         report = {
             "schema_version": 1,
@@ -320,6 +353,8 @@ def main() -> int:
             "selected_roots": len(selected),
             "partial_selection": len(selected) < args.max_roots,
             "changed_split_assignments_from_normalized_input": changed_split_assignments,
+            "selected_cross_split_board_collision_count": board_collision_count,
+            "selected_cross_split_game_group_collision_count": game_group_collision_count,
             "counts_by_phase": dict(sorted(phase_counts.items(), key=lambda item: int(item[0]))),
             "counts_by_split": dict(sorted(split_counts.items())),
             "baseline_regret": {

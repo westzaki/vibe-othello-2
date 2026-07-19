@@ -39,6 +39,8 @@
     "seed": 423,
     "selected_roots": 5000,
     "changed_split_assignments_from_normalized_input": 705,
+    "selected_cross_split_board_collision_count": 0,
+    "selected_cross_split_game_group_collision_count": 0,
     "selection_checksum": "sha256:f44d5bdd34cde2b1b08a67c151f5a73437076852bc450c266c2f5f79a4548a45",
     "mean_baseline_regret": 9.7786,
     "median_baseline_regret": 8.0

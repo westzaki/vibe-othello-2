@@ -42,8 +42,10 @@ artifact with its manifest, provenance, README, and NOTICE belongs under
    Training loss alone is not a strength result.
 
 Every stage writes a machine-readable report with source and output checksums.
-The hard-root selector preserves the teacher's explicit split assignments; the
-generator and overlay reject incomplete roots and cross-split child collisions.
+The hard-root selector preserves the teacher's explicit split assignments, then
+rejects board or game-group cross-split collisions before output and records
+both audit counts. The generator and overlay reject incomplete roots and
+cross-split child collisions.
 Progressive training passes the retained shallow roots and deeper overlay roots
 as separate, disjoint sidecars so each input retains one search configuration
 in the trainer report.
