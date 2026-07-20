@@ -112,7 +112,7 @@ embedded checksum and schema-compatible pattern layout.
 the hot runtime loader:
 
 * artifact id, version, status, pattern set, and trainer mode
-* teacher kind and label derivation
+* teacher kind and label derivation, including range-specific generation routes
 * selected source checksum
 * source attribution
 * redistribution flags
@@ -124,14 +124,13 @@ the hot runtime loader:
 * direct validation summary against the artifact being replaced
 * non-claims
 
-The current WHTOR artifact attributes the FFO database snapshot, records the
-full-corpus played-move training and rejected saturation follow-ups, and states
-that it is not an official WHTOR or FFO artifact. Its frozen late-game lineage
-retains the previous Egaroucid attribution. Promotion uses an independent
-board-core-generated opening suite whose board and transcript-prefix overlap
-with WHTOR is audited, then directly compares the final candidate with the
-previous default. Bootstrap comparisons remain learning evidence only. The
-previous progressive-search artifact remains committed as the rollback target.
+The current Egaroucid board-score artifact records the separate Egaroucid
+7.4.0 enumeration/evaluation/negamax and Egaroucid 7.5.1 self-play terminal
+outcome label routes by occupied-count range. Its lineage retains the previous
+full-WHTOR policy artifact notice. Promotion directly compares the final
+candidate with that previous default on both source-disjoint 16-ply openings
+and short openings that exercise updated phases 0-2. The short-opening suite
+is a gameplay strength gate rather than a source-disjoint holdout.
 
 ## Resolution Order
 

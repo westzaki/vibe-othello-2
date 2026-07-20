@@ -26,10 +26,12 @@ from typing import Any, TextIO
 IMPORTER_VERSION = "egaroucid-board-score-v1"
 IDENTITY_POLICY_VERSION = "egaroucid-board-score-identity-v1"
 SOURCE_KIND = "egaroucid-board-score-local"
-LABEL_KIND = "teacher_static_eval_disc_diff"
+LABEL_KIND = "teacher_value_disc_diff"
 LABEL_UNIT = "disc"
 LABEL_PERSPECTIVE = "side_to_move"
 PHASE_COUNT = 13
+ENUMERATED_NEGAMAX = "enumerated_static_eval_negamax"
+SELFPLAY_TERMINAL = "selfplay_terminal_outcome"
 HEADER = (
     "record_id",
     "position_id",
@@ -55,8 +57,9 @@ NOTES = (
     "local-only external corpus",
     "raw Egaroucid archives remain untouched and must not be committed",
     "generated normalized TSV, reports, datasets, and weights must not be committed",
-    "labels are Egaroucid board-score estimates in disc units from the side-to-move perspective",
-    "labels are static teacher estimates, not exact solve labels",
+    "labels use the neutral teacher_value_disc_diff contract in disc units from the side-to-move perspective",
+    "4-15 occupied rows come from Egaroucid 7.4.0 lv17 enumerated progress, static evaluation, and negamax",
+    "16-63 occupied rows come from Egaroucid 7.5.1 lv17 self-play terminal outcomes",
     "board-score rows have no transcript identity; game_group_id is the canonical board group",
     "split is derived from dataset_id and the canonical board group",
     "not an Elo result, production strength claim, or publication gate",
@@ -75,6 +78,7 @@ class CandidateRow:
     phase: int
     split: str
     label: int
+    label_generation: str
     line_text: str
 
 
@@ -177,7 +181,9 @@ class Summary:
     emitted_positions: int = 0
     duplicate_retained_board_rows: int = 0
     candidate_counts_by_phase: dict[str, int] = field(default_factory=dict)
+    candidate_counts_by_label_generation: dict[str, int] = field(default_factory=dict)
     counts_by_phase: dict[str, int] = field(default_factory=dict)
+    counts_by_label_generation: dict[str, int] = field(default_factory=dict)
     counts_by_split: dict[str, int] = field(
         default_factory=lambda: {"train": 0, "validation": 0, "test": 0}
     )
@@ -204,6 +210,10 @@ def digest_for_parts(*parts: object) -> str:
 
 def phase_for_occupied_count(occupied_count: int) -> int:
     return min(PHASE_COUNT - 1, ((occupied_count - 4) * PHASE_COUNT) // 60)
+
+
+def label_generation_for_occupied_count(occupied_count: int) -> str:
+    return ENUMERATED_NEGAMAX if occupied_count <= 15 else SELFPLAY_TERMINAL
 
 
 def split_for_group(dataset_id: str, game_group_id: str) -> str:
@@ -309,8 +319,8 @@ def parse_source_line(text: str) -> tuple[str, int, int, int, int]:
     opponent_count = board.count("O")
     empty_count = board.count("-")
     occupied_count = player_count + opponent_count
-    if occupied_count < 4 or occupied_count > 64:
-        raise ValueError("occupied disc count must be in [4, 64]")
+    if occupied_count < 4 or occupied_count > 63:
+        raise ValueError("occupied disc count must be in [4, 63]")
     return board, score, player_count, opponent_count, empty_count
 
 
@@ -343,6 +353,7 @@ def make_candidate(
     split = split_for_group(dataset_id, group_id)
     occupied_count = player_count + opponent_count
     phase = phase_for_occupied_count(occupied_count)
+    label_generation = label_generation_for_occupied_count(occupied_count)
     fields = (
         record_id,
         position_id,
@@ -370,6 +381,7 @@ def make_candidate(
         phase=phase,
         split=split,
         label=score,
+        label_generation=label_generation,
         line_text="\t".join(fields),
     )
 
@@ -384,6 +396,9 @@ def record_emitted(summary: Summary, row: CandidateRow) -> None:
     summary.emitted_positions += 1
     phase_key = str(row.phase)
     summary.counts_by_phase[phase_key] = summary.counts_by_phase.get(phase_key, 0) + 1
+    summary.counts_by_label_generation[row.label_generation] = (
+        summary.counts_by_label_generation.get(row.label_generation, 0) + 1
+    )
     summary.counts_by_split[row.split] += 1
     summary.label_min = (
         row.label if summary.label_min is None else min(summary.label_min, row.label)
@@ -442,6 +457,44 @@ def report_data(
         "counts_by_phase": summary.counts_by_phase,
         "counts_by_split": summary.counts_by_split,
         "counts_by_label_kind": {LABEL_KIND: summary.emitted_positions},
+        "candidate_counts_by_label_generation": (
+            summary.candidate_counts_by_label_generation
+        ),
+        "counts_by_label_generation": summary.counts_by_label_generation,
+        "label_generation_by_occupied_range": [
+            {
+                "occupied_count_min": 4,
+                "occupied_count_max": 15,
+                "generation_kind": ENUMERATED_NEGAMAX,
+                "engine": "Egaroucid for Console 7.4.0 lv17",
+                "procedure": (
+                    "enumerate every progression through move 11, evaluate with "
+                    "Egaroucid, then negamax the results"
+                ),
+                "candidate_rows": summary.candidate_counts_by_label_generation.get(
+                    ENUMERATED_NEGAMAX, 0
+                ),
+                "emitted_rows": summary.counts_by_label_generation.get(
+                    ENUMERATED_NEGAMAX, 0
+                ),
+            },
+            {
+                "occupied_count_min": 16,
+                "occupied_count_max": 63,
+                "generation_kind": SELFPLAY_TERMINAL,
+                "engine": "Egaroucid for Console 7.5.1 lv17",
+                "procedure": (
+                    "self-play terminal score after a randomized opening length "
+                    "with 7 <= N <= 59"
+                ),
+                "candidate_rows": summary.candidate_counts_by_label_generation.get(
+                    SELFPLAY_TERMINAL, 0
+                ),
+                "emitted_rows": summary.counts_by_label_generation.get(
+                    SELFPLAY_TERMINAL, 0
+                ),
+            },
+        ],
         "label_min": summary.label_min,
         "label_max": summary.label_max,
         "elapsed_seconds": round(elapsed_seconds, 3),
@@ -514,10 +567,20 @@ def run_import(args: argparse.Namespace) -> Summary:
                                         )
                                     continue
                                 summary.valid_rows += 1
-                                phase = phase_for_occupied_count(player + opponent)
+                                occupied_count = player + opponent
+                                phase = phase_for_occupied_count(occupied_count)
                                 phase_key = str(phase)
                                 summary.candidate_counts_by_phase[phase_key] = (
                                     summary.candidate_counts_by_phase.get(phase_key, 0) + 1
+                                )
+                                generation = label_generation_for_occupied_count(
+                                    occupied_count
+                                )
+                                summary.candidate_counts_by_label_generation[generation] = (
+                                    summary.candidate_counts_by_label_generation.get(
+                                        generation, 0
+                                    )
+                                    + 1
                                 )
                                 row = make_candidate(
                                     dataset_id=dataset_id,

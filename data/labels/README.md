@@ -66,6 +66,11 @@ Typical solve/search metadata fields are `teacher_depth` and `teacher_nodes`.
 `label_unit` is `disc`, and `label_perspective` is `side_to_move` for the
 teacher labels covered by this policy.
 
+`teacher_value_disc_diff` is the neutral contract for a source whose value
+generation procedure changes by row range. Its corpus manifest and import
+report must declare those ranges and procedures; it must not be silently
+treated as a uniform static-evaluator or observed-outcome label.
+
 WTHOR theoretical cutoff sidecars are a separate exact-outcome contract:
 `label_kind = wld`, `label_unit = wld`, and
 `label_perspective = side_to_move`. They preserve only the sign of WTHOR's

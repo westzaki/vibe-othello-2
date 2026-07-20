@@ -138,8 +138,10 @@ std::string usage() {
 
 Inputs may be extracted .txt files or directories containing .txt files.
 Each non-empty row must be '<64-character X/O/- board> <integer score>'.
-X is the side to move and the score is an estimated final disc difference
-from X's perspective.
+X is the side to move and the score is a teacher value in final-disc-difference
+units from X's perspective. Its generation procedure depends on occupied count:
+4-15 uses Egaroucid 7.4.0 lv17 enumeration, evaluation, and negamax; 16-63
+uses the terminal outcome of Egaroucid 7.5.1 lv17 self-play.
 )";
 }
 
@@ -887,24 +889,33 @@ bool write_report(const std::filesystem::path& path, const Args& args,
     return false;
   }
   output << std::setprecision(12);
-  output
-      << "{\n"
-      << "  \"schema_version\": 1,\n"
-      << "  \"trainer_algorithm\": \"egaroucid-board-score-streaming-huber-v1\",\n"
-      << "  \"teacher_semantics\": \"static final disc-difference estimate from side to move\",\n"
-      << "  \"source_artifact_id\": \"" << json_escape(artifact.artifact_id) << "\",\n"
-      << "  \"source_artifact_weights_checksum\": \"" << json_escape(artifact.weights_checksum)
-      << "\",\n"
-      << "  \"weights_checksum\": \"" << weights_checksum << "\",\n"
-      << "  \"weights_checksum_algorithm\": \"fnv1a64\",\n"
-      << "  \"weights_schema_version\": \"pattern-eval-weights-v2\",\n"
-      << "  \"pattern_set_id\": \"pattern-v2-endgame-lite\",\n"
-      << "  \"pattern_contract_digest\": \"fnv1a64:05941913c7fe9895\",\n"
-      << "  \"index_mode\": \"raw\",\n"
-      << "  \"phase_mapping_id\": \"disc-count-13-v1\",\n"
-      << "  \"score_unit\": \"disc-diff\",\n"
-      << "  \"epochs_requested\": " << args.epochs << ",\n"
-      << "  \"learning_rate_schedule\": [";
+  output << "{\n"
+         << "  \"schema_version\": 1,\n"
+         << "  \"trainer_algorithm\": \"egaroucid-board-score-streaming-huber-v1\",\n"
+         << "  \"label_kind\": \"teacher_value_disc_diff\",\n"
+         << "  \"teacher_semantics\": \"side-to-move teacher value in final-disc-difference "
+            "units; generation procedure depends on occupied count\",\n"
+         << "  \"label_generation_by_occupied_range\": [\n"
+         << "    {\"occupied_count_min\": 4, \"occupied_count_max\": 15, "
+            "\"generation_kind\": \"enumerated_static_eval_negamax\", "
+            "\"engine\": \"Egaroucid for Console 7.4.0 lv17\"},\n"
+         << "    {\"occupied_count_min\": 16, \"occupied_count_max\": 63, "
+            "\"generation_kind\": \"selfplay_terminal_outcome\", "
+            "\"engine\": \"Egaroucid for Console 7.5.1 lv17\"}\n"
+         << "  ],\n"
+         << "  \"source_artifact_id\": \"" << json_escape(artifact.artifact_id) << "\",\n"
+         << "  \"source_artifact_weights_checksum\": \"" << json_escape(artifact.weights_checksum)
+         << "\",\n"
+         << "  \"weights_checksum\": \"" << weights_checksum << "\",\n"
+         << "  \"weights_checksum_algorithm\": \"fnv1a64\",\n"
+         << "  \"weights_schema_version\": \"pattern-eval-weights-v2\",\n"
+         << "  \"pattern_set_id\": \"pattern-v2-endgame-lite\",\n"
+         << "  \"pattern_contract_digest\": \"fnv1a64:05941913c7fe9895\",\n"
+         << "  \"index_mode\": \"raw\",\n"
+         << "  \"phase_mapping_id\": \"disc-count-13-v1\",\n"
+         << "  \"score_unit\": \"disc-diff\",\n"
+         << "  \"epochs_requested\": " << args.epochs << ",\n"
+         << "  \"learning_rate_schedule\": [";
   for (std::size_t index = 0; index < args.learning_rate_schedule.size(); ++index) {
     output << (index == 0 ? "" : ", ") << args.learning_rate_schedule[index];
   }

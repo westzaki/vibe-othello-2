@@ -64,6 +64,8 @@ Manifests should record:
 * checksum when available
 * local-only path placeholder, without personal absolute paths
 * review notes for restrictions, attribution, and provenance caveats
+* normalized label kind and occupied-count range generation procedures when
+  one source mixes label-generation routes
 
 The current schema is `dataset-manifest.schema.json`. Raw data and derived
 datasets remain local-only. Reviewed runtime artifacts follow `data/eval/`
@@ -92,7 +94,9 @@ The Egaroucid board-score importer reads
 immutable run directory under `training/egaroucid-board-score/`. Full streaming
 training uses extracted text under
 `training/cache/egaroucid-board-score-v2025-02-02/`; it never writes generated
-or extracted files into `corpora/`.
+or extracted files into `corpora/`. Import reports preserve the separate
+4-15 occupied Egaroucid 7.4.0 enumeration/negamax and 16-63 occupied Egaroucid
+7.5.1 self-play terminal-outcome generation procedures.
 
 Do not commit copied GPL engine code, GPL evaluation weights, GPL-derived
 tables, or line-by-line translations of GPL implementation details. Use public

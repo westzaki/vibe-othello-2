@@ -71,9 +71,12 @@ The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 `provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
 The current default reports reviewed learning coverage for all 13 phases. It
-uses all 25,514,097 Egaroucid 7.5.1 lv17 board-score positions. Phases 0 through
-9 add a learned residual to the deterministic fallback, and phases 10 through
-12 use learned replacement weights. No search option changes are required.
+uses all 25,514,097 Egaroucid board-score positions. The 1,514,097 positions
+with 4-15 occupied squares come from Egaroucid 7.4.0 lv17 enumeration,
+evaluation, and negamax. The 24,000,000 positions with 16-63 occupied squares
+use terminal outcomes from Egaroucid 7.5.1 lv17 self-play. Phases 0 through 9
+add a learned residual to the deterministic fallback, and phases 10 through 12
+use learned replacement weights. No search option changes are required.
 
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
@@ -99,13 +102,16 @@ missing, corrupt, or incompatible artifact data exits with an error instead of
 silently falling back to static evaluation.
 
 The current artifact cleared direct paired local arena gates against the
-previous default: 73.35% at depth 3, 69.14% at depth 5, and 66.99% at
-10 ms plus exact8. Each paired 95% interval excluded 50%, all games were clean,
-and the depth-3 argument-order and same-artifact controls passed. The
-board-core-generated promotion suite had zero audited board and
-transcript-prefix overlap with WHTOR. It is still not an Elo result, not a
-self-play improvement claim, not a production-strength claim, not publication
-readiness, and not an official WHTOR, FFO, or Egaroucid artifact.
+previous default: 68.05% at depth 3, 67.97% at depth 5, and 68.85% at 10 ms
+plus exact8 on source-disjoint 16-ply openings. Short-opening depth-3 gates
+scored 69.92% from every unique 4-ply board, 71.48% from 256 8-ply openings,
+and 66.70% from 256 11-ply openings, directly exercising updated phases 0-2.
+Each paired 95% interval excluded 50%, all games were clean, and the depth-3
+argument-order and same-artifact controls passed. The short-opening suite is a
+gameplay strength gate, not a source-disjoint holdout. It is still not an Elo
+result, not a self-play improvement claim, not a production-strength claim,
+not publication readiness, and not an official WHTOR, FFO, or Egaroucid
+artifact.
 
 ## Known Gaps
 

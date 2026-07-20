@@ -216,3 +216,27 @@ permission to publish derived weights.
 `import_egaroucid_sequences.py` remains the importer for local Egaroucid
 sequence transcripts. Its existing manifest, replay helper, sampling modes,
 and smoke tests are independent of the WTHOR binary adapter.
+
+## Egaroucid Board Scores
+
+`import_egaroucid_board_scores.py` streams `Egaroucid_Train_Data.zip` into
+normalized TSV schema v2. The normalized label is the neutral
+`teacher_value_disc_diff` in disc units from the side-to-move perspective.
+Its generation procedure depends on occupied count:
+
+* 4-15 occupied: 1,514,097 positions from Egaroucid for Console 7.4.0 lv17;
+  enumerate all progressions through move 11, evaluate them, and apply negamax
+* 16-63 occupied: 24,000,000 positions labeled with terminal scores from
+  Egaroucid for Console 7.5.1 lv17 self-play
+
+The corpus manifest and import report preserve both ranges and generation
+procedures. Raw archives, normalized rows, and reports remain local-only.
+
+```sh
+python3 tools/data-import/import_egaroucid_board_scores.py \
+  --input "$VIBE_OTHELLO_CORPORA/Egaroucid_Train_Data.zip" \
+  --manifest \
+  data/corpora/manifests/egaroucid-train-data-board-score-v2025-02-02.manifest.json \
+  --output "$VIBE_OTHELLO_TRAINING/egaroucid-board-scores.tsv" \
+  --report "$VIBE_OTHELLO_TRAINING/egaroucid-board-scores.report.json"
+```

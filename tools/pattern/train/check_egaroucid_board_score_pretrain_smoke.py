@@ -71,6 +71,14 @@ def main() -> int:
             assert report_payload["trainer_algorithm"] == (
                 "egaroucid-board-score-streaming-huber-v1"
             )
+            assert report_payload["label_kind"] == "teacher_value_disc_diff"
+            assert [
+                item["generation_kind"]
+                for item in report_payload["label_generation_by_occupied_range"]
+            ] == [
+                "enumerated_static_eval_negamax",
+                "selfplay_terminal_outcome",
+            ]
             assert report_payload["learning_rate_schedule"] == [0.01, 0.02]
             assert report_payload["quantize_between_epochs"] is True
             assert len(report_payload["metrics_by_epoch"]) == 2

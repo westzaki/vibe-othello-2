@@ -27,6 +27,11 @@ an existing `pattern-v2-endgame-lite` runtime artifact, streams each source row,
 and applies Huber value updates without materializing normalized or expanded
 training data.
 
+The common normalized label is `teacher_value_disc_diff`. Its generation is
+range-dependent: 4-15 occupied positions come from Egaroucid 7.4.0 lv17
+enumeration, evaluation, and negamax; 16-63 occupied positions use terminal
+outcomes from Egaroucid 7.5.1 lv17 self-play.
+
 Keep the source ZIP under `$VIBE_OTHELLO_CORPORA` and extract its text members
 under `$VIBE_OTHELLO_TRAINING/cache/`. A reproducible multi-pass run can supply
 one `--learning-rate` per epoch. `--quantize-between-epochs` matches chained
@@ -112,7 +117,7 @@ Source ZIPs stay untouched in `$VIBE_OTHELLO_CORPORA`. Existing run directories
 are never overwritten. Reports use role-based local paths rather than personal
 absolute paths.
 
-These labels use `teacher_static_eval_disc_diff`. The runner produces local
+These labels use `teacher_value_disc_diff`. The runner produces local
 trainer weights without changing the default artifact. The `_v0002_0.zip` and
 `_v0002_1.zip` transcript archives remain inputs to
 `tools/data-import/import_egaroucid_sequences.py`, not this board-score route.

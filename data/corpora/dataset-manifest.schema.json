@@ -68,6 +68,56 @@
       "pattern": "^[a-f0-9]{64}$",
       "description": "SHA-256 of the exact source payload, or the empty payload digest for manifest-only samples."
     },
+    "label_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional normalized label kind for sources with a declared label contract."
+    },
+    "label_generation_by_occupied_range": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Optional range-specific label generation provenance.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "occupied_count_min",
+          "occupied_count_max",
+          "position_count",
+          "generation_kind",
+          "engine",
+          "procedure"
+        ],
+        "properties": {
+          "occupied_count_min": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 64
+          },
+          "occupied_count_max": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 64
+          },
+          "position_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "generation_kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "engine": {
+            "type": "string",
+            "minLength": 1
+          },
+          "procedure": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "notes": {
       "type": "string",
       "minLength": 1,

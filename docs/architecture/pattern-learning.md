@@ -169,6 +169,7 @@ Supported architecture-level label kinds include:
 | `teacher_exact_final_disc_diff` | Exact final disc difference from the side-to-move perspective for eligible local rows. |
 | `teacher_search_final_disc_diff` | Search-generated final disc estimate from the side-to-move perspective. |
 | `teacher_static_eval_disc_diff` | Static-evaluator estimate in disc units from the side-to-move perspective. |
+| `teacher_value_disc_diff` | Neutral teacher value in disc-difference units whose generation procedure is declared separately by source range. |
 | `teacher_exact_move_child_final_disc_diff` | Exact after-move child final disc difference from the child side-to-move perspective. |
 | `wld` | Win/draw/loss labels only; not silently converted to exact disc differences. |
 | `policy_move` | Move target for later policy or ordering work. |

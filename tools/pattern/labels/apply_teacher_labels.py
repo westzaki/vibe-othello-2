@@ -48,6 +48,7 @@ TEACHER_LABEL_KINDS = {
     "teacher_exact_final_disc_diff",
     "teacher_search_final_disc_diff",
     "teacher_static_eval_disc_diff",
+    "teacher_value_disc_diff",
 }
 LOCAL_ONLY_NOTES = [
     "local-only teacher label overlay",

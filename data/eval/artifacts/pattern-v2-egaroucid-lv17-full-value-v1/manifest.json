@@ -5,7 +5,7 @@
   "format": "vibe-othello-pattern-eval",
   "format_version": 1,
   "nonzero_pattern_weights": 682237,
-  "notes": "Egaroucid 7.5.1 lv17 full board-score value artifact; experimental default",
+  "notes": "Egaroucid 7.4.0/7.5.1 lv17 full board-score value artifact; experimental default",
   "pattern_set_id": "pattern-v2-endgame-lite",
   "patterns": [
     {

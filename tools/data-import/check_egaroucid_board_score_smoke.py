@@ -139,7 +139,7 @@ def check_rows(rows: list[dict[str, str]]) -> None:
         raise AssertionError(f"expected two phase-0 rows and one phase-12 row, got {len(rows)}")
     if {row["source_dataset_id"] for row in rows} != {DATASET_ID}:
         raise AssertionError("unexpected source_dataset_id")
-    if {row["label_kind"] for row in rows} != {"teacher_static_eval_disc_diff"}:
+    if {row["label_kind"] for row in rows} != {"teacher_value_disc_diff"}:
         raise AssertionError("unexpected label_kind")
     if {row["label_unit"] for row in rows} != {"disc"}:
         raise AssertionError("unexpected label_unit")
@@ -208,6 +208,24 @@ def main() -> int:
             for key, value in expected.items():
                 if report.get(key) != value:
                     raise AssertionError(f"report mismatch {key}: {report.get(key)!r}")
+            if report.get("candidate_counts_by_label_generation") != {
+                "enumerated_static_eval_negamax": 6,
+                "selfplay_terminal_outcome": 1,
+            }:
+                raise AssertionError("candidate label-generation counts are incorrect")
+            if report.get("counts_by_label_generation") != {
+                "enumerated_static_eval_negamax": 2,
+                "selfplay_terminal_outcome": 1,
+            }:
+                raise AssertionError("emitted label-generation counts are incorrect")
+            generation = report.get("label_generation_by_occupied_range")
+            if not isinstance(generation, list) or [
+                item.get("engine") for item in generation
+            ] != [
+                "Egaroucid for Console 7.4.0 lv17",
+                "Egaroucid for Console 7.5.1 lv17",
+            ]:
+                raise AssertionError("label-generation provenance is incorrect")
             serialized_report = report_a.read_text(encoding="utf-8")
             if str(root) in serialized_report:
                 raise AssertionError("report leaked an absolute temporary path")

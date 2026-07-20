@@ -6,7 +6,8 @@
   "repository_base_sha": "b03cacacac2f92fe3b620ffe74cde40a39601f62",
   "pattern_set": "pattern-v2-endgame-lite",
   "trainer_mode": "egaroucid-board-score-streaming-huber-v1",
-  "teacher_semantics": "Egaroucid static final disc-difference estimate from the side-to-move perspective",
+  "label_kind": "teacher_value_disc_diff",
+  "teacher_semantics": "side-to-move teacher value in disc-difference units; generation procedure depends on occupied count",
   "trained_phases": [
     0,
     1,
@@ -41,11 +42,28 @@
   "source": {
     "dataset_id": "egaroucid-train-data-board-score-v2025-02-02",
     "source_name": "Egaroucid_Train_Data",
-    "teacher_engine": "Egaroucid 7.5.1 lv17",
     "source_file_count": 26,
     "position_count": 25514097,
     "source_archive_sha256": "sha256:2c2da46c343b167d2a1dfa004881ce2b792425355aeb9378b93d03fa41dcbbd5",
-    "source_page": "https://www.egaroucid.nyanyan.dev/ja/technology/train-data/"
+    "source_page": "https://www.egaroucid.nyanyan.dev/ja/technology/train-data/",
+    "label_generation_by_occupied_range": [
+      {
+        "occupied_count_min": 4,
+        "occupied_count_max": 15,
+        "position_count": 1514097,
+        "generation_kind": "enumerated_static_eval_negamax",
+        "engine": "Egaroucid for Console 7.4.0 lv17",
+        "procedure": "enumerate every progression through move 11, evaluate each progression with Egaroucid, and negamax the results"
+      },
+      {
+        "occupied_count_min": 16,
+        "occupied_count_max": 63,
+        "position_count": 24000000,
+        "generation_kind": "selfplay_terminal_outcome",
+        "engine": "Egaroucid for Console 7.5.1 lv17",
+        "procedure": "use the terminal score from self-play after a randomized opening length with 7 <= N <= 59"
+      }
+    ]
   },
   "training": {
     "initial_artifact_id": "pattern-v2-wthor-full-policy-v1",
@@ -81,7 +99,7 @@
       "updated_weight_key_occurrences": 4850438605,
       "trainer_weights_checksum": "fnv1a64:0b5afb83f822e1ff",
       "trainer_weights_sha256": "sha256:3ae58c65fba47a6882bd777985da65a97dba91f5214bcff859dee52a2c080d15",
-      "trainer_report_sha256": "sha256:a2a5598ca167fe7ec5147f359c251e1306f55c31f9a8ae9967de2cf31d702780",
+      "trainer_report_sha256": "sha256:80b38632b394629d0cc513eaac288897c2bdd04acb6db45d49f0f5394e0ad59b",
       "intermediate_runtime_checksum": "0x26b4307a"
     },
     "late_phase_stage": {
@@ -108,7 +126,7 @@
       "updated_weight_key_occurrences": 333989869,
       "trainer_weights_checksum": "fnv1a64:7b030b1c0ecfa545",
       "trainer_weights_sha256": "sha256:6621b7735f30c489049886d914c449c12ec43b8b82d3620de60a2015298189ae",
-      "trainer_report_sha256": "sha256:1e23a2f5e83a7a7ebc4d95f28979a9834e151722ebb510f8f16364ff813df4ea"
+      "trainer_report_sha256": "sha256:48bb393b1c8a8c53597290dd7b43ff2e8a7ff195c940410a88e783fb962bf068"
     },
     "total_position_visits": 153084582,
     "all_source_positions_visited_in_each_epoch": true,
@@ -206,6 +224,160 @@
       "selected_openings_checksum": "fnv1a64:90c1ca1f310f6091",
       "report_checksum": "fnv1a64:1e3ac339b01f1ba2",
       "report_sha256": "sha256:ceac159c5cbf789d6818f5c9b5fc6af07f7e92fc64a298c09db2c0deb3565110"
+    },
+    "short_opening_early_phase_gate": {
+      "purpose": "gameplay strength gate for updated phases 0-2; not a source-disjoint holdout",
+      "shared_arena_config": {
+        "arena_version": "full-game-artifact-arena-v4",
+        "executable_checksum": "fnv1a64:22c20ecf6b1bc637",
+        "candidate_manifest_content_checksum": "fnv1a64:91765d15b823a1f5",
+        "baseline_manifest_content_checksum": "fnv1a64:5704be724efa0fac",
+        "search_preset": "full",
+        "depth": 3,
+        "exact_empties": 0,
+        "persistent_session": true,
+        "tt_requested_bytes": 16777216,
+        "candidate_probcut_mode": "off",
+        "baseline_probcut_mode": "off",
+        "bootstrap_samples": 10000
+      },
+      "start_position": {
+        "opening_generation_plies": 0,
+        "opening_pairs": 1,
+        "games": 2,
+        "wins": 1,
+        "losses": 1,
+        "draws": 0,
+        "score_rate": 0.5,
+        "paired_bootstrap_95": [
+          0.5,
+          0.5
+        ],
+        "average_disc_difference": 14.0,
+        "failed_games": 0,
+        "illegal_games": 0,
+        "candidate_search_calls_by_phase": {
+          "0": 5,
+          "1": 5,
+          "2": 4,
+          "3": 5
+        },
+        "baseline_search_calls_by_phase": {
+          "0": 5,
+          "1": 5,
+          "2": 4,
+          "3": 5
+        },
+        "opening_checksum": "sha256:70975e8d59455851902d9146e3a27a6d73229201bd78a18e9a46470501907582",
+        "opening_source_checksum": "fnv1a64:c6122ee2faf4b0ef",
+        "selected_openings_checksum": "fnv1a64:1bded648a15eaab6",
+        "seed": 20260920,
+        "bootstrap_seed": 20260930,
+        "report_checksum": "fnv1a64:b2e6592ce600891f",
+        "report_sha256": "sha256:cc2a02cbf87464224897882be90ee1a667554bdbff2b0c2353b5fa1e87851ef6"
+      },
+      "four_ply": {
+        "opening_generation_plies": 4,
+        "opening_pairs": 236,
+        "games": 472,
+        "wins": 323,
+        "losses": 135,
+        "draws": 14,
+        "score_rate": 0.699153,
+        "paired_bootstrap_95": [
+          0.657839,
+          0.738347
+        ],
+        "average_disc_difference": 10.970339,
+        "failed_games": 0,
+        "illegal_games": 0,
+        "candidate_search_calls_by_phase": {
+          "0": 236,
+          "1": 1180,
+          "2": 944,
+          "3": 1180
+        },
+        "baseline_search_calls_by_phase": {
+          "0": 236,
+          "1": 1180,
+          "2": 944,
+          "3": 1180
+        },
+        "opening_checksum": "sha256:45c569b8db8e5023c154a4996802de0b4a9fcc3846fa7c999a0a5a30bf0381e8",
+        "opening_source_checksum": "fnv1a64:7a1e5a19761a14e4",
+        "generator_report_sha256": "sha256:ee92722030cd91eb82c8cb92b85e3bb10d3f92f0c9018734d73310f53900aa0c",
+        "selected_openings_checksum": "fnv1a64:313b97f012e26b5b",
+        "seed": 20260921,
+        "bootstrap_seed": 20260931,
+        "report_checksum": "fnv1a64:c29b863c61291f2d",
+        "report_sha256": "sha256:68f9d454e5acb525bf133f54bde60b62ea52820cb377f327cd7ca6de8a330726"
+      },
+      "eight_ply": {
+        "opening_generation_plies": 8,
+        "opening_pairs": 256,
+        "games": 512,
+        "wins": 357,
+        "losses": 137,
+        "draws": 18,
+        "score_rate": 0.714844,
+        "paired_bootstrap_95": [
+          0.676758,
+          0.751953
+        ],
+        "average_disc_difference": 12.976562,
+        "failed_games": 0,
+        "illegal_games": 0,
+        "candidate_search_calls_by_phase": {
+          "1": 512,
+          "2": 1024,
+          "3": 1280
+        },
+        "baseline_search_calls_by_phase": {
+          "1": 512,
+          "2": 1024,
+          "3": 1280
+        },
+        "opening_checksum": "sha256:3c2e51fdce57e0089a3adc2c435b228f356ec684575e3c87f70b9e97b8e81fa1",
+        "opening_source_checksum": "fnv1a64:c116fdddaf370990",
+        "generator_report_sha256": "sha256:526234799fc52a1ac2b33206edc6f6f984edd10c5cdc0572323a50818263ad0e",
+        "selected_openings_checksum": "fnv1a64:c2aebad8fb9feaa7",
+        "seed": 20260922,
+        "bootstrap_seed": 20260932,
+        "report_checksum": "fnv1a64:73c428b10c275c7c",
+        "report_sha256": "sha256:8019984d45f18323a9587f58a4366bb291b97808658b6fd654655f3c1dccf20a"
+      },
+      "eleven_ply": {
+        "opening_generation_plies": 11,
+        "opening_pairs": 256,
+        "games": 512,
+        "wins": 336,
+        "losses": 165,
+        "draws": 11,
+        "score_rate": 0.666992,
+        "paired_bootstrap_95": [
+          0.629883,
+          0.703125
+        ],
+        "average_disc_difference": 10.546875,
+        "failed_games": 0,
+        "illegal_games": 0,
+        "candidate_search_calls_by_phase": {
+          "2": 767,
+          "3": 1282
+        },
+        "baseline_search_calls_by_phase": {
+          "2": 769,
+          "3": 1278
+        },
+        "opening_checksum": "sha256:b6a3e78889f83268bb74a710f5517cb5c77b5b59d0d7dbd5e4226e112f76447e",
+        "opening_source_checksum": "fnv1a64:09e5a13eb2dde439",
+        "generator_report_sha256": "sha256:006457c039c9ace49a00c6784adb4134e93649176cd28d2d7e838888376c5b28",
+        "selected_openings_checksum": "fnv1a64:c94f0f830da7e9a8",
+        "seed": 20260923,
+        "bootstrap_seed": 20260933,
+        "report_checksum": "fnv1a64:4a7c2be0a3484236",
+        "report_sha256": "sha256:95bcd778ec0584c3c83052f1630d6c5a729a3116ab45117c0d134f27a15cd9b8"
+      }
     },
     "sanity": {
       "argument_order_passed": true,

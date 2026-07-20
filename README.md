@@ -24,15 +24,23 @@ clang-format and runs clang-tidy as an advisory check.
 ## Learned Evaluation Data
 
 The experimental default evaluator uses all 25,514,097 board-score positions
-in `Egaroucid_Train_Data.zip`, produced by Egaroucid 7.5.1 lv17. It starts from
-the previous full-WHTOR policy artifact, uses five full-corpus passes for
-phases 0 through 9, and one full-corpus late-phase pass.
+in `Egaroucid_Train_Data.zip`. The 1,514,097 positions with 4-15 occupied
+squares come from Egaroucid 7.4.0 lv17 enumeration, evaluation, and negamax;
+the 24,000,000 positions with 16-63 occupied squares use terminal outcomes
+from Egaroucid 7.5.1 lv17 self-play. Training starts from the previous
+full-WHTOR policy artifact, uses five full-corpus passes for phases 0 through
+9, and one full-corpus late-phase pass.
 
 Promotion used a separately generated 1,000-pair random opening suite. Its
 opening boards had zero overlap with all 25,514,097 Egaroucid training boards.
 Against the prior default, the selected artifact scored 68.05% at depth 3,
 67.97% at depth 5, and 68.85% at 10 ms per move with exact solving from
 8 empties; all paired 95% intervals excluded 50%.
+
+Short-opening depth-3 gates also exercised the updated early phases. The
+candidate scored 69.92% from every unique 4-ply board, 71.48% over 256
+8-ply openings, and 66.70% over 256 11-ply openings; every paired interval
+excluded 50% and all games were clean.
 
 See
 `data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/README.md`

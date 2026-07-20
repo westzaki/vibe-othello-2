@@ -41,8 +41,12 @@ temporary datasets, and sweep outputs are local-only and must not be committed.
 The current trainer/runtime route is:
 
 * `pattern-v2-endgame-lite` runtime pattern set
-* all 25,514,097 Egaroucid 7.5.1 lv17 board-score positions
-* side-to-move final disc-difference estimates used as value targets
+* all 25,514,097 Egaroucid board-score positions
+* 1,514,097 Egaroucid 7.4.0 lv17 enumeration/evaluation/negamax values for
+  4-15 occupied squares
+* 24,000,000 Egaroucid 7.5.1 lv17 self-play terminal outcomes for 16-63
+  occupied squares
+* neutral side-to-move `teacher_value_disc_diff` targets
 * five full-corpus passes for phases `0..9` and one full-corpus pass for phases
   `10..12`
 * streaming training without materializing an expanded dataset
@@ -51,6 +55,7 @@ The current trainer/runtime route is:
   against the prior default
 * zero audited promotion-opening board overlap with all 25,514,097 training
   boards
+* short-opening direct arena gates exercising updated phases `0..2`
 * committed Egaroucid lv17 full-value artifact v1 as an experimental default
 
 This is an experimental default, not an Elo result, not a self-play result,
@@ -110,6 +115,11 @@ experimental default artifact:
     depth 5, and 66.99% at 10 ms plus exact8, with clean games and depth-3
     argument-order/same-artifact sanity.
 23. Full-corpus WHTOR artifact v1 committed as the experimental default.
+24. Full-corpus mixed Egaroucid 7.4.0/7.5.1 board-score training updated all
+    phases and passed direct depth-3, depth-5, and fixed-time gates against the
+    full-WHTOR policy default.
+25. Short-opening depth-3 gates directly exercised phases 0-2 and passed from
+    every unique 4-ply board plus 256 8-ply and 256 11-ply openings.
 
 Detailed PR-by-PR logs, command lines, sweep settings, and metric tables are in
 the archive starting at `docs/experiments/README.md`.
@@ -195,7 +205,7 @@ lines, or PR-specific context are needed.
 | Growth cycle | 50k and 100k local growth-cycle validations selected the move-teacher route for broader validation. |
 | Full-phase local cycle | `tools/pattern/train/run_full_phase_growth_cycle.py` connects phase-stratified selection, explicit-artifact search teaching, late exact teaching, warm-start/frozen-phase v0e training, fixed-point residual export, ranking, and bounded late/full-game local arenas without changing the default artifact; phase quota and split exceptions remain visible in reports. |
 | Hard-root progression | Baseline-regret selection, complete-root depth overlay, cross-depth child-conflict exclusion, and disjoint per-provenance trainer sidecars are checked local-only operations. |
-| Arena validation | Independent paired fixed-depth and fixed-time arenas supported promoting the Egaroucid lv17 full-value artifact over the full-WHTOR policy default. |
+| Arena validation | Independent paired fixed-depth and fixed-time arenas supported promoting the Egaroucid lv17 full-value artifact over the full-WHTOR policy default; short-opening gates directly exercise updated phases 0-2. |
 | Artifact v2 | `pattern-v2-egaroucid-lv17-full-value-v1` is the experimental default; the full-WHTOR policy artifact remains available for rollback and comparison. |
 | Archive policy | Long logs, tables, command examples, and obsolete next actions belong in `docs/experiments/README.md` and linked experiment docs. |
 
