@@ -119,6 +119,30 @@ SearchOptions wld_options() noexcept {
   };
 }
 
+TEST_CASE("Line equality ignores unused moves after principal variation reuse",
+          "[search][result][line]") {
+  Line reused{};
+  for (std::uint8_t index = 0; index < 10; ++index) {
+    reused.moves[index] = board_core::make_move(board_core::square_from_index(index));
+  }
+  reused.size = 10;
+
+  Line canonical_short{};
+  canonical_short.moves[0] = board_core::make_move(square(2, 3));
+  canonical_short.moves[1] = board_core::make_pass();
+  canonical_short.moves[2] = board_core::make_move(square(4, 5));
+  canonical_short.size = 3;
+
+  reused.moves[0] = canonical_short.moves[0];
+  reused.moves[1] = canonical_short.moves[1];
+  reused.moves[2] = canonical_short.moves[2];
+  reused.size = canonical_short.size;
+  REQUIRE(reused == canonical_short);
+
+  reused.size = 0;
+  REQUIRE(reused == Line{});
+}
+
 TEST_CASE("midgame root publication satisfies SearchResult invariants",
           "[search][result][invariant]") {
   DiscDifferenceEvaluator fixed_evaluator;

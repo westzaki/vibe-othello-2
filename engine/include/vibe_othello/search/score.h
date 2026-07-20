@@ -24,7 +24,17 @@ struct Line {
   std::array<board_core::Move, kMaxPly> moves{};
   std::uint8_t size = 0;
 
-  friend constexpr bool operator==(const Line&, const Line&) noexcept = default;
+  friend constexpr bool operator==(const Line& lhs, const Line& rhs) noexcept {
+    if (lhs.size != rhs.size) {
+      return false;
+    }
+    for (std::uint8_t index = 0; index < lhs.size; ++index) {
+      if (lhs.moves[index] != rhs.moves[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
 
 enum class BoundType : std::uint8_t {
