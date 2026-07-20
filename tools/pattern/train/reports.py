@@ -61,21 +61,16 @@ from weights_io import (
     weights_tsv,
 )
 
-def report_without_checksum(
-    load_result: LoadResult, phase_bias: dict[str, float]
+
+def example_input_summary(
+    load_result: LoadResult,
+    examples_by_split: dict[str, list[Example]],
+    examples_by_phase: dict[int, list[Example]],
 ) -> dict[str, Any]:
     accepted = load_result.accepted_examples
-    examples_by_split = {
-        split: [example for example in accepted if example.split == split] for split in SPLITS
-    }
-    examples_by_phase = {
-        phase: [example for example in accepted if example.phase == phase] for phase in PHASES
-    }
     feature_counts = [len(example.features) for example in accepted]
 
-    report = {
-        "schema_version": REPORT_SCHEMA_VERSION,
-        "trainer_algorithm": TRAINER_ALGORITHM_V0A,
+    return {
         "input_format": load_result.input_format,
         "input_rows": load_result.input_rows,
         "input_feature_rows": load_result.input_feature_rows,
@@ -97,6 +92,20 @@ def report_without_checksum(
         "feature_rows_by_example_max": max(feature_counts) if feature_counts else 0,
         "duplicate_feature_rows": load_result.duplicate_feature_rows.total,
         "duplicate_feature_rows_by_record_id": load_result.duplicate_feature_rows.by_record_id,
+    }
+
+
+def report_without_checksum(
+    load_result: LoadResult, phase_bias: dict[str, float]
+) -> dict[str, Any]:
+    accepted = load_result.accepted_examples
+    examples_by_split = split_examples(accepted)
+    examples_by_phase = phase_examples(accepted)
+
+    report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "trainer_algorithm": TRAINER_ALGORITHM_V0A,
+        **example_input_summary(load_result, examples_by_split, examples_by_phase),
         "metrics_by_split": {
             split: metrics_for_examples(examples_by_split[split], phase_bias) for split in SPLITS
         },
@@ -166,7 +175,6 @@ def pattern_sgd_report_without_checksum(
     accepted = load_result.accepted_examples
     examples_by_split = split_examples(accepted)
     examples_by_phase = phase_examples(accepted)
-    feature_counts = [len(example.features) for example in accepted]
     nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
     weight_l2_norm = math.sqrt(sum(weight * weight for weight in pattern_weights.values()))
 
@@ -174,27 +182,7 @@ def pattern_sgd_report_without_checksum(
         "schema_version": REPORT_SCHEMA_VERSION,
         "trainer_algorithm": TRAINER_ALGORITHM_V0B,
         "weights_schema_version": args.weights_schema_version,
-        "input_format": load_result.input_format,
-        "input_rows": load_result.input_rows,
-        "input_feature_rows": load_result.input_feature_rows,
-        "example_count": len(accepted),
-        "feature_occurrence_count": sum(feature_counts),
-        "average_features_per_example": (
-            sum(feature_counts) / len(feature_counts) if feature_counts else 0.0
-        ),
-        "accepted_examples": len(accepted),
-        "rejected_examples": load_result.rejected_examples,
-        "rejected_feature_rows": load_result.rejected_feature_rows,
-        "counts_by_split_examples": {
-            split: len(examples_by_split[split]) for split in SPLITS
-        },
-        "counts_by_phase_examples": {
-            str(phase): len(examples_by_phase[phase]) for phase in PHASES
-        },
-        "feature_rows_by_example_min": min(feature_counts) if feature_counts else 0,
-        "feature_rows_by_example_max": max(feature_counts) if feature_counts else 0,
-        "duplicate_feature_rows": load_result.duplicate_feature_rows.total,
-        "duplicate_feature_rows_by_record_id": load_result.duplicate_feature_rows.by_record_id,
+        **example_input_summary(load_result, examples_by_split, examples_by_phase),
         "epochs": args.epochs,
         "learning_rate": args.learning_rate,
         "l2": args.l2,
@@ -251,7 +239,6 @@ def pattern_sgd_v0c_report_without_checksum(
     accepted = load_result.accepted_examples
     examples_by_split = split_examples(accepted)
     examples_by_phase = phase_examples(accepted)
-    feature_counts = [len(example.features) for example in accepted]
     nonzero_weights = nonzero_pattern_weight_items(pattern_weights)
     final_metrics_by_split = v0c_metrics_by_split(accepted, phase_bias, pattern_weights)
     baseline_metrics_by_split = v0c_metrics_by_split(accepted, phase_bias, {})
@@ -261,27 +248,7 @@ def pattern_sgd_v0c_report_without_checksum(
         "schema_version": REPORT_SCHEMA_VERSION,
         "trainer_algorithm": trainer_algorithm,
         "weights_schema_version": args.weights_schema_version,
-        "input_format": load_result.input_format,
-        "input_rows": load_result.input_rows,
-        "input_feature_rows": load_result.input_feature_rows,
-        "example_count": len(accepted),
-        "feature_occurrence_count": sum(feature_counts),
-        "average_features_per_example": (
-            sum(feature_counts) / len(feature_counts) if feature_counts else 0.0
-        ),
-        "accepted_examples": len(accepted),
-        "rejected_examples": load_result.rejected_examples,
-        "rejected_feature_rows": load_result.rejected_feature_rows,
-        "counts_by_split_examples": {
-            split: len(examples_by_split[split]) for split in SPLITS
-        },
-        "counts_by_phase_examples": {
-            str(phase): len(examples_by_phase[phase]) for phase in PHASES
-        },
-        "feature_rows_by_example_min": min(feature_counts) if feature_counts else 0,
-        "feature_rows_by_example_max": max(feature_counts) if feature_counts else 0,
-        "duplicate_feature_rows": load_result.duplicate_feature_rows.total,
-        "duplicate_feature_rows_by_record_id": load_result.duplicate_feature_rows.by_record_id,
+        **example_input_summary(load_result, examples_by_split, examples_by_phase),
         "epochs_requested": training_state["epochs_requested"],
         "epochs_completed": training_state["epochs_completed"],
         "early_stop_triggered": training_state["early_stop_triggered"],
