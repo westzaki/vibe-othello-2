@@ -538,7 +538,6 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     return result;
   }
 
-  const BoundType result_bound = bound_for_score(best_score, root_window);
   if (should_complete_exact_root_reports(context.options)) {
     complete_exact_root_move_reports(&context, completed_depth, &result, &best_score, &best_line);
   }
