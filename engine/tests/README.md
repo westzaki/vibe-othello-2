@@ -28,7 +28,7 @@ shared with benchmarks or golden generation scripts lives in `../fixtures/`.
 | --- | --- |
 | `evaluation/pattern_schema_test.cc` | Pattern definition validation, fixed pattern-set fixture shape, duplicate-square policy, and size overflow coverage. |
 | `evaluation/pattern_weights_test.cc` | Pattern weight artifact loader validation and loaded-to-runtime weight conversion. |
-| `evaluation/tiny_pattern_evaluator_test.cc` | Tiny pattern evaluator indexing, fixture-backed weights, validation failures, phase, sign convention, determinism, and score range. |
+| `evaluation/pattern_evaluator_test.cc` | Generic pattern evaluator indexing, fixture-backed weights, validation failures, phase, sign convention, determinism, and score range. |
 
 ## Search Tests
 

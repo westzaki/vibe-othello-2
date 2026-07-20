@@ -27,10 +27,6 @@ public:
   mutable int calls = 0;
 };
 
-constexpr board_core::Square square(int file, int rank) noexcept {
-  return board_core::square_from_file_rank(file, rank);
-}
-
 board_core::Position parse_position_or_fail(std::string_view text) {
   const std::optional<board_core::Position> position = board_core::parse_position(text);
   REQUIRE(position.has_value());

@@ -1,10 +1,10 @@
+#include "normalized_tsv.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/phase_aware_evaluator.h"
 #include "vibe_othello/search/evaluator.h"
 
 #include <algorithm>
 #include <cerrno>
-#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -26,6 +26,10 @@ namespace {
 
 namespace board_core = vibe_othello::board_core;
 namespace eval = vibe_othello::evaluation;
+
+using vibe_othello::tools::pattern::parse_int;
+using vibe_othello::tools::pattern::split_tabs;
+using vibe_othello::tools::pattern::trim_trailing_cr;
 
 constexpr std::string_view kMoveTeacherHeaderV1 =
     "root_board_id\troot_record_id\troot_split\troot_phase\troot_empty_count\tmove\tchild_"
@@ -125,39 +129,6 @@ struct EvaluationReport {
   ScoreRange static_score_range;
   std::uint64_t checksum = 14695981039346656037ull;
 };
-
-std::string_view trim_trailing_cr(std::string_view text) noexcept {
-  if (!text.empty() && text.back() == '\r') {
-    text.remove_suffix(1);
-  }
-  return text;
-}
-
-std::vector<std::string_view> split_tabs(std::string_view text) {
-  std::vector<std::string_view> fields;
-  std::size_t offset = 0;
-  while (offset <= text.size()) {
-    const std::size_t next = text.find('\t', offset);
-    if (next == std::string_view::npos) {
-      fields.push_back(text.substr(offset));
-      break;
-    }
-    fields.push_back(text.substr(offset, next - offset));
-    offset = next + 1;
-  }
-  return fields;
-}
-
-std::optional<int> parse_int(std::string_view text) noexcept {
-  int value = 0;
-  const char* begin = text.data();
-  const char* end = text.data() + text.size();
-  const auto [ptr, ec] = std::from_chars(begin, end, value);
-  if (ec != std::errc{} || ptr != end) {
-    return std::nullopt;
-  }
-  return value;
-}
 
 std::optional<double> parse_double(std::string_view text) {
   const std::string buffer{text};

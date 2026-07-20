@@ -1,3 +1,0 @@
-add_executable(vibe_othello_engine_smoke main.cc)
-
-target_link_libraries(vibe_othello_engine_smoke PRIVATE vibe_othello::engine)

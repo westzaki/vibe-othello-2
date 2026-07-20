@@ -3,6 +3,7 @@ add_executable(vibe_othello_pattern_dataset_smoke main.cc)
 target_link_libraries(vibe_othello_pattern_dataset_smoke
                       PRIVATE vibe_othello_data_import_replay_records
                               vibe_othello_pattern_index_mode
+                              vibe_othello_pattern_normalized_tsv
                               vibe_othello_pattern_set_options
                               vibe_othello_pattern_schema_validation
                               vibe_othello_pattern_smoke_fixture)

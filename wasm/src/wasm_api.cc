@@ -593,7 +593,7 @@ uint32_t vibe_othello_wasm_reset_search_session(uintptr_t eval_handle) noexcept 
   if (artifact == nullptr) {
     return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
   }
-  artifact->search_session.start_new_game();
+  artifact->search_session.clear();
   return VIBE_OTHELLO_WASM_STATUS_OK;
 }
 

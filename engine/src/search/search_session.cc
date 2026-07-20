@@ -13,20 +13,6 @@ void SearchSession::clear() noexcept {
   impl_->semantic_fingerprint.reset();
 }
 
-void SearchSession::reset() noexcept {
-  clear();
-}
-
-void SearchSession::start_new_game() noexcept {
-  clear();
-}
-
-void SearchSession::prepare_analysis(SessionReusePolicy policy) noexcept {
-  if (policy == SessionReusePolicy::clear) {
-    clear();
-  }
-}
-
 const SearchSessionConfig& SearchSession::config() const noexcept {
   return impl_->config;
 }

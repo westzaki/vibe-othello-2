@@ -151,8 +151,6 @@ tools/
 │  └─ README.md
 ├─ engine-cli/
 │  └─ main.cc
-└─ engine-smoke/
-   └─ main.cc
 ```
 
 ## WASM Adapter Layout

@@ -11,6 +11,8 @@ from pathlib import Path
 PRODUCTION_FILES = (
     "index_mode.h",
     "index_mode.cc",
+    "normalized_tsv.h",
+    "normalized_tsv.cc",
     "schema_validation.h",
     "schema_validation.cc",
 )
@@ -38,7 +40,11 @@ def main() -> int:
                 ok = False
 
     cmake = (args.common_dir / "CMakeLists.txt").read_text(encoding="utf-8")
-    for target in ("vibe_othello_pattern_index_mode", "vibe_othello_pattern_schema_validation"):
+    for target in (
+        "vibe_othello_pattern_index_mode",
+        "vibe_othello_pattern_normalized_tsv",
+        "vibe_othello_pattern_schema_validation",
+    ):
         link_call = re.search(rf"target_link_libraries\({target}\s+([^)]+)\)", cmake, re.S)
         if link_call and "vibe_othello_pattern_smoke_fixture" in link_call.group(1):
             print(f"{target} must not link the smoke fixture target", file=sys.stderr)

@@ -150,14 +150,6 @@ def run_trainer_v0b_expect_failure(script: Path, dataset: Path, expected_error: 
     return run_trainer_expect_failure(script, "pattern-sgd-v0b", dataset, expected_error)
 
 
-def run_trainer_v0c_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
-    return run_trainer_expect_failure(script, "pattern-sgd-v0c", dataset, expected_error)
-
-
-def run_trainer_v0d_expect_failure(script: Path, dataset: Path, expected_error: str) -> bool:
-    return run_trainer_expect_failure(script, "pattern-sgd-v0d", dataset, expected_error)
-
-
 def run_trainer_expect_failure(script: Path, mode: str, dataset: Path, expected_error: str) -> bool:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)

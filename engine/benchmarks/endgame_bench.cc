@@ -36,7 +36,6 @@ using vibe_othello::board_core::occupied;
 using vibe_othello::board_core::parse_position;
 using vibe_othello::board_core::Position;
 using vibe_othello::board_core::Square;
-using vibe_othello::board_core::square_from_file_rank;
 using vibe_othello::board_core::square_from_index;
 using vibe_othello::search::BoundType;
 using vibe_othello::search::EndgameSearchOptions;
@@ -140,10 +139,6 @@ public:
 private:
   vibe_othello::search::Score score_;
 };
-
-constexpr Square square(int file, int rank) noexcept {
-  return square_from_file_rank(file, rank);
-}
 
 void require_condition(bool condition, std::string_view message) {
   if (condition) {

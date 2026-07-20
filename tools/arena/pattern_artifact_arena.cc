@@ -40,8 +40,6 @@ namespace eval = vibe_othello::evaluation;
 namespace search = vibe_othello::search;
 
 constexpr std::string_view kArenaVersion = "pattern-artifact-arena-hardened-v1";
-constexpr std::uint32_t kCrc32Initial = 0xFFFF'FFFFU;
-constexpr std::uint32_t kCrc32Polynomial = 0xEDB8'8320U;
 
 struct Args {
   std::string positions_tsv_path;
@@ -65,11 +63,6 @@ struct Args {
   std::vector<search::Depth> depth_sweep;
   bool exact_adjudicate_disagreements = false;
   int max_disagreements = 200;
-};
-
-struct PatternRuntime {
-  const eval::PatternSet* pattern_set = nullptr;
-  eval::PatternFeatureSet feature_set;
 };
 
 struct LoadedEvaluator {
@@ -510,25 +503,6 @@ std::uint64_t selection_hash(std::uint64_t seed, std::string_view board_id) noex
   return hash;
 }
 
-std::uint32_t crc32(std::span<const std::uint8_t> bytes) noexcept {
-  std::uint32_t crc = kCrc32Initial;
-  for (const std::uint8_t byte : bytes) {
-    crc ^= byte;
-    for (int bit = 0; bit < 8; ++bit) {
-      const std::uint32_t mask = 0U - (crc & 1U);
-      crc = (crc >> 1U) ^ (kCrc32Polynomial & mask);
-    }
-  }
-  return ~crc;
-}
-
-std::string crc32_checksum_string(std::span<const std::uint8_t> bytes_without_checksum) {
-  std::ostringstream output;
-  output << "0x" << std::hex << std::nouppercase << std::setfill('0') << std::setw(8)
-         << crc32(bytes_without_checksum);
-  return output.str();
-}
-
 std::optional<std::string> read_text_file(const std::string& path, std::string_view label) {
   std::ifstream input(path);
   if (!input) {
@@ -542,92 +516,6 @@ std::optional<std::string> read_text_file(const std::string& path, std::string_v
     return std::nullopt;
   }
   return buffer.str();
-}
-
-std::optional<std::vector<std::uint8_t>> read_binary_file(const std::string& path,
-                                                          std::string_view label) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    std::cerr << "cannot read " << label << ": " << path << '\n';
-    return std::nullopt;
-  }
-  input.seekg(0, std::ios::end);
-  const std::streamoff size = input.tellg();
-  if (size < 0) {
-    std::cerr << "cannot determine " << label << " size: " << path << '\n';
-    return std::nullopt;
-  }
-  input.seekg(0, std::ios::beg);
-  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
-  input.read(reinterpret_cast<char*>(bytes.data()), size);
-  if (!input) {
-    std::cerr << "failed while reading " << label << ": " << path << '\n';
-    return std::nullopt;
-  }
-  return bytes;
-}
-
-std::optional<std::string> json_string_field(std::string_view json, std::string_view field) {
-  const std::string quoted_field = "\"" + std::string(field) + "\"";
-  std::size_t pos = json.find(quoted_field);
-  while (pos != std::string_view::npos) {
-    pos += quoted_field.size();
-    while (pos < json.size() &&
-           (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t')) {
-      ++pos;
-    }
-    if (pos < json.size() && json[pos] == ':') {
-      ++pos;
-      while (pos < json.size() &&
-             (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t')) {
-        ++pos;
-      }
-      if (pos >= json.size() || json[pos] != '"') {
-        return std::nullopt;
-      }
-      ++pos;
-      std::string value;
-      while (pos < json.size()) {
-        const char ch = json[pos++];
-        if (ch == '"') {
-          return value;
-        }
-        if (ch == '\\') {
-          if (pos >= json.size()) {
-            return std::nullopt;
-          }
-          value.push_back(json[pos++]);
-        } else {
-          value.push_back(ch);
-        }
-      }
-      return std::nullopt;
-    }
-    pos = json.find(quoted_field, pos);
-  }
-  return std::nullopt;
-}
-
-std::optional<PatternRuntime> select_pattern_runtime(std::string_view name) {
-  if (name == "tiny" || name == "fixed-pattern-fixture-v1") {
-    return PatternRuntime{
-        .pattern_set = &eval::fixed_pattern_set_fixture(),
-        .feature_set = eval::tiny_pattern_feature_set_fixture(),
-    };
-  }
-  if (name == "buro-lite" || name == "pattern-v1-buro-lite") {
-    return PatternRuntime{
-        .pattern_set = &eval::buro_lite_pattern_set(),
-        .feature_set = eval::buro_lite_pattern_feature_set(),
-    };
-  }
-  if (name == "endgame-lite" || name == "pattern-v2-endgame-lite") {
-    return PatternRuntime{
-        .pattern_set = &eval::endgame_lite_pattern_set(),
-        .feature_set = eval::endgame_lite_pattern_feature_set(),
-    };
-  }
-  return std::nullopt;
 }
 
 std::array<std::uint8_t, eval::PatternWeights::kDiscCountEntries> phase_by_disc_count_13() {

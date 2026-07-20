@@ -32,7 +32,6 @@ constexpr std::size_t kWthorHeaderSize = 16;
 constexpr std::size_t kWthorRecordSize = 68;
 constexpr std::uint8_t kPhaseCount = 13;
 constexpr std::size_t kMaxFeatureOccurrences = 128;
-constexpr std::size_t kMaxLegalMoves = 32;
 constexpr std::size_t kMaxNegativeCount = 16;
 constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
@@ -336,12 +335,6 @@ std::uint64_t fnv1a(std::span<const std::uint8_t> bytes, std::uint64_t hash = kF
     hash *= kFnvPrime;
   }
   return hash;
-}
-
-std::uint64_t fnv1a(std::string_view text, std::uint64_t hash = kFnvOffset) noexcept {
-  return fnv1a(std::span<const std::uint8_t>{reinterpret_cast<const std::uint8_t*>(text.data()),
-                                             text.size()},
-               hash);
 }
 
 std::uint64_t mix64(std::uint64_t value) noexcept {

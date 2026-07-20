@@ -2,7 +2,7 @@ add_executable(vibe_othello_generate_exact_endgame_teacher_labels
                generate_exact_endgame_teacher_labels.cc)
 
 target_link_libraries(vibe_othello_generate_exact_endgame_teacher_labels
-                      PRIVATE vibe_othello::engine)
+                      PRIVATE vibe_othello_pattern_normalized_tsv)
 
 set_target_properties(vibe_othello_generate_exact_endgame_teacher_labels
                       PROPERTIES OUTPUT_NAME
@@ -12,7 +12,7 @@ add_executable(vibe_othello_generate_exact_move_teacher_dataset
                generate_exact_move_teacher_dataset.cc)
 
 target_link_libraries(vibe_othello_generate_exact_move_teacher_dataset
-                      PRIVATE vibe_othello::engine)
+                      PRIVATE vibe_othello_pattern_normalized_tsv)
 
 set_target_properties(vibe_othello_generate_exact_move_teacher_dataset
                       PROPERTIES OUTPUT_NAME
@@ -22,7 +22,7 @@ add_executable(vibe_othello_generate_search_move_teacher_dataset
                generate_search_move_teacher_dataset.cc)
 
 target_link_libraries(vibe_othello_generate_search_move_teacher_dataset
-                      PRIVATE vibe_othello::engine)
+                      PRIVATE vibe_othello_pattern_normalized_tsv)
 
 set_target_properties(vibe_othello_generate_search_move_teacher_dataset
                       PROPERTIES OUTPUT_NAME
@@ -32,7 +32,8 @@ add_executable(vibe_othello_evaluate_move_teacher_ranking
                evaluate_move_teacher_ranking.cc)
 
 target_link_libraries(vibe_othello_evaluate_move_teacher_ranking
-                      PRIVATE vibe_othello_pattern_set_options)
+                      PRIVATE vibe_othello_pattern_normalized_tsv
+                              vibe_othello_pattern_set_options)
 
 set_target_properties(vibe_othello_evaluate_move_teacher_ranking
                       PROPERTIES OUTPUT_NAME

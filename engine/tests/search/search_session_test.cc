@@ -82,7 +82,7 @@ TEST_CASE("search session retains across roots and clears deterministically", "[
   REQUIRE(retained.score == first.score);
   REQUIRE(retained.stats.tt_generation_age_hits > 0);
 
-  session.start_new_game();
+  session.clear();
   const SearchResult reset =
       search_iterative(session, board_core::initial_position(), evaluator, limits, options);
   REQUIRE(reset.score == first.score);

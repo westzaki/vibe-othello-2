@@ -34,9 +34,6 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      - name: Run smoke tool
-        run: ./build/tools/engine-smoke/vibe_othello_engine_smoke
-
   sanitize:
     name: Sanitizers
     runs-on: ubuntu-latest

@@ -48,11 +48,6 @@ struct SearchSessionConfig {
   std::uint32_t incremental_eval_verify_interval = 0;
 };
 
-enum class SessionReusePolicy : std::uint8_t {
-  retain,
-  clear,
-};
-
 // Mutable, deterministic single-thread search state. One session may be
 // retained across sequential moves in one game, but must not be used by
 // concurrent searches. Root entry points automatically clear TT contents when
@@ -68,11 +63,6 @@ public:
 
   // Deterministic reset: clears TT, history, killers, and root age.
   void clear() noexcept;
-  void reset() noexcept;
-  void start_new_game() noexcept;
-  // Use `clear` for unrelated roots unless cross-root analysis reuse is
-  // intentional. `retain` preserves learned ordering and TT knowledge.
-  void prepare_analysis(SessionReusePolicy policy) noexcept;
 
   const SearchSessionConfig& config() const noexcept;
   TranspositionTableAllocation transposition_table_allocation() const noexcept;

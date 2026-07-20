@@ -71,8 +71,7 @@ struct PatternRuntime {
   return PatternArtifactCoreLoadResult{.artifact = std::nullopt, .error = std::move(error)};
 }
 
-[[nodiscard]] std::optional<std::string> read_text_file(const std::filesystem::path& path,
-                                                        std::string_view label) {
+[[nodiscard]] std::optional<std::string> read_text_file(const std::filesystem::path& path) {
   std::ifstream input(path);
   if (!input) {
     return std::nullopt;
@@ -476,7 +475,7 @@ load_pattern_artifact_core(const ArtifactManifestFields& fields, std::string_vie
 [[nodiscard]] PatternArtifactLoadResult
 load_pattern_artifact_impl(const std::filesystem::path& manifest_path,
                            const std::optional<std::filesystem::path>& weights_override_path) {
-  const std::optional<std::string> manifest_text = read_text_file(manifest_path, "manifest");
+  const std::optional<std::string> manifest_text = read_text_file(manifest_path);
   if (!manifest_text.has_value()) {
     return fail("cannot read artifact manifest: " + manifest_path.generic_string());
   }
@@ -524,7 +523,7 @@ load_pattern_artifact_impl(const std::filesystem::path& manifest_path,
 [[nodiscard]] PatternArtifactLoadResult
 resolve_default_manifest(const std::filesystem::path& eval_root) {
   const std::filesystem::path pointer_path = eval_root / "default-artifact.json";
-  const std::optional<std::string> pointer_text = read_text_file(pointer_path, "default pointer");
+  const std::optional<std::string> pointer_text = read_text_file(pointer_path);
   if (!pointer_text.has_value()) {
     return fail("cannot read default artifact pointer: " + pointer_path.generic_string());
   }

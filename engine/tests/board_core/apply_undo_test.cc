@@ -45,7 +45,6 @@ TEST_CASE("white relative moves are applied from relative position", "[board_cor
       .opponent = initial_black_discs(),
       .side_to_move = Color::white,
   };
-  const Position before = position;
   MoveDelta delta{};
 
   REQUIRE(apply_move(&position, make_move(square(2, 4)), &delta));

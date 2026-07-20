@@ -1941,11 +1941,10 @@ moves without putting mutable hash state in `board_core::Position`.
 
 Session policy is explicit:
 
-* `start_new_game`, `reset`, and `clear` deterministically clear TT, generation,
-  history, and killers;
+* `clear` deterministically clears TT, generation, history, and killers;
 * sequential moves in one game may retain the session;
-* unrelated analysis roots should use `prepare_analysis(clear)` unless
-  cross-root reuse is intentional;
+* unrelated analysis roots should call `clear` unless cross-root reuse is
+  intentional;
 * one session is single-thread-only and must not serve concurrent searches.
 
 Every root binds the session TT to the evaluator object identity, the

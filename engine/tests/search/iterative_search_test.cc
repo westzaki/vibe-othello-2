@@ -350,8 +350,8 @@ TEST_CASE("iterative aspiration preserves deterministic search results",
                    MoveOrderingOptions{.use_tt_best_move_ordering = true}),
   };
 
-  for (const board_core::Position position : positions) {
-    for (const SearchOptions baseline_options : option_cases) {
+  for (const board_core::Position& position : positions) {
+    for (const SearchOptions& baseline_options : option_cases) {
       require_aspiration_matches_without(position, Depth{5}, baseline_options);
     }
   }
@@ -575,8 +575,8 @@ TEST_CASE("iterative killer and history ordering preserves search decisions",
                    MoveOrderingOptions{.use_history = true, .use_killers = true}),
   };
 
-  for (const board_core::Position position : positions) {
-    for (const SearchOptions options : option_cases) {
+  for (const board_core::Position& position : positions) {
+    for (const SearchOptions& options : option_cases) {
       DiscDifferenceEvaluator ordering_evaluator;
       DiscDifferenceEvaluator baseline_evaluator;
 
@@ -632,7 +632,7 @@ TEST_CASE("iterative IID preserves search decisions across midgame TT modes",
                    MoveOrderingOptions{.use_tt_best_move_ordering = true}),
   };
 
-  for (const SearchOptions baseline_options : option_cases) {
+  for (const SearchOptions& baseline_options : option_cases) {
     SearchOptions iid_options = baseline_options;
     iid_options.midgame.use_iid = true;
 
