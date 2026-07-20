@@ -78,6 +78,22 @@ training outputs, or cache materialization outputs here.
 Generated normalized TSVs, selected TSVs, datasets, reports, logs, caches,
 teacher labels, and move-teacher outputs belong in ignored local storage.
 
+For an external `VIBE_OTHELLO_LOCAL` root, use this maintenance layout:
+
+```text
+vibe-othello-local/
+├─ corpora/       # downloaded archives and other read-only source inputs
+├─ training/      # normalized TSVs, pattern datasets, weights, and run reports
+└─ measurements/  # arena, benchmark, and comparison evidence
+```
+
+The Egaroucid board-score importer reads
+`corpora/Egaroucid_Train_Data.zip` directly. The sampled runner creates one
+immutable run directory under `training/egaroucid-board-score/`. Full streaming
+training uses extracted text under
+`training/cache/egaroucid-board-score-v2025-02-02/`; it never writes generated
+or extracted files into `corpora/`.
+
 Do not commit copied GPL engine code, GPL evaluation weights, GPL-derived
 tables, or line-by-line translations of GPL implementation details. Use public
 papers, high-level descriptions, black-box comparisons, or independently generated

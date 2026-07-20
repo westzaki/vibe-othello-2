@@ -140,6 +140,8 @@ empty_count
 Schema rules:
 
 * `game_group_id` identifies the semantic replayed game or transcript group.
+  For an independently supplied board-score row with no transcript identity,
+  it identifies the canonical board group so identical boards remain grouped.
 * `board_id` identifies the exact side-to-move-relative board.
 * `source_occurrence_id` identifies the source occurrence without driving
   semantic grouping.

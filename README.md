@@ -23,23 +23,20 @@ clang-format and runs clang-tidy as an advisory check.
 
 ## Learned Evaluation Data
 
-The experimental default evaluator was trained from the actual played moves in
-all 137,548 games in a local 1977-2025 snapshot of the
-[FFO WHTOR database](https://www.ffothello.org/informatique/la-base-wthor/).
-The committed payload contains only the final derived runtime weights and
-review metadata. Raw WHTOR files, normalized data, policy targets, teacher
-labels, and local reports are not included.
+The experimental default evaluator uses all 25,514,097 board-score positions
+in `Egaroucid_Train_Data.zip`, produced by Egaroucid 7.5.1 lv17. It starts from
+the previous full-WHTOR policy artifact, uses five full-corpus passes for
+phases 0 through 9, and one full-corpus late-phase pass.
 
 Promotion used a separately generated 1,000-pair random opening suite. Its
-opening boards and replayed transcript prefixes had zero overlap with all
-137,548 WHTOR training games. Against the prior default, the selected artifact
-scored 73.35% at depth 3, 69.14% at depth 5, and 66.99% at 10 ms per move with
-exact solving from 8 empties; all paired 95% intervals excluded 50%.
+opening boards had zero overlap with all 25,514,097 Egaroucid training boards.
+Against the prior default, the selected artifact scored 68.05% at depth 3,
+67.97% at depth 5, and 68.85% at 10 ms per move with exact solving from
+8 empties; all paired 95% intervals excluded 50%.
 
 See
-`data/eval/artifacts/pattern-v2-wthor-full-policy-v1/README.md`
-for the learning route, validation results, saturation experiments, and source
-notice.
+`data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/README.md`
+for the learning route, validation results, and source notice.
 
 The browser app under `apps/web` is built for GitHub Pages by a dedicated Pages
 workflow. It runs on pushes to `main` and manual dispatch, builds the generated
@@ -61,11 +58,18 @@ commit exception documented in `data/corpora/README.md` and
 ```sh
 export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
 export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
+export VIBE_OTHELLO_TRAINING="${VIBE_OTHELLO_TRAINING:-$VIBE_OTHELLO_LOCAL/training}"
 export VIBE_OTHELLO_MEASUREMENTS="${VIBE_OTHELLO_MEASUREMENTS:-$VIBE_OTHELLO_LOCAL/measurements}"
 
 mkdir -p "$VIBE_OTHELLO_CORPORA"
+mkdir -p "$VIBE_OTHELLO_TRAINING"
 mkdir -p "$VIBE_OTHELLO_MEASUREMENTS"
 ```
+
+Keep downloaded source archives under `corpora/`, generated normalized data,
+datasets, trainer weights, and trainer reports under `training/`, and arena or
+benchmark evidence under `measurements/`. Training tools read source archives
+in place; they must not extract generated files into `corpora/`.
 
 Do not commit personal paths, `.env` files with real values, generated
 measurement outputs, or external corpus payloads.

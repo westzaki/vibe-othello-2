@@ -8,7 +8,7 @@ committed only after a specific promotion decision and validation summary.
 The current committed artifact is:
 
 ```text
-data/eval/artifacts/pattern-v2-wthor-full-policy-v1/
+data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/
 ```
 
 It is the experimental default, not a production strength claim.
@@ -41,10 +41,10 @@ Schema:
 ```json
 {
   "schema_version": 1,
-  "default_artifact_id": "pattern-v2-wthor-full-policy-v1",
+  "default_artifact_id": "pattern-v2-egaroucid-lv17-full-value-v1",
   "status": "experimental-default",
-  "artifact_manifest": "artifacts/pattern-v2-wthor-full-policy-v1/manifest.json",
-  "artifact_provenance": "artifacts/pattern-v2-wthor-full-policy-v1/provenance.json",
+  "artifact_manifest": "artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-egaroucid-lv17-full-value-v1/provenance.json",
   "reason": "...",
   "override": {
     "custom_artifact": "--eval-artifact <manifest-path>",

@@ -139,11 +139,12 @@ std::filesystem::path source_root() {
 }
 
 std::filesystem::path committed_manifest_path() {
-  return source_root() / "data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json";
+  return source_root() /
+         "data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json";
 }
 
 std::filesystem::path committed_weights_path() {
-  return source_root() / "data/eval/artifacts/pattern-v2-wthor-full-policy-v1/weights.bin";
+  return source_root() / "data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/weights.bin";
 }
 
 std::string read_text_or_fail(const std::filesystem::path& path) {
@@ -189,6 +190,17 @@ std::string with_fallback_additive_phase(std::string manifest, std::string_view 
                           std::string(phase) + ",\n");
 }
 
+std::string with_weights_checksum(std::string manifest, std::string_view checksum) {
+  constexpr std::string_view prefix{"\"weights_checksum\": \""};
+  const std::size_t value_start = manifest.find(prefix);
+  REQUIRE(value_start != std::string::npos);
+  const std::size_t checksum_start = value_start + prefix.size();
+  const std::size_t checksum_end = manifest.find('"', checksum_start);
+  REQUIRE(checksum_end != std::string::npos);
+  manifest.replace(checksum_start, checksum_end - checksum_start, checksum);
+  return manifest;
+}
+
 board_core::Position opening_move_position() {
   board_core::Position position = board_core::initial_position();
   board_core::MoveDelta delta{};
@@ -212,9 +224,9 @@ TEST_CASE("default evaluation artifact pointer loads committed artifact",
       load_default_pattern_artifact(default_eval_root(source_root()));
 
   REQUIRE(result.ok());
-  REQUIRE(result.artifact->artifact_id == "pattern-v2-wthor-full-policy-v1");
+  REQUIRE(result.artifact->artifact_id == "pattern-v2-egaroucid-lv17-full-value-v1");
   REQUIRE(result.artifact->pattern_set_id == "pattern-v2-endgame-lite");
-  REQUIRE(result.artifact->weights_checksum == "0x83b78461");
+  REQUIRE(result.artifact->weights_checksum == "0xfe3d38f9");
   REQUIRE(result.artifact->trained_phases ==
           std::vector<std::uint8_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
   REQUIRE(result.artifact->manifest_path == committed_manifest_path());
@@ -402,9 +414,7 @@ TEST_CASE("in-memory evaluation artifact loader rejects invalid inputs", "[evalu
     truncated_weights.resize(24);
     const std::string truncated_checksum = hex_u32(crc32(std::span<const std::uint8_t>{
         truncated_weights.data(), truncated_weights.size() - sizeof(std::uint32_t)}));
-    const std::string manifest =
-        replace_once(manifest_text, "\"weights_checksum\": \"0x83b78461\"",
-                     "\"weights_checksum\": \"" + truncated_checksum + "\"");
+    const std::string manifest = with_weights_checksum(manifest_text, truncated_checksum);
 
     const PatternArtifactBytesLoadResult result =
         load_pattern_artifact_from_bytes(manifest, truncated_weights, "truncated-weights.json");
@@ -490,7 +500,7 @@ TEST_CASE("default evaluation artifact returns deterministic fixed-position scor
 
   const search::Score score = evaluator.evaluate(late_midgame_position());
 
-  REQUIRE(score == 8);
+  REQUIRE(score == -3);
 }
 
 TEST_CASE("default evaluation artifact runs fixed-position search without illegal moves",

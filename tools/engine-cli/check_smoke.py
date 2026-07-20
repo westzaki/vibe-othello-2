@@ -107,17 +107,17 @@ def main(argv: list[str]) -> int:
 
     default_manifest = (
         args.source_dir
-        / "data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json"
+        / "data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json"
     )
-    run_case(args.exe, "", 1, "bestmove f5 score -25 depth 1")
+    run_case(args.exe, "", 1, "bestmove f5 score -4 depth 1")
     run_case(
         args.exe,
         "",
         1,
-        "bestmove f5 score -25 depth 1",
+        "bestmove f5 score -4 depth 1",
         ["--eval-artifact", str(default_manifest)],
     )
-    run_case(args.exe, "d3 c3", 1, "bestmove c4 score -19 depth 1")
+    run_case(args.exe, "d3 c3", 1, "bestmove c4 score 1 depth 1")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         weights = Path(temp_dir) / "weights.bin"

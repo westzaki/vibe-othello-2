@@ -56,24 +56,24 @@ as a simple deterministic reference path for tooling and tests.
 
 ## Runtime and Artifact Status
 
-`pattern-v2-wthor-full-policy-v1` is the current learned experimental default.
-It supersedes `pattern-v2-progressive-search-d5-fast6-p5-v1`, which remains
+`pattern-v2-egaroucid-lv17-full-value-v1` is the current learned experimental
+default. It supersedes `pattern-v2-wthor-full-policy-v1`, which remains
 committed for rollback and comparison.
 
 Default resolution is controlled by `data/eval/default-artifact.json`, whose
 status is `experimental-default` and whose manifest pointer resolves to:
 
 ```text
-data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json
+data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json
 ```
 
 The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 `provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
-The current default reports reviewed learning coverage for all 13 phases.
-Phases 0 through 9 add a WHTOR played-move residual to the deterministic
-fallback, and phases 10 through 12 retain the previous exact-teacher pattern
-weights. No search option changes are required.
+The current default reports reviewed learning coverage for all 13 phases. It
+uses all 25,514,097 Egaroucid 7.5.1 lv17 board-score positions. Phases 0 through
+9 add a learned residual to the deterministic fallback, and phases 10 through
+12 use learned replacement weights. No search option changes are required.
 
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
