@@ -318,7 +318,7 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
     const NodeCount shallow_nodes = context->stats.nodes - before_nodes;
     context->stats.probcut_shallow_nodes += shallow_nodes;
     telemetry.shallow_nodes += shallow_nodes;
-    context->stack[ply] = StackFrame{};
+    context->stack[ply].pv.size = 0;
     context->stack[ply].legal_moves = legal_moves;
 
     if (shallow.is_stopped() || should_stop_search(context)) {
@@ -358,7 +358,6 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
     return SearchNodeResult::completed(
         SearchValue{
             .score = beta,
-            .pv = {},
         },
         true);
   }

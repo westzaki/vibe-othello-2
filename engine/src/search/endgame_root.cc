@@ -171,11 +171,11 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
   }
 
   EndgameStackFrame& root_frame = context.stack[0];
-  root_frame = EndgameStackFrame{};
+  root_frame.pv.size = 0;
   root_frame.moves = root_endgame_moves_with_policy<EndgamePolicy>(
       &context, completed_depth, root_empties, small_endgame_policy, root_legal_moves);
   root_frame.legal_moves = root_legal_moves;
-  const MoveList root_moves = root_frame.moves;
+  const MoveList& root_moves = root_frame.moves;
 
   if (root_moves.size == 0) {
     ++context.stats.pass_nodes;
@@ -188,10 +188,12 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
       return result;
     }
     const SearchValue& pass_value = pass.value();
+    Line pass_line{};
+    prepend_move(board_core::make_pass(), context.stack[1].pv, &pass_line);
 
     result.root_moves.push_back(make_root_move_info(
         board_core::make_pass(), pass_value.score, EndgamePolicy::kScoreKind, BoundType::exact,
-        completed_depth, context.stats.nodes - before_nodes, pass_value.pv, true, false));
+        completed_depth, context.stats.nodes - before_nodes, pass_line, true, false));
     context.stats.root_moves_searched = 1;
     if (should_stop_endgame(&context)) {
       publish_stopped_result(&result,
@@ -201,7 +203,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
                                  .score_kind = EndgamePolicy::kScoreKind,
                                  .bound = BoundType::lower,
                                  .completed_depth = completed_depth,
-                                 .pv = pass_value.pv,
+                                 .pv = pass_line,
                                  .has_completed_score = true,
                              },
                              metadata_from_context(context, start));
@@ -213,7 +215,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
                                         .score_kind = EndgamePolicy::kScoreKind,
                                         .bound = BoundType::exact,
                                         .completed_depth = completed_depth,
-                                        .pv = pass_value.pv,
+                                        .pv = pass_line,
                                         .exact = true,
                                     },
                                     metadata_from_context(context, start));
@@ -243,10 +245,12 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
       break;
     }
     const SearchValue& child_value = child.value();
+    Line child_line{};
+    prepend_move(move, context.stack[1].pv, &child_line);
 
     RootMoveInfo root_move = make_root_move_info(
         move, child_value.score, EndgamePolicy::kScoreKind, BoundType::exact, completed_depth,
-        context.stats.nodes - before_nodes, child_value.pv, true, false);
+        context.stats.nodes - before_nodes, child_line, true, false);
     ++context.stats.root_moves_searched;
     const bool improves_root =
         is_better_root_move(child_value.score, move, best_score, result.best_move);
@@ -259,7 +263,7 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
       }
       result.best_move = move;
       best_score = child_value.score;
-      best_line = child_value.pv;
+      best_line = child_line;
       best_root_move = root_move;
       if (best_only_reporting) {
         publish_best_only_root_move(&result, root_move);

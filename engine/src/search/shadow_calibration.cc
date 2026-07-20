@@ -168,13 +168,6 @@ std::uint64_t sample_hash(const ShadowCalibrationRun& run, const ShadowCandidate
   return hash;
 }
 
-std::optional<board_core::Move> best_move(const SearchNodeResult& result) noexcept {
-  if (!result.is_complete() || result.value().pv.size == 0) {
-    return std::nullopt;
-  }
-  return result.value().pv.moves.front();
-}
-
 ShadowWindowResult window_result_for(Score score, const ShadowCandidate& candidate) noexcept {
   if (score <= candidate.alpha) {
     return ShadowWindowResult::fail_low;
@@ -189,10 +182,15 @@ BoundType verification_bound_for(Score score) noexcept {
   return classify_bound(score, kScoreLoss, kScoreWin);
 }
 
-SearchNodeResult run_verification_search(board_core::Position position, Depth depth,
-                                         const Evaluator& evaluator,
-                                         const ResolvedSearchOptions& options,
-                                         SearchStats* verification_stats) {
+struct VerificationResult {
+  SearchNodeResult result;
+  std::optional<board_core::Move> best_move;
+};
+
+VerificationResult run_verification_search(board_core::Position position, Depth depth,
+                                           const Evaluator& evaluator,
+                                           const ResolvedSearchOptions& options,
+                                           SearchStats* verification_stats) {
   MidgameOrderingState ordering_state{};
   SearchContext verification_context{
       .position_state = make_search_position(position, &evaluator, depth),
@@ -208,7 +206,13 @@ SearchNodeResult run_verification_search(board_core::Position position, Depth de
   SearchNodeResult result =
       full_window_search(&verification_context, kScoreLoss, kScoreWin, depth, Ply{0});
   *verification_stats = verification_context.stats;
-  return result;
+  const Line& pv = verification_context.stack[0].pv;
+  return VerificationResult{
+      .result = result,
+      .best_move = result.is_complete() && pv.size != 0
+                       ? std::optional<board_core::Move>{pv.moves.front()}
+                       : std::nullopt,
+  };
 }
 
 ShadowNodeType node_type_for(bool pv_node, ShadowWindowResult deep_result) noexcept {
@@ -358,26 +362,27 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
   shadow_options.endgame.exact_endgame = false;
   shadow_options.endgame.endgame_exact_empties = 0;
   SearchStats deep_stats{};
-  const SearchNodeResult deep_verification = run_verification_search(
+  const VerificationResult deep_verification = run_verification_search(
       candidate.position, candidate.deep_depth, context->evaluator, shadow_options, &deep_stats);
   ++run.stats.shadow_deep_verification_searches;
   run.stats.shadow_deep_verification_nodes += deep_stats.nodes;
   run.stats.shadow_verification_probcut_attempts += deep_stats.probcut_attempts;
   run.stats.shadow_verification_probcut_beta_cutoffs += deep_stats.probcut_beta_cutoffs;
-  if (!deep_verification.is_complete()) {
+  if (!deep_verification.result.is_complete()) {
     return;
   }
 
   const Score official_deep_score = official_deep_result.value().score;
-  const Score deep_verification_score = deep_verification.value().score;
+  const Score deep_verification_score = deep_verification.result.value().score;
   const ShadowWindowResult actual_official_deep_result =
       window_result_for(official_deep_score, candidate);
   const ShadowNodeType node_type = node_type_for(candidate.pv_node, actual_official_deep_result);
-  const std::optional<board_core::Move> deep_verification_best_move = best_move(deep_verification);
+  const std::optional<board_core::Move> deep_verification_best_move = deep_verification.best_move;
 
   struct ShallowObservation {
     std::size_t collection_pair_index = 0;
-    SearchNodeResult result;
+    Score score = 0;
+    std::optional<board_core::Move> best_move;
   };
   std::vector<ShallowObservation> shallow_observations;
   shallow_observations.reserve(pair_count_at_depth(run.options, candidate.deep_depth));
@@ -388,17 +393,20 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
       continue;
     }
     SearchStats shallow_stats{};
-    SearchNodeResult shallow_verification = run_verification_search(
+    VerificationResult shallow_verification = run_verification_search(
         candidate.position, pair.shallow_depth, context->evaluator, shadow_options, &shallow_stats);
     ++run.stats.shadow_shallow_verification_searches;
     run.stats.shadow_shallow_nodes += shallow_stats.nodes;
     run.stats.shadow_verification_probcut_attempts += shallow_stats.probcut_attempts;
     run.stats.shadow_verification_probcut_beta_cutoffs += shallow_stats.probcut_beta_cutoffs;
-    if (!shallow_verification.is_complete()) {
+    if (!shallow_verification.result.is_complete()) {
       return;
     }
-    shallow_observations.push_back(
-        ShallowObservation{.collection_pair_index = pair_index, .result = shallow_verification});
+    shallow_observations.push_back(ShallowObservation{
+        .collection_pair_index = pair_index,
+        .score = shallow_verification.result.value().score,
+        .best_move = shallow_verification.best_move,
+    });
   }
 
   for (std::size_t same_deep_pair_index = 0; same_deep_pair_index < shallow_observations.size();
@@ -406,10 +414,8 @@ void complete_shadow_candidate(SearchContext* context, const ShadowCandidate& ca
     const ShallowObservation& observation = shallow_observations[same_deep_pair_index];
     const std::size_t pair_index = observation.collection_pair_index;
     const ShadowCalibrationDepthPairV1 pair = run.options.ordered_depth_pairs[pair_index];
-    const SearchNodeResult& shallow_verification = observation.result;
-    const Score shallow_verification_score = shallow_verification.value().score;
-    const std::optional<board_core::Move> shallow_verification_best_move =
-        best_move(shallow_verification);
+    const Score shallow_verification_score = observation.score;
+    const std::optional<board_core::Move> shallow_verification_best_move = observation.best_move;
     const bool verification_best_move_agreement =
         shallow_verification_best_move.has_value() && deep_verification_best_move.has_value() &&
         shallow_verification_best_move == deep_verification_best_move;

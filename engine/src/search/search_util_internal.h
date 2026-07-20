@@ -18,13 +18,14 @@ bool is_better_root_move(Score score, board_core::Move move, Score best_score,
                          std::optional<board_core::Move> best_move) noexcept;
 
 template <typename StackFrameT>
-void update_best_line_and_move(const SearchValue& child, board_core::Move move, SearchValue* best,
-                               std::optional<board_core::Move>* best_move, StackFrameT* frame) {
-  if (!best_move->has_value() || child.score > best->score ||
-      (child.score == best->score && move.square.index < (*best_move)->square.index)) {
-    *best = child;
+void update_best_line_and_move(Score child_score, const Line& child_pv, board_core::Move move,
+                               Score* best_score, std::optional<board_core::Move>* best_move,
+                               StackFrameT* frame) {
+  if (!best_move->has_value() || child_score > *best_score ||
+      (child_score == *best_score && move.square.index < (*best_move)->square.index)) {
+    *best_score = child_score;
     *best_move = move;
-    frame->pv = best->pv;
+    prepend_move(move, child_pv, &frame->pv);
   }
 }
 

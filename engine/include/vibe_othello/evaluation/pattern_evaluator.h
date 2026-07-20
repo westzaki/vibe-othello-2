@@ -48,10 +48,7 @@ public:
     const PatternEvaluator* evaluator_ = nullptr;
     std::vector<std::uint32_t> black_indices_;
     std::vector<std::uint32_t> white_indices_;
-    std::vector<std::uint32_t> touched_instances_;
     std::vector<std::uint32_t> touched_generation_;
-    std::vector<std::int32_t> pending_black_delta_;
-    std::vector<std::int32_t> pending_white_delta_;
     std::uint32_t generation_ = 0;
     std::uint32_t last_touched_instances_ = 0;
     std::uint8_t occupied_count_ = 0;

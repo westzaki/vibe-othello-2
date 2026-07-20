@@ -12,7 +12,7 @@ namespace internal {
 
 namespace {
 
-constexpr Score kAspirationInitialWindow = 4;
+constexpr Score kAspirationInitialWindow = 8;
 constexpr Score kFullScoreRange = kScoreWin - kScoreLoss;
 
 Score clamp_score(Score score) noexcept {
@@ -91,18 +91,19 @@ BoundType bound_for_score(Score score, RootSearchWindow window) noexcept {
 }
 
 void finish_depth_zero_or_terminal_result(SearchResult* result, const SearchContext& context,
-                                          const SearchValue& root, RootSearchWindow root_window,
+                                          Score root_score, const Line& root_pv,
+                                          RootSearchWindow root_window,
                                           std::chrono::steady_clock::time_point start,
                                           bool root_terminal) {
   publish_completed_root_result(
       result,
       CompletedRootResult{
           .best_move = result->best_move,
-          .score = root.score,
+          .score = root_score,
           .score_kind = root_terminal ? ScoreKind::exact_disc_diff : ScoreKind::heuristic,
-          .bound = bound_for_score(root.score, root_window),
+          .bound = bound_for_score(root_score, root_window),
           .completed_depth = result->completed_depth,
-          .pv = root.pv,
+          .pv = root_pv,
           .exact = root_terminal,
       },
       metadata_from_context(context, start));
@@ -112,7 +113,7 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
                                                board_core::Move move,
                                                RootSearchWindow move_window) {
   StackFrame& frame = context->stack[0];
-  frame = StackFrame{};
+  frame.pv.size = 0;
   frame.current_move = move;
   const bool made_delta =
       board_core::make_move_delta(context->position_state.position, move, &frame.delta);
@@ -132,7 +133,7 @@ std::optional<RootMoveInfo> evaluate_root_move(SearchContext* context, Depth dep
 
   const Score score = static_cast<Score>(-child_value.score);
   Line line{};
-  prepend_move(move, child_value.pv, &line);
+  prepend_move(move, context->stack[1].pv, &line);
   frame.pv = line;
 
   return make_root_move_info(move, score, ScoreKind::heuristic, bound_for_score(score, move_window),
@@ -160,10 +161,12 @@ std::optional<RootMoveInfo> evaluate_root_move_pvs(SearchContext* context, Depth
   }
 
   StackFrame& frame = context->stack[0];
-  frame.pv = child.value().pv;
+  Line line{};
+  prepend_move(move, context->stack[1].pv, &line);
+  frame.pv = line;
   return make_root_move_info(move, score, ScoreKind::heuristic,
                              classify_bound(score, alpha, static_cast<Score>(alpha + 1)), depth,
-                             context->stats.nodes - before_nodes, child.value().pv, false,
+                             context->stats.nodes - before_nodes, line, false,
                              child.is_selective());
 }
 
@@ -399,8 +402,8 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
       }
       return result;
     }
-    finish_depth_zero_or_terminal_result(&result, context, root.value(), root_window, start,
-                                         root_terminal);
+    finish_depth_zero_or_terminal_result(&result, context, root.value().score, context.stack[0].pv,
+                                         root_window, start, root_terminal);
     return result;
   }
 
@@ -425,11 +428,11 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
     root_hints.history = &context.ordering_state->history;
   }
   StackFrame& root_frame = context.stack[0];
-  root_frame = StackFrame{};
+  root_frame.pv.size = 0;
   root_frame.legal_moves = root_legal_moves;
   root_frame.moves =
       order_midgame_moves(context.position_state.position, root_legal_moves, root_hints);
-  const MoveList root_moves = root_frame.moves;
+  const MoveList& root_moves = root_frame.moves;
   if (root_moves.size == 0) {
     if (should_stop_search(&context)) {
       publish_stopped_result(&result, StoppedRootResult{}, metadata_from_context(context, start));
@@ -458,7 +461,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
 
     const Score pass_score = static_cast<Score>(-child_value.score);
     Line pass_line{};
-    prepend_move(board_core::make_pass(), child_value.pv, &pass_line);
+    prepend_move(board_core::make_pass(), context.stack[1].pv, &pass_line);
     root_frame.pv = pass_line;
     result.root_moves.push_back(make_root_move_info(
         board_core::make_pass(), pass_score, ScoreKind::heuristic,

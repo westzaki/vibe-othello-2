@@ -36,7 +36,7 @@ SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score
     const SearchNodeResult pass = search_exact_score_endgame_child(
         context, board_core::make_pass(), alpha, beta, empties, ply, small_endgame_policy);
     if (pass.is_complete()) {
-      frame.pv = pass.value().pv;
+      prepend_move(board_core::make_pass(), context->stack[ply + 1].pv, &frame.pv);
       store_exact_score_endgame_tt(
           context, remaining_empties, pass.value().score,
           classify_bound(pass.value().score, original_alpha, original_beta));
@@ -52,7 +52,7 @@ SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score
   }
 
   const SearchValue& child_value = child.value();
-  frame.pv = child_value.pv;
+  prepend_move(move, context->stack[ply + 1].pv, &frame.pv);
   update_endgame_alpha_and_check_cutoff(context, child_value.score, &alpha, beta);
   store_exact_score_endgame_tt(context, remaining_empties, child_value.score,
                                classify_bound(child_value.score, original_alpha, original_beta),
@@ -76,7 +76,7 @@ SearchNodeResult exact_score_direct_small_empty(EndgameContext* context, Score a
     const SearchNodeResult pass = search_exact_score_endgame_child(
         context, board_core::make_pass(), alpha, beta, empties, ply, small_endgame_policy);
     if (pass.is_complete()) {
-      frame.pv = pass.value().pv;
+      prepend_move(board_core::make_pass(), context->stack[ply + 1].pv, &frame.pv);
       store_exact_score_endgame_tt(
           context, remaining_empties, pass.value().score,
           classify_bound(pass.value().score, original_alpha, original_beta));
@@ -84,10 +84,7 @@ SearchNodeResult exact_score_direct_small_empty(EndgameContext* context, Score a
     return pass;
   }
 
-  SearchValue best{
-      .score = kScoreLoss,
-      .pv = {},
-  };
+  Score best_score = kScoreLoss;
   std::optional<board_core::Move> best_move;
 
   while (legal_moves != 0) {
@@ -104,16 +101,17 @@ SearchNodeResult exact_score_direct_small_empty(EndgameContext* context, Score a
     }
 
     const SearchValue& child_value = child.value();
-    update_best_line_and_move(child_value, move, &best, &best_move, &frame);
+    update_best_line_and_move(child_value.score, context->stack[ply + 1].pv, move, &best_score,
+                              &best_move, &frame);
     if (update_endgame_alpha_and_check_cutoff(context, child_value.score, &alpha, beta)) {
       break;
     }
   }
 
-  store_exact_score_endgame_tt(context, remaining_empties, best.score,
-                               classify_bound(best.score, original_alpha, original_beta),
+  store_exact_score_endgame_tt(context, remaining_empties, best_score,
+                               classify_bound(best_score, original_alpha, original_beta),
                                best_move);
-  return SearchNodeResult::completed(best);
+  return SearchNodeResult::completed(SearchValue{.score = best_score});
 }
 
 SearchNodeResult exact_score_2_empty(EndgameContext* context, Score alpha, Score beta,

@@ -26,9 +26,11 @@ At construction it now compiles the dynamic feature geometry and weights into
 a flat runtime layout. It provides a flat stateless path, the prior stateless
 extraction as a parity reference, and an incremental state with paired
 black/white-perspective indices. Search binds that state once per applicable
-root and updates only instances touched by placed or flipped squares. Pass and
-undo are supported without rebuilding indices. Phase-aware fallback-only roots
-remain on the generic stateless path.
+root and applies placed/flipped-square contributions directly to the affected
+active indices. A generation table deduplicates touched-instance telemetry
+without pending-delta or touched-instance scratch arrays. Pass and undo are
+supported without rebuilding indices. Phase-aware fallback-only roots remain
+on the generic stateless path.
 
 The compiled layout also records the last nonzero pattern-family instance for
 each phase, so dormant suffix tables are neither extracted nor incrementally

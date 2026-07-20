@@ -194,6 +194,7 @@ SearchOptions options_for(const ProbCutCalibrationProfileV1* profile, Depth mini
 struct DirectRun {
   SearchNodeResult result;
   SearchStats stats;
+  Line pv;
 };
 
 const ProbCutDepthPairStats* telemetry_for(const SearchStats& stats, Depth deep_depth,
@@ -221,6 +222,7 @@ DirectRun run_null_window(board_core::Position position, Score beta, Depth depth
   return DirectRun{
       .result = result,
       .stats = context.stats,
+      .pv = context.stack[1].pv,
   };
 }
 
@@ -410,7 +412,7 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
   const SearchNodeResult result = null_window_search(&context, Score{0}, Depth{4}, Ply{1});
   REQUIRE(result.is_complete());
   REQUIRE(result.value().score == 0);
-  REQUIRE(result.value().pv.size == 0);
+  REQUIRE(context.stack[1].pv.size == 0);
   REQUIRE(context.stats.probcut_attempts == 1);
   REQUIRE(context.stats.probcut_shallow_nodes > 0);
   REQUIRE(context.stats.probcut_successes == 1);
@@ -458,7 +460,7 @@ TEST_CASE("shadow verification detects a false cut without changing the deep res
   REQUIRE(actual.result.is_complete());
   REQUIRE(expected.result.is_complete());
   REQUIRE(actual.result.value().score == expected.result.value().score);
-  REQUIRE(actual.result.value().pv == expected.result.value().pv);
+  REQUIRE(actual.pv == expected.pv);
   REQUIRE(actual.stats.probcut_successes == 1);
   REQUIRE(actual.stats.probcut_beta_cutoffs == 0);
   REQUIRE(actual.stats.selective_cuts == 0);

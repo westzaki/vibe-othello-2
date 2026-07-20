@@ -53,70 +53,76 @@ constexpr std::array<CornerAdjacency, 4> kCornerAdjacency{{
     },
 }};
 
-constexpr bool is_corner(board_core::Square square) noexcept {
+constexpr board_core::Bitboard mask_for_corners() noexcept {
+  board_core::Bitboard mask = 0;
   for (const CornerAdjacency adjacency : kCornerAdjacency) {
-    if (square == adjacency.corner) {
-      return true;
-    }
+    mask |= board_core::bit(adjacency.corner);
   }
-  return false;
+  return mask;
 }
 
-constexpr bool is_edge(board_core::Square square) noexcept {
-  const int file = board_core::file_of(square);
-  const int rank = board_core::rank_of(square);
-  return file == 0 || file == board_core::kBoardSize - 1 || rank == 0 ||
-         rank == board_core::kBoardSize - 1;
-}
-
-bool is_dangerous_x_square(board_core::Position position, board_core::Square square) noexcept {
+constexpr board_core::Bitboard mask_for_x_squares() noexcept {
+  board_core::Bitboard mask = 0;
   for (const CornerAdjacency adjacency : kCornerAdjacency) {
-    if (square != adjacency.x_square) {
-      continue;
-    }
-
-    return (board_core::occupied(position) & board_core::bit(adjacency.corner)) == 0;
+    mask |= board_core::bit(adjacency.x_square);
   }
-  return false;
+  return mask;
 }
 
-bool is_dangerous_c_square(board_core::Position position, board_core::Square square) noexcept {
+constexpr board_core::Bitboard mask_for_c_squares() noexcept {
+  board_core::Bitboard mask = 0;
   for (const CornerAdjacency adjacency : kCornerAdjacency) {
-    if (square != adjacency.c_squares[0] && square != adjacency.c_squares[1]) {
-      continue;
-    }
-
-    return (board_core::occupied(position) & board_core::bit(adjacency.corner)) == 0;
+    mask |= board_core::bit(adjacency.c_squares[0]);
+    mask |= board_core::bit(adjacency.c_squares[1]);
   }
-  return false;
+  return mask;
 }
 
-bool is_stable_like_edge(board_core::Position position, board_core::Square square) noexcept {
-  if (!is_edge(square)) {
-    return false;
+constexpr board_core::Bitboard mask_for_edges() noexcept {
+  board_core::Bitboard mask = 0;
+  for (int index = 0; index < board_core::kSquareCount; ++index) {
+    const board_core::Square square = board_core::square_from_index(index);
+    const int file = board_core::file_of(square);
+    const int rank = board_core::rank_of(square);
+    if (file == 0 || file == board_core::kBoardSize - 1 || rank == 0 ||
+        rank == board_core::kBoardSize - 1) {
+      mask |= board_core::bit(square);
+    }
   }
+  return mask;
+}
 
+constexpr std::array<board_core::Bitboard, board_core::kSquareCount>
+corner_by_adjacent_square() noexcept {
+  std::array<board_core::Bitboard, board_core::kSquareCount> corners{};
   for (const CornerAdjacency adjacency : kCornerAdjacency) {
-    if ((position.player & board_core::bit(adjacency.corner)) == 0) {
-      continue;
-    }
-
-    if (square == adjacency.c_squares[0] || square == adjacency.c_squares[1]) {
-      return true;
-    }
+    const board_core::Bitboard corner = board_core::bit(adjacency.corner);
+    corners[adjacency.x_square.index] = corner;
+    corners[adjacency.c_squares[0].index] = corner;
+    corners[adjacency.c_squares[1].index] = corner;
   }
-  return false;
+  return corners;
 }
+
+constexpr board_core::Bitboard kCornerMask = mask_for_corners();
+constexpr board_core::Bitboard kXSquareMask = mask_for_x_squares();
+constexpr board_core::Bitboard kCSquareMask = mask_for_c_squares();
+constexpr board_core::Bitboard kEdgeMask = mask_for_edges();
+constexpr auto kCornerByAdjacentSquare = corner_by_adjacent_square();
 
 } // namespace
 
 void add_static_othello_features(board_core::Position position, board_core::Move move,
                                  MoveOrderFeatures* features) noexcept {
-  features->is_corner = is_corner(move.square);
-  features->is_edge = is_edge(move.square);
-  features->is_stable_like_edge = is_stable_like_edge(position, move.square);
-  features->is_dangerous_x = is_dangerous_x_square(position, move.square);
-  features->is_dangerous_c = is_dangerous_c_square(position, move.square);
+  const board_core::Bitboard move_bit = board_core::bit(move.square);
+  const board_core::Bitboard adjacent_corner = kCornerByAdjacentSquare[move.square.index];
+  const bool adjacent_corner_is_empty = (board_core::occupied(position) & adjacent_corner) == 0;
+  features->is_corner = (move_bit & kCornerMask) != 0;
+  features->is_edge = (move_bit & kEdgeMask) != 0;
+  features->is_stable_like_edge =
+      (move_bit & kCSquareMask) != 0 && (position.player & adjacent_corner) != 0;
+  features->is_dangerous_x = (move_bit & kXSquareMask) != 0 && adjacent_corner_is_empty;
+  features->is_dangerous_c = (move_bit & kCSquareMask) != 0 && adjacent_corner_is_empty;
 }
 
 } // namespace vibe_othello::search::internal

@@ -59,12 +59,9 @@ SearchNodeResult search_endgame_child_with_policy(EndgameContext* context, board
   }
 
   const SearchValue& child_value = child.value();
-  SearchValue result{
+  return SearchNodeResult::completed(SearchValue{
       .score = static_cast<Score>(-child_value.score),
-      .pv = {},
-  };
-  prepend_move(move, child_value.pv, &result.pv);
-  return SearchNodeResult::completed(result);
+  });
 }
 
 template <typename EndgamePolicy>
@@ -75,7 +72,6 @@ SearchNodeResult endgame_terminal(EndgameContext* context, std::uint8_t empties)
                                       BoundType::exact);
   return SearchNodeResult::completed(SearchValue{
       .score = score,
-      .pv = {},
   });
 }
 
@@ -90,7 +86,7 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
   const Depth remaining_empties = static_cast<Depth>(empties);
 
   EndgameStackFrame& frame = context->stack[ply];
-  frame = EndgameStackFrame{};
+  frame.pv.size = 0;
 
   if (note_endgame_node_visited(context)) {
     return SearchNodeResult::stopped();
@@ -106,7 +102,6 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
   if (tt_probe.cutoff_score.has_value()) {
     return SearchNodeResult::completed(SearchValue{
         .score = *tt_probe.cutoff_score,
-        .pv = {},
     });
   }
 
@@ -133,7 +128,7 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
     const SearchNodeResult pass = search_endgame_child_with_policy<EndgamePolicy>(
         context, board_core::make_pass(), alpha, beta, empties, ply, small_endgame_policy);
     if (pass.is_complete()) {
-      frame.pv = pass.value().pv;
+      prepend_move(board_core::make_pass(), context->stack[ply + 1].pv, &frame.pv);
       store_tt_with_policy<EndgamePolicy>(
           context, remaining_empties, pass.value().score,
           classify_bound(pass.value().score, original_alpha, original_beta));
@@ -141,10 +136,7 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
     return pass;
   }
 
-  SearchValue best{
-      .score = EndgamePolicy::kWorstScore,
-      .pv = {},
-  };
+  Score best_score = EndgamePolicy::kWorstScore;
   std::optional<board_core::Move> best_move;
 
   for (std::uint8_t move_index = 0; move_index < frame.moves.size; ++move_index) {
@@ -160,17 +152,18 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
     }
 
     const SearchValue& child_value = child.value();
-    update_best_line_and_move(child_value, move, &best, &best_move, &frame);
+    update_best_line_and_move(child_value.score, context->stack[ply + 1].pv, move, &best_score,
+                              &best_move, &frame);
     if (update_endgame_alpha_and_check_cutoff(context, child_value.score, &alpha, beta)) {
       break;
     }
   }
 
-  store_tt_with_policy<EndgamePolicy>(context, remaining_empties, best.score,
-                                      classify_bound(best.score, original_alpha, original_beta),
+  store_tt_with_policy<EndgamePolicy>(context, remaining_empties, best_score,
+                                      classify_bound(best_score, original_alpha, original_beta),
                                       best_move);
 
-  return SearchNodeResult::completed(best);
+  return SearchNodeResult::completed(SearchValue{.score = best_score});
 }
 
 } // namespace

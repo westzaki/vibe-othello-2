@@ -681,10 +681,7 @@ PatternEvaluator::IncrementalState::IncrementalState(const PatternEvaluator* eva
                                                      board_core::Position position)
     : evaluator_(evaluator), black_indices_(evaluator->instances_.size()),
       white_indices_(evaluator->instances_.size()),
-      touched_instances_(evaluator->instances_.size()),
       touched_generation_(evaluator->instances_.size()),
-      pending_black_delta_(evaluator->instances_.size()),
-      pending_white_delta_(evaluator->instances_.size()),
       occupied_count_(static_cast<std::uint8_t>(std::popcount(board_core::occupied(position)))),
       side_to_move_(position.side_to_move), black_discs_(board_core::black_discs(position)),
       white_discs_(board_core::white_discs(position)),
@@ -780,14 +777,20 @@ std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core:
       }
       if (touched_generation_[instance_id] != generation_) {
         touched_generation_[instance_id] = generation_;
-        touched_instances_[touched_count++] = contribution.instance_id;
-        pending_black_delta_[instance_id] = 0;
-        pending_white_delta_[instance_id] = 0;
+        ++touched_count;
       }
-      pending_black_delta_[instance_id] +=
+      const std::int64_t black_index =
+          static_cast<std::int64_t>(black_indices_[instance_id]) +
           direction * black_digit_delta * static_cast<std::int32_t>(contribution.power_of_three);
-      pending_white_delta_[instance_id] +=
+      const std::int64_t white_index =
+          static_cast<std::int64_t>(white_indices_[instance_id]) +
           direction * white_digit_delta * static_cast<std::int32_t>(contribution.power_of_three);
+      assert(black_index >= 0);
+      assert(white_index >= 0);
+      assert(black_index < evaluator_->instances_[instance_id].pattern_size);
+      assert(white_index < evaluator_->instances_[instance_id].pattern_size);
+      black_indices_[instance_id] = static_cast<std::uint32_t>(black_index);
+      white_indices_[instance_id] = static_cast<std::uint32_t>(white_index);
     }
   };
 
@@ -805,19 +808,6 @@ std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core:
     flipped &= flipped - 1;
   }
 
-  for (std::size_t touched = 0; touched < touched_count; ++touched) {
-    const std::size_t instance_id = touched_instances_[touched];
-    const std::int64_t black_index =
-        static_cast<std::int64_t>(black_indices_[instance_id]) + pending_black_delta_[instance_id];
-    const std::int64_t white_index =
-        static_cast<std::int64_t>(white_indices_[instance_id]) + pending_white_delta_[instance_id];
-    assert(black_index >= 0);
-    assert(white_index >= 0);
-    assert(black_index < evaluator_->instances_[instance_id].pattern_size);
-    assert(white_index < evaluator_->instances_[instance_id].pattern_size);
-    black_indices_[instance_id] = static_cast<std::uint32_t>(black_index);
-    white_indices_[instance_id] = static_cast<std::uint32_t>(white_index);
-  }
   update_absolute_discs(delta, mover, direction);
   return static_cast<std::uint32_t>(touched_count);
 }

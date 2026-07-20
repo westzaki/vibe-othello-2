@@ -121,6 +121,10 @@ The current search implementation includes:
 * typed key-plus-kind TT probes, protected same-key replacement, and split
   replacement/conflict/age/probe-slot telemetry
 * root-once incremental position hashing and cached legal-mask node preparation
+* score-only recursive node results with PV scratch owned by the fixed per-ply
+  search stack, avoiding full-line copies on recursive returns
+* set-bit legal-mask expansion and initialized-prefix-only move-list copying,
+  with packed score/tie-break keys for in-place deterministic insertion sort
 * root alpha carry and root PVS with exact MultiPV/teacher report completion
 * controlled pass-depth A/B option; the default consumes depth
 * opt-in persistent session plumbing for Arena and WASM

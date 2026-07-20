@@ -60,12 +60,9 @@ constexpr bool is_normal_move(board_core::Move move) noexcept {
   return move.kind == board_core::MoveKind::normal;
 }
 
-bool matches_normal_move(board_core::Move candidate, board_core::Move move) noexcept;
-
 MoveList move_list_from_legal_mask(board_core::Bitboard legal_moves) noexcept;
-MoveList
-sorted_move_list_from_scores(MoveList list,
-                             const std::array<int, board_core::kSquareCount>& scores) noexcept;
+void sort_move_list_from_scores(MoveList* list,
+                                const std::array<int, board_core::kSquareCount>& scores) noexcept;
 
 void add_static_othello_features(board_core::Position position, board_core::Move move,
                                  MoveOrderFeatures* features) noexcept;
