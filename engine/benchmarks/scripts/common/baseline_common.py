@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -85,46 +83,3 @@ def check_common_envelope(
         errors.append(f"benchmark: expected {benchmark!r}")
 
     return errors
-
-
-def _run_text(command: list[str]) -> str:
-    return subprocess.check_output(command, text=True).strip()
-
-
-def git_commit() -> str:
-    return _run_text(["git", "rev-parse", "HEAD"])
-
-
-def git_revision() -> str:
-    return _run_text(["git", "rev-parse", "--short", "HEAD"])
-
-
-def measured_at_today() -> str:
-    return date.today().isoformat()
-
-
-def platform_os_string(uname_s: str, uname_r: str, uname_m: str) -> str:
-    return f"{uname_s} {uname_r} {uname_m}"
-
-
-def _tokenize(value: str) -> str:
-    token_chars = [ch.lower() if ch.isalnum() else "-" for ch in value]
-    return "-".join(part for part in "".join(token_chars).split("-") if part)
-
-
-def machine_token_from_uname(uname_s: str, uname_r: str, uname_m: str) -> str:
-    if uname_s == "Darwin" and uname_m == "arm64":
-        return "apple-silicon-macos-arm64"
-    return _tokenize(platform_os_string(uname_s, uname_r, uname_m))
-
-
-def compiler_summary() -> str:
-    return _run_text(["c++", "--version"]).splitlines()[0]
-
-
-def compiler_token(compiler: str) -> str:
-    prefix = "Apple clang version "
-    if compiler.startswith(prefix):
-        version = compiler[len(prefix) :].split(".", maxsplit=1)[0]
-        return f"apple-clang-{version or 'unknown'}"
-    return _tokenize(compiler)

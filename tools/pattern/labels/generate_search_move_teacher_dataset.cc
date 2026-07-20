@@ -1,3 +1,4 @@
+#include "normalized_tsv.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/evaluation/early_midgame_heuristic_evaluator.h"
 #include "vibe_othello/evaluation/pattern_artifact.h"
@@ -7,7 +8,6 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -30,10 +30,12 @@ namespace board_core = vibe_othello::board_core;
 namespace evaluation = vibe_othello::evaluation;
 namespace search = vibe_othello::search;
 
-constexpr std::string_view kNormalizedHeaderV2 =
-    "record_id\tposition_id\tgame_group_id\tboard_id\tsource_occurrence_id\tsource_dataset_id\t"
-    "split\tboard_a1_to_h8\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_"
-    "move\toccupied_count\tphase\tplayer_disc_count\topponent_disc_count\tempty_count";
+using vibe_othello::tools::pattern::kNormalizedHeaderV2;
+using vibe_othello::tools::pattern::parse_int;
+using vibe_othello::tools::pattern::parse_u64;
+using vibe_othello::tools::pattern::split_tabs;
+using vibe_othello::tools::pattern::trim_trailing_cr;
+
 constexpr std::string_view kMoveTeacherHeaderV3 =
     "root_board_id\troot_record_id\troot_split\troot_phase\troot_empty_count\tmove\tchild_"
     "board_id\tchild_board_a1_to_h8\tchild_empty_count\tchild_phase\troot_move_score_side_to_"
@@ -178,46 +180,6 @@ struct Report {
   std::uint64_t output_checksum = 14695981039346656037ull;
   double wall_time_sec = 0.0;
 };
-
-std::string_view trim_trailing_cr(std::string_view text) noexcept {
-  if (!text.empty() && text.back() == '\r') {
-    text.remove_suffix(1);
-  }
-  return text;
-}
-
-std::vector<std::string_view> split_tabs(std::string_view text) {
-  std::vector<std::string_view> fields;
-  std::size_t offset = 0;
-  while (offset <= text.size()) {
-    const std::size_t next = text.find('\t', offset);
-    if (next == std::string_view::npos) {
-      fields.push_back(text.substr(offset));
-      break;
-    }
-    fields.push_back(text.substr(offset, next - offset));
-    offset = next + 1;
-  }
-  return fields;
-}
-
-std::optional<int> parse_int(std::string_view text) noexcept {
-  int value = 0;
-  const auto [pointer, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  if (error != std::errc{} || pointer != text.data() + text.size()) {
-    return std::nullopt;
-  }
-  return value;
-}
-
-std::optional<std::uint64_t> parse_u64(std::string_view text) noexcept {
-  std::uint64_t value = 0;
-  const auto [pointer, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  if (error != std::errc{} || pointer != text.data() + text.size()) {
-    return std::nullopt;
-  }
-  return value;
-}
 
 int phase_for_occupied_count(int occupied_count) noexcept {
   return std::min(12, ((occupied_count - 4) * 13) / 60);

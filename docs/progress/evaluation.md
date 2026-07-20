@@ -46,10 +46,9 @@ X/C-square, and phase-weighted disc difference) and is not a strength claim.
 
 The runtime evaluation module also includes pattern schema types, loaded
 artifact weight containers, runtime `PatternWeights`, ternary pattern indexing,
-declared pattern-symmetry support, pattern-set feature geometry, and the
-test-oriented `TinyPatternEvaluator`. Existing trainer/exporter tooling can
-produce runtime-compatible learned artifacts; the learned evaluator itself is
-not missing.
+declared pattern-symmetry support, and pattern-set feature geometry. Existing
+trainer/exporter tooling can produce runtime-compatible learned artifacts; the
+learned evaluator itself is not missing.
 
 The legacy static evaluator path remains available as an explicit override and
 as a simple deterministic reference path for tooling and tests.

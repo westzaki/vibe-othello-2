@@ -1,4 +1,5 @@
 #include "index_mode.h"
+#include "normalized_tsv.h"
 #include "pattern_set_options.h"
 #include "replay_records.h"
 #include "schema_validation.h"
@@ -7,7 +8,6 @@
 #include "vibe_othello/evaluation/pattern_feature_set.h"
 
 #include <algorithm>
-#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -25,6 +25,11 @@
 #include <vector>
 
 namespace {
+
+using vibe_othello::tools::pattern::parse_int;
+using vibe_othello::tools::pattern::position_from_a1_to_h8_board;
+using vibe_othello::tools::pattern::split_tabs;
+using vibe_othello::tools::pattern::trim_trailing_cr;
 
 enum class SplitPolicy {
   record_hash,
@@ -297,39 +302,6 @@ void count_split(std::string_view split, EmitSummary* summary) noexcept {
   }
 }
 
-std::string_view trim_trailing_cr(std::string_view text) noexcept {
-  if (!text.empty() && text.back() == '\r') {
-    text.remove_suffix(1);
-  }
-  return text;
-}
-
-std::vector<std::string_view> split_tabs(std::string_view text) {
-  std::vector<std::string_view> fields;
-  std::size_t offset = 0;
-  while (offset <= text.size()) {
-    const std::size_t next = text.find('\t', offset);
-    if (next == std::string_view::npos) {
-      fields.push_back(text.substr(offset));
-      break;
-    }
-    fields.push_back(text.substr(offset, next - offset));
-    offset = next + 1;
-  }
-  return fields;
-}
-
-std::optional<int> parse_int(std::string_view text) noexcept {
-  int value = 0;
-  const char* begin = text.data();
-  const char* end = text.data() + text.size();
-  const auto [ptr, ec] = std::from_chars(begin, end, value);
-  if (ec != std::errc{} || ptr != end) {
-    return std::nullopt;
-  }
-  return value;
-}
-
 void mix_checksum(std::string_view text, ReportSummary* summary) noexcept {
   for (const char character : text) {
     summary->checksum ^= static_cast<unsigned char>(character);
@@ -433,42 +405,9 @@ bool validate_label_unit(std::string_view label_unit) noexcept {
   return label_unit == "final_disc_diff" || label_unit == "disc";
 }
 
-int egaroucid_phase_for_occupied_count(int occupied_count, int schema_version) noexcept {
+int egaroucid_phase_for_occupied_count(int occupied_count) noexcept {
   const int occupied_bucket_count = 60;
   return std::min(12, ((occupied_count - 4) * 13) / occupied_bucket_count);
-}
-
-std::optional<vibe_othello::board_core::Position>
-position_from_a1_to_h8_board(std::string_view board) noexcept {
-  namespace board_core = vibe_othello::board_core;
-
-  if (board.size() != board_core::kSquareCount) {
-    return std::nullopt;
-  }
-
-  board_core::Bitboard player = 0;
-  board_core::Bitboard opponent = 0;
-  for (std::size_t index = 0; index < board.size(); ++index) {
-    const board_core::Square square = board_core::square_from_index(static_cast<int>(index));
-    const board_core::Bitboard bit = board_core::bit(square);
-    if (board[index] == 'X') {
-      player |= bit;
-    } else if (board[index] == 'O') {
-      opponent |= bit;
-    } else if (board[index] != '-') {
-      return std::nullopt;
-    }
-  }
-
-  board_core::Position position{
-      .player = player,
-      .opponent = opponent,
-      .side_to_move = board_core::Color::black,
-  };
-  if (!board_core::is_valid(position)) {
-    return std::nullopt;
-  }
-  return position;
 }
 
 std::string split_pair(std::string_view left, std::string_view right) {
@@ -602,7 +541,7 @@ bool parse_normalized_row(std::string_view line, int line_number, int schema_ver
     *error = "occupied_count plus empty_count must equal 64";
     return false;
   }
-  if (row->phase != egaroucid_phase_for_occupied_count(row->occupied_count, schema_version)) {
+  if (row->phase != egaroucid_phase_for_occupied_count(row->occupied_count)) {
     *error = "phase must match occupied_count";
     return false;
   }

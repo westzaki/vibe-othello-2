@@ -29,7 +29,7 @@ public:
     return score_;
   }
 
-  mutable int calls = 0;
+  mutable NodeCount calls = 0;
 
 private:
   Score score_;

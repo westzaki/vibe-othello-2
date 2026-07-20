@@ -1,6 +1,5 @@
 #include "vibe_othello/evaluation/pattern.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
-#include "vibe_othello/evaluation/tiny_pattern_evaluator.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -164,6 +163,29 @@ PatternFeatureSet single_square_feature_set() {
   };
 }
 
+TEST_CASE("ternary pattern index uses empty player opponent digits", "[evaluation][pattern]") {
+  constexpr std::array<PatternCell, 3> cells{
+      PatternCell::empty,
+      PatternCell::player,
+      PatternCell::opponent,
+  };
+  STATIC_REQUIRE(ternary_pattern_index(cells) == 21);
+}
+
+TEST_CASE("ternary pattern index reads side-to-move-relative position", "[evaluation][pattern]") {
+  constexpr Position position{
+      .player = bit(square(1, 0)),
+      .opponent = bit(square(2, 0)),
+      .side_to_move = Color::black,
+  };
+  constexpr std::array<board_core::Square, 3> squares{
+      square(0, 0),
+      square(1, 0),
+      square(2, 0),
+  };
+  REQUIRE(ternary_pattern_index(position, squares) == 21);
+}
+
 TEST_CASE("pattern evaluator is deterministic", "[evaluation][pattern]") {
   const PatternEvaluator evaluator{make_tiny_pattern_fixture_weights(),
                                    tiny_pattern_feature_set_fixture()};
@@ -309,9 +331,8 @@ TEST_CASE("pattern evaluator accepts buro-lite feature geometry", "[evaluation][
   REQUIRE(evaluator.evaluate(position) == 0);
 }
 
-TEST_CASE("pattern evaluator matches existing tiny fixture scores", "[evaluation][pattern]") {
+TEST_CASE("pattern evaluator preserves tiny fixture scores", "[evaluation][pattern]") {
   const PatternWeights weights = make_tiny_pattern_fixture_weights();
-  const TinyPatternEvaluator tiny{weights};
   const PatternEvaluator generic{weights, tiny_pattern_feature_set_fixture()};
   constexpr Position edge_and_corner{
       .player = bit(square(0, 0)) | bit(square(1, 0)),
@@ -319,8 +340,22 @@ TEST_CASE("pattern evaluator matches existing tiny fixture scores", "[evaluation
       .side_to_move = Color::black,
   };
 
-  REQUIRE(generic.evaluate(edge_and_corner) == tiny.evaluate(edge_and_corner));
   REQUIRE(generic.evaluate(edge_and_corner) == -10);
+}
+
+TEST_CASE("pattern evaluator rejects corrupted weight table size", "[evaluation][pattern]") {
+  PatternWeights weights = make_tiny_pattern_fixture_weights();
+  std::vector<PatternWeightTable> tables{weights.tables().begin(), weights.tables().end()};
+  tables[0].weights.pop_back();
+  PatternWeights corrupted{
+      weights.phase_count(),
+      fixture_phase_by_disc_count(),
+      fixture_phase_biases(),
+      std::move(tables),
+  };
+
+  REQUIRE_THROWS_AS(PatternEvaluator(std::move(corrupted), tiny_pattern_feature_set_fixture()),
+                    std::invalid_argument);
 }
 
 TEST_CASE("pattern evaluator rejects invalid table count", "[evaluation][pattern]") {

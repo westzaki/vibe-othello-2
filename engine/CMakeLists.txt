@@ -12,7 +12,6 @@ target_sources(
           src/evaluation/pattern_evaluator.cc
           src/evaluation/pattern_weights.cc
           src/evaluation/phase_aware_evaluator.cc
-          src/evaluation/tiny_pattern_evaluator.cc
           src/search/alphabeta.cc
           src/search/endgame_root.cc
           src/search/endgame_search.cc
@@ -33,8 +32,7 @@ target_sources(
           src/search/search_session.cc
           src/search/shadow_calibration.cc
           src/search/search_util.cc
-          src/search/transposition_table.cc
-          src/version.cc)
+          src/search/transposition_table.cc)
 
 target_include_directories(
   vibe_othello_engine

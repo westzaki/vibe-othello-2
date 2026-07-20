@@ -1,8 +1,8 @@
+#include "normalized_tsv.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -20,14 +20,14 @@
 
 namespace {
 
-constexpr std::string_view kNormalizedHeaderV1 =
-    "record_id\tposition_id\tsource_dataset_id\tsplit\tboard_a1_to_h8\tlabel_kind\tlabel_"
-    "unit\tlabel_perspective\tlabel_score_side_to_move\toccupied_count\tphase\tplayer_disc_"
-    "count\topponent_disc_count\tempty_count";
-constexpr std::string_view kNormalizedHeaderV2 =
-    "record_id\tposition_id\tgame_group_id\tboard_id\tsource_occurrence_id\tsource_dataset_id\t"
-    "split\tboard_a1_to_h8\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_"
-    "move\toccupied_count\tphase\tplayer_disc_count\topponent_disc_count\tempty_count";
+using vibe_othello::tools::pattern::kNormalizedHeaderV1;
+using vibe_othello::tools::pattern::kNormalizedHeaderV2;
+using vibe_othello::tools::pattern::parse_int;
+using vibe_othello::tools::pattern::parse_u64;
+using vibe_othello::tools::pattern::position_from_a1_to_h8_board;
+using vibe_othello::tools::pattern::split_tabs;
+using vibe_othello::tools::pattern::trim_trailing_cr;
+
 constexpr std::string_view kTeacherHeader =
     "board_id\tlabel_kind\tlabel_unit\tlabel_perspective\tlabel_score_side_to_move\tteacher_"
     "source\tteacher_depth\tteacher_nodes";
@@ -82,60 +82,12 @@ struct Report {
   double positions_per_sec = 0.0;
 };
 
-std::string_view trim_trailing_cr(std::string_view text) noexcept {
-  if (!text.empty() && text.back() == '\r') {
-    text.remove_suffix(1);
-  }
-  return text;
-}
-
-std::vector<std::string_view> split_tabs(std::string_view text) {
-  std::vector<std::string_view> fields;
-  std::size_t offset = 0;
-  while (offset <= text.size()) {
-    const std::size_t next = text.find('\t', offset);
-    if (next == std::string_view::npos) {
-      fields.push_back(text.substr(offset));
-      break;
-    }
-    fields.push_back(text.substr(offset, next - offset));
-    offset = next + 1;
-  }
-  return fields;
-}
-
-std::optional<int> parse_int(std::string_view text) noexcept {
-  int value = 0;
-  const char* begin = text.data();
-  const char* end = text.data() + text.size();
-  const auto [ptr, ec] = std::from_chars(begin, end, value);
-  if (ec != std::errc{} || ptr != end) {
-    return std::nullopt;
-  }
-  return value;
-}
-
-std::optional<std::uint64_t> parse_u64(std::string_view text) noexcept {
-  std::uint64_t value = 0;
-  const char* begin = text.data();
-  const char* end = text.data() + text.size();
-  const auto [ptr, ec] = std::from_chars(begin, end, value);
-  if (ec != std::errc{} || ptr != end) {
-    return std::nullopt;
-  }
-  return value;
-}
-
 std::uint64_t fnv1a64_update(std::uint64_t hash, std::string_view text) noexcept {
   for (const char character : text) {
     hash ^= static_cast<unsigned char>(character);
     hash *= 1099511628211ull;
   }
   return hash;
-}
-
-std::uint64_t fnv1a64(std::string_view text) noexcept {
-  return fnv1a64_update(14695981039346656037ull, text);
 }
 
 std::uint64_t sample_key(std::string_view board_id, std::uint64_t seed) noexcept {
@@ -307,39 +259,6 @@ bool validate_board_counts(std::string_view board, int occupied_count, int playe
     return false;
   }
   return true;
-}
-
-std::optional<vibe_othello::board_core::Position>
-position_from_a1_to_h8_board(std::string_view board) noexcept {
-  namespace board_core = vibe_othello::board_core;
-
-  if (board.size() != board_core::kSquareCount) {
-    return std::nullopt;
-  }
-
-  board_core::Bitboard player = 0;
-  board_core::Bitboard opponent = 0;
-  for (std::size_t index = 0; index < board.size(); ++index) {
-    const board_core::Square square = board_core::square_from_index(static_cast<int>(index));
-    const board_core::Bitboard bit = board_core::bit(square);
-    if (board[index] == 'X') {
-      player |= bit;
-    } else if (board[index] == 'O') {
-      opponent |= bit;
-    } else if (board[index] != '-') {
-      return std::nullopt;
-    }
-  }
-
-  board_core::Position position{
-      .player = player,
-      .opponent = opponent,
-      .side_to_move = board_core::Color::black,
-  };
-  if (!board_core::is_valid(position)) {
-    return std::nullopt;
-  }
-  return position;
 }
 
 bool parse_normalized_row(std::string_view line, int line_number, Candidate* candidate,

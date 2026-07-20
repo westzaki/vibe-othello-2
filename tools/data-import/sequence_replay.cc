@@ -157,7 +157,6 @@ SequenceReplayResult replay_sequence(std::string_view text, bool require_termina
   Position position = board_core::initial_position();
   std::vector<Position> positions;
   std::vector<std::string> canonical_moves;
-  int move_ply = 0;
   int pass_count = 0;
 
   for (std::size_t token_index = 0; token_index < tokens.size(); ++token_index) {
@@ -206,7 +205,6 @@ SequenceReplayResult replay_sequence(std::string_view text, bool require_termina
     }
 
     canonical_moves.push_back(coordinate_for_square(*square));
-    ++move_ply;
     positions.push_back(position);
   }
 

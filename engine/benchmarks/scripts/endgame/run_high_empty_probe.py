@@ -622,34 +622,6 @@ def format_value(value: Any) -> str:
     return str(value)
 
 
-def compact_aggregate(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        return ""
-
-    pieces: list[str] = []
-    for row in rows:
-        label = ",".join(
-            f"{field}={format_value(row[field])}"
-            for field in ("mode", "empties", "parity_ordering", "tt_mode", "root_mode")
-            if field in row
-        )
-        metrics = ",".join(
-            f"{field}={format_value(row[field])}"
-            for field in (
-                "count",
-                "elapsed_ms_p50",
-                "nodes_p50",
-                "endgame_nodes_p50",
-                "nps_p50",
-                "tt_hit_rate",
-                "tt_cutoff_rate",
-            )
-            if field in row
-        )
-        pieces.append(f"{label} {metrics}".strip())
-    return "; ".join(pieces)
-
-
 def markdown_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
 

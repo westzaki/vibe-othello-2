@@ -5,7 +5,6 @@
 #include "vibe_othello/evaluation/pattern_artifact.h"
 #include "vibe_othello/evaluation/pattern_evaluator.h"
 #include "vibe_othello/evaluation/phase_aware_evaluator.h"
-#include "vibe_othello/evaluation/tiny_pattern_evaluator.h"
 #include "vibe_othello/search/evaluator.h"
 
 #include <array>
@@ -41,7 +40,6 @@ using vibe_othello::evaluation::PatternWeights;
 using vibe_othello::evaluation::PatternWeightTable;
 using vibe_othello::evaluation::PhaseAwareEvaluator;
 using vibe_othello::evaluation::tiny_pattern_feature_set_fixture;
-using vibe_othello::evaluation::TinyPatternEvaluator;
 using vibe_othello::search::Evaluator;
 using vibe_othello::search::Score;
 
@@ -390,7 +388,6 @@ int main(int argc, char** argv) {
   }
 
   const std::vector<PositionCase> positions = load_corpus(config->corpus_path);
-  const TinyPatternEvaluator tiny_evaluator{make_tiny_pattern_fixture_weights()};
   const PatternEvaluator pattern_evaluator{make_tiny_pattern_fixture_weights(),
                                            tiny_pattern_feature_set_fixture()};
   const EarlyMidgameHeuristicEvaluator heuristic_evaluator;
@@ -421,8 +418,6 @@ int main(int argc, char** argv) {
 
   print_header();
   for (const PositionCase& position_case : positions) {
-    print_result("TinyPatternEvaluator", position_case,
-                 run_benchmark(tiny_evaluator, position_case, config->iterations));
     print_result("PatternEvaluator", position_case,
                  run_benchmark(pattern_evaluator, position_case, config->iterations));
     print_result("EarlyMidgameHeuristicEvaluator", position_case,

@@ -515,10 +515,6 @@ def file_digest(args: argparse.Namespace, source_ref: str) -> str:
     return digest_for_parts(args.seed, "file", source_ref)
 
 
-def game_digest(args: argparse.Namespace, source_ref: str, line_number: int, text: str) -> str:
-    return digest_for_parts(args.dataset_id, source_ref, line_number, text.strip())
-
-
 def include_by_rate(digest: str, rate: float | None) -> bool:
     return rate is None or digest_fraction(digest) < rate
 

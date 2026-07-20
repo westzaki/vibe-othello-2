@@ -2209,7 +2209,7 @@ int main(int argc, char** argv) {
     for (BenchmarkMode mode : modes) {
       const std::vector<BenchmarkVariant> variants = variants_for_mode(mode, *config);
       for (Depth depth : depths) {
-        for (const BenchmarkVariant variant : variants) {
+        for (const BenchmarkVariant& variant : variants) {
           TimedResult timed_result =
               run_search(mode, variant, position_case.position, depth,
                          pattern_incremental ? &*pattern_incremental : nullptr,
