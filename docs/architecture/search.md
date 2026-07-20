@@ -750,7 +750,6 @@ Search should expand legal move masks into a fixed-capacity move list.
 ```cpp
 struct MoveList {
   std::array<board_core::Move, 64> moves;
-  std::array<Score, 64> ordering_score;
   std::uint8_t size;
 };
 ```
@@ -758,6 +757,7 @@ struct MoveList {
 Rules:
 
 * no heap allocation in recursive search
+* only the `[0, size)` prefix is initialized, copied, or inspected
 * all moves must be legal
 * move list ordering may change
 * move list membership must not change during ordering
@@ -766,6 +766,12 @@ Rules:
 Move generation is owned by board core.
 
 Move ordering is owned by search.
+
+The production implementation expands only set bits from the legal mask and
+sorts the initialized prefix in place. Ordering scores are short-lived local
+scratch indexed by list position rather than persistent per-node state. The
+sort packs signed score order and the deterministic square tie-break into one
+integer key, so each insertion shifts one scalar.
 
 ## Search Stack
 
@@ -808,6 +814,12 @@ The stack has at most one frame per ply.
 Search should mutate a single `Position` with apply and undo.
 
 Search must restore the exact position after every recursive call.
+
+Recursive node results carry only score, completion, and selectivity metadata.
+The per-ply frame owns the PV scratch line, and a parent prepends a move only
+when that child becomes the best line. This avoids copying a maximum-length
+`Line` on every recursive return while keeping root publication independent of
+the transposition table.
 
 Initial stack-frame implementations may leave future fields such as hash keys,
 killer moves, history-related scratch, or static eval unused until the
@@ -1026,6 +1038,10 @@ re-running the whole depth unconditionally.
 Aspiration failures must be counted in statistics.
 
 Aspiration must be disableable.
+
+The production iterative search starts with a symmetric 8-point window around
+the previous completed score and doubles only the failed side until the result
+fits or the full score range is reached.
 
 ## Principal Variation
 

@@ -46,10 +46,7 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
     return result;
   }
 
-  SearchValue best{
-      .score = kScoreLoss,
-      .pv = {},
-  };
+  Score best_score = kScoreLoss;
   std::optional<board_core::Move> best_move;
   bool subtree_selective = false;
 
@@ -76,7 +73,8 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
     }
     const SearchValue& child_value = child.value();
     subtree_selective = subtree_selective || child.is_selective();
-    update_best_line_and_move(child_value, move, &best, &best_move, &frame);
+    update_best_line_and_move(child_value.score, context->stack[ply + 1].pv, move, &best_score,
+                              &best_move, &frame);
 
     if (update_alpha_and_check_cutoff(context, child_value.score, &alpha, beta)) {
       update_midgame_ordering_on_beta_cutoff(context, move, depth, ply);
@@ -84,11 +82,12 @@ SearchNodeResult pvs(SearchContext* context, Score alpha, Score beta, Depth dept
     }
   }
 
-  maybe_store_midgame_tt(context, depth, best.score,
-                         classify_bound(best.score, original_alpha, original_beta), best_move,
+  maybe_store_midgame_tt(context, depth, best_score,
+                         classify_bound(best_score, original_alpha, original_beta), best_move,
                          subtree_selective);
 
-  const SearchNodeResult result = SearchNodeResult::completed(best, subtree_selective);
+  const SearchNodeResult result =
+      SearchNodeResult::completed(SearchValue{.score = best_score}, subtree_selective);
   if (probcut_shadow_candidate.has_value()) {
     complete_probcut_shadow(context, *probcut_shadow_candidate, result);
   }

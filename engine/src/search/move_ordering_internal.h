@@ -9,7 +9,25 @@
 namespace vibe_othello::search::internal {
 
 struct MoveList {
-  std::array<board_core::Move, board_core::kSquareCount> moves{};
+  // The unused tail is intentionally left uninitialized. Copy operations must
+  // therefore preserve only the active prefix.
+  MoveList() noexcept {}
+
+  MoveList(const MoveList& other) noexcept : size(other.size) {
+    for (std::uint8_t index = 0; index < size; ++index) {
+      moves[index] = other.moves[index];
+    }
+  }
+
+  MoveList& operator=(const MoveList& other) noexcept {
+    size = other.size;
+    for (std::uint8_t index = 0; index < size; ++index) {
+      moves[index] = other.moves[index];
+    }
+    return *this;
+  }
+
+  std::array<board_core::Move, board_core::kSquareCount> moves;
   std::uint8_t size = 0;
 };
 

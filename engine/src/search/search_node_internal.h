@@ -8,7 +8,6 @@ namespace vibe_othello::search::internal {
 
 struct SearchValue {
   Score score = 0;
-  Line pv{};
 };
 
 enum class SearchNodeStatus : std::uint8_t {

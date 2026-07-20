@@ -11,10 +11,8 @@ MoveOrderFeatures extract_endgame_features(board_core::Position position, board_
   MoveOrderFeatures features{};
   add_static_othello_features(position, move, &features);
   features.opponent_mobility_after = opponent_mobility_after(position, move);
-  features.matches_tt =
-      matches_normal_move(move, hints.tt_best_move.value_or(board_core::make_pass()));
-  features.matches_root_best =
-      matches_normal_move(move, hints.root_best_move.value_or(board_core::make_pass()));
+  features.matches_tt = hints.tt_best_move.has_value() && move == *hints.tt_best_move;
+  features.matches_root_best = hints.root_best_move.has_value() && move == *hints.root_best_move;
   if (hints.use_parity_ordering && regions != nullptr) {
     features.parity_region_bonus = parity_region_order_score(move, *regions);
   }
@@ -65,16 +63,17 @@ MoveList order_endgame_moves(board_core::Position position, board_core::Bitboard
   const EmptyRegionMap regions =
       hints.use_parity_ordering ? build_empty_region_map(position) : EmptyRegionMap{};
   MoveList list = move_list_from_legal_mask(legal_moves);
-  std::array<int, board_core::kSquareCount> scores{};
+  std::array<int, board_core::kSquareCount> scores;
   const EndgameOrderingWeights weights{};
   for (std::uint8_t index = 0; index < list.size; ++index) {
     const board_core::Move move = list.moves[index];
-    scores[move.square.index] =
+    scores[index] =
         score_endgame_move(extract_endgame_features(position, move, hints,
                                                     hints.use_parity_ordering ? &regions : nullptr),
                            weights);
   }
-  return sorted_move_list_from_scores(list, scores);
+  sort_move_list_from_scores(&list, scores);
+  return list;
 }
 
 } // namespace vibe_othello::search::internal

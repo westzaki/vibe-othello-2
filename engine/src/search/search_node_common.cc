@@ -56,18 +56,17 @@ SearchNodeResult dispatch_search(SearchContext* context, SearchDispatch dispatch
   return {};
 }
 
-SearchNodeResult child_result(board_core::Move move, const SearchNodeResult& child) noexcept {
+SearchNodeResult child_result(const SearchNodeResult& child) noexcept {
   if (child.is_stopped()) {
     return SearchNodeResult::stopped();
   }
 
   const SearchValue& child_value = child.value();
-  SearchValue result{
-      .score = static_cast<Score>(-child_value.score),
-      .pv = {},
-  };
-  prepend_move(move, child_value.pv, &result.pv);
-  return SearchNodeResult::completed(result, child.is_selective());
+  return SearchNodeResult::completed(
+      SearchValue{
+          .score = static_cast<Score>(-child_value.score),
+      },
+      child.is_selective());
 }
 
 std::uint8_t internal_exact_endgame_threshold(ResolvedSearchOptions options) noexcept {
@@ -82,7 +81,7 @@ bool should_use_internal_exact_endgame(board_core::Position position,
          empty_count(position) <= internal_exact_endgame_threshold(options);
 }
 
-SearchNodeResult search_internal_exact_endgame(SearchContext* context) {
+SearchNodeResult search_internal_exact_endgame(SearchContext* context, Ply ply) {
   EndgameContext endgame_context{
       .position_state =
           SearchPositionState{
@@ -100,6 +99,9 @@ SearchNodeResult search_internal_exact_endgame(SearchContext* context) {
       exact_score_search(&endgame_context, kScoreLoss, kScoreWin,
                          empty_count(endgame_context.position_state.position), Ply{0});
   add_stats(&context->stats, endgame_context.stats);
+  if (result.is_complete()) {
+    context->stack[ply].pv = endgame_context.stack[0].pv;
+  }
   return result;
 }
 
@@ -167,7 +169,7 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
   StackFrame& frame = context->stack[ply];
-  frame = StackFrame{};
+  frame.pv.size = 0;
 
   frame.legal_moves = legal_moves(&context->position_state);
   if (frame.legal_moves == 0 && opponent_legal_moves(context->position_state) == 0) {
@@ -177,7 +179,6 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
     ++context->stats.terminal_nodes;
     return SearchNodeResult::completed(SearchValue{
         .score = terminal_score(context->position_state.position),
-        .pv = {},
     });
   }
 
@@ -186,7 +187,7 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
     if (should_stop_search(context)) {
       return SearchNodeResult::stopped();
     }
-    return search_internal_exact_endgame(context);
+    return search_internal_exact_endgame(context, ply);
   }
 
   if (note_node_visited(context)) {
@@ -211,7 +212,6 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
     require_invariant(is_valid_evaluator_score(score));
     return SearchNodeResult::completed(SearchValue{
         .score = score,
-        .pv = {},
     });
   }
 
@@ -229,7 +229,6 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
       return SearchNodeResult::completed(
           SearchValue{
               .score = *cutoff,
-              .pv = {},
           },
           (*tt_entry)->selective);
     }
@@ -289,7 +288,12 @@ std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context,
     const ScopedIidFlag guard{context};
     shallow = full_window_search(context, alpha, beta, shallow_depth, ply);
   }
-  context->stack[ply] = StackFrame{};
+  const Line& shallow_pv = context->stack[ply].pv;
+  const std::optional<board_core::Move> shallow_best_move =
+      shallow_pv.size != 0 && is_legal_normal_move(legal_mask, shallow_pv.moves[0])
+          ? std::optional<board_core::Move>{shallow_pv.moves[0]}
+          : std::nullopt;
+  context->stack[ply].pv.size = 0;
   context->stack[ply].legal_moves = legal_mask;
 
   if (shallow.is_stopped()) {
@@ -297,11 +301,7 @@ std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context,
     return std::nullopt;
   }
 
-  const Line& shallow_pv = shallow.value().pv;
-  if (shallow_pv.size == 0 || !is_legal_normal_move(legal_mask, shallow_pv.moves[0])) {
-    return std::nullopt;
-  }
-  return shallow_pv.moves[0];
+  return shallow_best_move;
 }
 
 SearchNodeResult search_full_window_child(SearchContext* context, board_core::Move move,
@@ -328,7 +328,7 @@ SearchNodeResult search_full_window_child(SearchContext* context, board_core::Mo
                       child_depth, static_cast<Ply>(ply + 1));
   undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
 
-  return child_result(move, child);
+  return child_result(child);
 }
 
 SearchNodeResult search_null_window_child(SearchContext* context, board_core::Move move, Score beta,
@@ -344,7 +344,7 @@ SearchNodeResult search_null_window_child(SearchContext* context, board_core::Mo
       null_window_search(context, beta, static_cast<Depth>(depth - 1), static_cast<Ply>(ply + 1));
   undo_move(&context->position_state, frame.delta, frame.position_undo, &context->stats);
 
-  return child_result(move, child);
+  return child_result(child);
 }
 
 SearchNodeResult search_pass_child(SearchContext* context, Score alpha, Score beta, Depth depth,
@@ -353,7 +353,7 @@ SearchNodeResult search_pass_child(SearchContext* context, Score alpha, Score be
   SearchNodeResult result =
       search_full_window_child(context, board_core::make_pass(), alpha, beta, depth, ply, dispatch);
   if (result.is_complete()) {
-    context->stack[ply].pv = result.value().pv;
+    prepend_move(board_core::make_pass(), context->stack[ply + 1].pv, &context->stack[ply].pv);
   }
   return result;
 }
