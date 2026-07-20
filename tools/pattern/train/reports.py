@@ -18,10 +18,18 @@ from dataset_contract import (
     TRAINER_ALGORITHM_V0D,
     TRAINER_ALGORITHM_V0E,
 )
-from examples import Example, LoadResult, MoveTeacherLoadResult, phase_examples, split_examples
+from examples import (
+    Example,
+    LoadResult,
+    MoveTeacherLoadResult,
+    PlayedMovePolicyLoadResult,
+    phase_examples,
+    split_examples,
+)
 from metrics import (
     max_abs_weight,
     metrics_for_examples,
+    played_move_policy_metrics_for_roots,
     v0c_metrics_by_split,
     v0c_metrics_by_split_phase,
     v0c_metrics_for_examples,
@@ -503,6 +511,7 @@ def run_pattern_sgd_v0d(load_result: LoadResult, args: argparse.Namespace) -> No
 def run_pattern_rank_v0e(
     load_result: LoadResult,
     move_teacher_result: MoveTeacherLoadResult,
+    policy_result: PlayedMovePolicyLoadResult | None,
     args: argparse.Namespace,
 ) -> None:
     weights_metadata = weights_metadata_for(args)
@@ -534,6 +543,7 @@ def run_pattern_rank_v0e(
     phase_bias, pattern_weights, metrics_by_epoch, training_state, sampling_totals, updated_phases = (
         train_pattern_rank_v0e(
             move_teacher_result.roots,
+            {} if policy_result is None else policy_result.targets_by_root_id,
             initial_phase_bias,
             initial_pattern_weights,
             args.frozen_phases,
@@ -557,6 +567,26 @@ def run_pattern_rank_v0e(
             phase_bias,
             pattern_weights,
             args.tie_margin,
+            args.rank_temperature,
+            args.residual_baseline_through_phase,
+        )
+    final_policy_metrics = (
+        None
+        if policy_result is None
+        else (
+            metrics_by_epoch[-1]["played_move_policy_metrics"]
+            if metrics_by_epoch
+            and not training_state["early_stop_triggered"]
+            and metrics_by_epoch[-1]["played_move_policy_metrics"] is not None
+            else None
+        )
+    )
+    if policy_result is not None and final_policy_metrics is None:
+        final_policy_metrics = played_move_policy_metrics_for_roots(
+            move_teacher_result.roots,
+            policy_result.targets_by_root_id,
+            phase_bias,
+            pattern_weights,
             args.rank_temperature,
             args.residual_baseline_through_phase,
         )
@@ -602,6 +632,20 @@ def run_pattern_rank_v0e(
             }
             for item in move_teacher_result.inputs
         ],
+        "played_move_policy": (
+            None
+            if policy_result is None
+            else {
+                "path": args.played_move_policy.name,
+                "source_dataset_id": policy_result.source_dataset_id,
+                "input_rows": policy_result.input_rows,
+                "input_occurrences": policy_result.input_occurrences,
+                "matched_rows": policy_result.matched_rows,
+                "matched_occurrences": policy_result.matched_occurrences,
+                "unmatched_rows": policy_result.unmatched_rows,
+                "matched_root_count": len(policy_result.targets_by_root_id),
+            }
+        ),
         "trained_phases": trained_phases,
         "warm_start": (
             None
@@ -629,6 +673,12 @@ def run_pattern_rank_v0e(
         "ranking_config": {
             "rank_temperature": args.rank_temperature,
             "value_loss_weight": args.value_loss_weight,
+            "played_move_policy_loss_weight": args.policy_loss_weight,
+            "played_move_policy_loss": (
+                None
+                if policy_result is None
+                else "cross-entropy of aggregate WTHOR move frequency"
+            ),
             "value_loss": "Huber(delta=1.0)",
             "pair_sampling_cap": args.pair_sampling_cap,
             "tie_margin": args.tie_margin,
@@ -645,8 +695,12 @@ def run_pattern_rank_v0e(
         "best_validation_pairwise_logistic_loss": training_state[
             "best_validation_pairwise_logistic_loss"
         ],
+        "best_validation_objective": training_state["best_validation_objective"],
         "final_validation_pairwise_logistic_loss": training_state[
             "final_validation_pairwise_logistic_loss"
+        ],
+        "final_validation_played_move_policy_cross_entropy": training_state[
+            "final_validation_played_move_policy_cross_entropy"
         ],
         "learning_rate": args.learning_rate,
         "lr_schedule": args.lr_schedule,
@@ -664,6 +718,14 @@ def run_pattern_rank_v0e(
             "ranking_loss": "softplus(-(root_score_better - root_score_worse) / rank_temperature)",
             "tie_policy": "teacher pairs with abs(score difference) <= tie_margin are excluded from ranking loss",
             "value_calibration": "optional Huber child-value loss; value_loss_weight=0 disables it",
+            "played_move_policy": (
+                None
+                if policy_result is None
+                else (
+                    "aggregate played-move frequency cross-entropy; root logits are "
+                    "-V(child) / rank_temperature"
+                )
+            ),
             "residual_baseline": (
                 None
                 if args.residual_baseline_through_phase is None
@@ -685,6 +747,7 @@ def run_pattern_rank_v0e(
             "feature_occurrences": "duplicate occurrences contribute repeatedly to the linear score and gradient",
         },
         "ranking_metrics": final_ranking_metrics,
+        "played_move_policy_metrics": final_policy_metrics,
         "metrics_by_epoch": metrics_by_epoch,
         "pair_sampling_totals": sampling_totals,
         "phase_bias_initial": initial_phase_bias,
@@ -702,6 +765,7 @@ def run_pattern_rank_v0e(
             "teacher ties are excluded from pairwise loss but retained in tie-aware top1 metrics",
             "runtime-compatible weights JSON uses the existing pattern-eval-weights-v2 schema",
             "validation and test roots are never used for updates",
+            "played-move policy is a secondary empirical objective and does not assert that every WTHOR move is optimal",
             *load_result.notes,
         ],
     }

@@ -171,6 +171,15 @@ Supported architecture-level label kinds include:
 | `wld` | Win/draw/loss labels only; not silently converted to exact disc differences. |
 | `policy_move` | Move target for later policy or ordering work. |
 
+WTHOR numeric actual and theoretical scores use a 64-square scoring convention
+that can differ from the engine's terminal actual-disc difference when play
+ends with empty squares. A WTHOR importer must not silently emit that numeric
+score as `teacher_exact_final_disc_diff`. Engine-replayed terminal transcripts
+may emit `observed_final_disc_diff`; the WTHOR theoretical score may emit exact
+`wld` only at the empty-count cutoff declared by the WTB header. Such a WLD
+sidecar remains separate from the current disc-difference pattern trainer
+until an explicitly WLD-aware objective is adopted.
+
 Teacher label overlays consume normalized schema v2 rows and a local
 teacher-label TSV keyed by `board_id`, then emit normalized schema v2 rows with
 only label fields changed. The teacher-label TSV contract is defined in
@@ -284,6 +293,31 @@ and pattern term through that boundary. The baseline is constant for gradient
 calculation. Export must carry the identical
 `fallback_additive_through_phase`, otherwise training and runtime semantics do
 not match.
+
+An optional aggregate played-move policy may augment `pattern-rank-v0e`
+without modifying the search move-teacher contract. It joins by
+`root_board_id`, validates split, phase, and legal-move membership, and uses
+observed move frequency as a cross-entropy target over `-V(child)` logits.
+This objective does not overwrite search scores or child labels. Its weight,
+matched/unmatched coverage, occurrence counts, and split metrics must remain
+visible in the trainer report. A played move is empirical policy evidence, not
+an exact-best-move assertion.
+
+The full-corpus WTHOR policy route avoids materializing an expanded child
+dataset. Its streaming trainer replays one game at a time, visits every
+recorded decision, and ranks the played child against deterministic legal
+alternatives. Forced single choices are provenance counts rather than
+zero-information updates. A transcript-identity holdout scores every legal
+move for final top-1 and cross-entropy diagnostics. The objective preserves
+`-V(child)` root semantics and the early/midgame fallback residual; reviewed
+late exact/search phases may be frozen. Streaming trainer output uses the same
+v2 trainer-weight and runtime exporter contracts as `pattern-rank-v0e`.
+Because played moves are provisional empirical targets, a deeper-search
+correction campaign and independent paired arenas are required before
+promotion. The correction campaign must be reviewed, but its candidate need
+not be adopted when the measured result is neutral or regressive. In that
+case, the uncorrected candidate may advance only when the independent direct
+arenas against the current default pass.
 
 Future pattern-set investigations such as `pattern-v3` or larger objective
 changes are not part of the current architecture contract until adopted through

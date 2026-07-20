@@ -1,0 +1,397 @@
+{
+  "schema_version": 3,
+  "artifact_id": "pattern-v2-wthor-full-policy-v1",
+  "artifact_version": 1,
+  "status": "experimental-default",
+  "repository_base_sha": "c3809bb7ea4a715ac2a36f262925e38b6d844075",
+  "pattern_set": "pattern-v2-endgame-lite",
+  "trainer_mode": "wthor-played-move-streaming-rank-v1",
+  "teacher_semantics": "recorded WHTOR move is a provisional best move",
+  "trained_phases": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "updated_phases": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "frozen_phases": [
+    10,
+    11,
+    12
+  ],
+  "fallback_additive_through_phase": 9,
+  "trainable_pattern_ids": [
+    "edge-8",
+    "near-edge-8",
+    "diagonal-8",
+    "diagonal-7",
+    "corner-2x5",
+    "corner-3x3",
+    "corner-2x4-8",
+    "edge-plus-x-10",
+    "corner-wing-8",
+    "near-edge-segment-8",
+    "diagonal-corner-8"
+  ],
+  "source": {
+    "dataset_id": "wthor-ffo-2026-02-24-local",
+    "official_page": "https://www.ffothello.org/informatique/la-base-wthor/",
+    "snapshot_last_updated": "2026-02-24",
+    "retrieved": "2026-07-19",
+    "snapshot_years": "1977-2025",
+    "file_count": 49,
+    "game_count": 137548,
+    "aggregate_source_checksum": "sha256:09d4bf686d8ce9a83de58255d4b31969ae3c375f55a669df14f3b637c627aeb1"
+  },
+  "bootstrap_reproduction": {
+    "artifact_id": "pattern-v2-wthor-played-policy-d5-p8-local-v1",
+    "runtime_checksum": "0x2f315139",
+    "weights_sha256": "sha256:85448fe88e5b9dfd00cd4ebbfbe98a8d0f1738b43394dde3d31730115f5c4909",
+    "initial_artifact": {
+      "artifact_id": "pattern-v2-wthor-recursive-d5-c3-local-v1",
+      "runtime_checksum": "0xcf09d0ef",
+      "weights_sha256": "sha256:10d1873b6e95ffa914ea14d0c3cb1866aecf32187f09a402994e30d960e4cd52",
+      "trainer_weights_sha256": "sha256:1712ca2bf16edba0d5c5efa158e04e30322bc22a28761054d17d4f2d49e49cd8"
+    },
+    "selected_wthor_policy": {
+      "selected_plies": [
+        23,
+        27,
+        32,
+        36,
+        41
+      ],
+      "normalized_positions": 685493,
+      "normalized_logical_checksum": "sha256:d132872634fd199d54db292de2ca51b267b879878e44e384390849fd7bd5b0a7",
+      "played_move_policy_rows": 645165,
+      "played_move_policy_occurrences": 683716,
+      "played_move_policy_logical_checksum": "sha256:eaec2565067ee3758aa9ebe302985f7281424ec2edff05e7f4bd075ee50e3dbd",
+      "played_move_policy_file_sha256": "sha256:995ca44f0f5fff80b38438a4a291fcdf141a309c39d60cc5da8a9edf6f9bc46e"
+    },
+    "search_teacher": {
+      "base_artifact_runtime_checksum": "0xcf09d0ef",
+      "selected_roots": 5000,
+      "move_rows": 52022,
+      "teacher_nodes": 508906996,
+      "search_preset": "full",
+      "maximum_depth": 5,
+      "maximum_nodes_per_child": 500000,
+      "exact_endgame_empties": 8,
+      "seed": 20260723,
+      "teacher_search_config_id": "fnv1a64:0x8a8469252d3c9bb6",
+      "move_teacher_file_sha256": "sha256:ce13bddadbe34b671ab4e33cafb929440d04cb7c54d85c0ffbf2d42d86d092fe",
+      "teacher_report_sha256": "sha256:6f1b64c96d59c6e8498fc4e0c1f3ee48c3b73add85d1a5b9629a632b664d52de"
+    },
+    "training_config": {
+      "trainer_algorithm": "pattern-rank-v0e",
+      "epochs": 8,
+      "learning_rate": 0.01,
+      "learning_rate_schedule": "constant",
+      "weight_decay": 0.0001,
+      "rank_temperature": 1.0,
+      "value_loss_weight": 0.05,
+      "played_move_policy_loss_weight": 8.0,
+      "pair_sampling_cap": 64,
+      "tie_margin": 0.0,
+      "fallback_additive_through_phase": 9,
+      "frozen_phases": [
+        10,
+        11,
+        12
+      ],
+      "deterministic_seed": 20260723,
+      "trainable_pattern_ids": [
+        "edge-8",
+        "near-edge-8",
+        "diagonal-8",
+        "diagonal-7",
+        "corner-2x5",
+        "corner-3x3"
+      ]
+    },
+    "trainer_report_sha256": "sha256:9af6214b5bbb889c091d2909a0a8d92db3610c89ddf2aba505affe790f8fb7fa",
+    "trainer_weights_sha256": "sha256:4ed2865a1ed08e71ab1423e42239de6186b3d2b2045c79a032d263e93daa7abd"
+  },
+  "bootstrap_learning_evidence": {
+    "vs_previous_default_depth3": {
+      "games": 2000,
+      "score_rate": 0.59925,
+      "paired_bootstrap_95": [
+        0.581,
+        0.61825
+      ],
+      "report_checksum": "fnv1a64:b93cbea3626f6ad7"
+    },
+    "vs_previous_default_depth5": {
+      "games": 512,
+      "score_rate": 0.583008,
+      "paired_bootstrap_95": [
+        0.545898,
+        0.621094
+      ],
+      "report_checksum": "fnv1a64:2eac10e1da6a7ea2"
+    },
+    "vs_previous_default_time10ms_exact8": {
+      "games": 512,
+      "score_rate": 0.579102,
+      "paired_bootstrap_95": [
+        0.544922,
+        0.613281
+      ],
+      "report_checksum": "fnv1a64:ab8bee0ac6f62d48"
+    }
+  },
+  "full_corpus_training": {
+    "initial_artifact_id": "pattern-v2-wthor-played-policy-d5-p8-local-v1",
+    "initial_artifact_runtime_checksum": "0x2f315139",
+    "initial_artifact_weights_sha256": "sha256:85448fe88e5b9dfd00cd4ebbfbe98a8d0f1738b43394dde3d31730115f5c4909",
+    "epochs": 1,
+    "learning_rate": 0.03,
+    "rank_temperature": 1.0,
+    "sampled_negative_moves_per_decision": 2,
+    "deterministic_seed": 20260720,
+    "validation_modulus": 0,
+    "validation_residue": 0,
+    "all_game_refit": true,
+    "hyperparameter_selection_used_separate_5_percent_holdout": true,
+    "game_count": 137548,
+    "incomplete_game_count": 413,
+    "normal_move_count": 8231199,
+    "implicit_pass_count": 156899,
+    "forced_choice_count": 338319,
+    "trainable_decision_count": 7892880,
+    "sampled_pair_count": 15430192,
+    "updated_weight_key_occurrences": 482093792,
+    "pairwise_accuracy": 0.848978159183,
+    "pairwise_logistic_loss": 0.570732052455,
+    "hyperparameter_holdout": {
+      "game_fraction": 0.05,
+      "top1_accuracy": 0.513572,
+      "cross_entropy": 1.98099
+    },
+    "trainer_weights_checksum": "fnv1a64:a0a9d016114b1976",
+    "trainer_weights_sha256": "sha256:f2fb639d9ba66dd153a1759de02e2dfc00fc9203b652217b55ea1391ef25dab7",
+    "trainer_report_sha256": "sha256:fdfaca5c5f48e7dbeaee833cbf69d3051aa78dc6c1dbec5eb407f491d299080f",
+    "canonical_training_command": "./build/tools/pattern/train/vibe-othello-wthor-policy-pretrain --input <WTHOR_DIR> --initial-artifact <BOOTSTRAP_MANIFEST> --weights-out <FINAL_WEIGHTS_JSON> --report-out <FINAL_TRAINER_REPORT> --epochs 1 --learning-rate 0.03 --temperature 1 --negative-count 2 --freeze-phase 10 --freeze-phase 11 --freeze-phase 12 --validation-modulus 0 --validation-residue 0 --seed 20260720",
+    "canonical_export_command": "python3 tools/pattern/export/export_v0b.py --weights-json <FINAL_WEIGHTS_JSON> --weights-out <ARTIFACT_DIR>/weights.bin --manifest-out <ARTIFACT_DIR>/manifest.json --trained-phases 0 1 2 3 4 5 6 7 8 9 10 11 12 --pattern-set pattern-v2-endgame-lite --score-scale 100 --fallback-additive-through-phase 9 --catalog-dump-exe build/tools/pattern/export/vibe-othello-pattern-catalog-dump"
+  },
+  "weights_sha256": "sha256:e03146fa7f0be89eaeaccafa661e26f661f5efb40b1fd842d2fdd1dcf7a16c42",
+  "runtime_checksum": "0x83b78461",
+  "promotion_openings": {
+    "opening_source": "independent-board-core-random using board-core-uniform-legal-v1",
+    "opening_checksum": "sha256:4dffee84da02f4fef8c25dc946f7bee167c7f68ab4dde6d382c6434c9d939d2a",
+    "opening_arena_checksum": "fnv1a64:84f217b8ccc1e11d",
+    "opening_generation_seed": 20260727,
+    "opening_generation_plies": 16,
+    "opening_pairs": 1000,
+    "board_identity_policy": "board-v1-side-to-move-relative-a1-to-h8",
+    "game_overlap_policy": "canonical-replayed-WTHOR-transcript-has-opening-prefix",
+    "overlap_with_wthor_training_boards": 0,
+    "overlap_with_wthor_training_games": 0,
+    "exact_transcript_overlap_with_wthor_training_games": 0,
+    "audited_wthor_games": 137548,
+    "generator_report_sha256": "sha256:98b866f3638c14c24ca59dcfed66d2144b0ea7474797b5a06e3e8f6b7669d4e7",
+    "overlap_audit_report_sha256": "sha256:768c7d5c3762d221855bb414823580f196dda56ba6029f39ba83fef845097d1b",
+    "generation_command": "build/tools/arena/vibe-othello-generate-independent-openings --output <OPENINGS> --report-out <GENERATOR_REPORT> --count 1000 --plies 16 --seed 20260727",
+    "audit_command": "python3 tools/data-import/audit_wthor_openings.py --input <WTHOR_DIR> --openings <OPENINGS> --replay-helper build/tools/data-import/vibe-othello-wthor-sequence-replay --report <OVERLAP_REPORT> --opening-source independent-board-core-random --opening-generation-seed 20260727 --opening-generation-plies 16 --require-zero-overlap"
+  },
+  "promotion_validation": {
+    "baseline_artifact_id": "pattern-v2-progressive-search-d5-fast6-p5-v1",
+    "candidate_artifact_id": "pattern-v2-wthor-full-policy-v1",
+    "decision": "promote-all-direct-comparisons-pass",
+    "shared_arena_config": {
+      "arena_version": "full-game-artifact-arena-v4",
+      "executable_checksum": "fnv1a64:c2bae0e96bef1008",
+      "search_preset": "full",
+      "persistent_session": true,
+      "tt_requested_bytes": 16777216,
+      "candidate_probcut_mode": "off",
+      "baseline_probcut_mode": "off",
+      "bootstrap_samples": 10000,
+      "opening_source_checksum": "fnv1a64:84f217b8ccc1e11d"
+    },
+    "canonical_commands": {
+      "fixed_depth_3_sanity": "python3 tools/arena/run_full_game_artifact_arena_sanity.py --exe <ARENA_EXE> --candidate-manifest <CANDIDATE_MANIFEST> --baseline-manifest <PRIOR_DEFAULT_MANIFEST> --openings <OPENINGS> --output-dir <DEPTH3_REPORT_DIR> --limit-mode depth --depth 3 --search-preset full --persistent-session --seed 20260728 --bootstrap-seed 20260728 --bootstrap-samples 10000 --opening-limit 1000 --minimum-opening-pairs 1000",
+      "fixed_depth_5": "<ARENA_EXE> --candidate-manifest <CANDIDATE_MANIFEST> --baseline-manifest <PRIOR_DEFAULT_MANIFEST> --openings <OPENINGS> --report-out <DEPTH5_REPORT> --limit-mode depth --depth 5 --search-preset full --persistent-session --seed 20260729 --bootstrap-seed 20260729 --bootstrap-samples 10000 --opening-limit 256 --minimum-opening-pairs 256",
+      "fixed_time_10ms_exact8": "<ARENA_EXE> --candidate-manifest <CANDIDATE_MANIFEST> --baseline-manifest <PRIOR_DEFAULT_MANIFEST> --openings <OPENINGS> --report-out <TIME10_REPORT> --limit-mode time --time-ms 10 --search-preset full --persistent-session --exact-endgame-empties 8 --seed 20260730 --bootstrap-seed 20260730 --bootstrap-samples 10000 --opening-limit 256 --minimum-opening-pairs 256"
+    },
+    "fixed_depth_3": {
+      "opening_pairs": 1000,
+      "games": 2000,
+      "wins": 1448,
+      "losses": 514,
+      "draws": 38,
+      "score_rate": 0.7335,
+      "paired_bootstrap_95": [
+        0.71675,
+        0.75075
+      ],
+      "average_disc_difference": 14.7775,
+      "failed_games": 0,
+      "illegal_games": 0,
+      "seed": 20260728,
+      "selected_openings_checksum": "fnv1a64:f0e327b1911c441e",
+      "report_checksum": "fnv1a64:f12c2ba8f6a34e6b",
+      "report_sha256": "sha256:b58017255ed4d7f2695ed9edd3e41cf78c2f67d5b2fee211f86a3c98fed3bc81"
+    },
+    "fixed_depth_5": {
+      "opening_pairs": 256,
+      "games": 512,
+      "wins": 349,
+      "losses": 153,
+      "draws": 10,
+      "score_rate": 0.691406,
+      "paired_bootstrap_95": [
+        0.655273,
+        0.725586
+      ],
+      "average_disc_difference": 11.269531,
+      "failed_games": 0,
+      "illegal_games": 0,
+      "seed": 20260729,
+      "selected_openings_checksum": "fnv1a64:85ca0865a7f7e103",
+      "report_checksum": "fnv1a64:6d9c92c262d79828",
+      "report_sha256": "sha256:4ed79126a46e5735e3b2b2a37e9c994dcff12910f31a08856aae51e10df9b3a8"
+    },
+    "fixed_time_10ms_exact8": {
+      "opening_pairs": 256,
+      "games": 512,
+      "wins": 338,
+      "losses": 164,
+      "draws": 10,
+      "score_rate": 0.669922,
+      "paired_bootstrap_95": [
+        0.636719,
+        0.703125
+      ],
+      "average_disc_difference": 10.455078,
+      "failed_games": 0,
+      "illegal_games": 0,
+      "seed": 20260730,
+      "selected_openings_checksum": "fnv1a64:ec6a08743098b966",
+      "report_checksum": "fnv1a64:994c77d9525eb834",
+      "report_sha256": "sha256:c99bf7efa7407ed9262d05b570018a4955830ce64faebe7ddfd9d338a9fb58a9"
+    },
+    "candidate_baseline_swap_sanity": {
+      "limit": "fixed-depth-3",
+      "opening_pairs": 1000,
+      "color_swap_complete": true,
+      "argument_order_exact_complement": true,
+      "same_candidate_score_rate": 0.5,
+      "same_candidate_paired_disc_difference": 0,
+      "same_baseline_score_rate": 0.5,
+      "same_baseline_paired_disc_difference": 0,
+      "failed_games": 0,
+      "illegal_games": 0,
+      "reverse_report_checksum": "fnv1a64:47bc8ae305c52e23",
+      "reverse_report_sha256": "sha256:7cc09548a9aaeb1bcb39dac9958b5ae59ff75364a30a0e949f5b553426dacef4",
+      "same_candidate_report_checksum": "fnv1a64:4ab90b472619f5f7",
+      "same_candidate_report_sha256": "sha256:d514f76763ea3efb45dcd83f4d6f5442a889c491f804efc8c0f12588346da0d2",
+      "same_baseline_report_checksum": "fnv1a64:8a73d250da767be7",
+      "same_baseline_report_sha256": "sha256:97da7833d0d023bab355a4786211bd23ea7468134be5fd4fea57eef0d905a544",
+      "sanity_summary_sha256": "sha256:0d1b10c1c43f5c5e70b38855bd7f72361f636dd1265e9510cd6f42f21b4de3c6"
+    }
+  },
+  "learning_validation_vs_bootstrap": {
+    "fixed_depth_3": {
+      "games": 2000,
+      "wins": 1414,
+      "losses": 543,
+      "draws": 43,
+      "score_rate": 0.71775,
+      "paired_bootstrap_95": [
+        0.69975,
+        0.736
+      ],
+      "average_disc_difference": 13.4455,
+      "report_checksum": "fnv1a64:602d789a6fe045b0"
+    },
+    "fixed_depth_5": {
+      "games": 512,
+      "wins": 336,
+      "losses": 163,
+      "draws": 13,
+      "score_rate": 0.668945,
+      "paired_bootstrap_95": [
+        0.634766,
+        0.703125
+      ],
+      "average_disc_difference": 8.404297,
+      "report_checksum": "fnv1a64:a74a93941210e9ff"
+    },
+    "fixed_time_10ms_exact8": {
+      "games": 512,
+      "wins": 332,
+      "losses": 168,
+      "draws": 12,
+      "score_rate": 0.660156,
+      "paired_bootstrap_95": [
+        0.625977,
+        0.695312
+      ],
+      "average_disc_difference": 9.578125,
+      "report_checksum": "fnv1a64:1481880b6cbf974b"
+    }
+  },
+  "rejected_followups": {
+    "second_full_wthor_pass": {
+      "learning_rate": 0.03,
+      "depth3_score_rate": 0.514,
+      "depth5_score_rate": 0.491211,
+      "decision": "rejected-depth5-regression"
+    },
+    "depth6_search_correction": {
+      "selected_roots": 5000,
+      "move_rows": 52352,
+      "teacher_nodes": 2065505695,
+      "learning_rates": [
+        0.001,
+        0.003,
+        0.01
+      ],
+      "depth3_score_rates": [
+        0.495,
+        0.491,
+        0.4855
+      ],
+      "best_depth5_score_rate": 0.509766,
+      "decision": "rejected-no-reproducible-improvement"
+    }
+  },
+  "source_attribution": "World Othello game records from the Fédération Française d'Othello WTHOR database",
+  "raw_data_redistributed": false,
+  "normalized_data_redistributed": false,
+  "policy_data_redistributed": false,
+  "teacher_labels_redistributed": false,
+  "local_reports_redistributed": false,
+  "not_official_wthor_artifact": true,
+  "not_official_egaroucid_artifact": true,
+  "non_claims": [
+    "not an Elo result",
+    "not a self-play improvement claim",
+    "not a production strength claim",
+    "not publication readiness",
+    "not an official WHTOR or FFO artifact",
+    "not an official Egaroucid artifact"
+  ]
+}

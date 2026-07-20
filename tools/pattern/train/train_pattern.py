@@ -17,7 +17,12 @@ from dataset_contract import (
     WEIGHTS_SCHEMA_VERSION_V1,
     WEIGHTS_SCHEMA_VERSION_V2,
 )
-from dataset_io import load_examples, load_move_teacher_roots_many, validate_training_examples
+from dataset_io import (
+    load_examples,
+    load_move_teacher_roots_many,
+    load_played_move_policy,
+    validate_training_examples,
+)
 from reports import (
     run_pattern_sgd_v0b,
     run_pattern_sgd_v0c,
@@ -114,6 +119,22 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         action="append",
         help="Move-teacher TSV sidecar joined to child pattern dataset by child_board_id; repeat for disjoint teacher sources; required for pattern-rank-v0e.",
+    )
+    parser.add_argument(
+        "--played-move-policy",
+        type=Path,
+        help=(
+            "Optional aggregate WTHOR played-move policy TSV joined by "
+            "root_board_id for pattern-rank-v0e."
+        ),
+    )
+    parser.add_argument(
+        "--policy-loss-weight",
+        type=float,
+        help=(
+            "Played-move cross-entropy coefficient for pattern-rank-v0e. "
+            "Defaults to 1.0 when --played-move-policy is present."
+        ),
     )
     parser.add_argument("--initial-weights", type=Path)
     parser.add_argument("--initial-trained-phases", nargs="+", type=int)
@@ -216,6 +237,8 @@ def parse_args() -> argparse.Namespace:
         or args.pair_sampling_cap is not None
         or args.tie_margin is not None
         or args.residual_baseline_through_phase is not None
+        or args.played_move_policy is not None
+        or args.policy_loss_weight is not None
     )
     if args.mode != TRAINER_ALGORITHM_V0E and v0e_only_args:
         parser.error(
@@ -225,6 +248,14 @@ def parse_args() -> argparse.Namespace:
     if args.mode == TRAINER_ALGORITHM_V0E:
         if args.move_teacher is None:
             parser.error("--move-teacher is required for --mode pattern-rank-v0e")
+        if args.played_move_policy is None and args.policy_loss_weight is not None:
+            parser.error("--policy-loss-weight requires --played-move-policy")
+        if args.played_move_policy is not None and args.policy_loss_weight is None:
+            args.policy_loss_weight = 1.0
+        if args.policy_loss_weight is None:
+            args.policy_loss_weight = 0.0
+        if args.played_move_policy is not None and args.policy_loss_weight <= 0.0:
+            parser.error("--policy-loss-weight must be positive")
         if args.rank_temperature is None:
             args.rank_temperature = 1.0
         if args.value_loss_weight is None:
@@ -289,7 +320,12 @@ def main() -> int:
         elif args.mode == TRAINER_ALGORITHM_V0E:
             assert args.move_teacher is not None
             move_teacher_result = load_move_teacher_roots_many(args.move_teacher, load_result.accepted_examples)
-            run_pattern_rank_v0e(load_result, move_teacher_result, args)
+            policy_result = (
+                None
+                if args.played_move_policy is None
+                else load_played_move_policy(args.played_move_policy, move_teacher_result.roots)
+            )
+            run_pattern_rank_v0e(load_result, move_teacher_result, policy_result, args)
         else:
             raise RuntimeError(f"unsupported mode: {args.mode}")
     except RuntimeError as error:

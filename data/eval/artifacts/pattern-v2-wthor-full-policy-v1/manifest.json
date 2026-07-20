@@ -1,0 +1,186 @@
+{
+  "artifact_id": "pattern-v2-wthor-full-policy-v1",
+  "bit_order": "a1-lsb",
+  "fallback_additive_through_phase": 9,
+  "format": "vibe-othello-pattern-eval",
+  "format_version": 1,
+  "nonzero_pattern_weights": 307728,
+  "notes": "WHTOR full-corpus played-move policy artifact; experimental default",
+  "pattern_set_id": "pattern-v2-endgame-lite",
+  "patterns": [
+    {
+      "length": 8,
+      "pattern_id": "edge-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "near-edge-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "diagonal-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 7,
+      "pattern_id": "diagonal-7",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 10,
+      "pattern_id": "corner-2x5",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 9,
+      "pattern_id": "corner-3x3",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "corner-2x4-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 10,
+      "pattern_id": "edge-plus-x-10",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "corner-wing-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "near-edge-segment-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "diagonal-corner-8",
+      "weights": "sparse-v0b-import"
+    }
+  ],
+  "phase_bias": [
+    1,
+    -11,
+    -23,
+    -25,
+    -19,
+    -152,
+    -94,
+    -134,
+    178,
+    54,
+    300,
+    200,
+    100
+  ],
+  "phase_count": 13,
+  "phase_weight_diagnostics": [
+    {
+      "max_absolute_weight": 511,
+      "nonzero_pattern_weights": 167,
+      "nonzero_phase_bias": true,
+      "phase": 0
+    },
+    {
+      "max_absolute_weight": 523,
+      "nonzero_pattern_weights": 3073,
+      "nonzero_phase_bias": true,
+      "phase": 1
+    },
+    {
+      "max_absolute_weight": 469,
+      "nonzero_pattern_weights": 6940,
+      "nonzero_phase_bias": true,
+      "phase": 2
+    },
+    {
+      "max_absolute_weight": 456,
+      "nonzero_pattern_weights": 12340,
+      "nonzero_phase_bias": true,
+      "phase": 3
+    },
+    {
+      "max_absolute_weight": 448,
+      "nonzero_pattern_weights": 19251,
+      "nonzero_phase_bias": true,
+      "phase": 4
+    },
+    {
+      "max_absolute_weight": 480,
+      "nonzero_pattern_weights": 25563,
+      "nonzero_phase_bias": true,
+      "phase": 5
+    },
+    {
+      "max_absolute_weight": 445,
+      "nonzero_pattern_weights": 35606,
+      "nonzero_phase_bias": true,
+      "phase": 6
+    },
+    {
+      "max_absolute_weight": 385,
+      "nonzero_pattern_weights": 42715,
+      "nonzero_phase_bias": true,
+      "phase": 7
+    },
+    {
+      "max_absolute_weight": 425,
+      "nonzero_pattern_weights": 55708,
+      "nonzero_phase_bias": true,
+      "phase": 8
+    },
+    {
+      "max_absolute_weight": 505,
+      "nonzero_pattern_weights": 69187,
+      "nonzero_phase_bias": true,
+      "phase": 9
+    },
+    {
+      "max_absolute_weight": 700,
+      "nonzero_pattern_weights": 15692,
+      "nonzero_phase_bias": true,
+      "phase": 10
+    },
+    {
+      "max_absolute_weight": 600,
+      "nonzero_pattern_weights": 16019,
+      "nonzero_phase_bias": true,
+      "phase": 11
+    },
+    {
+      "max_absolute_weight": 500,
+      "nonzero_pattern_weights": 5467,
+      "nonzero_phase_bias": true,
+      "phase": 12
+    }
+  ],
+  "quantization": "round-half-away-from-zero to int32 fixed-point weight; runtime divides the accumulated score by 100",
+  "score_scale": 100,
+  "score_unit": "disc-diff",
+  "source_weights_checksum": "sha256:f2fb639d9ba66dd153a1759de02e2dfc00fc9203b652217b55ea1391ef25dab7",
+  "source_weights_schema_version": "pattern-eval-weights-v2",
+  "trained_phases": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "weights_checksum": "0x83b78461",
+  "weights_file": "weights.bin",
+  "weights_size_bytes": 9666647
+}

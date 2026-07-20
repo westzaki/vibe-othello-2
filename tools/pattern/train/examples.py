@@ -135,6 +135,30 @@ class MoveTeacherLoadResult:
     provenance: MoveTeacherProvenance | None
     inputs: list[MoveTeacherInput]
 
+
+@dataclass(frozen=True)
+class PlayedMovePolicyTarget:
+    root_board_id: str
+    split: str
+    phase: int
+    move_counts: dict[str, int]
+
+    @property
+    def occurrence_count(self) -> int:
+        return sum(self.move_counts.values())
+
+
+@dataclass(frozen=True)
+class PlayedMovePolicyLoadResult:
+    targets_by_root_id: dict[str, PlayedMovePolicyTarget]
+    input_rows: int
+    input_occurrences: int
+    matched_rows: int
+    matched_occurrences: int
+    unmatched_rows: int
+    source_dataset_id: str
+
+
 def row_record_id(row: dict[str, Any] | None) -> str | None:
     if row is None:
         return None

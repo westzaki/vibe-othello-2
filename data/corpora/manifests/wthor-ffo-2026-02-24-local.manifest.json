@@ -1,0 +1,14 @@
+{
+  "dataset_id": "wthor-ffo-2026-02-24-local",
+  "source_name": "FFO WTHOR 8x8 tournament game database, 1977-2025",
+  "source_url": "https://www.ffothello.org/informatique/la-base-wthor/",
+  "retrieved_at": "2026-07-19",
+  "license_or_terms": "See source_url.",
+  "redistribution_allowed": "unknown",
+  "commercial_use_allowed": "unknown",
+  "derived_weights_allowed": "unknown",
+  "required_attribution": "Source name and URL.",
+  "local_path": "wthor/WTH_*.wtb",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "notes": "Local-only snapshot reference. Exact source checksums are recorded in the local import report. WTHOR actual/theoretical scores use a 64-square convention that is not assumed to equal this engine's terminal actual-disc difference."
+}

@@ -1,7 +1,13 @@
 add_executable(vibe_othello_pattern_train_smoke main.cc)
+add_executable(vibe_othello_wthor_policy_pretrain wthor_policy_pretrain.cc)
+
+target_link_libraries(vibe_othello_wthor_policy_pretrain
+                      PRIVATE vibe_othello::engine)
 
 set_target_properties(vibe_othello_pattern_train_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-train-smoke)
+set_target_properties(vibe_othello_wthor_policy_pretrain
+                      PROPERTIES OUTPUT_NAME vibe-othello-wthor-policy-pretrain)
 
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -45,6 +51,16 @@ if(BUILD_TESTING)
       $<TARGET_FILE:vibe_othello_pattern_catalog_dump>
       --roundtrip
       $<TARGET_FILE:vibe_othello_pattern_evaluation_roundtrip_smoke>)
+
+  add_test(
+    NAME vibe_othello_wthor_policy_pretrain_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_wthor_policy_pretrain_smoke.py
+      --trainer
+      $<TARGET_FILE:vibe_othello_wthor_policy_pretrain>
+      --artifact-manifest
+      ${CMAKE_SOURCE_DIR}/data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json)
 
   add_test(
     NAME vibe_othello_pattern_growth_cycle_smoke

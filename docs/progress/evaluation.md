@@ -56,26 +56,24 @@ as a simple deterministic reference path for tooling and tests.
 
 ## Runtime and Artifact Status
 
-`pattern-v2-progressive-search-d5-fast6-p5-v1` is the current learned
-experimental default. It supersedes
-`pattern-v2-endgame-lite-100k-mt-v0`, which remains committed for rollback and
-comparison.
+`pattern-v2-wthor-full-policy-v1` is the current learned experimental default.
+It supersedes `pattern-v2-progressive-search-d5-fast6-p5-v1`, which remains
+committed for rollback and comparison.
 
 Default resolution is controlled by `data/eval/default-artifact.json`, whose
 status is `experimental-default` and whose manifest pointer resolves to:
 
 ```text
-data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json
+data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json
 ```
 
 The committed runtime payload is limited to `weights.bin`, `manifest.json`,
 `provenance.json`, `README.md`, and `NOTICE.md` under the artifact directory.
 
-The current default reports reviewed learning coverage for phases 5 through
-12. Phases 0 through 4 use the deterministic fallback, phases 5 through 9 add
-a learned search-teacher residual to that fallback, and phases 10 through 12
-retain the previous exact-teacher pattern weights. No search option changes are
-required.
+The current default reports reviewed learning coverage for all 13 phases.
+Phases 0 through 9 add a WHTOR played-move residual to the deterministic
+fallback, and phases 10 through 12 retain the previous exact-teacher pattern
+weights. No search option changes are required.
 
 The runtime loader entry points are
 `vibe_othello::evaluation::load_default_pattern_artifact` and
@@ -100,10 +98,14 @@ is supplied. `--eval-artifact` selects a specific artifact manifest.
 missing, corrupt, or incompatible artifact data exits with an error instead of
 silently falling back to static evaluation.
 
-The current artifact cleared paired fixed-depth and fixed-time local arena
-gates against the previous default. It is still not an Elo result, not a
+The current artifact cleared direct paired local arena gates against the
+previous default: 73.35% at depth 3, 69.14% at depth 5, and 66.99% at
+10 ms plus exact8. Each paired 95% interval excluded 50%, all games were clean,
+and the depth-3 argument-order and same-artifact controls passed. The
+board-core-generated promotion suite had zero audited board and
+transcript-prefix overlap with WHTOR. It is still not an Elo result, not a
 self-play improvement claim, not a production-strength claim, not publication
-readiness, and not an official Egaroucid artifact.
+readiness, and not an official WHTOR, FFO, or Egaroucid artifact.
 
 ## Known Gaps
 

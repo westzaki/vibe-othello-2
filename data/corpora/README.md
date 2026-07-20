@@ -6,8 +6,8 @@
 corpora: source manifests, tiny checked-in fixtures, and policy docs.
 
 Raw third-party corpora are local-only by default. This repository does not
-redistribute raw Egaroucid archives, extracted files, transcript dumps, or
-board-score archives.
+redistribute raw Egaroucid archives, extracted files, transcript dumps,
+board-score archives, or WTHOR game database payloads.
 
 ## What May Be Committed
 
@@ -31,6 +31,7 @@ including:
 * raw external archives
 * extracted external source files
 * Egaroucid raw transcripts or board-score archives
+* WTHOR `.wtb`, `.jou`, `.trn`, or downloaded archive files
 * normalized TSVs
 * selected TSVs
 * resplit normalized TSVs
@@ -44,7 +45,9 @@ including:
 * local machine paths
 * generated teacher labels or move-teacher outputs
 
-Unknown or unclear license terms mean local experiment only.
+The committed WTHOR manifest identifies the source and local snapshot. Raw
+source files and generated training data remain local. The local import report
+owns the exact per-file and aggregate checksums.
 
 ## Manifest Contract
 
@@ -62,9 +65,9 @@ Manifests should record:
 * local-only path placeholder, without personal absolute paths
 * review notes for restrictions, attribution, and provenance caveats
 
-The current schema is `dataset-manifest.schema.json`. If license or permission
-fields are `unknown`, the source remains local-only and must not be used for
-published raw data, derived datasets, learned weights, or release artifacts.
+The current schema is `dataset-manifest.schema.json`. Raw data and derived
+datasets remain local-only. Reviewed runtime artifacts follow `data/eval/`
+policy.
 
 ## Directory Rules
 
@@ -83,6 +86,7 @@ data only when terms permit.
 ## Where Details Live
 
 * Pattern learning architecture and data flow: `../../docs/architecture/pattern-learning.md`
+* External corpus import workflows: `../../tools/data-import/README.md`
 * Pattern learning current status: `../../docs/progress/pattern-learning.md`
 * Historical experiment logs: `../../docs/experiments/README.md`
 * Teacher label and move-teacher local policy: `../labels/README.md`
