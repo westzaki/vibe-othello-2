@@ -426,7 +426,7 @@ bool validate_label_kind(int schema_version, std::string_view label_kind) noexce
          label_kind == "teacher_exact_final_disc_diff" ||
          label_kind == "teacher_exact_move_child_final_disc_diff" ||
          label_kind == "teacher_search_final_disc_diff" ||
-         label_kind == "teacher_static_eval_disc_diff";
+         label_kind == "teacher_static_eval_disc_diff" || label_kind == "teacher_value_disc_diff";
 }
 
 bool validate_label_unit(std::string_view label_unit) noexcept {

@@ -88,4 +88,22 @@ if(BUILD_TESTING)
       --auditor ${CMAKE_CURRENT_SOURCE_DIR}/audit_wthor_openings.py
       --generator $<TARGET_FILE:vibe_othello_generate_independent_openings>
       --replay-helper $<TARGET_FILE:vibe_othello_wthor_sequence_replay>)
+
+  add_test(
+    NAME vibe_othello_egaroucid_board_score_import_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_board_score_smoke.py
+      --importer
+      ${CMAKE_CURRENT_SOURCE_DIR}/import_egaroucid_board_scores.py)
+
+  add_test(
+    NAME vibe_othello_egaroucid_board_score_opening_overlap_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_board_score_opening_overlap_smoke.py
+      --auditor
+      ${CMAKE_CURRENT_SOURCE_DIR}/audit_egaroucid_board_score_openings.py
+      --replay-helper
+      $<TARGET_FILE:vibe_othello_wthor_sequence_replay>)
 endif()

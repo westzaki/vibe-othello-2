@@ -8,31 +8,31 @@ documents linked from it.
 
 ## Current State
 
-`pattern-v2-wthor-full-policy-v1` is the current learned experimental default.
-The previous `pattern-v2-progressive-search-d5-fast6-p5-v1` artifact remains
+`pattern-v2-egaroucid-lv17-full-value-v1` is the current learned experimental
+default. The previous `pattern-v2-wthor-full-policy-v1` artifact remains
 committed as the rollback and comparison baseline.
 
 Its reviewed learning coverage is all phases `[0..12]`, recorded in both
-runtime manifest and provenance. Phases `0..9` add a WHTOR played-move residual
-to the deterministic fallback. The previous exact-teacher weights in phases
-`10..12` are frozen. Coverage metadata is explicit rather than inferred from
+runtime manifest and provenance. Phases `0..9` add an Egaroucid board-score
+residual to the deterministic fallback. Phases `10..12` use Egaroucid-trained
+replacement weights. Coverage metadata is explicit rather than inferred from
 zero or nonzero weights.
 
 The default pointer is `data/eval/default-artifact.json`, with status
 `experimental-default`, resolving to:
 
 ```text
-data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json
+data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json
 ```
 
 The committed artifact payload is limited to final runtime files:
 
 * `data/eval/default-artifact.json`
-* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/weights.bin`
-* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json`
-* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/provenance.json`
-* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/README.md`
-* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/NOTICE.md`
+* `data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/weights.bin`
+* `data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json`
+* `data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/provenance.json`
+* `data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/README.md`
+* `data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/NOTICE.md`
 
 Raw transcripts, normalized corpora, selected TSVs, teacher labels,
 move-teacher TSVs, child-normalized TSVs, caches, local reports, logs,
@@ -41,17 +41,22 @@ temporary datasets, and sweep outputs are local-only and must not be committed.
 The current trainer/runtime route is:
 
 * `pattern-v2-endgame-lite` runtime pattern set
-* all 137,548 WHTOR games and 8,231,199 recorded moves
-* recorded non-forced moves treated as provisional pairwise policy targets
-* streaming training over every decision without materializing child datasets
+* all 25,514,097 Egaroucid board-score positions
+* 1,514,097 Egaroucid 7.4.0 lv17 enumeration/evaluation/negamax values for
+  4-15 occupied squares
+* 24,000,000 Egaroucid 7.5.1 lv17 self-play terminal outcomes for 16-63
+  occupied squares
+* neutral side-to-move `teacher_value_disc_diff` targets
+* five full-corpus passes for phases `0..9` and one full-corpus pass for phases
+  `10..12`
+* streaming training without materializing an expanded dataset
 * deterministic fallback plus learned residual through phase 9
-* previous exact-teacher late phases frozen
 * independent paired fixed-depth and fixed-time arena validation directly
   against the prior default
-* zero audited promotion-opening board and transcript-prefix overlap with
-  WHTOR
-* second-pass and depth-6 correction saturation checks
-* committed WHTOR artifact v1 as an experimental default
+* zero audited promotion-opening board overlap with all 25,514,097 training
+  boards
+* short-opening direct arena gates exercising updated phases `0..2`
+* committed Egaroucid lv17 full-value artifact v1 as an experimental default
 
 This is an experimental default, not an Elo result, not a self-play result,
 not a production strength claim, and not publication readiness.
@@ -110,6 +115,11 @@ experimental default artifact:
     depth 5, and 66.99% at 10 ms plus exact8, with clean games and depth-3
     argument-order/same-artifact sanity.
 23. Full-corpus WHTOR artifact v1 committed as the experimental default.
+24. Full-corpus mixed Egaroucid 7.4.0/7.5.1 board-score training updated all
+    phases and passed direct depth-3, depth-5, and fixed-time gates against the
+    full-WHTOR policy default.
+25. Short-opening depth-3 gates directly exercised phases 0-2 and passed from
+    every unique 4-ply board plus 256 8-ply and 256 11-ply openings.
 
 Detailed PR-by-PR logs, command lines, sweep settings, and metric tables are in
 the archive starting at `docs/experiments/README.md`.
@@ -183,20 +193,20 @@ lines, or PR-specific context are needed.
 
 | Area | Current summary |
 | --- | --- |
-| Import and normalization | Sequence transcripts can be replayed into normalized TSV schema v2 with deterministic identity, connected-board-game split support, and leakage diagnostics. |
+| Import and normalization | Sequence transcripts can be replayed into normalized TSV schema v2 with deterministic identity, connected-board-game split support, and leakage diagnostics. Board-score archives can be checksum-validated and streamed into normalized schema v2 with deterministic board-disjoint splits and bounded per-phase sampling. |
 | Root selection | Local phase-stratified root selection can take a uniform base quota plus explicit per-phase quota overrides, preserve connected splits by default, or explicitly re-hash a board/game-unique cap-1 selected set when early-board components make the source split unusably imbalanced. It reports effective coverage and post-selection leakage without generating labels. |
 | Search move-teacher labels | A local-only artifact-search generator emits move-teacher TSV v3, ranks every legal move for phases `0..9`, records static fallback values for residual training, and uses either explicit full coverage or a provenance-visible phase-aware bootstrap; exact move teaching remains the late-game route. |
 | Dataset shape | Compact TSV example rows are the scalable path for local pattern training diagnostics. |
 | Pattern sets | `pattern-v1-buro-lite` is the earlier production-ish schema; `pattern-v2-endgame-lite` remains the current default schema. |
-| Trainer diagnostics | v0c/v0d provide local residual pattern-SGD diagnostics; v0e adds deterministic move-teacher pairwise ranking, v3 fallback residuals, optional value calibration, schema-checked warm starts, selective pattern-family updates, and exact frozen-phase preservation. They are not standalone strength claims. |
+| Trainer diagnostics | The streaming Egaroucid board-score trainer supports all-position multi-pass value training, per-epoch learning rates, runtime-equivalent inter-epoch quantization, phase freezing, and canonical-board holdouts. v0c/v0d and v0e remain available for sampled value and move-ranking experiments. |
 | Exact teacher labels | Exact root-label experiments were useful diagnostics but did not become the adopted default route. |
 | Move-teacher labels | Exact child labels made root move-ranking and decision leverage visible with the existing value trainer. |
 | Cache/materialization | Move-teacher cache and materialization flows support large local reruns while keeping labels and child-normalized TSVs local-only. |
 | Growth cycle | 50k and 100k local growth-cycle validations selected the move-teacher route for broader validation. |
 | Full-phase local cycle | `tools/pattern/train/run_full_phase_growth_cycle.py` connects phase-stratified selection, explicit-artifact search teaching, late exact teaching, warm-start/frozen-phase v0e training, fixed-point residual export, ranking, and bounded late/full-game local arenas without changing the default artifact; phase quota and split exceptions remain visible in reports. |
 | Hard-root progression | Baseline-regret selection, complete-root depth overlay, cross-depth child-conflict exclusion, and disjoint per-provenance trainer sidecars are checked local-only operations. |
-| Arena validation | Independent paired fixed-depth and fixed-time arenas supported promoting the progressive depth-5 residual artifact. |
-| Artifact v2 | `pattern-v2-wthor-full-policy-v1` is the experimental default; the progressive-search artifact remains available for rollback and comparison. |
+| Arena validation | Independent paired fixed-depth and fixed-time arenas supported promoting the Egaroucid lv17 full-value artifact over the full-WHTOR policy default; short-opening gates directly exercise updated phases 0-2. |
+| Artifact v2 | `pattern-v2-egaroucid-lv17-full-value-v1` is the experimental default; the full-WHTOR policy artifact remains available for rollback and comparison. |
 | Archive policy | Long logs, tables, command examples, and obsolete next actions belong in `docs/experiments/README.md` and linked experiment docs. |
 
 Update this document when the current status, adopted route, artifact default,

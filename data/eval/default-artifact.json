@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "default_artifact_id": "pattern-v2-wthor-full-policy-v1",
+  "default_artifact_id": "pattern-v2-egaroucid-lv17-full-value-v1",
   "status": "experimental-default",
-  "artifact_manifest": "artifacts/pattern-v2-wthor-full-policy-v1/manifest.json",
-  "artifact_provenance": "artifacts/pattern-v2-wthor-full-policy-v1/provenance.json",
-  "reason": "direct paired depth-3, depth-5, and 10ms+exact8 wins over the prior default on an independently generated opening suite with zero audited WHTOR overlap",
+  "artifact_manifest": "artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-egaroucid-lv17-full-value-v1/provenance.json",
+  "reason": "direct paired depth-3, depth-5, and 10ms+exact8 wins over the prior default on an independently generated opening suite with zero audited Egaroucid board overlap, plus short-opening depth-3 wins exercising phases 0-2",
   "override": {
     "custom_artifact": "--eval-artifact <manifest-path>",
     "static_eval": "--eval-mode static"

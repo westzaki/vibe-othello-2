@@ -1,0 +1,186 @@
+{
+  "artifact_id": "pattern-v2-egaroucid-lv17-full-value-v1",
+  "bit_order": "a1-lsb",
+  "fallback_additive_through_phase": 9,
+  "format": "vibe-othello-pattern-eval",
+  "format_version": 1,
+  "nonzero_pattern_weights": 682237,
+  "notes": "Egaroucid 7.4.0/7.5.1 lv17 full board-score value artifact; experimental default",
+  "pattern_set_id": "pattern-v2-endgame-lite",
+  "patterns": [
+    {
+      "length": 8,
+      "pattern_id": "edge-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "near-edge-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "diagonal-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 7,
+      "pattern_id": "diagonal-7",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 10,
+      "pattern_id": "corner-2x5",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 9,
+      "pattern_id": "corner-3x3",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "corner-2x4-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 10,
+      "pattern_id": "edge-plus-x-10",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "corner-wing-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "near-edge-segment-8",
+      "weights": "sparse-v0b-import"
+    },
+    {
+      "length": 8,
+      "pattern_id": "diagonal-corner-8",
+      "weights": "sparse-v0b-import"
+    }
+  ],
+  "phase_bias": [
+    1,
+    -11,
+    -23,
+    -25,
+    -19,
+    -152,
+    -94,
+    -134,
+    178,
+    54,
+    300,
+    200,
+    100
+  ],
+  "phase_count": 13,
+  "phase_weight_diagnostics": [
+    {
+      "max_absolute_weight": 507,
+      "nonzero_pattern_weights": 168,
+      "nonzero_phase_bias": true,
+      "phase": 0
+    },
+    {
+      "max_absolute_weight": 458,
+      "nonzero_pattern_weights": 7565,
+      "nonzero_phase_bias": true,
+      "phase": 1
+    },
+    {
+      "max_absolute_weight": 628,
+      "nonzero_pattern_weights": 20173,
+      "nonzero_phase_bias": true,
+      "phase": 2
+    },
+    {
+      "max_absolute_weight": 557,
+      "nonzero_pattern_weights": 33830,
+      "nonzero_phase_bias": true,
+      "phase": 3
+    },
+    {
+      "max_absolute_weight": 560,
+      "nonzero_pattern_weights": 47414,
+      "nonzero_phase_bias": true,
+      "phase": 4
+    },
+    {
+      "max_absolute_weight": 538,
+      "nonzero_pattern_weights": 55661,
+      "nonzero_phase_bias": true,
+      "phase": 5
+    },
+    {
+      "max_absolute_weight": 630,
+      "nonzero_pattern_weights": 69475,
+      "nonzero_phase_bias": true,
+      "phase": 6
+    },
+    {
+      "max_absolute_weight": 629,
+      "nonzero_pattern_weights": 75912,
+      "nonzero_phase_bias": true,
+      "phase": 7
+    },
+    {
+      "max_absolute_weight": 571,
+      "nonzero_pattern_weights": 87583,
+      "nonzero_phase_bias": true,
+      "phase": 8
+    },
+    {
+      "max_absolute_weight": 679,
+      "nonzero_pattern_weights": 96859,
+      "nonzero_phase_bias": true,
+      "phase": 9
+    },
+    {
+      "max_absolute_weight": 606,
+      "nonzero_pattern_weights": 72105,
+      "nonzero_phase_bias": true,
+      "phase": 10
+    },
+    {
+      "max_absolute_weight": 606,
+      "nonzero_pattern_weights": 70146,
+      "nonzero_phase_bias": true,
+      "phase": 11
+    },
+    {
+      "max_absolute_weight": 511,
+      "nonzero_pattern_weights": 45346,
+      "nonzero_phase_bias": true,
+      "phase": 12
+    }
+  ],
+  "quantization": "round-half-away-from-zero to int32 fixed-point weight; runtime divides the accumulated score by 100",
+  "score_scale": 100,
+  "score_unit": "disc-diff",
+  "source_weights_checksum": "sha256:6621b7735f30c489049886d914c449c12ec43b8b82d3620de60a2015298189ae",
+  "source_weights_schema_version": "pattern-eval-weights-v2",
+  "trained_phases": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "weights_checksum": "0xfe3d38f9",
+  "weights_file": "weights.bin",
+  "weights_size_bytes": 9666647
+}

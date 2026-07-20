@@ -1,11 +1,18 @@
 add_executable(vibe_othello_pattern_train_smoke main.cc)
+add_executable(vibe_othello_egaroucid_board_score_pretrain
+               egaroucid_board_score_pretrain.cc)
 add_executable(vibe_othello_wthor_policy_pretrain wthor_policy_pretrain.cc)
 
+target_link_libraries(vibe_othello_egaroucid_board_score_pretrain
+                      PRIVATE vibe_othello::engine)
 target_link_libraries(vibe_othello_wthor_policy_pretrain
                       PRIVATE vibe_othello::engine)
 
 set_target_properties(vibe_othello_pattern_train_smoke
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-train-smoke)
+set_target_properties(vibe_othello_egaroucid_board_score_pretrain
+                      PROPERTIES OUTPUT_NAME
+                                 vibe-othello-egaroucid-board-score-pretrain)
 set_target_properties(vibe_othello_wthor_policy_pretrain
                       PROPERTIES OUTPUT_NAME vibe-othello-wthor-policy-pretrain)
 
@@ -63,12 +70,36 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json)
 
   add_test(
+    NAME vibe_othello_egaroucid_board_score_pretrain_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_board_score_pretrain_smoke.py
+      --trainer
+      $<TARGET_FILE:vibe_othello_egaroucid_board_score_pretrain>
+      --artifact-manifest
+      ${CMAKE_SOURCE_DIR}/data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json)
+
+  add_test(
     NAME vibe_othello_pattern_growth_cycle_smoke
     COMMAND
       ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/check_pattern_growth_cycle_smoke.py
       --growth-runner
       ${CMAKE_CURRENT_SOURCE_DIR}/run_pattern_growth_cycle.py)
+
+  add_test(
+    NAME vibe_othello_egaroucid_board_score_training_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_egaroucid_board_score_training_smoke.py
+      --runner
+      ${CMAKE_CURRENT_SOURCE_DIR}/run_egaroucid_board_score_training.py
+      --importer
+      ${CMAKE_SOURCE_DIR}/tools/data-import/import_egaroucid_board_scores.py
+      --dataset-exe
+      $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>
+      --trainer
+      ${CMAKE_CURRENT_SOURCE_DIR}/train_pattern.py)
 
   add_test(
     NAME vibe_othello_full_phase_pattern_growth_cycle_smoke

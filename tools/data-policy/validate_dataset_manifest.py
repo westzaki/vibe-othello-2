@@ -27,6 +27,11 @@ REQUIRED_FIELDS = (
     "notes",
 )
 
+OPTIONAL_FIELDS = (
+    "label_kind",
+    "label_generation_by_occupied_range",
+)
+
 PERMISSION_FIELDS = (
     "redistribution_allowed",
     "commercial_use_allowed",
@@ -87,7 +92,7 @@ def validate_manifest(path: Path) -> list[str]:
     if not isinstance(manifest, dict):
         return [f"{path}: manifest root must be an object"]
 
-    extra = sorted(set(manifest).difference(REQUIRED_FIELDS))
+    extra = sorted(set(manifest).difference(REQUIRED_FIELDS + OPTIONAL_FIELDS))
     if extra:
         errors.append(f"{path}: unexpected fields: {', '.join(extra)}")
 
@@ -128,6 +133,50 @@ def validate_manifest(path: Path) -> list[str]:
         value = manifest.get(field)
         if not isinstance(value, bool) and value != "unknown":
             errors.append(f"{path}: {field} must be true, false, or unknown")
+
+    if "label_kind" in manifest:
+        require_string(path, manifest, "label_kind", errors)
+
+    if "label_generation_by_occupied_range" in manifest:
+        ranges = manifest["label_generation_by_occupied_range"]
+        if not isinstance(ranges, list) or not ranges:
+            errors.append(
+                f"{path}: label_generation_by_occupied_range must be a non-empty list"
+            )
+        else:
+            range_fields = {
+                "occupied_count_min",
+                "occupied_count_max",
+                "position_count",
+                "generation_kind",
+                "engine",
+                "procedure",
+            }
+            for index, item in enumerate(ranges):
+                prefix = f"{path}: label_generation_by_occupied_range[{index}]"
+                if not isinstance(item, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                if set(item) != range_fields:
+                    errors.append(f"{prefix} must contain exactly the documented fields")
+                    continue
+                minimum = item["occupied_count_min"]
+                maximum = item["occupied_count_max"]
+                count = item["position_count"]
+                if (
+                    not isinstance(minimum, int)
+                    or not isinstance(maximum, int)
+                    or minimum < 4
+                    or maximum > 64
+                    or minimum > maximum
+                ):
+                    errors.append(f"{prefix} has an invalid occupied-count range")
+                if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+                    errors.append(f"{prefix}.position_count must be a positive integer")
+                for field in ("generation_kind", "engine", "procedure"):
+                    value = item[field]
+                    if not isinstance(value, str) or not value.strip():
+                        errors.append(f"{prefix}.{field} must be a non-empty string")
 
     local_path = manifest.get("local_path")
     if isinstance(local_path, str):

@@ -14,9 +14,113 @@ runtime artifact
 ```
 
 All corpora, teacher rows, trainer weights, and reports are local-only. Store
-them under `local/` or another ignored directory. Only a reviewed runtime
-artifact with its manifest, provenance, README, and NOTICE belongs under
-`data/eval/artifacts/`.
+source archives under the external `$VIBE_OTHELLO_CORPORA` directory and
+generated runs under the external `$VIBE_OTHELLO_TRAINING` directory. Only a
+reviewed runtime artifact with its manifest, provenance, README, and NOTICE
+belongs under `data/eval/artifacts/`.
+
+## Full Egaroucid board-score pretraining
+
+`vibe-othello-egaroucid-board-score-pretrain` is the bounded-memory route for
+using every position in extracted Egaroucid board-score `.txt` files. It loads
+an existing `pattern-v2-endgame-lite` runtime artifact, streams each source row,
+and applies Huber value updates without materializing normalized or expanded
+training data.
+
+The common normalized label is `teacher_value_disc_diff`. Its generation is
+range-dependent: 4-15 occupied positions come from Egaroucid 7.4.0 lv17
+enumeration, evaluation, and negamax; 16-63 occupied positions use terminal
+outcomes from Egaroucid 7.5.1 lv17 self-play.
+
+Keep the source ZIP under `$VIBE_OTHELLO_CORPORA` and extract its text members
+under `$VIBE_OTHELLO_TRAINING/cache/`. A reproducible multi-pass run can supply
+one `--learning-rate` per epoch. `--quantize-between-epochs` matches chained
+runtime-artifact training exactly.
+
+```sh
+mkdir -p \
+  "$VIBE_OTHELLO_TRAINING/cache/egaroucid-board-score-v2025-02-02"
+unzip -q "$VIBE_OTHELLO_CORPORA/Egaroucid_Train_Data.zip" \
+  -d "$VIBE_OTHELLO_TRAINING/cache/egaroucid-board-score-v2025-02-02"
+```
+
+The promoted main-stage schedule is:
+
+```sh
+build/tools/pattern/train/vibe-othello-egaroucid-board-score-pretrain \
+  --input "$VIBE_OTHELLO_TRAINING/cache/egaroucid-board-score-v2025-02-02/0001_egaroucid_7_5_1_lv17" \
+  --initial-artifact \
+    data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json \
+  --weights-out "$VIBE_OTHELLO_TRAINING/egaroucid-board-score/main/weights.json" \
+  --report-out "$VIBE_OTHELLO_TRAINING/egaroucid-board-score/main/report.json" \
+  --epochs 5 \
+  --learning-rate 0.02 \
+  --learning-rate 0.05 \
+  --learning-rate 0.02 \
+  --learning-rate 0.05 \
+  --learning-rate 0.1 \
+  --quantize-between-epochs \
+  --validation-modulus 0 \
+  --seed 20260720
+```
+
+Phases 10 through 12 are frozen by default. The promoted route exports the
+main-stage weights, reloads that artifact, then makes one full-corpus
+late-phase pass at learning rate `0.05` while freezing phases 0 through 9.
+`--train-all-phases` explicitly disables the default freeze.
+
+The trainer report records source-file checksums, per-phase error metrics,
+learning-rate schedule, position visits, updated weight occurrences, frozen
+phases, and output checksum. `--validation-modulus` defines a canonical-board
+holdout for tuning; `0` uses every row for refitting. The companion
+`audit_egaroucid_board_score_openings.py` scans the entire source archive and
+rejects promotion opening suites that overlap a training board.
+
+## Sampled Egaroucid board-score bootstrap
+
+`Egaroucid_Train_Data.zip` contains side-to-move-relative boards and Egaroucid
+score estimates. The local runner connects that archive to normalized schema
+v2, compact pattern dataset generation, and `pattern-sgd-v0d` value training:
+
+```sh
+export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
+export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"
+export VIBE_OTHELLO_TRAINING="${VIBE_OTHELLO_TRAINING:-$VIBE_OTHELLO_LOCAL/training}"
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target vibe_othello_pattern_dataset_smoke
+
+python3 tools/pattern/train/run_egaroucid_board_score_training.py \
+  --run-id board-score-p10k-seed0-v0d
+```
+
+The default import scans the complete archive and retains a deterministic
+maximum of 10,000 unique boards per phase. This bounds trainer memory while
+avoiding a sample dominated by the largest source phases. Use
+`--positions-per-phase` and `--seed` to define another reproducible sample.
+`--max-source-files` is only a bounded development shortcut; its import report
+sets `source_scan_complete` to false.
+
+The run layout is:
+
+```text
+$VIBE_OTHELLO_TRAINING/egaroucid-board-score/<run-id>/
+├─ source-manifest.json
+├─ run-report.json
+├─ normalized/
+├─ dataset/
+├─ training/
+└─ logs/
+```
+
+Source ZIPs stay untouched in `$VIBE_OTHELLO_CORPORA`. Existing run directories
+are never overwritten. Reports use role-based local paths rather than personal
+absolute paths.
+
+These labels use `teacher_value_disc_diff`. The runner produces local
+trainer weights without changing the default artifact. The `_v0002_0.zip` and
+`_v0002_1.zip` transcript archives remain inputs to
+`tools/data-import/import_egaroucid_sequences.py`, not this board-score route.
 
 ## Reproducible stages
 
