@@ -64,6 +64,7 @@ The current search implementation includes:
 * transposition-table best-move ordering
 * Othello-specific move ordering
 * killer and history midgame move ordering heuristics
+* depth-gated opponent-mobility ordering at internal midgame nodes
 * real internal iterative deepening for deep full-window midgame nodes without
   legal midgame TT best-move hints
 * separate midgame and endgame move-ordering entry points sharing legal-move
@@ -238,13 +239,14 @@ Status values:
 | Add incremental search hash | done | Full root hash plus move/pass delta updates; public Position remains unchanged |
 | Add single-movegen node preparation | done | Current mask once, opponent mask only for zero-current pass/terminal nodes |
 | Add iterative deepening | done | `search_iterative` |
-| Add aspiration windows | done | Optional root-depth orchestration |
+| Add aspiration windows | done | Optional root-depth orchestration; single-PV keeps bounded sibling reports instead of exactifying every root move |
 | Add PVS and null-window search | done | Optional PVS path and null-window primitive |
 | Add root PVS | done | First full window, later null window, qualifying full re-search, deterministic tie break |
 | Add controlled pass depth semantics | done | Default consumes depth; `midgame.pass_consumes_depth=false` is the A/B variant |
 | Add root move ordering | done | Previous root best move and deterministic ordering |
 | Add TT best-move ordering | done | Controlled by `use_tt_best_move_ordering` |
 | Add Othello-specific ordering | done | Corner, edge, X/C-square, and mobility-style hints |
+| Add depth-gated internal mobility ordering | done | Optional opponent-mobility scoring at remaining depth 5+; enabled by full production presets |
 | Add max-node, max-time, infinite, and external-stop enforcement | done | Cooperative cancellation returns the best completed iterative result |
 | Add killer and history heuristics | done | Ordering-only midgame heuristics controlled by `use_killers` and `use_history` |
 | Add real internal iterative deepening | done | Ordering-only shallow midgame search controlled by `use_iid` |

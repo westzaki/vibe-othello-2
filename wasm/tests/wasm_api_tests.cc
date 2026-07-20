@@ -467,6 +467,7 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE(normal.ordering.use_tt_best_move_ordering);
   REQUIRE(normal.ordering.use_history);
   REQUIRE(normal.ordering.use_killers);
+  REQUIRE(normal.ordering.use_midgame_mobility_ordering);
   REQUIRE(normal.ordering.use_endgame_parity_ordering);
   REQUIRE(normal.endgame.exact_endgame);
   REQUIRE(normal.endgame.use_endgame_tt);
@@ -484,6 +485,8 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE(hard.ordering.use_tt_best_move_ordering == normal.ordering.use_tt_best_move_ordering);
   REQUIRE(hard.ordering.use_history == normal.ordering.use_history);
   REQUIRE(hard.ordering.use_killers == normal.ordering.use_killers);
+  REQUIRE(hard.ordering.use_midgame_mobility_ordering ==
+          normal.ordering.use_midgame_mobility_ordering);
   REQUIRE(hard.ordering.use_endgame_parity_ordering == normal.ordering.use_endgame_parity_ordering);
   REQUIRE(hard.endgame.exact_endgame == normal.endgame.exact_endgame);
   REQUIRE(hard.endgame.use_endgame_tt == normal.endgame.use_endgame_tt);

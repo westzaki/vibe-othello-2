@@ -38,6 +38,7 @@ struct MoveOrderingOptions {
   bool use_tt_best_move_ordering = false;
   bool use_history = false;
   bool use_killers = false;
+  bool use_midgame_mobility_ordering = false;
   bool use_endgame_parity_ordering = true;
 
   friend constexpr bool operator==(const MoveOrderingOptions&,

@@ -103,6 +103,11 @@ phase-aware bootstrap or a teacher artifact with residual routing is normalized
 at the teacher boundary; the generation report records that policy and the v3
 baseline column retains the unnormalized static heuristic value.
 
+The `full` search preset includes internal opponent-mobility ordering at
+remaining depth 5 or greater. Its search configuration identity is versioned
+so outputs created before and after this preset change cannot be resumed as the
+same run.
+
 The teacher manifest and weights are required explicitly. The default
 `require-all` policy rejects an artifact without complete declared phase
 coverage `0..12`. `--teacher-coverage-policy explicit-phase-aware` is an

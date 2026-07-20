@@ -268,7 +268,8 @@ build/tools/arena/vibe-othello-full-game-artifact-arena \
 ```
 
 `basic` uses default search options; `full` enables the non-experimental search
-stack used for bounded artifact evaluation. Depth, node, and time limits are
+stack used for bounded artifact evaluation, including internal opponent-mobility
+ordering at remaining depth 5 or greater. Depth, node, and time limits are
 identical per move for both artifacts. An exact-endgame threshold requires a
 node or time cap because exact root search does not use the depth cap.
 

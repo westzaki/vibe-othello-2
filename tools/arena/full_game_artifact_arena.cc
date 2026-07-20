@@ -1033,6 +1033,7 @@ make_search_config(const Args& args, const search::ProbCutCalibrationProfileV1* 
               .use_tt_best_move_ordering = full,
               .use_history = full,
               .use_killers = full,
+              .use_midgame_mobility_ordering = full,
               .use_endgame_parity_ordering = true,
           },
       .endgame =
@@ -1616,6 +1617,8 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
   write_bool(output, options.ordering.use_history);
   output << ", \"use_killers\": ";
   write_bool(output, options.ordering.use_killers);
+  output << ", \"use_midgame_mobility_ordering\": ";
+  write_bool(output, options.ordering.use_midgame_mobility_ordering);
   output << ", \"use_endgame_parity_ordering\": ";
   write_bool(output, options.ordering.use_endgame_parity_ordering);
   output << ", \"exact_endgame\": ";
@@ -2264,6 +2267,7 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
     output << options.midgame.use_pvs << options.midgame.use_aspiration << options.midgame.use_iid
            << options.midgame.use_midgame_tt << options.ordering.use_tt_best_move_ordering
            << options.ordering.use_history << options.ordering.use_killers
+           << options.ordering.use_midgame_mobility_ordering
            << options.ordering.use_endgame_parity_ordering << options.endgame.exact_endgame
            << options.endgame.use_endgame_tt << false << false << false << '\n';
     const search::ProbCutOptionsV1& probcut = options.probcut_options;

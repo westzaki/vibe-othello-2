@@ -288,6 +288,7 @@ struct MoveOrderingOptions {
   bool use_tt_best_move_ordering;
   bool use_history;
   bool use_killers;
+  bool use_midgame_mobility_ordering;
   bool use_endgame_parity_ordering;
 };
 
@@ -430,13 +431,21 @@ TT best-move ordering must not perform TT cutoffs by itself.
 cutoffs may be enabled without TT best-move ordering, and TT best-move ordering
 may be enabled without TT cutoffs.
 
+`ordering.use_midgame_mobility_ordering` enables opponent-mobility scoring at
+internal midgame nodes with at least five plies remaining. Shallower nodes skip
+the extra make/move-generation work because measured node savings do not repay
+its per-node cost there. Root ordering keeps its existing mobility hint
+independently of this option.
+
 Disabling one table must not silently disable or weaken the semantics of another
 table.
 
 `reporting.multi_pv` controls root line reporting. For exact endgame root search,
 `0` selects all-root exact reporting, `1` selects best-only exact reporting, and
 values greater than one currently select all-root reporting because top-N
-reporting is not implemented.
+reporting is not implemented. For heuristic midgame search, `1` permits
+bounded sibling reports while preserving an exact best result; other values
+complete bounded siblings for all-root reporting.
 
 `mode` is the caller's requested search result mode. `SearchMode::move` is the
 default. Root-triggered WLD endgame search is used only when `mode` is
@@ -1030,10 +1039,10 @@ If widening reaches the full score range, that full-range result is published.
 
 Fail-low and fail-high attempts may contain bounded root move information. The
 published result must be either an exact in-window result or the full-range
-result. Published root move scores and bounds must be semantically consistent;
-if bounded root move entries from the successful aspiration attempt would be
-reported, they should be completed with exact root move searches rather than
-re-running the whole depth unconditionally.
+result. Published root move scores and bounds must be semantically consistent.
+Single-PV reporting may retain bounded sibling entries, matching normal root
+PVS behavior; all-root reporting completes bounded entries with exact root move
+searches rather than re-running the whole depth unconditionally.
 
 Aspiration failures must be counted in statistics.
 

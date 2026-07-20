@@ -1,6 +1,7 @@
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
@@ -355,6 +356,64 @@ TEST_CASE("iterative aspiration preserves deterministic search results",
       require_aspiration_matches_without(position, Depth{5}, baseline_options);
     }
   }
+}
+
+TEST_CASE("single-PV aspiration keeps bounded sibling reports",
+          "[search][iterative][aspiration][pvs]") {
+  const board_core::Position position =
+      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0});
+  SearchOptions single_pv = make_options(MidgameSearchOptions{
+      .use_pvs = true,
+      .use_aspiration = true,
+  });
+  single_pv.reporting.multi_pv = 1;
+  SearchOptions all_root = single_pv;
+  all_root.reporting.multi_pv = 0;
+  DiscDifferenceEvaluator single_pv_evaluator;
+  DiscDifferenceEvaluator all_root_evaluator;
+
+  const SearchResult single_pv_result = search_iterative(
+      position, single_pv_evaluator, SearchLimits{.max_depth = Depth{5}}, single_pv);
+  const SearchResult all_root_result =
+      search_iterative(position, all_root_evaluator, SearchLimits{.max_depth = Depth{5}}, all_root);
+
+  require_same_decision(single_pv_result, all_root_result);
+  require_basic_stats_invariants(single_pv_result);
+  REQUIRE(single_pv_result.root_moves.size() == all_root_result.root_moves.size());
+  REQUIRE(std::any_of(
+      single_pv_result.root_moves.begin(), single_pv_result.root_moves.end(),
+      [](const RootMoveInfo& root_move) { return root_move.bound != BoundType::exact; }));
+  REQUIRE(std::all_of(
+      all_root_result.root_moves.begin(), all_root_result.root_moves.end(),
+      [](const RootMoveInfo& root_move) { return root_move.bound == BoundType::exact; }));
+  REQUIRE(single_pv_result.nodes < all_root_result.nodes);
+}
+
+TEST_CASE("deep midgame mobility ordering preserves deterministic decisions",
+          "[search][iterative][move_ordering]") {
+  const std::array<board_core::Position, 2> positions{
+      position_after_fixed_choices({0, 1, 2, 3, 1, 0, 2, 1}),
+      position_after_fixed_choices({3, 2, 1, 0, 2, 3, 0, 1, 2, 0}),
+  };
+  bool changed_node_count = false;
+  for (const board_core::Position position : positions) {
+    SearchOptions baseline = make_options(MidgameSearchOptions{.use_pvs = true});
+    baseline.reporting.multi_pv = 1;
+    SearchOptions mobility = baseline;
+    mobility.ordering.use_midgame_mobility_ordering = true;
+    DiscDifferenceEvaluator baseline_evaluator;
+    DiscDifferenceEvaluator mobility_evaluator;
+
+    const SearchResult baseline_result = search_iterative(
+        position, baseline_evaluator, SearchLimits{.max_depth = Depth{6}}, baseline);
+    const SearchResult mobility_result = search_iterative(
+        position, mobility_evaluator, SearchLimits{.max_depth = Depth{6}}, mobility);
+
+    require_same_decision(mobility_result, baseline_result);
+    require_basic_stats_invariants(mobility_result);
+    changed_node_count = changed_node_count || mobility_result.nodes != baseline_result.nodes;
+  }
+  REQUIRE(changed_node_count);
 }
 
 TEST_CASE("iterative aspiration counts fail-low and fail-high searches",

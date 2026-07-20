@@ -126,6 +126,11 @@ TEST_CASE("session fingerprint tracks TT-relevant typed search semantics",
               &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
 
   changed = resolved;
+  changed.ordering.use_midgame_mobility_ordering = !changed.ordering.use_midgame_mobility_ordering;
+  REQUIRE(internal::make_search_semantic_fingerprint(
+              &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);
+
+  changed = resolved;
   changed.endgame.endgame_exact_empties = 1;
   REQUIRE(internal::make_search_semantic_fingerprint(
               &evaluator_a, changed, internal::SearchSemanticDomain::midgame) != baseline);

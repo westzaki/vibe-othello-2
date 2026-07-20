@@ -49,6 +49,7 @@ changing code:
   --history off \
   --killers off \
   --iid off \
+  --midgame-mobility both \
   --eval disc \
   --exact-endgame 8 \
   --endgame-tt both \
@@ -57,8 +58,10 @@ changing code:
   --jsonl
 ```
 
-`--pvs`, `--aspiration`, `--history`, `--killers`, `--iid`, `--endgame-tt`,
-and `--endgame-parity` accept `off|on|both`. `--eval` accepts
+`--pvs`, `--aspiration`, `--history`, `--killers`, `--iid`,
+`--midgame-mobility`, `--endgame-tt`, and `--endgame-parity` accept
+`off|on|both`. `--midgame-mobility` controls opponent-mobility scoring at
+internal nodes with at least five plies remaining. `--eval` accepts
 `disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all`.
 `pattern-v2` uses the root-dispatched incremental backend and
 `pattern-v2-stateless` wraps the same committed artifact behind the generic
@@ -486,7 +489,7 @@ Report:
 
 For search benchmarks, report the depth argument and the emitted columns:
 `position_name`, `mode`, `variant_id`, `tt_mode`, `evaluator`, `pvs`,
-`aspiration`, `history`, `killers`, `iid`, `exact_endgame`,
+`aspiration`, `history`, `killers`, `iid`, `midgame_mobility`, `exact_endgame`,
 `endgame_exact_empties`, `endgame_tt`, `endgame_parity`, `depth`, `score`,
 `best_move`, `nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`,
 `beta_cutoffs`, `alpha_updates`, `pvs_researches`, `aspiration_fail_lows`,
@@ -511,7 +514,7 @@ schema is:
 
 - `position_id`, `category`
 - `mode`, `variant_id`, `tt_mode`, `depth`, `evaluator`
-- `pvs`, `aspiration`, `history`, `killers`, `iid`
+- `pvs`, `aspiration`, `history`, `killers`, `iid`, `midgame_mobility`
 - `exact_endgame`, `endgame_exact_empties`, `endgame_tt`, `endgame_parity`
 - `score`, `best_move`, `pv`
 - `root_moves`, with `move`, `score`, `bound`, `depth`, `exact`, `selective`
@@ -572,8 +575,9 @@ engine/benchmarks/scripts/search/check_golden.py \
 
 `engine/benchmarks/scripts/search/check_golden.py` normalizes both actual and
 golden JSONL before comparing deterministic result fields only: position
-metadata, mode, TT mode, depth, evaluator, score, score kind, best move, PV,
-and root move score/score_kind/bound/depth/exact/selective values keyed by move.
+metadata, mode, benchmark variant and search-option flags, TT mode, depth,
+evaluator, score, score kind, best move, PV, and root move
+score/score_kind/bound/depth/exact/selective values keyed by move.
 It intentionally does not gate `nodes`, eval/search statistics, TT statistics,
 `elapsed_ns`, or `nps`. Those values can move with implementation details,
 machine load, and benchmark environment, so they should be reviewed separately
