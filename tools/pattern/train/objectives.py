@@ -8,7 +8,7 @@ import random
 from dataclasses import dataclass
 
 from dataset_contract import PHASES
-from examples import Example, MoveTeacherMove, MoveTeacherRoot
+from examples import Example, MoveTeacherMove, MoveTeacherRoot, PlayedMovePolicyTarget
 
 def mean(values: list[int]) -> float:
     return sum(values) / len(values) if values else 0.0
@@ -103,6 +103,42 @@ def huber_loss_and_gradient(error: float, delta: float = 1.0) -> tuple[float, fl
     if absolute_error <= delta:
         return 0.5 * error * error, error
     return delta * (absolute_error - 0.5 * delta), delta if error > 0.0 else -delta
+
+
+def played_move_policy_loss_and_child_gradients(
+    root: MoveTeacherRoot,
+    target: PlayedMovePolicyTarget,
+    child_values: list[float],
+    temperature: float,
+) -> tuple[float, list[float]]:
+    """Cross-entropy of aggregate played-move frequency against root move scores."""
+    if len(child_values) != len(root.moves):
+        raise RuntimeError("played-move policy child value count does not match root moves")
+    total_occurrences = target.occurrence_count
+    if total_occurrences <= 0:
+        raise RuntimeError("played-move policy target has no occurrences")
+    logits = [-value / temperature for value in child_values]
+    maximum = max(logits)
+    exponentials = [math.exp(logit - maximum) for logit in logits]
+    normalizer = sum(exponentials)
+    probabilities = [value / normalizer for value in exponentials]
+    target_probabilities = [
+        target.move_counts.get(move.move, 0) / total_occurrences for move in root.moves
+    ]
+    loss = -sum(
+        target_probability * math.log(max(probability, 1e-300))
+        for probability, target_probability in zip(
+            probabilities, target_probabilities, strict=True
+        )
+        if target_probability > 0.0
+    )
+    gradients = [
+        (target_probability - probability) / temperature
+        for probability, target_probability in zip(
+            probabilities, target_probabilities, strict=True
+        )
+    ]
+    return loss, gradients
 
 
 def sampled_rank_pairs(

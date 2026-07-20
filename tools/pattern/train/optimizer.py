@@ -10,10 +10,11 @@ import time
 from typing import Any
 
 from dataset_contract import PHASES
-from examples import Example, MoveTeacherRoot
+from examples import Example, MoveTeacherRoot, PlayedMovePolicyTarget
 from metrics import (
     max_abs_weight,
     metrics_for_examples,
+    played_move_policy_metrics_for_roots,
     ranking_metrics_for_roots,
     v0c_metrics_for_examples,
     weight_l2_norm,
@@ -22,6 +23,7 @@ from objectives import (
     PatternWeights,
     huber_loss_and_gradient,
     pairwise_logistic_loss_and_child_gradients,
+    played_move_policy_loss_and_child_gradients,
     pattern_rank_child_value,
     pattern_sgd_score,
     phase_bias_score,
@@ -552,6 +554,7 @@ def _rank_epoch_metrics(
 
 def train_pattern_rank_v0e(
     roots: list[MoveTeacherRoot],
+    policy_targets_by_root_id: dict[str, PlayedMovePolicyTarget],
     initial_phase_bias: dict[str, float],
     initial_pattern_weights: PatternWeights,
     frozen_phases: frozenset[int],
@@ -566,6 +569,7 @@ def train_pattern_rank_v0e(
     best_phase_bias = dict(phase_bias)
     best_weights: PatternWeights = dict(pattern_weights)
     best_validation_loss: float | None = None
+    best_validation_objective: float | None = None
     best_epoch: int | None = None
     epochs_without_improvement = 0
     early_stop_triggered = False
@@ -576,6 +580,8 @@ def train_pattern_rank_v0e(
         "selected_pair_count": 0,
         "teacher_tie_pair_count": 0,
         "roots_with_no_selected_pairs": 0,
+        "played_move_policy_roots": 0,
+        "played_move_policy_occurrences": 0,
     }
     updated_child_phases: set[int] = set()
     trainable_pattern_ids = args.trainable_pattern_ids
@@ -590,6 +596,8 @@ def train_pattern_rank_v0e(
             "selected_pair_count": 0,
             "teacher_tie_pair_count": 0,
             "roots_with_no_selected_pairs": 0,
+            "played_move_policy_roots": 0,
+            "played_move_policy_occurrences": 0,
         }
         gradient_clip_count = 0
         updated_feature_occurrence_count = 0
@@ -633,6 +641,24 @@ def train_pattern_rank_v0e(
                     )
                     value_gradients[pair.better_index] += better_gradient * pair_scale
                     value_gradients[pair.worse_index] += worse_gradient * pair_scale
+            policy_target = policy_targets_by_root_id.get(root.root_board_id)
+            if policy_target is not None and args.policy_loss_weight > 0.0:
+                _policy_loss, policy_gradients = (
+                    played_move_policy_loss_and_child_gradients(
+                        root,
+                        policy_target,
+                        child_values,
+                        args.rank_temperature,
+                    )
+                )
+                epoch_sampling["played_move_policy_roots"] += 1
+                epoch_sampling[
+                    "played_move_policy_occurrences"
+                ] += policy_target.occurrence_count
+                for move_index, gradient in enumerate(policy_gradients):
+                    if root.moves[move_index].example.phase not in frozen_phases:
+                        updated_child_phases.add(root.moves[move_index].example.phase)
+                    value_gradients[move_index] += gradient * args.policy_loss_weight
             if args.value_loss_weight > 0.0:
                 calibration_scale = args.value_loss_weight / len(root.moves)
                 for move_index, move in enumerate(root.moves):
@@ -695,10 +721,34 @@ def train_pattern_rank_v0e(
             sampling_totals[key] += epoch_sampling[key]
         needs_metrics = args.eval_every_epoch or epoch == args.epochs or args.early_stop_patience is not None
         current_metrics = _rank_epoch_metrics(roots, phase_bias, pattern_weights, args) if needs_metrics else None
+        current_policy_metrics = (
+            played_move_policy_metrics_for_roots(
+                roots,
+                policy_targets_by_root_id,
+                phase_bias,
+                pattern_weights,
+                args.rank_temperature,
+                args.residual_baseline_through_phase,
+            )
+            if needs_metrics and policy_targets_by_root_id
+            else None
+        )
         validation = None if current_metrics is None else current_metrics["by_split"]["validation"]
         validation_loss = None if validation is None else validation["pairwise_logistic_loss"]
-        if validation_loss is not None:
-            if best_validation_loss is None or validation_loss < best_validation_loss:
+        validation_policy_loss = (
+            None
+            if current_policy_metrics is None
+            else current_policy_metrics["by_split"]["validation"]["cross_entropy"]
+        )
+        validation_objective = validation_loss
+        if validation_objective is not None and validation_policy_loss is not None:
+            validation_objective += args.policy_loss_weight * validation_policy_loss
+        if validation_objective is not None:
+            if (
+                best_validation_objective is None
+                or validation_objective < best_validation_objective
+            ):
+                best_validation_objective = validation_objective
                 best_validation_loss = validation_loss
                 best_epoch = epoch
                 best_phase_bias = dict(phase_bias)
@@ -713,6 +763,7 @@ def train_pattern_rank_v0e(
                     "epoch": epoch,
                     "learning_rate": learning_rate,
                     "ranking_metrics": current_metrics,
+                    "played_move_policy_metrics": current_policy_metrics,
                     "pair_sampling": epoch_sampling,
                     "nonzero_weight_count": len(nonzero_pattern_weight_items(pattern_weights)),
                     "weight_l2_norm": weight_l2_norm(pattern_weights),
@@ -733,15 +784,33 @@ def train_pattern_rank_v0e(
         phase_bias = best_phase_bias
         pattern_weights = best_weights
     final_metrics = _rank_epoch_metrics(roots, phase_bias, pattern_weights, args)
+    final_policy_metrics = (
+        played_move_policy_metrics_for_roots(
+            roots,
+            policy_targets_by_root_id,
+            phase_bias,
+            pattern_weights,
+            args.rank_temperature,
+            args.residual_baseline_through_phase,
+        )
+        if policy_targets_by_root_id
+        else None
+    )
     state = {
         "epochs_requested": args.epochs,
         "epochs_completed": epochs_completed,
         "early_stop_triggered": early_stop_triggered,
         "best_epoch": best_epoch,
         "best_validation_pairwise_logistic_loss": best_validation_loss,
+        "best_validation_objective": best_validation_objective,
         "final_validation_pairwise_logistic_loss": final_metrics["by_split"]["validation"][
             "pairwise_logistic_loss"
         ],
+        "final_validation_played_move_policy_cross_entropy": (
+            None
+            if final_policy_metrics is None
+            else final_policy_metrics["by_split"]["validation"]["cross_entropy"]
+        ),
         "trainable_pattern_ids": sorted(trainable_pattern_ids),
     }
     return (

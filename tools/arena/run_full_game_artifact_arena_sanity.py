@@ -75,11 +75,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--nodes", type=int)
     parser.add_argument("--time-ms", type=int)
     parser.add_argument("--search-preset", choices=("basic", "full"), default="full")
+    parser.add_argument("--persistent-session", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--exact-endgame-empties", type=int, default=0)
     parser.add_argument("--opening-limit", type=int, default=0)
+    parser.add_argument("--minimum-opening-pairs", type=int, default=1)
     args = parser.parse_args(argv)
 
     selected_limit = {
@@ -93,6 +95,8 @@ def main(argv: list[str]) -> int:
         parser.error("--exact-endgame-empties must be in [0, 64]")
     if args.opening_limit < 0:
         parser.error("--opening-limit must be non-negative")
+    if args.minimum_opening_pairs <= 0:
+        parser.error("--minimum-opening-pairs must be positive")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -112,9 +116,13 @@ def main(argv: list[str]) -> int:
         str(args.bootstrap_seed),
         "--bootstrap-samples",
         str(args.bootstrap_samples),
+        "--minimum-opening-pairs",
+        str(args.minimum_opening_pairs),
     ]
     if args.exact_endgame_empties > 0:
         common.extend(("--exact-endgame-empties", str(args.exact_endgame_empties)))
+    if args.persistent_session:
+        common.append("--persistent-session")
     if args.opening_limit > 0:
         common.extend(("--opening-limit", str(args.opening_limit)))
 

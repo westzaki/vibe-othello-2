@@ -62,6 +62,16 @@ target_compile_definitions(
 set_target_properties(vibe_othello_full_game_artifact_arena
                       PROPERTIES OUTPUT_NAME vibe-othello-full-game-artifact-arena)
 
+add_executable(vibe_othello_generate_independent_openings
+               generate_independent_openings.cc)
+
+target_link_libraries(vibe_othello_generate_independent_openings
+                      PRIVATE vibe_othello_arena_core)
+
+set_target_properties(
+  vibe_othello_generate_independent_openings
+  PROPERTIES OUTPUT_NAME vibe-othello-generate-independent-openings)
+
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -113,4 +123,11 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/test_multi_probcut_strength_campaign.py
             --runner ${CMAKE_CURRENT_SOURCE_DIR}/run_multi_probcut_strength_campaign.py)
+
+  add_test(
+    NAME vibe_othello_independent_opening_generator_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_independent_opening_generator_smoke.py
+      --exe $<TARGET_FILE:vibe_othello_generate_independent_openings>)
 endif()

@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dataset_contract import PHASES, SPLITS
-from examples import Example, MoveTeacherRoot, split_examples
+from examples import Example, MoveTeacherRoot, PlayedMovePolicyTarget, split_examples
 from objectives import (
     PatternWeights,
     pairwise_logistic_loss_and_child_gradients,
+    played_move_policy_loss_and_child_gradients,
     pattern_rank_child_value,
     pattern_sgd_score,
     phase_bias_score,
@@ -364,6 +365,104 @@ def ranking_metrics_for_roots(
             rank_temperature,
             residual_baseline_through_phase,
         )
+    return {
+        "overall": overall.as_dict(),
+        "by_split": {split: by_split[split].as_dict() for split in SPLITS},
+        "by_phase": {str(phase): by_phase[str(phase)].as_dict() for phase in PHASES},
+    }
+
+
+@dataclass
+class PlayedMovePolicyAccumulator:
+    root_count: int = 0
+    occurrence_count: int = 0
+    top1_correct: int = 0
+    cross_entropy_sum: float = 0.0
+
+    def add(self, metric: "PlayedMovePolicyRootMetric") -> None:
+        self.root_count += 1
+        self.occurrence_count += metric.occurrence_count
+        self.top1_correct += int(metric.top1_correct)
+        self.cross_entropy_sum += metric.cross_entropy
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "root_count": self.root_count,
+            "occurrence_count": self.occurrence_count,
+            "top1_accuracy": (
+                self.top1_correct / self.root_count if self.root_count else None
+            ),
+            "cross_entropy": (
+                self.cross_entropy_sum / self.root_count if self.root_count else None
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class PlayedMovePolicyRootMetric:
+    occurrence_count: int
+    top1_correct: bool
+    cross_entropy: float
+
+
+def _played_move_policy_root_metric(
+    root: MoveTeacherRoot,
+    target: PlayedMovePolicyTarget,
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    temperature: float,
+    residual_baseline_through_phase: int | None,
+) -> PlayedMovePolicyRootMetric:
+    child_values = [
+        pattern_rank_child_value(
+            move,
+            phase_bias,
+            pattern_weights,
+            residual_baseline_through_phase,
+        )
+        for move in root.moves
+    ]
+    cross_entropy, _gradients = played_move_policy_loss_and_child_gradients(
+        root, target, child_values, temperature
+    )
+    predicted_move = min(
+        zip(child_values, root.moves, strict=True),
+        key=lambda item: (item[0], item[1].move),
+    )[1].move
+    best_count = max(target.move_counts.values())
+    return PlayedMovePolicyRootMetric(
+        occurrence_count=target.occurrence_count,
+        top1_correct=target.move_counts.get(predicted_move) == best_count,
+        cross_entropy=cross_entropy,
+    )
+
+
+def played_move_policy_metrics_for_roots(
+    roots: list[MoveTeacherRoot],
+    targets_by_root_id: dict[str, PlayedMovePolicyTarget],
+    phase_bias: dict[str, float],
+    pattern_weights: PatternWeights,
+    temperature: float,
+    residual_baseline_through_phase: int | None = None,
+) -> dict[str, Any]:
+    overall = PlayedMovePolicyAccumulator()
+    by_split = {split: PlayedMovePolicyAccumulator() for split in SPLITS}
+    by_phase = {str(phase): PlayedMovePolicyAccumulator() for phase in PHASES}
+    for root in roots:
+        target = targets_by_root_id.get(root.root_board_id)
+        if target is None:
+            continue
+        metric = _played_move_policy_root_metric(
+            root,
+            target,
+            phase_bias,
+            pattern_weights,
+            temperature,
+            residual_baseline_through_phase,
+        )
+        overall.add(metric)
+        by_split[root.split].add(metric)
+        by_phase[str(root.phase)].add(metric)
     return {
         "overall": overall.as_dict(),
         "by_split": {split: by_split[split].as_dict() for split in SPLITS},

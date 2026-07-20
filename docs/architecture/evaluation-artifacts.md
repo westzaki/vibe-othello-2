@@ -8,7 +8,7 @@ committed only after a specific promotion decision and validation summary.
 The current committed artifact is:
 
 ```text
-data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/
+data/eval/artifacts/pattern-v2-wthor-full-policy-v1/
 ```
 
 It is the experimental default, not a production strength claim.
@@ -41,10 +41,10 @@ Schema:
 ```json
 {
   "schema_version": 1,
-  "default_artifact_id": "pattern-v2-progressive-search-d5-fast6-p5-v1",
+  "default_artifact_id": "pattern-v2-wthor-full-policy-v1",
   "status": "experimental-default",
-  "artifact_manifest": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json",
-  "artifact_provenance": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/provenance.json",
+  "artifact_manifest": "artifacts/pattern-v2-wthor-full-policy-v1/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-wthor-full-policy-v1/provenance.json",
   "reason": "...",
   "override": {
     "custom_artifact": "--eval-artifact <manifest-path>",
@@ -119,12 +119,19 @@ the hot runtime loader:
 * weight SHA-256
 * runtime checksum
 * reviewed `trained_phases`
-* validation summary
+* reproducible trainer/export config and local report checksums
+* independently generated promotion-opening identity and source-overlap audit
+* direct validation summary against the artifact being replaced
 * non-claims
 
-The current v1 artifact attributes its source to locally processed Egaroucid
-training data transcripts and states that it is not an official Egaroucid
-artifact. The previous v0 artifact remains committed as the rollback target.
+The current WHTOR artifact attributes the FFO database snapshot, records the
+full-corpus played-move training and rejected saturation follow-ups, and states
+that it is not an official WHTOR or FFO artifact. Its frozen late-game lineage
+retains the previous Egaroucid attribution. Promotion uses an independent
+board-core-generated opening suite whose board and transcript-prefix overlap
+with WHTOR is audited, then directly compares the final candidate with the
+previous default. Bootstrap comparisons remain learning evidence only. The
+previous progressive-search artifact remains committed as the rollback target.
 
 ## Resolution Order
 
@@ -187,7 +194,9 @@ To promote a future artifact:
 3. write a loader-compatible `manifest.json` with relative `weights_file` and
    reviewed `trained_phases`, fixed-point scale, and any residual-routing policy
 4. write `provenance.json` with source attribution, redistribution flags,
-   validation summary, checksum, and non-claims
+   reproducible trainer/export settings, report checksums, independent opening
+   identity and overlap audit, direct comparison with the current default,
+   checksum, and non-claims
 5. update `data/eval/default-artifact.json`
 6. update `data/eval/README.md`, this document, and progress docs
 7. run the commit policy checker and loader smoke tests

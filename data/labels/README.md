@@ -66,6 +66,19 @@ Typical solve/search metadata fields are `teacher_depth` and `teacher_nodes`.
 `label_unit` is `disc`, and `label_perspective` is `side_to_move` for the
 teacher labels covered by this policy.
 
+WTHOR theoretical cutoff sidecars are a separate exact-outcome contract:
+`label_kind = wld`, `label_unit = wld`, and
+`label_perspective = side_to_move`. They preserve only the sign of WTHOR's
+theoretical 64-square score at the WTB header's declared empty-count cutoff.
+They are not accepted by the current disc-difference teacher overlay or
+pattern trainer and must not be relabeled as exact disc difference.
+
+WTHOR played-move policy sidecars are aggregate empirical targets keyed by
+`(root_board_id, move)`. They retain root split/phase metadata, occurrence
+counts, and observed win/draw/loss counts. They do not replace exact/search
+teacher labels and do not assert that every played move is optimal. Forced-pass
+roots have no policy decision and are excluded.
+
 Duplicate identical teacher rows may be tolerated by tools. Conflicting
 teacher rows for the same key must be rejected.
 

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "default_artifact_id": "pattern-v2-progressive-search-d5-fast6-p5-v1",
+  "default_artifact_id": "pattern-v2-wthor-full-policy-v1",
   "status": "experimental-default",
-  "artifact_manifest": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json",
-  "artifact_provenance": "artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/provenance.json",
-  "reason": "progressive depth-4/depth-5 search-teacher residual with significant paired fixed-depth and fixed-time arena wins over the previous default",
+  "artifact_manifest": "artifacts/pattern-v2-wthor-full-policy-v1/manifest.json",
+  "artifact_provenance": "artifacts/pattern-v2-wthor-full-policy-v1/provenance.json",
+  "reason": "direct paired depth-3, depth-5, and 10ms+exact8 wins over the prior default on an independently generated opening suite with zero audited WHTOR overlap",
   "override": {
     "custom_artifact": "--eval-artifact <manifest-path>",
     "static_eval": "--eval-mode static"
@@ -14,6 +14,7 @@
     "not a self-play improvement claim",
     "not a production strength claim",
     "not publication readiness",
+    "not an official WHTOR or FFO artifact",
     "not an official Egaroucid artifact"
   ]
 }

@@ -61,17 +61,17 @@ def write_fixture(dataset: Path, move_teacher: Path) -> None:
         encoding="utf-8",
     )
     rows = [
-        ("root-two", "record-two", "train", 0, "a", "a", 0, 4, -4, 1, 1, 1, 8),
-        ("root-two", "record-two", "train", 0, "b", "b", 0, -4, 4, 0, 1, 2, 8),
-        ("root-three", "record-three", "train", 0, "a", "three-a", 0, 6, -6, 1, 1, 1, 12),
-        ("root-three", "record-three", "train", 0, "b", "three-b", 0, 0, 0, 0, 1, 2, 12),
-        ("root-three", "record-three", "train", 0, "c", "three-c", 0, -6, 6, 0, 1, 3, 12),
-        ("root-phase", "record-phase", "train", 1, "a", "phase-a", 1, -5, 5, 0, 1, 2, 10),
-        ("root-phase", "record-phase", "train", 1, "b", "phase-b", 1, 5, -5, 1, 1, 1, 10),
-        ("root-tie", "record-tie", "train", 0, "a", "tie-a", 0, 2, -2, 1, 2, 1, 0),
-        ("root-tie", "record-tie", "train", 0, "b", "tie-b", 0, 2, -2, 1, 2, 2, 0),
-        ("root-validation", "record-validation", "validation", 0, "a", "validation-a", 0, 3, -3, 1, 1, 1, 6),
-        ("root-validation", "record-validation", "validation", 0, "b", "validation-b", 0, -3, 3, 0, 1, 2, 6),
+        ("root-two", "record-two", "train", 0, "a1", "a", 0, 4, -4, 1, 1, 1, 8),
+        ("root-two", "record-two", "train", 0, "b1", "b", 0, -4, 4, 0, 1, 2, 8),
+        ("root-three", "record-three", "train", 0, "a1", "three-a", 0, 6, -6, 1, 1, 1, 12),
+        ("root-three", "record-three", "train", 0, "b1", "three-b", 0, 0, 0, 0, 1, 2, 12),
+        ("root-three", "record-three", "train", 0, "c1", "three-c", 0, -6, 6, 0, 1, 3, 12),
+        ("root-phase", "record-phase", "train", 1, "a1", "phase-a", 1, -5, 5, 0, 1, 2, 10),
+        ("root-phase", "record-phase", "train", 1, "b1", "phase-b", 1, 5, -5, 1, 1, 1, 10),
+        ("root-tie", "record-tie", "train", 0, "a1", "tie-a", 0, 2, -2, 1, 2, 1, 0),
+        ("root-tie", "record-tie", "train", 0, "b1", "tie-b", 0, 2, -2, 1, 2, 2, 0),
+        ("root-validation", "record-validation", "validation", 0, "a1", "validation-a", 0, 3, -3, 1, 1, 1, 6),
+        ("root-validation", "record-validation", "validation", 0, "b1", "validation-b", 0, -3, 3, 0, 1, 2, 6),
     ]
     lines = [HEADER]
     for root, record, split, root_phase, move, child, child_phase, root_score, child_score, best, ties, rank, margin in rows:
@@ -80,6 +80,17 @@ def write_fixture(dataset: Path, move_teacher: Path) -> None:
             f"{root_score}\t{child_score}\t{best}\t{ties}\t{rank}\t{margin}\tsynthetic\t0\t0\n"
         )
     move_teacher.write_text("".join(lines), encoding="utf-8")
+
+
+def write_policy_fixture(path: Path) -> None:
+    path.write_text(
+        "root_board_id\tboard_a1_to_h8\troot_split\troot_phase\troot_empty_count\t"
+        "move\toccurrence_count\twin_count\tdraw_count\tloss_count\tsource_dataset_id\n"
+        f"root-two\t{'-' * 64}\ttrain\t0\t60\tb1\t3\t2\t0\t1\tsynthetic-wthor\n"
+        f"root-validation\t{'-' * 64}\tvalidation\t0\t60\tb1\t2\t1\t0\t1\t"
+        "synthetic-wthor\n",
+        encoding="utf-8",
+    )
 
 
 def write_v2_fixture(
@@ -227,6 +238,60 @@ def main() -> int:
                 raise RuntimeError("ranking report is missing value and score-range diagnostics")
             if report.get("trained_phases") != [0, 1]:
                 raise RuntimeError(f"rank trainer did not report updated child phases: {report!r}")
+
+            policy = temp / "played-move-policy.tsv"
+            policy_weights = temp / "policy.weights.json"
+            policy_report = temp / "policy.report.json"
+            write_policy_fixture(policy)
+            train(
+                args.trainer,
+                dataset,
+                move_teacher,
+                report_input,
+                policy_weights,
+                policy_report,
+                [
+                    "--played-move-policy",
+                    str(policy),
+                    "--policy-loss-weight",
+                    "5",
+                ],
+            )
+            policy_values = weight_map(
+                json.loads(policy_weights.read_text(encoding="utf-8"))
+            )
+            policy_data = json.loads(policy_report.read_text(encoding="utf-8"))
+            root_two_a_value = (
+                2.0 * policy_values[(0, "edge-8", 1)]
+                + policy_values[(0, "corner-3x3", 1)]
+            )
+            root_two_b_value = (
+                policy_values[(0, "edge-8", 2)]
+                + policy_values[(0, "corner-3x3", 2)]
+            )
+            if not root_two_b_value < root_two_a_value:
+                raise RuntimeError(
+                    "played-move objective did not lower the empirically preferred child value"
+                )
+            policy_metrics = policy_data.get("played_move_policy_metrics", {})
+            train_policy_metrics = (
+                policy_metrics.get("by_split", {}).get("train", {})
+                if isinstance(policy_metrics, dict)
+                else {}
+            )
+            if train_policy_metrics.get("top1_accuracy") != 1.0:
+                raise RuntimeError(
+                    f"played-move policy was not learned: {policy_metrics!r}"
+                )
+            policy_input = policy_data.get("played_move_policy", {})
+            if (
+                policy_input.get("source_dataset_id") != "synthetic-wthor"
+                or policy_input.get("matched_root_count") != 2
+                or policy_input.get("matched_occurrences") != 5
+            ):
+                raise RuntimeError(
+                    f"played-move policy provenance was not retained: {policy_input!r}"
+                )
 
             warm_weights = temp / "warm.weights.json"
             warm_report = temp / "warm.report.json"

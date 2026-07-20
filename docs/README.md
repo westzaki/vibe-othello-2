@@ -26,6 +26,7 @@ Read only the document needed for the current task.
 | Pattern learning architecture | `architecture/pattern-learning.md` |
 | Pattern learning implementation status | `progress/pattern-learning.md` |
 | Pattern learning corpus data policy | `../data/corpora/README.md` |
+| External corpus import workflows | `../tools/data-import/README.md` |
 | Pattern learning teacher label data policy | `../data/labels/README.md` |
 | Pattern label/cache operations | `../tools/pattern/labels/README.md` |
 | Progressive pattern training | `../tools/pattern/train/README.md` |

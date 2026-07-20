@@ -8,31 +8,31 @@ documents linked from it.
 
 ## Current State
 
-`pattern-v2-progressive-search-d5-fast6-p5-v1` is the current learned
-experimental default. The previous `pattern-v2-endgame-lite-100k-mt-v0`
-artifact remains committed as the rollback and comparison baseline.
+`pattern-v2-wthor-full-policy-v1` is the current learned experimental default.
+The previous `pattern-v2-progressive-search-d5-fast6-p5-v1` artifact remains
+committed as the rollback and comparison baseline.
 
-Its reviewed learning coverage is `[5, 6, 7, 8, 9, 10, 11, 12]`, recorded in
-both runtime manifest and provenance. Phases `5..9` add a search-teacher
-residual to the deterministic fallback. The previous exact-teacher weights in
-phases `10..12` are frozen. Coverage metadata is explicit rather than inferred
-from zero or nonzero weights.
+Its reviewed learning coverage is all phases `[0..12]`, recorded in both
+runtime manifest and provenance. Phases `0..9` add a WHTOR played-move residual
+to the deterministic fallback. The previous exact-teacher weights in phases
+`10..12` are frozen. Coverage metadata is explicit rather than inferred from
+zero or nonzero weights.
 
 The default pointer is `data/eval/default-artifact.json`, with status
 `experimental-default`, resolving to:
 
 ```text
-data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json
+data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json
 ```
 
 The committed artifact payload is limited to final runtime files:
 
 * `data/eval/default-artifact.json`
-* `data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/weights.bin`
-* `data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/manifest.json`
-* `data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/provenance.json`
-* `data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/README.md`
-* `data/eval/artifacts/pattern-v2-progressive-search-d5-fast6-p5-v1/NOTICE.md`
+* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/weights.bin`
+* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/manifest.json`
+* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/provenance.json`
+* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/README.md`
+* `data/eval/artifacts/pattern-v2-wthor-full-policy-v1/NOTICE.md`
 
 Raw transcripts, normalized corpora, selected TSVs, teacher labels,
 move-teacher TSVs, child-normalized TSVs, caches, local reports, logs,
@@ -41,11 +41,17 @@ temporary datasets, and sweep outputs are local-only and must not be committed.
 The current trainer/runtime route is:
 
 * `pattern-v2-endgame-lite` runtime pattern set
-* phase-balanced hard-root mining from the local corpus
-* progressive depth-4/depth-5 search move-teacher labels
-* residual pairwise move-ranking with frozen late phases
-* independent paired fixed-depth and fixed-time arena validation
-* committed learned artifact v1 as an experimental default
+* all 137,548 WHTOR games and 8,231,199 recorded moves
+* recorded non-forced moves treated as provisional pairwise policy targets
+* streaming training over every decision without materializing child datasets
+* deterministic fallback plus learned residual through phase 9
+* previous exact-teacher late phases frozen
+* independent paired fixed-depth and fixed-time arena validation directly
+  against the prior default
+* zero audited promotion-opening board and transcript-prefix overlap with
+  WHTOR
+* second-pass and depth-6 correction saturation checks
+* committed WHTOR artifact v1 as an experimental default
 
 This is an experimental default, not an Elo result, not a self-play result,
 not a production strength claim, and not publication readiness.
@@ -85,7 +91,25 @@ experimental default artifact:
     the first six pattern families active in the residual.
 14. Paired arena gates: 52.88% over 1,024 fixed-depth games and 53.71% over
     512 fixed-time games, both with bootstrap intervals above 50%.
-15. Learned artifact v1 committed as the experimental default.
+15. Learned progressive-search artifact v1 committed as the experimental
+    default.
+16. WHTOR importer and deterministic played-move policy sidecar covering a
+    local 1977-2025 snapshot.
+17. WHTOR policy/search bootstrap that beat the previous default at depth 3,
+    depth 5, and 10 ms per move.
+18. Full-corpus streaming pairwise training over 137,548 games and 8.23 million
+    recorded moves.
+19. Paired arena gates against that bootstrap: 71.78% over 2,000 depth-3
+    games, 66.89% over 512 depth-5 games, and 66.02% over 512 fixed-time games.
+20. A second WHTOR pass and three depth-6 correction candidates rejected after
+    failing to reproduce a positive result.
+21. A board-core-only generator produced 1,000 random 16-ply promotion
+    openings; all 137,548 WHTOR games were replayed and showed zero opening
+    board or transcript-prefix overlap.
+22. Direct gates against the prior default passed at 73.35% depth 3, 69.14%
+    depth 5, and 66.99% at 10 ms plus exact8, with clean games and depth-3
+    argument-order/same-artifact sanity.
+23. Full-corpus WHTOR artifact v1 committed as the experimental default.
 
 Detailed PR-by-PR logs, command lines, sweep settings, and metric tables are in
 the archive starting at `docs/experiments/README.md`.
@@ -121,9 +145,10 @@ Architecture docs describe the current contract. Experiment docs preserve
 historical evidence. Progress docs summarize current repository state and next
 work.
 
-The committed v0 artifact is acceptable as an experimental engineering default
-because the validation route selected it, the payload is minimal, provenance is
-explicit, and local-only source material is not redistributed.
+The committed WHTOR artifact is acceptable as an experimental engineering
+default because direct independent-opening validation selected it, the payload
+is minimal, provenance is explicit, and source/intermediate WHTOR material is
+not redistributed.
 
 Future strength claims need separate validation. The current default should be
 treated as a runtime/default-selection milestone, not as production strength.
@@ -136,8 +161,8 @@ Current next actions:
   or Elo claims.
 * Expand independent fixed-time openings if a narrower confidence interval is
   required.
-* Continue hard-root refresh with new local games; do not repeatedly tune on
-  the committed arena openings.
+* Continue hard-root refresh with new independent positions; do not repeatedly
+  tune on the committed arena openings.
 * Harden artifact promotion gates around manifest/provenance/default-pointer
   consistency and rollback review.
 * Run bounded local v0e versus v0c/v0d ranking comparisons before considering
@@ -171,7 +196,7 @@ lines, or PR-specific context are needed.
 | Full-phase local cycle | `tools/pattern/train/run_full_phase_growth_cycle.py` connects phase-stratified selection, explicit-artifact search teaching, late exact teaching, warm-start/frozen-phase v0e training, fixed-point residual export, ranking, and bounded late/full-game local arenas without changing the default artifact; phase quota and split exceptions remain visible in reports. |
 | Hard-root progression | Baseline-regret selection, complete-root depth overlay, cross-depth child-conflict exclusion, and disjoint per-provenance trainer sidecars are checked local-only operations. |
 | Arena validation | Independent paired fixed-depth and fixed-time arenas supported promoting the progressive depth-5 residual artifact. |
-| Artifact v1 | `pattern-v2-progressive-search-d5-fast6-p5-v1` is the experimental default; v0 remains available for rollback and comparison. |
+| Artifact v2 | `pattern-v2-wthor-full-policy-v1` is the experimental default; the progressive-search artifact remains available for rollback and comparison. |
 | Archive policy | Long logs, tables, command examples, and obsolete next actions belong in `docs/experiments/README.md` and linked experiment docs. |
 
 Update this document when the current status, adopted route, artifact default,

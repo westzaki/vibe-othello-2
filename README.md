@@ -21,6 +21,26 @@ The release job runs the same configure, build, test, and smoke-tool checks.
 Benchmark executables are built in CI but run locally. The lint job enforces
 clang-format and runs clang-tidy as an advisory check.
 
+## Learned Evaluation Data
+
+The experimental default evaluator was trained from the actual played moves in
+all 137,548 games in a local 1977-2025 snapshot of the
+[FFO WHTOR database](https://www.ffothello.org/informatique/la-base-wthor/).
+The committed payload contains only the final derived runtime weights and
+review metadata. Raw WHTOR files, normalized data, policy targets, teacher
+labels, and local reports are not included.
+
+Promotion used a separately generated 1,000-pair random opening suite. Its
+opening boards and replayed transcript prefixes had zero overlap with all
+137,548 WHTOR training games. Against the prior default, the selected artifact
+scored 73.35% at depth 3, 69.14% at depth 5, and 66.99% at 10 ms per move with
+exact solving from 8 empties; all paired 95% intervals excluded 50%.
+
+See
+`data/eval/artifacts/pattern-v2-wthor-full-policy-v1/README.md`
+for the learning route, validation results, saturation experiments, and source
+notice.
+
 The browser app under `apps/web` is built for GitHub Pages by a dedicated Pages
 workflow. It runs on pushes to `main` and manual dispatch, builds the generated
 WASM runtime assets, copies the committed default evaluation artifact from
@@ -31,10 +51,12 @@ workflow, the expected URL is `https://westzaki.github.io/vibe-othello-2/`.
 
 ## Local-only Measurement Directories
 
-Generated corpora, measurements, TSVs, weights, artifacts, logs, and suite
-reports are local-only. Keep them outside the git repository and outside
-disposable worktrees so they survive worktree deletion and do not appear in git
-status.
+Generated corpora, measurements, TSVs, candidate weights, candidate artifacts,
+logs, and suite reports are local-only. Keep them outside the git repository
+and outside disposable worktrees so they survive worktree deletion and do not
+appear in git status. Only a reviewed final runtime artifact may use the narrow
+commit exception documented in `data/corpora/README.md` and
+`data/eval/README.md`.
 
 ```sh
 export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"

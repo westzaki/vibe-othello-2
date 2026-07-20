@@ -328,8 +328,24 @@ python3 tools/arena/run_full_game_artifact_arena_sanity.py \
   --baseline-weights "$VIBE_OTHELLO_MEASUREMENTS/<baseline>/weights.bin" \
   --openings tools/arena/openings/smoke.txt \
   --output-dir "$VIBE_OTHELLO_MEASUREMENTS/arena/full-game-sanity" \
-  --limit-mode nodes --nodes 200000 --exact-endgame-empties 8 --opening-limit 100
+  --limit-mode nodes --nodes 200000 --exact-endgame-empties 8 \
+  --opening-limit 100 --minimum-opening-pairs 100
 ```
+
+For corpus-independent promotion openings, the board-core generator samples
+uniformly from the sorted legal move set using a fixed SplitMix64 seed and
+deduplicates final side-to-move-relative boards:
+
+```sh
+build/tools/arena/vibe-othello-generate-independent-openings \
+  --output "$VIBE_OTHELLO_MEASUREMENTS/openings/random-16ply-1000.txt" \
+  --report-out "$VIBE_OTHELLO_MEASUREMENTS/openings/generator-report.json" \
+  --count 1000 --plies 16 --seed 20260727
+```
+
+The output and report remain local. When the candidate learned from WHTOR,
+run the complete overlap audit documented in `tools/data-import/README.md`
+before using the suite as promotion evidence.
 
 The JSON-only report includes runtime artifact identities and checksums,
 resolved search options, selected openings, per-game and per-opening results,

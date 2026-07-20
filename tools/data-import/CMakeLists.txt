@@ -1,21 +1,26 @@
-add_library(vibe_othello_data_import_egaroucid_sequence_replay STATIC
-            egaroucid_sequence_replay.cc)
+add_library(vibe_othello_data_import_sequence_replay STATIC sequence_replay.cc)
 
-target_link_libraries(vibe_othello_data_import_egaroucid_sequence_replay
-                      PUBLIC vibe_othello::engine)
+target_link_libraries(vibe_othello_data_import_sequence_replay PUBLIC vibe_othello::engine)
 
 target_include_directories(
-  vibe_othello_data_import_egaroucid_sequence_replay
-  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+  vibe_othello_data_import_sequence_replay PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(vibe_othello_egaroucid_sequence_replay
                egaroucid_sequence_replay_main.cc)
 
 target_link_libraries(vibe_othello_egaroucid_sequence_replay
-                      PRIVATE vibe_othello_data_import_egaroucid_sequence_replay)
+                      PRIVATE vibe_othello_data_import_sequence_replay)
 
 set_target_properties(vibe_othello_egaroucid_sequence_replay
                       PROPERTIES OUTPUT_NAME vibe-othello-egaroucid-sequence-replay)
+
+add_executable(vibe_othello_wthor_sequence_replay wthor_sequence_replay_main.cc)
+
+target_link_libraries(vibe_othello_wthor_sequence_replay
+                      PRIVATE vibe_othello_data_import_sequence_replay)
+
+set_target_properties(vibe_othello_wthor_sequence_replay
+                      PROPERTIES OUTPUT_NAME vibe-othello-wthor-sequence-replay)
 
 add_library(vibe_othello_data_import_replay_records STATIC replay_records.cc)
 
@@ -62,4 +67,25 @@ if(BUILD_TESTING)
       ${CMAKE_SOURCE_DIR}/data/corpora/manifests/egaroucid-sequence-v0002-local.manifest.json
       --dataset-exe
       $<TARGET_FILE:vibe_othello_pattern_dataset_smoke>)
+
+  add_test(
+    NAME vibe_othello_wthor_import_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_wthor_import_smoke.py
+      --importer
+      ${CMAKE_CURRENT_SOURCE_DIR}/import_wthor.py
+      --replay-helper
+      $<TARGET_FILE:vibe_othello_wthor_sequence_replay>
+      --manifest
+      ${CMAKE_SOURCE_DIR}/data/corpora/manifests/wthor-ffo-2026-02-24-local.manifest.json)
+
+  add_test(
+    NAME vibe_othello_wthor_opening_overlap_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/check_wthor_opening_overlap_smoke.py
+      --auditor ${CMAKE_CURRENT_SOURCE_DIR}/audit_wthor_openings.py
+      --generator $<TARGET_FILE:vibe_othello_generate_independent_openings>
+      --replay-helper $<TARGET_FILE:vibe_othello_wthor_sequence_replay>)
 endif()

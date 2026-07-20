@@ -17,6 +17,8 @@ from examples import (
     MoveTeacherProvenance,
     MoveTeacherRoot,
     ParsedFeatureRow,
+    PlayedMovePolicyLoadResult,
+    PlayedMovePolicyTarget,
     duplicate_feature_rows_for,
     row_record_id,
 )
@@ -44,6 +46,11 @@ MOVE_TEACHER_HEADER_V3 = [
     "move_rank", "best_score_margin", "teacher_kind", "teacher_source",
     "teacher_artifact_id", "teacher_artifact_checksum", "teacher_depth", "teacher_nodes",
     "teacher_search_config_id",
+]
+PLAYED_MOVE_POLICY_HEADER_V1 = [
+    "root_board_id", "board_a1_to_h8", "root_split", "root_phase",
+    "root_empty_count", "move", "occurrence_count", "win_count", "draw_count",
+    "loss_count", "source_dataset_id",
 ]
 
 def validate_row(
@@ -552,4 +559,136 @@ def load_move_teacher_roots_many(paths: list[Path], examples: list[Example]) -> 
         schema_version=next(iter(schema_versions)) if len(schema_versions) == 1 else 0,
         provenance=shared_provenance,
         inputs=[entry for result in loaded for entry in result.inputs],
+    )
+
+
+def load_played_move_policy(
+    path: Path, roots: list[MoveTeacherRoot]
+) -> PlayedMovePolicyLoadResult:
+    """Load aggregate played-move counts and join the subset present in move teachers."""
+    roots_by_id = {root.root_board_id: root for root in roots}
+    try:
+        input_file = path.open(newline="", encoding="utf-8")
+    except OSError as error:
+        raise RuntimeError(f"cannot read played-move policy TSV: {path}: {error}") from error
+
+    target_metadata: dict[str, tuple[str, int]] = {}
+    matched_counts: dict[str, dict[str, int]] = {}
+    seen_rows: set[tuple[str, str]] = set()
+    source_dataset_id: str | None = None
+    input_rows = 0
+    input_occurrences = 0
+    matched_rows = 0
+    matched_occurrences = 0
+    with input_file:
+        reader = csv.DictReader(input_file, delimiter="\t")
+        if reader.fieldnames != PLAYED_MOVE_POLICY_HEADER_V1:
+            raise RuntimeError("unexpected played-move policy TSV header")
+        for line_number, row in enumerate(reader, start=2):
+            input_rows += 1
+            if row is None or None in row:
+                raise RuntimeError(f"line {line_number}: expected played-move policy TSV fields")
+            root_board_id = _require_move_teacher_field(row, "root_board_id", line_number)
+            board_text = _require_move_teacher_field(row, "board_a1_to_h8", line_number)
+            split = _require_move_teacher_field(row, "root_split", line_number)
+            move = _require_move_teacher_field(row, "move", line_number)
+            row_dataset_id = _require_move_teacher_field(
+                row, "source_dataset_id", line_number
+            )
+            if len(board_text) != 64 or any(value not in "XO-" for value in board_text):
+                raise RuntimeError(
+                    f"line {line_number}: board_a1_to_h8 must contain 64 X/O/- cells"
+                )
+            if split not in SPLITS:
+                raise RuntimeError(
+                    f"line {line_number}: root_split must be train, validation, or test"
+                )
+            if (
+                len(move) != 2
+                or move[0] not in "abcdefgh"
+                or move[1] not in "12345678"
+            ):
+                raise RuntimeError(f"line {line_number}: move must be an a1-to-h8 coordinate")
+            phase = _parse_move_teacher_int(row, "root_phase", line_number)
+            empty_count = _parse_move_teacher_int(row, "root_empty_count", line_number)
+            occurrence_count = _parse_move_teacher_int(
+                row, "occurrence_count", line_number
+            )
+            win_count = _parse_move_teacher_int(row, "win_count", line_number)
+            draw_count = _parse_move_teacher_int(row, "draw_count", line_number)
+            loss_count = _parse_move_teacher_int(row, "loss_count", line_number)
+            if phase not in range(13):
+                raise RuntimeError(f"line {line_number}: root_phase must be in [0, 12]")
+            if empty_count not in range(61):
+                raise RuntimeError(f"line {line_number}: root_empty_count must be in [0, 60]")
+            if occurrence_count <= 0 or min(win_count, draw_count, loss_count) < 0:
+                raise RuntimeError(
+                    f"line {line_number}: policy counts must be non-negative with "
+                    "positive occurrence_count"
+                )
+            if win_count + draw_count + loss_count != occurrence_count:
+                raise RuntimeError(
+                    f"line {line_number}: outcome counts must sum to occurrence_count"
+                )
+            key = (root_board_id, move)
+            if key in seen_rows:
+                raise RuntimeError(
+                    f"line {line_number}: duplicate played-move policy row {key!r}"
+                )
+            seen_rows.add(key)
+            metadata = (split, phase)
+            existing_metadata = target_metadata.setdefault(root_board_id, metadata)
+            if existing_metadata != metadata:
+                raise RuntimeError(
+                    f"line {line_number}: root_board_id has inconsistent policy metadata"
+                )
+            if source_dataset_id is None:
+                source_dataset_id = row_dataset_id
+            elif source_dataset_id != row_dataset_id:
+                raise RuntimeError(
+                    f"line {line_number}: source_dataset_id must be identical across the file"
+                )
+            input_occurrences += occurrence_count
+
+            root = roots_by_id.get(root_board_id)
+            if root is None:
+                continue
+            if root.split != split or root.phase != phase:
+                raise RuntimeError(
+                    f"line {line_number}: played-move policy metadata does not match move teacher"
+                )
+            legal_moves = {candidate.move for candidate in root.moves}
+            if move not in legal_moves:
+                raise RuntimeError(
+                    f"line {line_number}: played move {move!r} is absent from move teacher root "
+                    f"{root_board_id!r}"
+                )
+            matched_counts.setdefault(root_board_id, {})[move] = occurrence_count
+            matched_rows += 1
+            matched_occurrences += occurrence_count
+
+    if input_rows == 0:
+        raise RuntimeError("played-move policy TSV has no rows")
+    if not any(
+        roots_by_id[root_board_id].split == "train" for root_board_id in matched_counts
+    ):
+        raise RuntimeError("played-move policy has no matched train roots")
+    targets = {
+        root_board_id: PlayedMovePolicyTarget(
+            root_board_id=root_board_id,
+            split=roots_by_id[root_board_id].split,
+            phase=roots_by_id[root_board_id].phase,
+            move_counts=dict(sorted(move_counts.items())),
+        )
+        for root_board_id, move_counts in sorted(matched_counts.items())
+    }
+    assert source_dataset_id is not None
+    return PlayedMovePolicyLoadResult(
+        targets_by_root_id=targets,
+        input_rows=input_rows,
+        input_occurrences=input_occurrences,
+        matched_rows=matched_rows,
+        matched_occurrences=matched_occurrences,
+        unmatched_rows=input_rows - matched_rows,
+        source_dataset_id=source_dataset_id,
     )
