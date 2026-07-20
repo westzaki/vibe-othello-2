@@ -11,6 +11,7 @@ constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 4;
 constexpr int kHistoryScoreLimit = 1'000'000;
 constexpr Depth kIidMinDepth = 4;
 constexpr Depth kIidDepthReduction = 2;
+constexpr Depth kMidgameMobilityOrderingMinDepth = 5;
 
 bool is_legal_normal_move(board_core::Bitboard legal_moves, board_core::Move move) noexcept {
   return move.kind == board_core::MoveKind::normal &&
@@ -244,12 +245,14 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
 MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
                                                const std::optional<TTEntry>& tt_entry,
                                                std::optional<board_core::Move> iid_best_move,
-                                               Ply ply) noexcept {
+                                               Depth depth, Ply ply) noexcept {
   MoveOrderingHints hints{
       .tt_best_move = context.options.ordering.use_tt_best_move_ordering
                           ? legal_midgame_tt_best_move(context.stack[ply].legal_moves, tt_entry)
                           : std::nullopt,
       .iid_best_move = iid_best_move,
+      .use_opponent_mobility = context.options.ordering.use_midgame_mobility_ordering &&
+                               depth >= kMidgameMobilityOrderingMinDepth,
   };
 
   if (context.ordering_state != nullptr && context.options.ordering.use_killers) {

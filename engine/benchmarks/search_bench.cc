@@ -134,6 +134,7 @@ struct Config {
   BoolSelection history = BoolSelection::off;
   BoolSelection killers = BoolSelection::off;
   BoolSelection iid = BoolSelection::off;
+  BoolSelection midgame_mobility = BoolSelection::off;
   EvalSelection eval = EvalSelection::disc;
   std::uint32_t max_time_ms = 0;
   NodeCount max_nodes = 0;
@@ -173,6 +174,7 @@ struct BenchmarkVariant {
   bool use_history = false;
   bool use_killers = false;
   bool use_iid = false;
+  bool use_midgame_mobility = false;
   std::uint32_t max_time_ms = 0;
   NodeCount max_nodes = 0;
   std::uint8_t exact_endgame_empties = 0;
@@ -615,6 +617,7 @@ SearchOptions search_options_for_variant(BenchmarkVariant variant,
   options.midgame.use_iid = variant.use_iid;
   options.ordering.use_history = variant.use_history;
   options.ordering.use_killers = variant.use_killers;
+  options.ordering.use_midgame_mobility_ordering = variant.use_midgame_mobility;
   options.endgame.use_endgame_tt = variant.use_endgame_tt;
   options.ordering.use_endgame_parity_ordering = variant.use_endgame_parity;
   options.endgame.exact_endgame = variant.exact_endgame_empties > 0;
@@ -679,6 +682,8 @@ std::string variant_id(BenchmarkVariant variant) {
   id += bool_mode_name(variant.use_killers);
   id += ";iid=";
   id += bool_mode_name(variant.use_iid);
+  id += ";midgame_mobility=";
+  id += bool_mode_name(variant.use_midgame_mobility);
   id += ";exact_endgame=";
   id += std::to_string(variant.exact_endgame_empties);
   id += ";endgame_tt=";
@@ -713,6 +718,9 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
       mode == BenchmarkMode::iterative ? bool_values(config.killers) : std::vector<bool>{false};
   const std::vector<bool> iid_values =
       mode == BenchmarkMode::iterative ? bool_values(config.iid) : std::vector<bool>{false};
+  const std::vector<bool> midgame_mobility_values = mode == BenchmarkMode::iterative
+                                                        ? bool_values(config.midgame_mobility)
+                                                        : std::vector<bool>{false};
   const std::vector<bool> endgame_tt_values =
       mode == BenchmarkMode::iterative ? bool_values(config.endgame_tt) : std::vector<bool>{false};
   const std::vector<bool> endgame_parity_values = mode == BenchmarkMode::iterative
@@ -726,35 +734,39 @@ std::vector<BenchmarkVariant> variants_for_mode(BenchmarkMode mode, const Config
         for (const bool use_history : history_values) {
           for (const bool use_killers : killer_values) {
             for (const bool use_iid : iid_values) {
-              for (const bool use_endgame_tt : endgame_tt_values) {
-                for (const bool use_endgame_parity : endgame_parity_values) {
-                  for (const ProbCutMode probcut_mode : probcut_modes) {
-                    variants.push_back(BenchmarkVariant{
-                        .eval_mode = eval_mode,
-                        .tt_mode = mode == BenchmarkMode::iterative ? config.tt_mode : TTMode::off,
-                        .use_pvs = use_pvs,
-                        .use_aspiration = use_aspiration,
-                        .use_history = use_history,
-                        .use_killers = use_killers,
-                        .use_iid = use_iid,
-                        .max_time_ms = mode == BenchmarkMode::iterative ? config.max_time_ms : 0,
-                        .max_nodes = mode == BenchmarkMode::iterative ? config.max_nodes : 0,
-                        .exact_endgame_empties = mode == BenchmarkMode::iterative
-                                                     ? config.exact_endgame_empties
-                                                     : std::uint8_t{0},
-                        .use_endgame_tt = use_endgame_tt,
-                        .use_endgame_parity = use_endgame_parity,
-                        .probcut_mode = probcut_mode,
-                        .probcut_minimum_margin = config.probcut_minimum_margin,
-                        .probcut_maximum_margin = config.probcut_maximum_margin,
-                        .probcut_confidence_multiplier = config.probcut_confidence_multiplier,
-                        .probcut_maximum_probes = probcut_mode == ProbCutMode::single
-                                                      ? std::uint8_t{1}
-                                                      : config.probcut_maximum_probes,
-                        .probcut_maximum_shallow_overhead_ratio =
-                            config.probcut_maximum_shallow_overhead_ratio,
-                        .probcut_matrix = config.probcut != ProbCutSelection::off,
-                    });
+              for (const bool use_midgame_mobility : midgame_mobility_values) {
+                for (const bool use_endgame_tt : endgame_tt_values) {
+                  for (const bool use_endgame_parity : endgame_parity_values) {
+                    for (const ProbCutMode probcut_mode : probcut_modes) {
+                      variants.push_back(BenchmarkVariant{
+                          .eval_mode = eval_mode,
+                          .tt_mode =
+                              mode == BenchmarkMode::iterative ? config.tt_mode : TTMode::off,
+                          .use_pvs = use_pvs,
+                          .use_aspiration = use_aspiration,
+                          .use_history = use_history,
+                          .use_killers = use_killers,
+                          .use_iid = use_iid,
+                          .use_midgame_mobility = use_midgame_mobility,
+                          .max_time_ms = mode == BenchmarkMode::iterative ? config.max_time_ms : 0,
+                          .max_nodes = mode == BenchmarkMode::iterative ? config.max_nodes : 0,
+                          .exact_endgame_empties = mode == BenchmarkMode::iterative
+                                                       ? config.exact_endgame_empties
+                                                       : std::uint8_t{0},
+                          .use_endgame_tt = use_endgame_tt,
+                          .use_endgame_parity = use_endgame_parity,
+                          .probcut_mode = probcut_mode,
+                          .probcut_minimum_margin = config.probcut_minimum_margin,
+                          .probcut_maximum_margin = config.probcut_maximum_margin,
+                          .probcut_confidence_multiplier = config.probcut_confidence_multiplier,
+                          .probcut_maximum_probes = probcut_mode == ProbCutMode::single
+                                                        ? std::uint8_t{1}
+                                                        : config.probcut_maximum_probes,
+                          .probcut_maximum_shallow_overhead_ratio =
+                              config.probcut_maximum_shallow_overhead_ratio,
+                          .probcut_matrix = config.probcut != ProbCutSelection::off,
+                      });
+                    }
                   }
                 }
               }
@@ -773,6 +785,7 @@ void print_usage(std::ostream& output, std::string_view program) {
             " [--mode all|fixed|iterative] [--tt off|ordering|midgame|both]"
             " [--pvs off|on|both] [--aspiration off|on|both]"
             " [--history off|on|both] [--killers off|on|both] [--iid off|on|both]"
+            " [--midgame-mobility off|on|both]"
             " [--eval disc|simple|pattern-v2|pattern-v2-stateless|pattern-v2-both|all]"
             " [--time-ms N] [--nodes N] [--exact-endgame N]"
             " [--endgame-tt off|on|both] [--endgame-parity off|on|both]"
@@ -1367,6 +1380,19 @@ std::optional<Config> parse_config(int argc, char** argv) {
       continue;
     }
 
+    if (argument == "--midgame-mobility") {
+      require_condition(index + 1 < argc, "--midgame-mobility requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--midgame-mobility", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      const std::optional<BoolSelection> selection = parse_bool_selection(value);
+      require_condition(selection.has_value(), "unknown midgame mobility mode");
+      config.midgame_mobility = *selection;
+      continue;
+    }
+
     if (argument == "--eval") {
       require_condition(index + 1 < argc, "--eval requires a value");
       value = argv[++index];
@@ -1838,10 +1864,11 @@ void print_delimited_header(char delimiter) {
             << "probcut_joint_false_cut_rate_upper_bound" << delimiter << "node_limit" << delimiter
             << "time_limit_ms" << delimiter << "pvs" << delimiter << "aspiration" << delimiter
             << "history" << delimiter << "killers" << delimiter << "iid" << delimiter
-            << "exact_endgame" << delimiter << "endgame_exact_empties" << delimiter << "endgame_tt"
-            << delimiter << "endgame_parity" << delimiter << "depth" << delimiter << "score"
-            << delimiter << "score_kind" << delimiter << "best_move" << delimiter << "nodes"
-            << delimiter << "eval_calls" << delimiter << "incremental_eval_enabled" << delimiter
+            << "midgame_mobility" << delimiter << "exact_endgame" << delimiter
+            << "endgame_exact_empties" << delimiter << "endgame_tt" << delimiter << "endgame_parity"
+            << delimiter << "depth" << delimiter << "score" << delimiter << "score_kind"
+            << delimiter << "best_move" << delimiter << "nodes" << delimiter << "eval_calls"
+            << delimiter << "incremental_eval_enabled" << delimiter
             << "incremental_state_initializations" << delimiter << "incremental_eval_calls"
             << delimiter << "stateless_eval_calls" << delimiter << "incremental_updates"
             << delimiter << "incremental_touched_instances" << delimiter << "terminal_nodes"
@@ -1912,7 +1939,8 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << bool_mode_name(variant.use_aspiration) << delimiter
             << bool_mode_name(variant.use_history) << delimiter
             << bool_mode_name(variant.use_killers) << delimiter << bool_mode_name(variant.use_iid)
-            << delimiter << bool_mode_name(variant.exact_endgame_empties > 0) << delimiter
+            << delimiter << bool_mode_name(variant.use_midgame_mobility) << delimiter
+            << bool_mode_name(variant.exact_endgame_empties > 0) << delimiter
             << static_cast<int>(variant.exact_endgame_empties) << delimiter
             << bool_mode_name(variant.use_endgame_tt) << delimiter
             << bool_mode_name(variant.use_endgame_parity) << delimiter << depth << delimiter
@@ -2061,6 +2089,8 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   print_json_string(std::cout, bool_mode_name(variant.use_killers));
   std::cout << ",\"iid\":";
   print_json_string(std::cout, bool_mode_name(variant.use_iid));
+  std::cout << ",\"midgame_mobility\":";
+  print_json_string(std::cout, bool_mode_name(variant.use_midgame_mobility));
   std::cout << ",\"exact_endgame\":" << (variant.exact_endgame_empties > 0 ? "true" : "false");
   std::cout << ",\"endgame_exact_empties\":" << static_cast<int>(variant.exact_endgame_empties);
   std::cout << ",\"endgame_tt\":";

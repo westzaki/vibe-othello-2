@@ -87,9 +87,11 @@ handle, evaluate positions, and run bounded best-move search through that
 loaded evaluator. The browser Worker fetches the copied default artifact assets,
 loads the artifact through `WasmCore.loadEvaluationArtifact()`, and uses its
 `normal` preset for a CPU move with depth 8, no node cap, a 500 ms cap, and an
-8-empty exact-score threshold. React can either expose that as a manual CPU
-move when CPU opponent mode is off, or reuse it as an automatic White response
-in the minimal CPU opponent mode. Side selection, difficulty selection,
+8-empty exact-score threshold. The normal and hard presets include
+depth-gated internal midgame mobility ordering. React can either expose that as
+a manual CPU move when CPU opponent mode is off, or reuse it as an automatic
+White response in the minimal CPU opponent mode. Side selection, difficulty
+selection,
 advanced cancellation, threaded WASM, review UI, evaluation explanation UI,
 and strength or Elo claims are still not implemented.
 

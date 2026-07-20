@@ -35,7 +35,7 @@ SearchNodeResult alphabeta(SearchContext* context, Score alpha, Score beta, Dept
   }
 
   const MoveOrderingHints hints =
-      build_midgame_ordering_hints(*context, tt_entry, iid_best_move, ply);
+      build_midgame_ordering_hints(*context, tt_entry, iid_best_move, depth, ply);
   frame.moves = order_midgame_moves(context->position_state.position, frame.legal_moves, hints);
   if (frame.moves.size == 0) {
     const SearchNodeResult result =

@@ -21,7 +21,7 @@ std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Scor
 MoveOrderingHints build_midgame_ordering_hints(const SearchContext& context,
                                                const std::optional<TTEntry>& tt_entry,
                                                std::optional<board_core::Move> iid_best_move,
-                                               Ply ply) noexcept;
+                                               Depth depth, Ply ply) noexcept;
 std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context, Score alpha,
                                                          Score beta, Depth depth, Ply ply,
                                                          const std::optional<TTEntry>& tt_entry,

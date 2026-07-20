@@ -31,6 +31,7 @@ search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empti
               .use_tt_best_move_ordering = use_full_search_stack,
               .use_history = use_full_search_stack,
               .use_killers = use_full_search_stack,
+              .use_midgame_mobility_ordering = use_full_search_stack,
               .use_endgame_parity_ordering = true,
           },
       .endgame =

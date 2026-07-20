@@ -541,6 +541,7 @@ SearchConfig make_search_config(const Args& args) {
                       .use_tt_best_move_ordering = full,
                       .use_history = full,
                       .use_killers = full,
+                      .use_midgame_mobility_ordering = full,
                       .use_endgame_parity_ordering = true,
                   },
               .endgame =
@@ -556,7 +557,7 @@ SearchConfig make_search_config(const Args& args) {
       .exact_endgame_empties = args.exact_endgame_empties,
   };
   std::ostringstream canonical;
-  canonical << "search-move-teacher-config-v1\n"
+  canonical << "search-move-teacher-config-v2\n"
             << preset_name(config.preset) << '\n'
             << config.limits.max_depth << '\n'
             << config.limits.max_nodes << '\n'

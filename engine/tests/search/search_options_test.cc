@@ -18,6 +18,7 @@ void require_default_resolved_options(const internal::ResolvedSearchOptions& opt
   REQUIRE_FALSE(options.ordering.use_tt_best_move_ordering);
   REQUIRE_FALSE(options.ordering.use_history);
   REQUIRE_FALSE(options.ordering.use_killers);
+  REQUIRE_FALSE(options.ordering.use_midgame_mobility_ordering);
   REQUIRE(options.ordering.use_endgame_parity_ordering);
 
   REQUIRE_FALSE(options.endgame.exact_endgame);
@@ -503,6 +504,7 @@ TEST_CASE("typed search sub-configs are the resolved source of truth", "[search]
               .use_tt_best_move_ordering = true,
               .use_history = true,
               .use_killers = true,
+              .use_midgame_mobility_ordering = true,
               .use_endgame_parity_ordering = false,
           },
       .endgame =
@@ -527,6 +529,7 @@ TEST_CASE("typed search sub-configs are the resolved source of truth", "[search]
   REQUIRE(resolved.ordering.use_tt_best_move_ordering);
   REQUIRE(resolved.ordering.use_history);
   REQUIRE(resolved.ordering.use_killers);
+  REQUIRE(resolved.ordering.use_midgame_mobility_ordering);
   REQUIRE_FALSE(resolved.ordering.use_endgame_parity_ordering);
 
   REQUIRE(resolved.endgame.exact_endgame);

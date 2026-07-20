@@ -240,11 +240,8 @@ void publish_root_move(const RootMoveInfo& root_move, SearchContext* context, Sc
   update_best_root_move(result->root_moves.back(), best_score, best_line, result);
 }
 
-bool should_complete_exact_root_reports(RootSearchWindow root_window, BoundType result_bound,
-                                        ResolvedSearchOptions options) noexcept {
-  return options.reporting.multi_pv != 1 ||
-         (root_window.enabled && result_bound == BoundType::exact &&
-          !is_full_score_range(root_window));
+bool should_complete_exact_root_reports(ResolvedSearchOptions options) noexcept {
+  return options.reporting.multi_pv != 1;
 }
 
 void maybe_store_root_midgame_tt(SearchContext* context, Depth completed_depth, Score best_score,
@@ -542,7 +539,7 @@ SearchResult search_fixed_depth_with_hint(board_core::Position position, const E
   }
 
   const BoundType result_bound = bound_for_score(best_score, root_window);
-  if (should_complete_exact_root_reports(root_window, result_bound, context.options)) {
+  if (should_complete_exact_root_reports(context.options)) {
     complete_exact_root_move_reports(&context, completed_depth, &result, &best_score, &best_line);
   }
 
