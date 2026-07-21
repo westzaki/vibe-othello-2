@@ -177,6 +177,8 @@ def assert_report(report: dict[str, object]) -> None:
         raise AssertionError(f"unexpected v4 schema: {report!r}")
     if report["search_config"]["limit_mode"] != "fixed_depth":
         raise AssertionError(f"fixed-depth mode was not recorded: {report['search_config']!r}")
+    if report["search_config"]["pure_limit_mode"] is not True:
+        raise AssertionError(f"v4 pure-limit compatibility field changed: {report['search_config']!r}")
     paired = report["results"].get("paired_score")
     if not isinstance(paired, dict) or paired.get("method") != "deterministic-cluster-bootstrap-opening-pair":
         raise AssertionError(f"paired bootstrap missing: {paired!r}")

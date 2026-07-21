@@ -1631,6 +1631,7 @@ void write_search_config(std::ostream& output, const SearchConfig& config) {
   output << ", \"limit_scope\": \"per-move\"";
   output << ", \"limit_mode\": ";
   write_json_string(output, limit_mode_name(config.limit_mode));
+  output << ", \"pure_limit_mode\": true";
   output << ", \"infinite\": ";
   write_bool(output, config.limits.infinite);
   output << ", \"depth\": " << config.limits.max_depth;
