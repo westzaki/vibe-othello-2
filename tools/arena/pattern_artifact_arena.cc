@@ -1,4 +1,5 @@
 #include "arena_core.h"
+#include "normalized_tsv.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/board_core/position.h"
 #include "vibe_othello/evaluation/pattern.h"
@@ -37,6 +38,7 @@ namespace {
 namespace arena = vibe_othello::tools::arena;
 namespace board_core = vibe_othello::board_core;
 namespace eval = vibe_othello::evaluation;
+namespace pattern = vibe_othello::tools::pattern;
 namespace search = vibe_othello::search;
 
 constexpr std::string_view kArenaVersion = "pattern-artifact-arena-hardened-v1";
@@ -558,28 +560,6 @@ std::optional<LoadedEvaluator> load_evaluator(std::string name, std::string weig
   }
 }
 
-std::vector<std::string_view> split_tabs(std::string_view text) {
-  std::vector<std::string_view> fields;
-  std::size_t offset = 0;
-  while (offset <= text.size()) {
-    const std::size_t next = text.find('\t', offset);
-    if (next == std::string_view::npos) {
-      fields.push_back(text.substr(offset));
-      break;
-    }
-    fields.push_back(text.substr(offset, next - offset));
-    offset = next + 1;
-  }
-  return fields;
-}
-
-std::string_view trim_trailing_cr(std::string_view text) noexcept {
-  if (!text.empty() && text.back() == '\r') {
-    text.remove_suffix(1);
-  }
-  return text;
-}
-
 std::optional<std::size_t> column_index(std::span<const std::string_view> header,
                                         std::string_view name) {
   for (std::size_t index = 0; index < header.size(); ++index) {
@@ -588,34 +568,6 @@ std::optional<std::size_t> column_index(std::span<const std::string_view> header
     }
   }
   return std::nullopt;
-}
-
-std::optional<board_core::Position> position_from_relative_board(std::string_view board) noexcept {
-  if (board.size() != board_core::kSquareCount) {
-    return std::nullopt;
-  }
-  board_core::Bitboard player = 0;
-  board_core::Bitboard opponent = 0;
-  for (std::size_t index = 0; index < board.size(); ++index) {
-    const board_core::Square square = board_core::square_from_index(static_cast<int>(index));
-    const board_core::Bitboard bit = board_core::bit(square);
-    if (board[index] == 'X') {
-      player |= bit;
-    } else if (board[index] == 'O') {
-      opponent |= bit;
-    } else if (board[index] != '-') {
-      return std::nullopt;
-    }
-  }
-  board_core::Position position{
-      .player = player,
-      .opponent = opponent,
-      .side_to_move = board_core::Color::black,
-  };
-  if (!board_core::is_valid(position)) {
-    return std::nullopt;
-  }
-  return position;
 }
 
 void add_or_replace_selected(std::vector<PositionRow>* selected, PositionRow row,
@@ -652,7 +604,7 @@ std::optional<PositionLoadResult> load_positions(const Args& args) {
     std::cerr << "positions TSV is empty: " << args.positions_tsv_path << '\n';
     return std::nullopt;
   }
-  const std::vector<std::string_view> header = split_tabs(trim_trailing_cr(line));
+  const std::vector<std::string_view> header = pattern::split_tabs(pattern::trim_trailing_cr(line));
   const std::optional<std::size_t> board_id_index = column_index(header, "board_id");
   const std::optional<std::size_t> board_index = column_index(header, "board_a1_to_h8");
   const std::optional<std::size_t> empty_index = column_index(header, "empty_count");
@@ -674,7 +626,8 @@ std::optional<PositionLoadResult> load_positions(const Args& args) {
   std::set<std::string> seen_board_ids;
   while (std::getline(input, line)) {
     ++result.input_rows;
-    const std::vector<std::string_view> fields = split_tabs(trim_trailing_cr(line));
+    const std::vector<std::string_view> fields =
+        pattern::split_tabs(pattern::trim_trailing_cr(line));
     const std::size_t required =
         std::max({*board_id_index, *board_index, *empty_index, *phase_index, *split_index});
     if (fields.size() <= required) {
@@ -698,7 +651,7 @@ std::optional<PositionLoadResult> load_positions(const Args& args) {
       continue;
     }
     const std::string board_text{fields[*board_index]};
-    if (!position_from_relative_board(board_text).has_value()) {
+    if (!pattern::position_from_a1_to_h8_board(board_text).has_value()) {
       std::cerr << "positions TSV row " << result.input_rows + 1 << " has invalid board_a1_to_h8\n";
       return std::nullopt;
     }
@@ -769,7 +722,8 @@ GameResult adjudicated_failure(const PositionRow& row, std::string side_assignme
 GameResult play_game(const PositionRow& row, const LoadedEvaluator& candidate,
                      const LoadedEvaluator& baseline, bool candidate_is_black,
                      search::Depth depth) {
-  std::optional<board_core::Position> maybe_position = position_from_relative_board(row.board_text);
+  std::optional<board_core::Position> maybe_position =
+      pattern::position_from_a1_to_h8_board(row.board_text);
   if (!maybe_position.has_value()) {
     return adjudicated_failure(row,
                                candidate_is_black ? "candidate_side_to_move" : "candidate_opponent",
@@ -1059,7 +1013,7 @@ FeatureActivationReport feature_activation_for(std::span<const PositionRow> rows
 
   for (const PositionRow& row : rows) {
     const std::optional<board_core::Position> position =
-        position_from_relative_board(row.board_text);
+        pattern::position_from_a1_to_h8_board(row.board_text);
     if (!position.has_value()) {
       continue;
     }
@@ -1094,7 +1048,7 @@ DepthDiagnostic compare_roots_at_depth(std::span<const PositionRow> rows,
   search_diffs.reserve(rows.size());
   for (const PositionRow& row : rows) {
     const std::optional<board_core::Position> position =
-        position_from_relative_board(row.board_text);
+        pattern::position_from_a1_to_h8_board(row.board_text);
     if (!position.has_value()) {
       continue;
     }
@@ -1155,7 +1109,7 @@ DiagnosticsReport build_diagnostics(const Args& args, const LoadedEvaluator& can
     }
 
     const std::optional<board_core::Position> position =
-        position_from_relative_board(row.board_text);
+        pattern::position_from_a1_to_h8_board(row.board_text);
     if (!position.has_value()) {
       report.rows.push_back(std::move(diagnostics));
       continue;

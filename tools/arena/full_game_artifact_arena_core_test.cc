@@ -12,42 +12,41 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
                       .elapsed_ns = 10'000'000,
                       .engine_elapsed_ms = 9,
                       .timer_accounting_delta_ns = 1'000'000,
-                      .nodes = 100,
-                      .eval_calls = 40,
-                      .incremental_eval_enabled = true,
-                      .incremental_state_initializations = 3,
-                      .incremental_eval_calls = 30,
-                      .stateless_eval_calls = 10,
-                      .incremental_updates = 200,
-                      .incremental_touched_instances = 500,
-                      .tt_probes = 20,
-                      .tt_hits = 10},
-      SearchTelemetry{.role = EngineRole::baseline,
-                      .completed_depth = 5,
-                      .elapsed_ns = 20'000'000,
-                      .engine_elapsed_ms = 19,
-                      .timer_accounting_delta_ns = 1'000'000,
-                      .nodes = 300,
-                      .eval_calls = 80,
-                      .tt_probes = 30,
-                      .tt_hits = 15},
+                      .stats = search::SearchStats{.nodes = 100,
+                                                   .eval_calls = 40,
+                                                   .incremental_eval_enabled = true,
+                                                   .incremental_state_initializations = 3,
+                                                   .incremental_eval_calls = 30,
+                                                   .stateless_eval_calls = 10,
+                                                   .incremental_updates = 200,
+                                                   .incremental_touched_instances = 500,
+                                                   .tt_probes = 20,
+                                                   .tt_hits = 10}},
+      SearchTelemetry{
+          .role = EngineRole::baseline,
+          .completed_depth = 5,
+          .elapsed_ns = 20'000'000,
+          .engine_elapsed_ms = 19,
+          .timer_accounting_delta_ns = 1'000'000,
+          .stats =
+              search::SearchStats{.nodes = 300, .eval_calls = 80, .tt_probes = 30, .tt_hits = 15}},
   };
 
   const TelemetrySummary candidate = summarize_telemetry({records.data(), 1});
   const TelemetrySummary baseline = summarize_telemetry({records.data() + 1, 1});
 
   REQUIRE(candidate.search_calls == 1);
-  REQUIRE(candidate.nodes == 100);
-  REQUIRE(candidate.eval_calls == 40);
+  REQUIRE(candidate.stats.nodes == 100);
+  REQUIRE(candidate.stats.eval_calls == 40);
   REQUIRE(candidate.incremental_eval_enabled_searches == 1);
-  REQUIRE(candidate.incremental_state_initializations == 3);
-  REQUIRE(candidate.incremental_eval_calls == 30);
-  REQUIRE(candidate.stateless_eval_calls == 10);
-  REQUIRE(candidate.incremental_updates == 200);
-  REQUIRE(candidate.incremental_touched_instances == 500);
-  REQUIRE(candidate.tt_hits == 10);
+  REQUIRE(candidate.stats.incremental_state_initializations == 3);
+  REQUIRE(candidate.stats.incremental_eval_calls == 30);
+  REQUIRE(candidate.stats.stateless_eval_calls == 10);
+  REQUIRE(candidate.stats.incremental_updates == 200);
+  REQUIRE(candidate.stats.incremental_touched_instances == 500);
+  REQUIRE(candidate.stats.tt_hits == 10);
   REQUIRE(baseline.search_calls == 1);
-  REQUIRE(baseline.nodes == 300);
+  REQUIRE(baseline.stats.nodes == 300);
   REQUIRE(baseline.completed_depths == std::vector<std::uint64_t>{5});
 }
 
@@ -57,7 +56,7 @@ TEST_CASE("telemetry records stopped and wall-time overshoot cases", "[arena]") 
                       .elapsed_ns = 12'000'000,
                       .engine_elapsed_ms = 11,
                       .timer_accounting_delta_ns = 1'000'000,
-                      .nodes = 7,
+                      .stats = search::SearchStats{.nodes = 7},
                       .exact = true,
                       .stopped = true,
                       .exact_handoff_used = true,
@@ -68,7 +67,7 @@ TEST_CASE("telemetry records stopped and wall-time overshoot cases", "[arena]") 
                       .elapsed_ns = 4'000'000,
                       .engine_elapsed_ms = 3,
                       .timer_accounting_delta_ns = 1'000'000,
-                      .nodes = 3,
+                      .stats = search::SearchStats{.nodes = 3},
                       .time_budget_applies = true,
                       .time_budget_ns = 10'000'000},
   };
@@ -88,47 +87,85 @@ TEST_CASE("telemetry records stopped and wall-time overshoot cases", "[arena]") 
 TEST_CASE("telemetry aggregates Multi-ProbCut phase and depth pairs", "[arena]") {
   const std::vector<SearchTelemetry> records{
       SearchTelemetry{
-          .probcut_attempts = 2,
-          .probcut_shallow_nodes = 20,
-          .probcut_successes = 1,
-          .probcut_by_phase_depth_pair = {ProbCutPairTelemetry{.phase = 3,
-                                                               .deep_depth = 8,
-                                                               .shallow_depth = 3,
-                                                               .attempts = 2,
-                                                               .shallow_nodes = 20,
-                                                               .successes = 1}},
+          .stats =
+              search::SearchStats{
+                  .probcut_attempts = 2,
+                  .probcut_shallow_nodes = 20,
+                  .probcut_successes = 1,
+                  .probcut_by_phase_depth_pair = {search::ProbCutDepthPairStats{.phase = 3,
+                                                                                .deep_depth = 8,
+                                                                                .shallow_depth = 3,
+                                                                                .attempts = 2,
+                                                                                .shallow_nodes = 20,
+                                                                                .successes = 1}}},
       },
       SearchTelemetry{
-          .probcut_attempts = 3,
-          .probcut_shallow_nodes = 30,
-          .probcut_confidence_rejections = 2,
-          .probcut_by_phase_depth_pair = {ProbCutPairTelemetry{.phase = 3,
-                                                               .deep_depth = 8,
-                                                               .shallow_depth = 3,
-                                                               .attempts = 3,
-                                                               .shallow_nodes = 30,
-                                                               .confidence_rejections = 2,
-                                                               .unsupported_profile = 1,
-                                                               .near_exact_rejections = 2,
-                                                               .pass_rejections = 3,
-                                                               .pv_rejections = 4,
-                                                               .root_rejections = 5}},
+          .stats =
+              search::SearchStats{.probcut_attempts = 3,
+                                  .probcut_shallow_nodes = 30,
+                                  .probcut_rejected_confidence = 2,
+                                  .probcut_by_phase_depth_pair = {search::ProbCutDepthPairStats{
+                                      .phase = 3,
+                                      .deep_depth = 8,
+                                      .shallow_depth = 3,
+                                      .attempts = 3,
+                                      .shallow_nodes = 30,
+                                      .confidence_rejections = 2,
+                                      .unsupported_profile = 1,
+                                      .near_exact_rejections = 2,
+                                      .pass_rejections = 3,
+                                      .pv_rejections = 4,
+                                      .root_rejections = 5}}},
       },
   };
 
   const TelemetrySummary summary = summarize_telemetry(records);
-  REQUIRE(summary.probcut_attempts == 5);
-  REQUIRE(summary.probcut_shallow_nodes == 50);
-  REQUIRE(summary.probcut_successes == 1);
-  REQUIRE(summary.probcut_confidence_rejections == 2);
-  REQUIRE(summary.probcut_by_phase_depth_pair.size() == 1);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].attempts == 5);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].shallow_nodes == 50);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].unsupported_profile == 1);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].near_exact_rejections == 2);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].pass_rejections == 3);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].pv_rejections == 4);
-  REQUIRE(summary.probcut_by_phase_depth_pair[0].root_rejections == 5);
+  REQUIRE(summary.stats.probcut_attempts == 5);
+  REQUIRE(summary.stats.probcut_shallow_nodes == 50);
+  REQUIRE(summary.stats.probcut_successes == 1);
+  REQUIRE(summary.stats.probcut_rejected_confidence == 2);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair.size() == 1);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].attempts == 5);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].shallow_nodes == 50);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].unsupported_profile == 1);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].near_exact_rejections == 2);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].pass_rejections == 3);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].pv_rejections == 4);
+  REQUIRE(summary.stats.probcut_by_phase_depth_pair[0].root_rejections == 5);
+}
+
+TEST_CASE("search telemetry retains the canonical SearchStats payload", "[arena]") {
+  search::SearchResult result;
+  result.completed_depth = 9;
+  result.elapsed = std::chrono::milliseconds{17};
+  result.exact = true;
+  result.stats = search::SearchStats{
+      .nodes = 101,
+      .beta_cutoffs = 11,
+      .alpha_updates = 12,
+      .root_moves_searched = 13,
+      .tt_invalid_best_move_stores = 14,
+      .probcut_rejected_by_phase = 15,
+      .probcut_rejected_by_depth = 16,
+      .probcut_rejected_root = 17,
+      .probcut_rejected_overhead = 18,
+      .probcut_probe_limit_reached = 19,
+      .probcut_shadow_candidates = 20,
+      .probcut_shadow_verifications = 21,
+      .probcut_estimated_saved_nodes = 22,
+      .probcut_estimated_saved_nodes_available = true,
+  };
+
+  const SearchTelemetry telemetry =
+      make_search_telemetry(EngineRole::candidate, "black", 24, 2, 18'000'000, 1'000'000, true,
+                            std::optional<std::uint64_t>{20'000'000}, result);
+
+  REQUIRE(telemetry.stats == result.stats);
+  REQUIRE(telemetry.completed_depth == 9);
+  REQUIRE(telemetry.engine_elapsed_ms == 17);
+  REQUIRE(telemetry.exact);
+  REQUIRE(telemetry.exact_root_search);
+  REQUIRE(telemetry.time_budget_applies);
 }
 
 TEST_CASE("nearest rank depth percentiles return observed depths", "[arena]") {

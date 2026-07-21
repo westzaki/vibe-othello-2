@@ -11,7 +11,8 @@ set_target_properties(vibe_othello_arena PROPERTIES OUTPUT_NAME vibe-othello-are
 
 add_executable(vibe_othello_pattern_artifact_arena pattern_artifact_arena.cc)
 
-target_link_libraries(vibe_othello_pattern_artifact_arena PRIVATE vibe_othello_arena_core)
+target_link_libraries(vibe_othello_pattern_artifact_arena
+                      PRIVATE vibe_othello_arena_core vibe_othello_pattern_normalized_tsv)
 
 set_target_properties(vibe_othello_pattern_artifact_arena
                       PROPERTIES OUTPUT_NAME vibe-othello-pattern-artifact-arena)
@@ -22,6 +23,7 @@ add_library(vibe_othello_full_game_artifact_arena_core STATIC full_game_artifact
 
 target_include_directories(vibe_othello_full_game_artifact_arena_core
                            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(vibe_othello_full_game_artifact_arena_core PUBLIC vibe_othello::engine)
 
 target_link_libraries(vibe_othello_full_game_artifact_arena PRIVATE vibe_othello_arena_core
                                                                vibe_othello_full_game_artifact_arena_core)

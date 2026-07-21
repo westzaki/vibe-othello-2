@@ -205,13 +205,32 @@ def assert_report(report: dict[str, object]) -> None:
             "stateless_eval_calls",
             "incremental_updates",
             "incremental_touched_instances",
+            "beta_cutoffs",
+            "alpha_updates",
+            "root_moves_searched",
         ):
             if field not in overall_telemetry:
                 raise AssertionError(f"missing {role} backend telemetry {field}: {overall_telemetry!r}")
         if not role_report["by_phase"] or not role_report["by_side_to_move"]:
             raise AssertionError(f"missing {role} telemetry buckets: {role_report!r}")
-        if not isinstance(overall_telemetry.get("probcut"), dict):
+        if "invalid_best_move_stores" not in overall_telemetry.get("tt", {}):
+            raise AssertionError(f"missing {role} TT telemetry: {overall_telemetry!r}")
+        probcut = overall_telemetry.get("probcut")
+        if not isinstance(probcut, dict):
             raise AssertionError(f"missing {role} ProbCut telemetry: {overall_telemetry!r}")
+        for field in (
+            "phase_rejections",
+            "depth_rejections",
+            "root_rejections",
+            "overhead_rejections",
+            "probe_limit_reached",
+            "shadow_candidates",
+            "shadow_verifications",
+            "estimated_saved_nodes",
+            "estimated_saved_nodes_available",
+        ):
+            if field not in probcut:
+                raise AssertionError(f"missing {role} ProbCut telemetry {field}: {probcut!r}")
     if any(not game.get("search_calls") for game in report["game_records"]):
         raise AssertionError("game record lacks per-search telemetry")
     first_search = report["game_records"][0]["search_calls"][0]
@@ -227,10 +246,29 @@ def assert_report(report: dict[str, object]) -> None:
         "stateless_eval_calls",
         "incremental_updates",
         "incremental_touched_instances",
+        "beta_cutoffs",
+        "alpha_updates",
+        "root_moves_searched",
+        "tt_invalid_best_move_stores",
         "probcut",
     ):
         if field not in first_search:
             raise AssertionError(f"per-search telemetry lacks {field}: {first_search!r}")
+    for field in (
+        "phase_rejections",
+        "depth_rejections",
+        "root_rejections",
+        "overhead_rejections",
+        "probe_limit_reached",
+        "shadow_candidates",
+        "shadow_verifications",
+        "estimated_saved_nodes",
+        "estimated_saved_nodes_available",
+    ):
+        if field not in first_search["probcut"]:
+            raise AssertionError(
+                f"per-search ProbCut telemetry lacks {field}: {first_search['probcut']!r}"
+            )
     gate = report["strength_gate"]
     if gate != {"eligible": True, "minimum_opening_pairs": 1, "reasons": []}:
         raise AssertionError(f"valid smoke run was not gate eligible: {gate!r}")

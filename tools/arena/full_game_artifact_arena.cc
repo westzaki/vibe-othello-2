@@ -1217,34 +1217,6 @@ int disc_count(board_core::Bitboard discs) noexcept {
   return std::popcount(discs);
 }
 
-std::vector<full_arena::ProbCutPairTelemetry>
-probcut_pair_telemetry(const search::SearchStats& stats) {
-  std::vector<full_arena::ProbCutPairTelemetry> result;
-  result.reserve(stats.probcut_by_phase_depth_pair.size());
-  for (const search::ProbCutDepthPairStats& entry : stats.probcut_by_phase_depth_pair) {
-    result.push_back(full_arena::ProbCutPairTelemetry{
-        .phase = entry.phase,
-        .deep_depth = entry.deep_depth,
-        .shallow_depth = entry.shallow_depth,
-        .attempts = entry.attempts,
-        .shallow_nodes = entry.shallow_nodes,
-        .successes = entry.successes,
-        .confidence_rejections = entry.confidence_rejections,
-        .unsupported_profile = entry.unsupported_profile,
-        .near_exact_rejections = entry.near_exact_rejections,
-        .pass_rejections = entry.pass_rejections,
-        .pv_rejections = entry.pv_rejections,
-        .root_rejections = entry.root_rejections,
-        .beta_cuts = entry.beta_cuts,
-        .cut_low_attempts = entry.cut_low_attempts,
-        .shadow_candidates = entry.shadow_candidates,
-        .shadow_verifications = entry.shadow_verifications,
-        .shadow_false_cuts = entry.shadow_false_cuts,
-    });
-  }
-  return result;
-}
-
 GameRecord adjudicated_failure(int game_id, const SelectedOpening& opening, bool candidate_is_black,
                                bool candidate_offender, std::string reason, bool illegal,
                                int normal_moves_after_opening, int passes_after_opening,
@@ -1326,8 +1298,6 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
         std::chrono::steady_clock::now() - search_started);
     const std::uint64_t elapsed_ns =
         measured_elapsed.count() > 0 ? static_cast<std::uint64_t>(measured_elapsed.count()) : 0;
-    const std::uint64_t engine_elapsed_ms =
-        result.elapsed.count() > 0 ? static_cast<std::uint64_t>(result.elapsed.count()) : 0;
     const std::int64_t timer_accounting_delta_ns =
         measured_elapsed.count() -
         std::chrono::duration_cast<std::chrono::nanoseconds>(result.elapsed).count();
@@ -1338,64 +1308,15 @@ GameRecord play_game(int game_id, const SelectedOpening& opening, bool candidate
         std::chrono::duration_cast<std::chrono::nanoseconds>(search_config.limits.max_time)
             .count());
     GameRecord::SearchCall search_call{
-        .telemetry =
-            full_arena::SearchTelemetry{
-                .role = candidate_to_move ? full_arena::EngineRole::candidate
-                                          : full_arena::EngineRole::baseline,
-                .side_to_move =
-                    position.side_to_move == board_core::Color::black ? "black" : "white",
-                .occupied_count = occupied_count,
-                .phase = active.phase_by_occupied_count[static_cast<std::size_t>(occupied_count)],
-                .completed_depth = result.completed_depth,
-                .elapsed_ns = elapsed_ns,
-                .engine_elapsed_ms = engine_elapsed_ms,
-                .timer_accounting_delta_ns = timer_accounting_delta_ns,
-                .nodes = result.nodes,
-                .eval_calls = result.stats.eval_calls,
-                .incremental_eval_enabled = result.stats.incremental_eval_enabled,
-                .incremental_state_initializations = result.stats.incremental_state_initializations,
-                .incremental_eval_calls = result.stats.incremental_eval_calls,
-                .stateless_eval_calls = result.stats.stateless_eval_calls,
-                .incremental_updates = result.stats.incremental_updates,
-                .incremental_touched_instances = result.stats.incremental_touched_instances,
-                .leaf_nodes = result.stats.leaf_nodes,
-                .terminal_nodes = result.stats.terminal_nodes,
-                .pass_nodes = result.stats.pass_nodes,
-                .tt_probes = result.stats.tt_probes,
-                .tt_hits = result.stats.tt_hits,
-                .tt_cutoffs = result.stats.tt_cutoffs,
-                .tt_stores = result.stats.tt_stores,
-                .tt_replacements = result.stats.tt_replacements,
-                .tt_bucket_conflicts = result.stats.tt_bucket_conflicts,
-                .tt_same_key_updates = result.stats.tt_same_key_updates,
-                .tt_probe_slots = result.stats.tt_probe_slots,
-                .tt_generation_age_hits = result.stats.tt_generation_age_hits,
-                .tt_rejected_stores = result.stats.tt_rejected_stores,
-                .pvs_researches = result.stats.pvs_researches,
-                .aspiration_fail_lows = result.stats.aspiration_fail_lows,
-                .aspiration_fail_highs = result.stats.aspiration_fail_highs,
-                .iid_searches = result.stats.iid_searches,
-                .endgame_nodes = result.stats.endgame_nodes,
-                .selective_cuts = result.stats.selective_cuts,
-                .probcut_attempts = result.stats.probcut_attempts,
-                .probcut_shallow_nodes = result.stats.probcut_shallow_nodes,
-                .probcut_successes = result.stats.probcut_successes,
-                .probcut_confidence_rejections = result.stats.probcut_rejected_confidence,
-                .probcut_unsupported_profile = result.stats.probcut_unsupported_profile,
-                .probcut_near_exact_rejections = result.stats.probcut_rejected_near_exact,
-                .probcut_pass_rejections = result.stats.probcut_rejected_pass,
-                .probcut_pv_rejections = result.stats.probcut_rejected_pv,
-                .probcut_beta_cuts = result.stats.probcut_beta_cutoffs,
-                .probcut_cut_low_attempts = result.stats.probcut_cut_low_attempts,
-                .probcut_shadow_false_cuts = result.stats.probcut_shadow_false_cuts,
-                .probcut_by_phase_depth_pair = probcut_pair_telemetry(result.stats),
-                .exact = result.exact,
-                .stopped = result.stopped,
-                .exact_handoff_used = result.stats.endgame_nodes > 0,
-                .exact_root_search = exact_root_search,
-                .time_budget_applies = search_config.limits.max_time.count() > 0,
-                .time_budget_ns = time_budget_ns,
-            },
+        .telemetry = full_arena::make_search_telemetry(
+            candidate_to_move ? full_arena::EngineRole::candidate
+                              : full_arena::EngineRole::baseline,
+            position.side_to_move == board_core::Color::black ? "black" : "white", occupied_count,
+            active.phase_by_occupied_count[static_cast<std::size_t>(occupied_count)], elapsed_ns,
+            timer_accounting_delta_ns, exact_root_search,
+            search_config.limits.max_time.count() > 0 ? std::optional<std::uint64_t>{time_budget_ns}
+                                                      : std::nullopt,
+            result),
         .best_move = result.best_move.has_value() ? arena::format_move(*result.best_move) : "none",
         .best_move_status = "legal",
     };
@@ -1846,13 +1767,13 @@ void write_distribution(std::ostream& output, std::span<const std::uint64_t> val
 }
 
 void write_probcut_pair_telemetry(std::ostream& output,
-                                  std::span<const full_arena::ProbCutPairTelemetry> entries) {
+                                  std::span<const search::ProbCutDepthPairStats> entries) {
   output << "[";
   for (std::size_t index = 0; index < entries.size(); ++index) {
     if (index != 0) {
       output << ", ";
     }
-    const full_arena::ProbCutPairTelemetry& entry = entries[index];
+    const search::ProbCutDepthPairStats& entry = entries[index];
     output << "{\"phase\": " << static_cast<int>(entry.phase)
            << ", \"deep_depth\": " << entry.deep_depth
            << ", \"shallow_depth\": " << entry.shallow_depth << ", \"attempts\": " << entry.attempts
@@ -1882,6 +1803,79 @@ void write_probcut_pair_telemetry(std::ostream& output,
   output << "]";
 }
 
+void write_search_stats_identity(std::ostream& output, const search::SearchStats& stats) {
+  output << stats.nodes << '\n'
+         << stats.leaf_nodes << '\n'
+         << stats.eval_calls << '\n'
+         << stats.incremental_eval_enabled << '\n'
+         << stats.incremental_state_initializations << '\n'
+         << stats.incremental_eval_calls << '\n'
+         << stats.stateless_eval_calls << '\n'
+         << stats.incremental_updates << '\n'
+         << stats.incremental_touched_instances << '\n'
+         << stats.terminal_nodes << '\n'
+         << stats.pass_nodes << '\n'
+         << stats.beta_cutoffs << '\n'
+         << stats.alpha_updates << '\n'
+         << stats.root_moves_searched << '\n'
+         << stats.tt_probes << '\n'
+         << stats.tt_hits << '\n'
+         << stats.tt_stores << '\n'
+         << stats.tt_cutoffs << '\n'
+         << stats.tt_replacements << '\n'
+         << stats.tt_bucket_conflicts << '\n'
+         << stats.tt_same_key_updates << '\n'
+         << stats.tt_probe_slots << '\n'
+         << stats.tt_generation_age_hits << '\n'
+         << stats.tt_rejected_stores << '\n'
+         << stats.tt_invalid_best_move_stores << '\n'
+         << stats.pvs_researches << '\n'
+         << stats.aspiration_fail_lows << '\n'
+         << stats.aspiration_fail_highs << '\n'
+         << stats.iid_searches << '\n'
+         << stats.endgame_nodes << '\n'
+         << stats.selective_cuts << '\n'
+         << stats.probcut_attempts << '\n'
+         << stats.probcut_shallow_nodes << '\n'
+         << stats.probcut_successes << '\n'
+         << stats.probcut_unsupported_profile << '\n'
+         << stats.probcut_rejected_by_phase << '\n'
+         << stats.probcut_rejected_by_depth << '\n'
+         << stats.probcut_rejected_near_exact << '\n'
+         << stats.probcut_rejected_pass << '\n'
+         << stats.probcut_rejected_pv << '\n'
+         << stats.probcut_rejected_root << '\n'
+         << stats.probcut_rejected_overhead << '\n'
+         << stats.probcut_probe_limit_reached << '\n'
+         << stats.probcut_rejected_confidence << '\n'
+         << stats.probcut_beta_cutoffs << '\n'
+         << stats.probcut_cut_low_attempts << '\n'
+         << stats.probcut_shadow_candidates << '\n'
+         << stats.probcut_shadow_verifications << '\n'
+         << stats.probcut_shadow_false_cuts << '\n'
+         << stats.probcut_estimated_saved_nodes << '\n'
+         << stats.probcut_estimated_saved_nodes_available << '\n';
+  for (const search::ProbCutDepthPairStats& pair : stats.probcut_by_phase_depth_pair) {
+    output << static_cast<int>(pair.phase) << '\n'
+           << pair.deep_depth << '\n'
+           << pair.shallow_depth << '\n'
+           << pair.attempts << '\n'
+           << pair.shallow_nodes << '\n'
+           << pair.successes << '\n'
+           << pair.confidence_rejections << '\n'
+           << pair.unsupported_profile << '\n'
+           << pair.near_exact_rejections << '\n'
+           << pair.pass_rejections << '\n'
+           << pair.pv_rejections << '\n'
+           << pair.root_rejections << '\n'
+           << pair.beta_cuts << '\n'
+           << pair.cut_low_attempts << '\n'
+           << pair.shadow_candidates << '\n'
+           << pair.shadow_verifications << '\n'
+           << pair.shadow_false_cuts << '\n';
+  }
+}
+
 void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySummary& summary) {
   output << "{";
   output << "\"search_calls\": " << summary.search_calls;
@@ -1889,18 +1883,19 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   output << ", \"elapsed_ms\": " << static_cast<double>(summary.elapsed_ns) / 1'000'000.0;
   output << ", \"engine_elapsed_ms\": " << summary.engine_elapsed_ms;
   output << ", \"timer_accounting_delta_ns\": " << summary.timer_accounting_delta_ns;
-  output << ", \"nodes\": {\"total\": " << summary.nodes << ", \"mean\": ";
+  output << ", \"nodes\": {\"total\": " << summary.stats.nodes << ", \"mean\": ";
   if (summary.search_calls == 0) {
     output << "null";
   } else {
-    output << static_cast<double>(summary.nodes) / static_cast<double>(summary.search_calls);
+    output << static_cast<double>(summary.stats.nodes) / static_cast<double>(summary.search_calls);
   }
   output << "}";
-  output << ", \"eval_calls\": {\"total\": " << summary.eval_calls << ", \"mean\": ";
+  output << ", \"eval_calls\": {\"total\": " << summary.stats.eval_calls << ", \"mean\": ";
   if (summary.search_calls == 0) {
     output << "null";
   } else {
-    output << static_cast<double>(summary.eval_calls) / static_cast<double>(summary.search_calls);
+    output << static_cast<double>(summary.stats.eval_calls) /
+                  static_cast<double>(summary.search_calls);
   }
   output << "}";
   output << ", \"incremental_eval_enabled\": "
@@ -1908,14 +1903,14 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   output << ", \"incremental_eval_enabled_searches\": "
          << summary.incremental_eval_enabled_searches;
   output << ", \"incremental_state_initializations\": "
-         << summary.incremental_state_initializations;
-  output << ", \"incremental_eval_calls\": " << summary.incremental_eval_calls;
-  output << ", \"stateless_eval_calls\": " << summary.stateless_eval_calls;
-  output << ", \"incremental_updates\": " << summary.incremental_updates;
-  output << ", \"incremental_touched_instances\": " << summary.incremental_touched_instances;
+         << summary.stats.incremental_state_initializations;
+  output << ", \"incremental_eval_calls\": " << summary.stats.incremental_eval_calls;
+  output << ", \"stateless_eval_calls\": " << summary.stats.stateless_eval_calls;
+  output << ", \"incremental_updates\": " << summary.stats.incremental_updates;
+  output << ", \"incremental_touched_instances\": " << summary.stats.incremental_touched_instances;
   output << ", \"nodes_per_sec\": ";
   const std::optional<double> nodes_per_sec =
-      full_arena::events_per_second(summary.nodes, summary.elapsed_ns);
+      full_arena::events_per_second(summary.stats.nodes, summary.elapsed_ns);
   if (!nodes_per_sec.has_value()) {
     output << "null";
   } else {
@@ -1923,7 +1918,7 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   }
   output << ", \"evals_per_sec\": ";
   const std::optional<double> evals_per_sec =
-      full_arena::events_per_second(summary.eval_calls, summary.elapsed_ns);
+      full_arena::events_per_second(summary.stats.eval_calls, summary.elapsed_ns);
   if (!evals_per_sec.has_value()) {
     output << "null";
   } else {
@@ -1940,53 +1935,69 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
            << ", \"p90\": " << full_arena::nearest_rank_percentile(summary.completed_depths, 0.90);
   }
   output << "}";
-  output << ", \"leaf_nodes\": " << summary.leaf_nodes;
-  output << ", \"terminal_nodes\": " << summary.terminal_nodes;
-  output << ", \"pass_nodes\": " << summary.pass_nodes;
-  output << ", \"tt\": {\"probes\": " << summary.tt_probes << ", \"hits\": " << summary.tt_hits
-         << ", \"cutoffs\": " << summary.tt_cutoffs << ", \"stores\": " << summary.tt_stores
-         << ", \"replacements\": " << summary.tt_replacements
-         << ", \"bucket_conflicts\": " << summary.tt_bucket_conflicts
-         << ", \"same_key_updates\": " << summary.tt_same_key_updates
-         << ", \"probe_slots\": " << summary.tt_probe_slots
-         << ", \"generation_age_hits\": " << summary.tt_generation_age_hits
-         << ", \"rejected_stores\": " << summary.tt_rejected_stores << ", \"hit_rate\": ";
-  write_optional_rate(output, summary.tt_hits, summary.tt_probes);
+  output << ", \"leaf_nodes\": " << summary.stats.leaf_nodes;
+  output << ", \"terminal_nodes\": " << summary.stats.terminal_nodes;
+  output << ", \"pass_nodes\": " << summary.stats.pass_nodes;
+  output << ", \"beta_cutoffs\": " << summary.stats.beta_cutoffs;
+  output << ", \"alpha_updates\": " << summary.stats.alpha_updates;
+  output << ", \"root_moves_searched\": " << summary.stats.root_moves_searched;
+  output << ", \"tt\": {\"probes\": " << summary.stats.tt_probes
+         << ", \"hits\": " << summary.stats.tt_hits << ", \"cutoffs\": " << summary.stats.tt_cutoffs
+         << ", \"stores\": " << summary.stats.tt_stores
+         << ", \"replacements\": " << summary.stats.tt_replacements
+         << ", \"bucket_conflicts\": " << summary.stats.tt_bucket_conflicts
+         << ", \"same_key_updates\": " << summary.stats.tt_same_key_updates
+         << ", \"probe_slots\": " << summary.stats.tt_probe_slots
+         << ", \"generation_age_hits\": " << summary.stats.tt_generation_age_hits
+         << ", \"rejected_stores\": " << summary.stats.tt_rejected_stores
+         << ", \"invalid_best_move_stores\": " << summary.stats.tt_invalid_best_move_stores
+         << ", \"hit_rate\": ";
+  write_optional_rate(output, summary.stats.tt_hits, summary.stats.tt_probes);
   output << ", \"cutoff_rate_per_probe\": ";
-  write_optional_rate(output, summary.tt_cutoffs, summary.tt_probes);
+  write_optional_rate(output, summary.stats.tt_cutoffs, summary.stats.tt_probes);
   output << ", \"cutoff_rate_per_hit\": ";
-  write_optional_rate(output, summary.tt_cutoffs, summary.tt_hits);
+  write_optional_rate(output, summary.stats.tt_cutoffs, summary.stats.tt_hits);
   output << ", \"average_probe_slots\": ";
-  write_optional_rate(output, summary.tt_probe_slots, summary.tt_probes);
+  write_optional_rate(output, summary.stats.tt_probe_slots, summary.stats.tt_probes);
   output << "}";
-  output << ", \"pvs_researches\": " << summary.pvs_researches;
-  output << ", \"aspiration_fail_lows\": " << summary.aspiration_fail_lows;
-  output << ", \"aspiration_fail_highs\": " << summary.aspiration_fail_highs;
-  output << ", \"iid_searches\": " << summary.iid_searches;
-  output << ", \"endgame_nodes\": " << summary.endgame_nodes;
-  output << ", \"selective_cuts\": " << summary.selective_cuts;
-  output << ", \"probcut\": {\"attempts\": " << summary.probcut_attempts
-         << ", \"shallow_nodes\": " << summary.probcut_shallow_nodes
-         << ", \"successes\": " << summary.probcut_successes
-         << ", \"confidence_rejections\": " << summary.probcut_confidence_rejections
-         << ", \"unsupported_profile\": " << summary.probcut_unsupported_profile
-         << ", \"near_exact_rejections\": " << summary.probcut_near_exact_rejections
-         << ", \"pass_rejections\": " << summary.probcut_pass_rejections
-         << ", \"pv_rejections\": " << summary.probcut_pv_rejections
-         << ", \"beta_cuts\": " << summary.probcut_beta_cuts
-         << ", \"cut_low_attempts\": " << summary.probcut_cut_low_attempts
-         << ", \"shadow_false_cuts\": " << summary.probcut_shadow_false_cuts
+  output << ", \"pvs_researches\": " << summary.stats.pvs_researches;
+  output << ", \"aspiration_fail_lows\": " << summary.stats.aspiration_fail_lows;
+  output << ", \"aspiration_fail_highs\": " << summary.stats.aspiration_fail_highs;
+  output << ", \"iid_searches\": " << summary.stats.iid_searches;
+  output << ", \"endgame_nodes\": " << summary.stats.endgame_nodes;
+  output << ", \"selective_cuts\": " << summary.stats.selective_cuts;
+  output << ", \"probcut\": {\"attempts\": " << summary.stats.probcut_attempts
+         << ", \"shallow_nodes\": " << summary.stats.probcut_shallow_nodes
+         << ", \"successes\": " << summary.stats.probcut_successes
+         << ", \"confidence_rejections\": " << summary.stats.probcut_rejected_confidence
+         << ", \"unsupported_profile\": " << summary.stats.probcut_unsupported_profile
+         << ", \"phase_rejections\": " << summary.stats.probcut_rejected_by_phase
+         << ", \"depth_rejections\": " << summary.stats.probcut_rejected_by_depth
+         << ", \"near_exact_rejections\": " << summary.stats.probcut_rejected_near_exact
+         << ", \"pass_rejections\": " << summary.stats.probcut_rejected_pass
+         << ", \"pv_rejections\": " << summary.stats.probcut_rejected_pv
+         << ", \"root_rejections\": " << summary.stats.probcut_rejected_root
+         << ", \"overhead_rejections\": " << summary.stats.probcut_rejected_overhead
+         << ", \"probe_limit_reached\": " << summary.stats.probcut_probe_limit_reached
+         << ", \"beta_cuts\": " << summary.stats.probcut_beta_cutoffs
+         << ", \"cut_low_attempts\": " << summary.stats.probcut_cut_low_attempts
+         << ", \"shadow_candidates\": " << summary.stats.probcut_shadow_candidates
+         << ", \"shadow_verifications\": " << summary.stats.probcut_shadow_verifications
+         << ", \"shadow_false_cuts\": " << summary.stats.probcut_shadow_false_cuts
+         << ", \"estimated_saved_nodes\": " << summary.stats.probcut_estimated_saved_nodes
+         << ", \"estimated_saved_nodes_available\": "
+         << (summary.stats.probcut_estimated_saved_nodes_available ? "true" : "false")
          << ", \"average_shallow_overhead\": ";
-  if (summary.probcut_attempts == 0) {
+  if (summary.stats.probcut_attempts == 0) {
     output << "null";
   } else {
-    output << static_cast<double>(summary.probcut_shallow_nodes) /
-                  static_cast<double>(summary.probcut_attempts);
+    output << static_cast<double>(summary.stats.probcut_shallow_nodes) /
+                  static_cast<double>(summary.stats.probcut_attempts);
   }
   output << ", \"cut_success_rate\": ";
-  write_optional_rate(output, summary.probcut_successes, summary.probcut_attempts);
+  write_optional_rate(output, summary.stats.probcut_successes, summary.stats.probcut_attempts);
   output << ", \"by_phase_depth_pair\": ";
-  write_probcut_pair_telemetry(output, summary.probcut_by_phase_depth_pair);
+  write_probcut_pair_telemetry(output, summary.stats.probcut_by_phase_depth_pair);
   output << "}";
   output << ", \"stopped_searches\": " << summary.stopped_searches;
   output << ", \"exact_handoff_uses\": " << summary.exact_handoff_uses;
@@ -2049,47 +2060,62 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   output << ", \"elapsed_ms\": " << static_cast<double>(record.elapsed_ns) / 1'000'000.0;
   output << ", \"engine_elapsed_ms\": " << record.engine_elapsed_ms;
   output << ", \"timer_accounting_delta_ns\": " << record.timer_accounting_delta_ns;
-  output << ", \"nodes\": " << record.nodes;
-  output << ", \"eval_calls\": " << record.eval_calls;
+  output << ", \"nodes\": " << record.stats.nodes;
+  output << ", \"eval_calls\": " << record.stats.eval_calls;
   output << ", \"incremental_eval_enabled\": ";
-  write_bool(output, record.incremental_eval_enabled);
-  output << ", \"incremental_state_initializations\": " << record.incremental_state_initializations;
-  output << ", \"incremental_eval_calls\": " << record.incremental_eval_calls;
-  output << ", \"stateless_eval_calls\": " << record.stateless_eval_calls;
-  output << ", \"incremental_updates\": " << record.incremental_updates;
-  output << ", \"incremental_touched_instances\": " << record.incremental_touched_instances;
-  output << ", \"leaf_nodes\": " << record.leaf_nodes;
-  output << ", \"terminal_nodes\": " << record.terminal_nodes;
-  output << ", \"pass_nodes\": " << record.pass_nodes;
-  output << ", \"tt_probes\": " << record.tt_probes;
-  output << ", \"tt_hits\": " << record.tt_hits;
-  output << ", \"tt_cutoffs\": " << record.tt_cutoffs;
-  output << ", \"tt_stores\": " << record.tt_stores;
-  output << ", \"tt_replacements\": " << record.tt_replacements;
-  output << ", \"tt_bucket_conflicts\": " << record.tt_bucket_conflicts;
-  output << ", \"tt_same_key_updates\": " << record.tt_same_key_updates;
-  output << ", \"tt_probe_slots\": " << record.tt_probe_slots;
-  output << ", \"tt_generation_age_hits\": " << record.tt_generation_age_hits;
-  output << ", \"tt_rejected_stores\": " << record.tt_rejected_stores;
-  output << ", \"pvs_researches\": " << record.pvs_researches;
-  output << ", \"aspiration_fail_lows\": " << record.aspiration_fail_lows;
-  output << ", \"aspiration_fail_highs\": " << record.aspiration_fail_highs;
-  output << ", \"iid_searches\": " << record.iid_searches;
-  output << ", \"endgame_nodes\": " << record.endgame_nodes;
-  output << ", \"selective_cuts\": " << record.selective_cuts;
-  output << ", \"probcut\": {\"attempts\": " << record.probcut_attempts
-         << ", \"shallow_nodes\": " << record.probcut_shallow_nodes
-         << ", \"successes\": " << record.probcut_successes
-         << ", \"confidence_rejections\": " << record.probcut_confidence_rejections
-         << ", \"unsupported_profile\": " << record.probcut_unsupported_profile
-         << ", \"near_exact_rejections\": " << record.probcut_near_exact_rejections
-         << ", \"pass_rejections\": " << record.probcut_pass_rejections
-         << ", \"pv_rejections\": " << record.probcut_pv_rejections
-         << ", \"beta_cuts\": " << record.probcut_beta_cuts
-         << ", \"cut_low_attempts\": " << record.probcut_cut_low_attempts
-         << ", \"shadow_false_cuts\": " << record.probcut_shadow_false_cuts
-         << ", \"by_phase_depth_pair\": ";
-  write_probcut_pair_telemetry(output, record.probcut_by_phase_depth_pair);
+  write_bool(output, record.stats.incremental_eval_enabled);
+  output << ", \"incremental_state_initializations\": "
+         << record.stats.incremental_state_initializations;
+  output << ", \"incremental_eval_calls\": " << record.stats.incremental_eval_calls;
+  output << ", \"stateless_eval_calls\": " << record.stats.stateless_eval_calls;
+  output << ", \"incremental_updates\": " << record.stats.incremental_updates;
+  output << ", \"incremental_touched_instances\": " << record.stats.incremental_touched_instances;
+  output << ", \"leaf_nodes\": " << record.stats.leaf_nodes;
+  output << ", \"terminal_nodes\": " << record.stats.terminal_nodes;
+  output << ", \"pass_nodes\": " << record.stats.pass_nodes;
+  output << ", \"beta_cutoffs\": " << record.stats.beta_cutoffs;
+  output << ", \"alpha_updates\": " << record.stats.alpha_updates;
+  output << ", \"root_moves_searched\": " << record.stats.root_moves_searched;
+  output << ", \"tt_probes\": " << record.stats.tt_probes;
+  output << ", \"tt_hits\": " << record.stats.tt_hits;
+  output << ", \"tt_cutoffs\": " << record.stats.tt_cutoffs;
+  output << ", \"tt_stores\": " << record.stats.tt_stores;
+  output << ", \"tt_replacements\": " << record.stats.tt_replacements;
+  output << ", \"tt_bucket_conflicts\": " << record.stats.tt_bucket_conflicts;
+  output << ", \"tt_same_key_updates\": " << record.stats.tt_same_key_updates;
+  output << ", \"tt_probe_slots\": " << record.stats.tt_probe_slots;
+  output << ", \"tt_generation_age_hits\": " << record.stats.tt_generation_age_hits;
+  output << ", \"tt_rejected_stores\": " << record.stats.tt_rejected_stores;
+  output << ", \"tt_invalid_best_move_stores\": " << record.stats.tt_invalid_best_move_stores;
+  output << ", \"pvs_researches\": " << record.stats.pvs_researches;
+  output << ", \"aspiration_fail_lows\": " << record.stats.aspiration_fail_lows;
+  output << ", \"aspiration_fail_highs\": " << record.stats.aspiration_fail_highs;
+  output << ", \"iid_searches\": " << record.stats.iid_searches;
+  output << ", \"endgame_nodes\": " << record.stats.endgame_nodes;
+  output << ", \"selective_cuts\": " << record.stats.selective_cuts;
+  output << ", \"probcut\": {\"attempts\": " << record.stats.probcut_attempts
+         << ", \"shallow_nodes\": " << record.stats.probcut_shallow_nodes
+         << ", \"successes\": " << record.stats.probcut_successes
+         << ", \"confidence_rejections\": " << record.stats.probcut_rejected_confidence
+         << ", \"unsupported_profile\": " << record.stats.probcut_unsupported_profile
+         << ", \"phase_rejections\": " << record.stats.probcut_rejected_by_phase
+         << ", \"depth_rejections\": " << record.stats.probcut_rejected_by_depth
+         << ", \"near_exact_rejections\": " << record.stats.probcut_rejected_near_exact
+         << ", \"pass_rejections\": " << record.stats.probcut_rejected_pass
+         << ", \"pv_rejections\": " << record.stats.probcut_rejected_pv
+         << ", \"root_rejections\": " << record.stats.probcut_rejected_root
+         << ", \"overhead_rejections\": " << record.stats.probcut_rejected_overhead
+         << ", \"probe_limit_reached\": " << record.stats.probcut_probe_limit_reached
+         << ", \"beta_cuts\": " << record.stats.probcut_beta_cutoffs
+         << ", \"cut_low_attempts\": " << record.stats.probcut_cut_low_attempts
+         << ", \"shadow_candidates\": " << record.stats.probcut_shadow_candidates
+         << ", \"shadow_verifications\": " << record.stats.probcut_shadow_verifications
+         << ", \"shadow_false_cuts\": " << record.stats.probcut_shadow_false_cuts
+         << ", \"estimated_saved_nodes\": " << record.stats.probcut_estimated_saved_nodes
+         << ", \"estimated_saved_nodes_available\": ";
+  write_bool(output, record.stats.probcut_estimated_saved_nodes_available);
+  output << ", \"by_phase_depth_pair\": ";
+  write_probcut_pair_telemetry(output, record.stats.probcut_by_phase_depth_pair);
   output << "}";
   output << ", \"exact\": ";
   write_bool(output, record.exact);
@@ -2355,68 +2381,12 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
              << telemetry.side_to_move << '\n'
              << telemetry.occupied_count << '\n'
              << telemetry.phase << '\n'
-             << telemetry.completed_depth << '\n'
-             << telemetry.nodes << '\n'
-             << telemetry.eval_calls << '\n'
-             << telemetry.incremental_eval_enabled << '\n'
-             << telemetry.incremental_state_initializations << '\n'
-             << telemetry.incremental_eval_calls << '\n'
-             << telemetry.stateless_eval_calls << '\n'
-             << telemetry.incremental_updates << '\n'
-             << telemetry.incremental_touched_instances << '\n'
-             << telemetry.leaf_nodes << '\n'
-             << telemetry.terminal_nodes << '\n'
-             << telemetry.pass_nodes << '\n'
-             << telemetry.tt_probes << '\n'
-             << telemetry.tt_hits << '\n'
-             << telemetry.tt_cutoffs << '\n'
-             << telemetry.tt_stores << '\n'
-             << telemetry.tt_replacements << '\n'
-             << telemetry.tt_bucket_conflicts << '\n'
-             << telemetry.tt_same_key_updates << '\n'
-             << telemetry.tt_probe_slots << '\n'
-             << telemetry.tt_generation_age_hits << '\n'
-             << telemetry.tt_rejected_stores << '\n'
-             << telemetry.pvs_researches << '\n'
-             << telemetry.aspiration_fail_lows << '\n'
-             << telemetry.aspiration_fail_highs << '\n'
-             << telemetry.iid_searches << '\n'
-             << telemetry.endgame_nodes << '\n'
-             << telemetry.selective_cuts << '\n'
-             << telemetry.probcut_attempts << '\n'
-             << telemetry.probcut_shallow_nodes << '\n'
-             << telemetry.probcut_successes << '\n'
-             << telemetry.probcut_confidence_rejections << '\n'
-             << telemetry.probcut_unsupported_profile << '\n'
-             << telemetry.probcut_near_exact_rejections << '\n'
-             << telemetry.probcut_pass_rejections << '\n'
-             << telemetry.probcut_pv_rejections << '\n'
-             << telemetry.probcut_beta_cuts << '\n'
-             << telemetry.probcut_cut_low_attempts << '\n'
-             << telemetry.probcut_shadow_false_cuts << '\n'
-             << telemetry.exact << telemetry.stopped << telemetry.exact_handoff_used
+             << telemetry.completed_depth << '\n';
+      write_search_stats_identity(output, telemetry.stats);
+      output << telemetry.exact << telemetry.stopped << telemetry.exact_handoff_used
              << telemetry.exact_root_search << '\n'
              << call.best_move << '\n'
              << call.best_move_status << '\n';
-      for (const full_arena::ProbCutPairTelemetry& pair : telemetry.probcut_by_phase_depth_pair) {
-        output << static_cast<int>(pair.phase) << '\n'
-               << pair.deep_depth << '\n'
-               << pair.shallow_depth << '\n'
-               << pair.attempts << '\n'
-               << pair.shallow_nodes << '\n'
-               << pair.successes << '\n'
-               << pair.confidence_rejections << '\n'
-               << pair.unsupported_profile << '\n'
-               << pair.near_exact_rejections << '\n'
-               << pair.pass_rejections << '\n'
-               << pair.pv_rejections << '\n'
-               << pair.root_rejections << '\n'
-               << pair.beta_cuts << '\n'
-               << pair.cut_low_attempts << '\n'
-               << pair.shadow_candidates << '\n'
-               << pair.shadow_verifications << '\n'
-               << pair.shadow_false_cuts << '\n';
-      }
     }
   }
   return output.str();

@@ -30,6 +30,7 @@ using vibe_othello::tools::pattern::kNormalizedHeaderV1;
 using vibe_othello::tools::pattern::kNormalizedHeaderV2;
 using vibe_othello::tools::pattern::parse_int;
 using vibe_othello::tools::pattern::parse_u64;
+using vibe_othello::tools::pattern::position_from_a1_to_h8_board;
 using vibe_othello::tools::pattern::split_tabs;
 using vibe_othello::tools::pattern::trim_trailing_cr;
 
@@ -465,36 +466,6 @@ bool validate_board_counts(std::string_view board, int occupied_count, int playe
 
 int phase_for_occupied_count(int occupied_count) noexcept {
   return std::min(12, ((occupied_count - 4) * 13) / 60);
-}
-
-std::optional<board_core::Position> position_from_relative_board(std::string_view board) noexcept {
-  if (board.size() != board_core::kSquareCount) {
-    return std::nullopt;
-  }
-
-  board_core::Bitboard player = 0;
-  board_core::Bitboard opponent = 0;
-  for (std::size_t index = 0; index < board.size(); ++index) {
-    const board_core::Square square = board_core::square_from_index(static_cast<int>(index));
-    const board_core::Bitboard bit = board_core::bit(square);
-    if (board[index] == 'X') {
-      player |= bit;
-    } else if (board[index] == 'O') {
-      opponent |= bit;
-    } else if (board[index] != '-') {
-      return std::nullopt;
-    }
-  }
-
-  board_core::Position position{
-      .player = player,
-      .opponent = opponent,
-      .side_to_move = board_core::Color::black,
-  };
-  if (!board_core::is_valid(position)) {
-    return std::nullopt;
-  }
-  return position;
 }
 
 std::string relative_board_from_position(board_core::Position position) {
@@ -1038,7 +1009,7 @@ int main(int argc, char** argv) {
   std::vector<MoveRow> all_rows;
   for (std::size_t root_index = 0; root_index < selected.size(); ++root_index) {
     const RootRow& root = selected[root_index];
-    const std::optional<board_core::Position> position = position_from_relative_board(root.board);
+    const std::optional<board_core::Position> position = position_from_a1_to_h8_board(root.board);
     if (!position.has_value()) {
       std::cerr << root.board_id << ": board_a1_to_h8 could not be converted to Position\n";
       return 1;

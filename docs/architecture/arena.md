@@ -43,8 +43,15 @@ ProbCut policy is independently resolved for candidate and baseline. Global and
 phase/deep/shallow telemetry includes attempts, shallow nodes, successes,
 rejections, real beta cuts, and shadow false cuts.
 
-Backend telemetry keeps the public `SearchStats` field names on each search
-record and in every aggregate: incremental enablement and state
+`SearchStats` is the canonical telemetry payload: the arena stores the complete
+engine struct on each call and aggregates it in `full_game_artifact_arena_core`.
+It does not maintain a parallel arena-only copy of the counters. Report and
+deterministic-checksum serialization must therefore be updated together when a
+new public counter is added.
+
+Backend telemetry keeps stable report fields corresponding to the public
+`SearchStats` payload on each search record and in every aggregate:
+incremental enablement and state
 initializations, incremental and stateless evaluation calls, incremental
 updates, and touched pattern instances. Aggregate records additionally report
 the number of searches that enabled incremental evaluation. Combined with the

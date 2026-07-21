@@ -4,6 +4,7 @@
 #include <cmath>
 #include <map>
 #include <numeric>
+#include <utility>
 
 namespace vibe_othello::tools::full_game_arena {
 namespace {
@@ -35,76 +36,99 @@ std::size_t bounded_index(SplitMix64* rng, std::size_t upper_bound) noexcept {
   }
 }
 
+void add_probcut_pair(search::ProbCutDepthPairStats* total,
+                      const search::ProbCutDepthPairStats& value) {
+  total->attempts += value.attempts;
+  total->shallow_nodes += value.shallow_nodes;
+  total->successes += value.successes;
+  total->confidence_rejections += value.confidence_rejections;
+  total->unsupported_profile += value.unsupported_profile;
+  total->near_exact_rejections += value.near_exact_rejections;
+  total->pass_rejections += value.pass_rejections;
+  total->pv_rejections += value.pv_rejections;
+  total->root_rejections += value.root_rejections;
+  total->beta_cuts += value.beta_cuts;
+  total->cut_low_attempts += value.cut_low_attempts;
+  total->shadow_candidates += value.shadow_candidates;
+  total->shadow_verifications += value.shadow_verifications;
+  total->shadow_false_cuts += value.shadow_false_cuts;
+}
+
+void add_search_stats(search::SearchStats* total, const search::SearchStats& value) {
+  total->nodes += value.nodes;
+  total->leaf_nodes += value.leaf_nodes;
+  total->eval_calls += value.eval_calls;
+  total->incremental_eval_enabled |= value.incremental_eval_enabled;
+  total->incremental_state_initializations += value.incremental_state_initializations;
+  total->incremental_eval_calls += value.incremental_eval_calls;
+  total->stateless_eval_calls += value.stateless_eval_calls;
+  total->incremental_updates += value.incremental_updates;
+  total->incremental_touched_instances += value.incremental_touched_instances;
+  total->terminal_nodes += value.terminal_nodes;
+  total->pass_nodes += value.pass_nodes;
+  total->beta_cutoffs += value.beta_cutoffs;
+  total->alpha_updates += value.alpha_updates;
+  total->root_moves_searched += value.root_moves_searched;
+  total->tt_probes += value.tt_probes;
+  total->tt_hits += value.tt_hits;
+  total->tt_stores += value.tt_stores;
+  total->tt_cutoffs += value.tt_cutoffs;
+  total->tt_replacements += value.tt_replacements;
+  total->tt_bucket_conflicts += value.tt_bucket_conflicts;
+  total->tt_same_key_updates += value.tt_same_key_updates;
+  total->tt_probe_slots += value.tt_probe_slots;
+  total->tt_generation_age_hits += value.tt_generation_age_hits;
+  total->tt_rejected_stores += value.tt_rejected_stores;
+  total->tt_invalid_best_move_stores += value.tt_invalid_best_move_stores;
+  total->pvs_researches += value.pvs_researches;
+  total->aspiration_fail_lows += value.aspiration_fail_lows;
+  total->aspiration_fail_highs += value.aspiration_fail_highs;
+  total->iid_searches += value.iid_searches;
+  total->endgame_nodes += value.endgame_nodes;
+  total->selective_cuts += value.selective_cuts;
+  total->probcut_attempts += value.probcut_attempts;
+  total->probcut_shallow_nodes += value.probcut_shallow_nodes;
+  total->probcut_successes += value.probcut_successes;
+  total->probcut_unsupported_profile += value.probcut_unsupported_profile;
+  total->probcut_rejected_by_phase += value.probcut_rejected_by_phase;
+  total->probcut_rejected_by_depth += value.probcut_rejected_by_depth;
+  total->probcut_rejected_near_exact += value.probcut_rejected_near_exact;
+  total->probcut_rejected_pass += value.probcut_rejected_pass;
+  total->probcut_rejected_pv += value.probcut_rejected_pv;
+  total->probcut_rejected_root += value.probcut_rejected_root;
+  total->probcut_rejected_overhead += value.probcut_rejected_overhead;
+  total->probcut_probe_limit_reached += value.probcut_probe_limit_reached;
+  total->probcut_rejected_confidence += value.probcut_rejected_confidence;
+  total->probcut_beta_cutoffs += value.probcut_beta_cutoffs;
+  total->probcut_cut_low_attempts += value.probcut_cut_low_attempts;
+  total->probcut_shadow_candidates += value.probcut_shadow_candidates;
+  total->probcut_shadow_verifications += value.probcut_shadow_verifications;
+  total->probcut_shadow_false_cuts += value.probcut_shadow_false_cuts;
+  total->probcut_estimated_saved_nodes += value.probcut_estimated_saved_nodes;
+  total->probcut_estimated_saved_nodes_available |= value.probcut_estimated_saved_nodes_available;
+  for (const search::ProbCutDepthPairStats& incoming : value.probcut_by_phase_depth_pair) {
+    auto existing = std::find_if(total->probcut_by_phase_depth_pair.begin(),
+                                 total->probcut_by_phase_depth_pair.end(),
+                                 [&incoming](const search::ProbCutDepthPairStats& entry) {
+                                   return entry.phase == incoming.phase &&
+                                          entry.deep_depth == incoming.deep_depth &&
+                                          entry.shallow_depth == incoming.shallow_depth;
+                                 });
+    if (existing == total->probcut_by_phase_depth_pair.end()) {
+      total->probcut_by_phase_depth_pair.push_back(incoming);
+    } else {
+      add_probcut_pair(&*existing, incoming);
+    }
+  }
+}
+
 void add(TelemetrySummary* summary, const SearchTelemetry& record) {
   ++summary->search_calls;
   summary->elapsed_ns += record.elapsed_ns;
   summary->engine_elapsed_ms += record.engine_elapsed_ms;
   summary->timer_accounting_delta_ns += record.timer_accounting_delta_ns;
-  summary->nodes += record.nodes;
-  summary->eval_calls += record.eval_calls;
-  summary->incremental_eval_enabled_searches += record.incremental_eval_enabled ? 1U : 0U;
-  summary->incremental_state_initializations += record.incremental_state_initializations;
-  summary->incremental_eval_calls += record.incremental_eval_calls;
-  summary->stateless_eval_calls += record.stateless_eval_calls;
-  summary->incremental_updates += record.incremental_updates;
-  summary->incremental_touched_instances += record.incremental_touched_instances;
-  summary->leaf_nodes += record.leaf_nodes;
-  summary->terminal_nodes += record.terminal_nodes;
-  summary->pass_nodes += record.pass_nodes;
-  summary->tt_probes += record.tt_probes;
-  summary->tt_hits += record.tt_hits;
-  summary->tt_cutoffs += record.tt_cutoffs;
-  summary->tt_stores += record.tt_stores;
-  summary->tt_replacements += record.tt_replacements;
-  summary->tt_bucket_conflicts += record.tt_bucket_conflicts;
-  summary->tt_same_key_updates += record.tt_same_key_updates;
-  summary->tt_probe_slots += record.tt_probe_slots;
-  summary->tt_generation_age_hits += record.tt_generation_age_hits;
-  summary->tt_rejected_stores += record.tt_rejected_stores;
-  summary->pvs_researches += record.pvs_researches;
-  summary->aspiration_fail_lows += record.aspiration_fail_lows;
-  summary->aspiration_fail_highs += record.aspiration_fail_highs;
-  summary->iid_searches += record.iid_searches;
-  summary->endgame_nodes += record.endgame_nodes;
-  summary->selective_cuts += record.selective_cuts;
-  summary->probcut_attempts += record.probcut_attempts;
-  summary->probcut_shallow_nodes += record.probcut_shallow_nodes;
-  summary->probcut_successes += record.probcut_successes;
-  summary->probcut_confidence_rejections += record.probcut_confidence_rejections;
-  summary->probcut_unsupported_profile += record.probcut_unsupported_profile;
-  summary->probcut_near_exact_rejections += record.probcut_near_exact_rejections;
-  summary->probcut_pass_rejections += record.probcut_pass_rejections;
-  summary->probcut_pv_rejections += record.probcut_pv_rejections;
-  summary->probcut_beta_cuts += record.probcut_beta_cuts;
-  summary->probcut_cut_low_attempts += record.probcut_cut_low_attempts;
-  summary->probcut_shadow_false_cuts += record.probcut_shadow_false_cuts;
-  for (const ProbCutPairTelemetry& incoming : record.probcut_by_phase_depth_pair) {
-    auto existing = std::find_if(summary->probcut_by_phase_depth_pair.begin(),
-                                 summary->probcut_by_phase_depth_pair.end(),
-                                 [&incoming](const ProbCutPairTelemetry& value) {
-                                   return value.phase == incoming.phase &&
-                                          value.deep_depth == incoming.deep_depth &&
-                                          value.shallow_depth == incoming.shallow_depth;
-                                 });
-    if (existing == summary->probcut_by_phase_depth_pair.end()) {
-      summary->probcut_by_phase_depth_pair.push_back(incoming);
-      continue;
-    }
-    existing->attempts += incoming.attempts;
-    existing->shallow_nodes += incoming.shallow_nodes;
-    existing->successes += incoming.successes;
-    existing->confidence_rejections += incoming.confidence_rejections;
-    existing->unsupported_profile += incoming.unsupported_profile;
-    existing->near_exact_rejections += incoming.near_exact_rejections;
-    existing->pass_rejections += incoming.pass_rejections;
-    existing->pv_rejections += incoming.pv_rejections;
-    existing->root_rejections += incoming.root_rejections;
-    existing->beta_cuts += incoming.beta_cuts;
-    existing->cut_low_attempts += incoming.cut_low_attempts;
-    existing->shadow_candidates += incoming.shadow_candidates;
-    existing->shadow_verifications += incoming.shadow_verifications;
-    existing->shadow_false_cuts += incoming.shadow_false_cuts;
-  }
+  add_search_stats(&summary->stats, record.stats);
+  summary->incremental_eval_enabled_searches += record.stats.incremental_eval_enabled ? 1U : 0U;
   summary->stopped_searches += record.stopped ? 1U : 0U;
   summary->exact_handoff_uses += record.exact_handoff_used ? 1U : 0U;
   summary->exact_root_searches += record.exact_root_search ? 1U : 0U;
@@ -120,6 +144,32 @@ void add(TelemetrySummary* summary, const SearchTelemetry& record) {
 
 const char* engine_role_name(EngineRole role) noexcept {
   return role == EngineRole::candidate ? "candidate" : "baseline";
+}
+
+SearchTelemetry make_search_telemetry(EngineRole role, std::string side_to_move, int occupied_count,
+                                      int phase, std::uint64_t elapsed_ns,
+                                      std::int64_t timer_accounting_delta_ns,
+                                      bool exact_root_search,
+                                      std::optional<std::uint64_t> time_budget_ns,
+                                      const search::SearchResult& result) {
+  return SearchTelemetry{
+      .role = role,
+      .side_to_move = std::move(side_to_move),
+      .occupied_count = occupied_count,
+      .phase = phase,
+      .completed_depth = result.completed_depth,
+      .elapsed_ns = elapsed_ns,
+      .engine_elapsed_ms =
+          result.elapsed.count() > 0 ? static_cast<std::uint64_t>(result.elapsed.count()) : 0,
+      .timer_accounting_delta_ns = timer_accounting_delta_ns,
+      .stats = result.stats,
+      .exact = result.exact,
+      .stopped = result.stopped,
+      .exact_handoff_used = result.stats.endgame_nodes > 0,
+      .exact_root_search = exact_root_search,
+      .time_budget_applies = time_budget_ns.has_value(),
+      .time_budget_ns = time_budget_ns.value_or(0),
+  };
 }
 
 TelemetrySummary summarize_telemetry(std::span<const SearchTelemetry> records) {
