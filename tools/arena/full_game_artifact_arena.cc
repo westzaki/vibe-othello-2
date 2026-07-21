@@ -69,7 +69,6 @@ enum class LimitMode {
   fixed_depth,
   fixed_nodes,
   fixed_time,
-  legacy_combined,
 };
 
 enum class ProbCutMode {
@@ -88,7 +87,7 @@ struct Args {
   std::string baseline_name = "baseline";
   std::filesystem::path openings_path;
   std::filesystem::path report_out;
-  search::Depth depth = 3;
+  search::Depth depth = 0;
   bool depth_specified = false;
   search::NodeCount max_nodes = 0;
   bool nodes_specified = false;
@@ -243,8 +242,8 @@ void print_usage() {
                "--candidate-manifest PATH --baseline-manifest PATH --openings FILE "
                "--report-out PATH [--candidate-weights PATH] [--baseline-weights PATH] "
                "[--candidate-name NAME] [--baseline-name NAME] "
-               "[--limit-mode depth|nodes|time] [--depth 3] [--nodes 0] "
-               "[--time-ms 0] [--search-preset basic|full] [--exact-endgame-empties 0] "
+               "--limit-mode depth|nodes|time [--depth N | --nodes N | --time-ms N] "
+               "[--search-preset basic|full] [--exact-endgame-empties 0] "
                "[--seed 0] [--bootstrap-seed 0] [--bootstrap-samples 10000] "
                "[--opening-limit 0] [--minimum-opening-pairs 1] [--progress-every 0] "
                "[--persistent-session] [--tt-bytes 16777216] "
@@ -572,24 +571,20 @@ std::optional<Args> parse_args(int argc, char** argv) {
     print_usage();
     return std::nullopt;
   }
-  if (args.limit_mode.has_value()) {
-    const bool valid_depth = *args.limit_mode == LimitMode::fixed_depth && args.depth_specified &&
-                             !args.nodes_specified && !args.time_specified;
-    const bool valid_nodes = *args.limit_mode == LimitMode::fixed_nodes && args.nodes_specified &&
-                             args.max_nodes != 0 && !args.depth_specified && !args.time_specified;
-    const bool valid_time = *args.limit_mode == LimitMode::fixed_time && args.time_specified &&
-                            args.max_time.count() > 0 && !args.depth_specified &&
-                            !args.nodes_specified;
-    if (!valid_depth && !valid_nodes && !valid_time) {
-      std::cerr << "--limit-mode requires exactly its corresponding non-zero limit\n";
-      return std::nullopt;
-    }
-  } else if (args.nodes_specified || args.time_specified) {
-    args.limit_mode = LimitMode::legacy_combined;
-    std::cerr << "warning: mixed depth/node/time limits are legacy_combined; use --limit-mode "
-                 "for a strength-gate run\n";
-  } else {
-    args.limit_mode = LimitMode::fixed_depth;
+  if (!args.limit_mode.has_value()) {
+    std::cerr << "--limit-mode is required\n";
+    return std::nullopt;
+  }
+  const bool valid_depth = *args.limit_mode == LimitMode::fixed_depth && args.depth_specified &&
+                           !args.nodes_specified && !args.time_specified;
+  const bool valid_nodes = *args.limit_mode == LimitMode::fixed_nodes && args.nodes_specified &&
+                           args.max_nodes != 0 && !args.depth_specified && !args.time_specified;
+  const bool valid_time = *args.limit_mode == LimitMode::fixed_time && args.time_specified &&
+                          args.max_time.count() > 0 && !args.depth_specified &&
+                          !args.nodes_specified;
+  if (!valid_depth && !valid_nodes && !valid_time) {
+    std::cerr << "--limit-mode requires exactly its corresponding non-zero limit\n";
+    return std::nullopt;
   }
   if (args.exact_endgame_empties != 0 && args.max_nodes == 0 && args.max_time.count() == 0) {
     std::cerr << "--exact-endgame-empties requires --nodes or --time-ms because exact root "
@@ -949,8 +944,6 @@ std::string_view limit_mode_name(LimitMode mode) {
     return "fixed_nodes";
   case LimitMode::fixed_time:
     return "fixed_wall_time";
-  case LimitMode::legacy_combined:
-    return "legacy_combined";
   }
   return "unknown";
 }
@@ -1638,8 +1631,6 @@ void write_search_config(std::ostream& output, const SearchConfig& config) {
   output << ", \"limit_scope\": \"per-move\"";
   output << ", \"limit_mode\": ";
   write_json_string(output, limit_mode_name(config.limit_mode));
-  output << ", \"pure_limit_mode\": ";
-  write_bool(output, config.limit_mode != LimitMode::legacy_combined);
   output << ", \"infinite\": ";
   write_bool(output, config.limits.infinite);
   output << ", \"depth\": " << config.limits.max_depth;
@@ -2427,7 +2418,6 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
   const full_arena::TelemetrySummary baseline_telemetry =
       full_arena::summarize_telemetry(telemetry.baseline);
   const full_arena::StrengthGateSummary strength_gate = full_arena::evaluate_strength_gate(
-      search_config.limit_mode != LimitMode::legacy_combined,
       static_cast<std::size_t>(stats.overall.failed_games),
       static_cast<std::size_t>(stats.overall.illegal_games), paired_sanity.incomplete_pairs,
       pairs.size(), static_cast<std::size_t>(args.minimum_opening_pairs),

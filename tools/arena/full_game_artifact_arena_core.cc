@@ -294,16 +294,12 @@ bool argument_order_is_complementary(const BootstrapInterval& forward, int forwa
          forward_disc_diff_sum == -reverse_disc_diff_sum;
 }
 
-StrengthGateSummary evaluate_strength_gate(bool pure_limit_mode, std::size_t failed_games,
-                                           std::size_t illegal_games, std::size_t incomplete_pairs,
-                                           std::size_t opening_pairs,
+StrengthGateSummary evaluate_strength_gate(std::size_t failed_games, std::size_t illegal_games,
+                                           std::size_t incomplete_pairs, std::size_t opening_pairs,
                                            std::size_t minimum_opening_pairs,
                                            bool candidate_telemetry_present,
                                            bool baseline_telemetry_present) {
   StrengthGateSummary gate;
-  if (!pure_limit_mode) {
-    gate.reasons.emplace_back("limit_mode_not_pure");
-  }
   if (failed_games != 0) {
     gate.reasons.emplace_back("failed_games_nonzero");
   }

@@ -122,13 +122,6 @@ def main(argv: list[str]) -> int:
     with tempfile.TemporaryDirectory() as temp_dir:
         weights = Path(temp_dir) / "weights.bin"
         make_zero_tiny_pattern_artifact(weights)
-        run_case(
-            args.exe,
-            "",
-            1,
-            "bestmove d3 score 0 depth 1",
-            ["--eval", "pattern", "--pattern-set", "tiny", "--pattern-weights", str(weights)],
-        )
         legacy_manifest = make_legacy_tiny_pattern_manifest(weights)
         run_case(
             args.exe,

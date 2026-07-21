@@ -24,16 +24,17 @@ Engine commands return one line in the form
 searched root is a legal forced pass, while `none` means search found no root
 move, such as a terminal root or depth-zero query.
 
-`vibe-othello-engine-cli` defaults to the disc-difference evaluator. For local
-learned-pattern artifact checks, pass pattern evaluator options inside the
-engine command:
+Engines such as NTest that do not implement this command/response contract need
+a small adapter process. This Arena remains the external-engine boundary; the
+artifact arenas below only compare evaluators inside the current process.
+
+`vibe-othello-engine-cli` defaults to the committed learned artifact. To compare
+a custom artifact, pass its manifest inside the engine command:
 
 ```sh
 build/tools/engine-cli/vibe-othello-engine-cli bestmove \
   --depth 3 \
-  --eval pattern \
-  --pattern-set pattern-v2-endgame-lite \
-  --pattern-weights /path/to/v0b.weights.bin
+  --eval-artifact /path/to/manifest.json
 ```
 
 ## Persistent Pattern Artifact Arena
@@ -312,9 +313,9 @@ For new strength-gate measurements, select exactly one explicit limit mode:
 --limit-mode time --time-ms 250
 ```
 
-Legacy combined depth/node/time commands remain runnable and are labeled
-`legacy_combined` in the report; they are not gate-eligible. Time limits are
-cooperative and may overshoot, which is measured in the report.
+The CLI rejects an omitted mode, a missing corresponding limit, and mixed
+depth/node/time limits. Time limits are cooperative and may overshoot, which is
+measured in the report.
 
 `strength_gate.eligible` additionally requires zero failed and illegal games,
 complete opening pairs, at least `--minimum-opening-pairs`, and non-empty

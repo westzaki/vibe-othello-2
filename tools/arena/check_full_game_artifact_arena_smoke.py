@@ -87,6 +87,8 @@ def run_arena(
         str(temp_dir / "openings.txt"),
         "--report-out",
         str(temp_dir / report_name),
+        "--limit-mode",
+        "depth",
         "--depth",
         "1",
         "--search-preset",
@@ -348,6 +350,8 @@ def assert_exact_guard(exe: str, temp_dir: Path) -> None:
         str(temp_dir / "openings.txt"),
         "--report-out",
         str(temp_dir / "bad.json"),
+        "--limit-mode",
+        "depth",
         "--depth",
         "1",
         "--exact-endgame-empties",
@@ -504,6 +508,20 @@ def assert_explicit_limit_modes(exe: str, temp_dir: Path) -> None:
                 raise AssertionError(f"failed node-limited run remained gate eligible: {gate!r}")
             if paired["descriptive_only"] is not True:
                 raise AssertionError(f"invalid run CI was not descriptive-only: {paired!r}")
+
+    for name, args, expected_error in (
+        ("implicit", ("--depth", "1"), "--limit-mode is required"),
+        (
+            "mixed",
+            ("--limit-mode", "depth", "--depth", "1", "--nodes", "1"),
+            "--limit-mode requires exactly its corresponding non-zero limit",
+        ),
+    ):
+        completed = run(
+            [*base, "--report-out", str(temp_dir / f"rejected-{name}.json"), *args]
+        )
+        if completed.returncode == 0 or expected_error not in completed.stderr:
+            raise AssertionError(f"{name} limit mode was not rejected:\n{completed.stderr}")
 
 
 def main(argv: list[str]) -> int:

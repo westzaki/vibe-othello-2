@@ -181,8 +181,6 @@ def runner_command(
         "1",
         "--arena-seeds",
         "0",
-        "--full-game-depth",
-        "1",
         "--full-game-max-nodes",
         "200000",
         "--selector",

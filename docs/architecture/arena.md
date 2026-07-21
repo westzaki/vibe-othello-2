@@ -29,9 +29,9 @@ The v4 CLI has explicit pure modes:
 * `--limit-mode time --time-ms N`
 
 Node and time modes use iterative search's infinite mode with the selected
-cooperative stopping condition. Legacy combinations remain runnable for
-compatibility but are reported as `legacy_combined` and are not gate eligible.
-Reports always include the resolved limits and all search options.
+cooperative stopping condition. The mode and its corresponding single non-zero
+limit are required; implicit or mixed limits are rejected. Reports always
+include the resolved limits and all search options.
 
 ## Telemetry
 

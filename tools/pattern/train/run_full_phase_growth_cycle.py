@@ -648,7 +648,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arena-depths", default="3", type=lambda value: parse_int_list(value, "--arena-depths", minimum=1))
     parser.add_argument("--arena-seeds", default="0", type=lambda value: parse_int_list(value, "--arena-seeds"))
     parser.add_argument("--arena-max-positions", type=int)
-    parser.add_argument("--full-game-depth", type=int, default=3)
     parser.add_argument("--full-game-max-nodes", type=int, default=200_000)
     parser.add_argument("--full-game-opening-limit", type=int)
     parser.add_argument("--resume", action="store_true")
@@ -679,8 +678,8 @@ def parse_args() -> argparse.Namespace:
         args.max_roots_per_game_group = 1
     args.arena_max_positions = args.arena_max_positions or SCALE_ARENA_POSITIONS[args.scale]
     args.full_game_opening_limit = args.full_game_opening_limit or SCALE_OPENING_LIMIT[args.scale]
-    if args.roots_per_phase <= 0 or args.search_max_depth <= 0 or args.full_game_depth <= 0:
-        parser.error("root quota and search depths must be positive")
+    if args.roots_per_phase <= 0 or args.search_max_depth <= 0:
+        parser.error("root quota and search depth must be positive")
     if args.max_roots_per_game_group is not None and args.max_roots_per_game_group <= 0:
         parser.error("--max-roots-per-game-group must be positive")
     if args.selected_split_policy == "game-group-hash" and args.max_roots_per_game_group != 1:
@@ -690,7 +689,7 @@ def parse_args() -> argparse.Namespace:
     if len(set(args.train_only_phase)) != len(args.train_only_phase):
         parser.error("--train-only-phase must not repeat a phase")
     args.train_only_phases = frozenset(args.train_only_phase)
-    if args.search_max_nodes < 0 or args.full_game_max_nodes < 0 or args.search_max_time_ms < 0 or args.exact_max_empty < 0 or args.exact_max_empty > 64:
+    if args.search_max_nodes < 0 or args.full_game_max_nodes <= 0 or args.search_max_time_ms < 0 or args.exact_max_empty < 0 or args.exact_max_empty > 64:
         parser.error("search and exact bounds are invalid")
     if args.search_max_nodes == 0 and args.search_max_time_ms != 0:
         parser.error("wall-clock-only search teacher runs are not supported")
@@ -888,7 +887,7 @@ def main() -> int:
             full_paths = {name: full_dir / f"{name}.json" for name in ("candidate_vs_baseline", "same_artifact", "baseline_vs_candidate")}
             full_aggregate = full_dir / "full-game-summary.json"
             def full_command(candidate_weights_arg: Path, candidate_manifest_arg: Path, baseline_weights_arg: Path, baseline_manifest_arg: Path, report: Path) -> list[str]:
-                return [str(args.full_arena_exe), "--candidate-manifest", str(candidate_manifest_arg), "--candidate-weights", str(candidate_weights_arg), "--candidate-name", "candidate", "--baseline-manifest", str(baseline_manifest_arg), "--baseline-weights", str(baseline_weights_arg), "--baseline-name", "baseline", "--openings", str(args.full_game_openings), "--report-out", str(report), "--depth", str(args.full_game_depth), "--nodes", str(args.full_game_max_nodes), "--time-ms", "0", "--search-preset", args.search_preset, "--exact-endgame-empties", str(args.search_exact_endgame_empties), "--seed", str(seed), "--opening-limit", str(args.full_game_opening_limit)]
+                return [str(args.full_arena_exe), "--candidate-manifest", str(candidate_manifest_arg), "--candidate-weights", str(candidate_weights_arg), "--candidate-name", "candidate", "--baseline-manifest", str(baseline_manifest_arg), "--baseline-weights", str(baseline_weights_arg), "--baseline-name", "baseline", "--openings", str(args.full_game_openings), "--report-out", str(report), "--limit-mode", "nodes", "--nodes", str(args.full_game_max_nodes), "--search-preset", args.search_preset, "--exact-endgame-empties", str(args.search_exact_endgame_empties), "--seed", str(seed), "--opening-limit", str(args.full_game_opening_limit)]
             full_commands = [full_command(candidate_weights, candidate_manifest, args.baseline_weights, args.baseline_manifest, full_paths["candidate_vs_baseline"]), full_command(candidate_weights, candidate_manifest, candidate_weights, candidate_manifest, full_paths["same_artifact"]), full_command(args.baseline_weights, args.baseline_manifest, candidate_weights, candidate_manifest, full_paths["baseline_vs_candidate"])]
             def run_full_arena() -> None:
                 for command in full_commands:
