@@ -254,8 +254,8 @@ TEST_CASE("argument-order sanity requires complementary scores and disc differen
 }
 
 TEST_CASE("strength gate rejects invalid games and missing telemetry", "[arena]") {
-  const StrengthGateSummary eligible = evaluate_strength_gate(true, 0, 0, 0, 10, 10, true, true);
-  const StrengthGateSummary invalid = evaluate_strength_gate(true, 2, 1, 0, 10, 10, true, false);
+  const StrengthGateSummary eligible = evaluate_strength_gate(0, 0, 0, 10, 10, true, true);
+  const StrengthGateSummary invalid = evaluate_strength_gate(2, 1, 0, 10, 10, true, false);
 
   REQUIRE(eligible.eligible);
   REQUIRE(eligible.reasons.empty());

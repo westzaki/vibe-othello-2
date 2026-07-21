@@ -159,9 +159,6 @@ explicit manifest paths. A legacy artifact without that field remains
 all-phase learned at runtime for backward compatibility; this is not an
 inference that its training coverage was all-phase.
 
-Legacy smoke tooling may still pass `--eval pattern --pattern-weights PATH`
-with `--pattern-set`, but committed defaults should use manifest-based loading.
-
 ## Commit Policy
 
 The CTest target `vibe_othello_eval_artifact_commit_policy` runs

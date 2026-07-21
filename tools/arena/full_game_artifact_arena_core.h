@@ -114,7 +114,7 @@ make_pair_observations(std::span<const PairGameResult> games);
                                                    const BootstrapInterval& reverse,
                                                    int reverse_disc_diff_sum) noexcept;
 [[nodiscard]] StrengthGateSummary
-evaluate_strength_gate(bool pure_limit_mode, std::size_t failed_games, std::size_t illegal_games,
+evaluate_strength_gate(std::size_t failed_games, std::size_t illegal_games,
                        std::size_t incomplete_pairs, std::size_t opening_pairs,
                        std::size_t minimum_opening_pairs, bool candidate_telemetry_present,
                        bool baseline_telemetry_present);
