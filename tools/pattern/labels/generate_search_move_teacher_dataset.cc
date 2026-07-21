@@ -33,6 +33,7 @@ namespace search = vibe_othello::search;
 using vibe_othello::tools::pattern::kNormalizedHeaderV2;
 using vibe_othello::tools::pattern::parse_int;
 using vibe_othello::tools::pattern::parse_u64;
+using vibe_othello::tools::pattern::position_from_a1_to_h8_board;
 using vibe_othello::tools::pattern::split_tabs;
 using vibe_othello::tools::pattern::trim_trailing_cr;
 
@@ -327,32 +328,6 @@ std::string report_path(std::string_view path_text) {
   return path.is_absolute() ? path.filename().string() : path.lexically_normal().string();
 }
 
-std::optional<board_core::Position> position_from_relative_board(std::string_view board) noexcept {
-  if (board.size() != board_core::kSquareCount) {
-    return std::nullopt;
-  }
-  board_core::Bitboard player = 0;
-  board_core::Bitboard opponent = 0;
-  for (std::size_t index = 0; index < board.size(); ++index) {
-    const board_core::Bitboard bit =
-        board_core::bit(board_core::square_from_index(static_cast<int>(index)));
-    if (board[index] == 'X') {
-      player |= bit;
-    } else if (board[index] == 'O') {
-      opponent |= bit;
-    } else if (board[index] != '-') {
-      return std::nullopt;
-    }
-  }
-  board_core::Position position{
-      .player = player,
-      .opponent = opponent,
-      .side_to_move = board_core::Color::black,
-  };
-  return board_core::is_valid(position) ? std::optional<board_core::Position>{position}
-                                        : std::nullopt;
-}
-
 std::string relative_board_from_position(board_core::Position position) {
   std::string board(board_core::kSquareCount, '-');
   for (int index = 0; index < board_core::kSquareCount; ++index) {
@@ -368,7 +343,7 @@ std::string relative_board_from_position(board_core::Position position) {
 
 bool validate_board_counts(std::string_view board, int occupied_count, int player_count,
                            int opponent_count, int empty_count) {
-  if (!position_from_relative_board(board).has_value()) {
+  if (!position_from_a1_to_h8_board(board).has_value()) {
     return false;
   }
   const int actual_player = static_cast<int>(std::count(board.begin(), board.end(), 'X'));
@@ -1129,7 +1104,7 @@ int main(int argc, char** argv) {
   std::vector<MoveRow> all_rows;
   for (std::size_t root_index = 0; root_index < roots.size(); ++root_index) {
     const RootRow& root = roots[root_index];
-    const std::optional<board_core::Position> position = position_from_relative_board(root.board);
+    const std::optional<board_core::Position> position = position_from_a1_to_h8_board(root.board);
     if (!position.has_value()) {
       report.rejected_roots = 1;
       report.rejected_root_id = root.board_id;

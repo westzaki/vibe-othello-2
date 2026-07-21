@@ -72,6 +72,10 @@ Input must be normalized schema v2 TSV with at least `board_id`,
 `--max-positions` is set, chooses a deterministic bounded sample by hashing
 `board_id` with `--seed`.
 
+TSV splitting, CRLF handling, and relative-board validation use the shared
+`tools/pattern/common/normalized_tsv` implementation also used by dataset and
+label tooling, so all normalized-data consumers enforce the same board format.
+
 With `--side-swap`, each selected position is played twice: candidate as the
 side-to-move player, then baseline as the side-to-move player. This reduces the
 chance that a result is only measuring the color/side assignment of a fixed

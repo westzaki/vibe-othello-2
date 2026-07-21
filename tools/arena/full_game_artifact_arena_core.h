@@ -1,6 +1,8 @@
 #ifndef VIBE_OTHELLO_TOOLS_FULL_GAME_ARTIFACT_ARENA_CORE_H_
 #define VIBE_OTHELLO_TOOLS_FULL_GAME_ARTIFACT_ARENA_CORE_H_
 
+#include "vibe_othello/search/result.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -15,26 +17,6 @@ enum class EngineRole : std::uint8_t {
   baseline,
 };
 
-struct ProbCutPairTelemetry {
-  std::uint8_t phase = 0;
-  int deep_depth = 0;
-  int shallow_depth = 0;
-  std::uint64_t attempts = 0;
-  std::uint64_t shallow_nodes = 0;
-  std::uint64_t successes = 0;
-  std::uint64_t confidence_rejections = 0;
-  std::uint64_t unsupported_profile = 0;
-  std::uint64_t near_exact_rejections = 0;
-  std::uint64_t pass_rejections = 0;
-  std::uint64_t pv_rejections = 0;
-  std::uint64_t root_rejections = 0;
-  std::uint64_t beta_cuts = 0;
-  std::uint64_t cut_low_attempts = 0;
-  std::uint64_t shadow_candidates = 0;
-  std::uint64_t shadow_verifications = 0;
-  std::uint64_t shadow_false_cuts = 0;
-};
-
 struct SearchTelemetry {
   EngineRole role = EngineRole::candidate;
   std::string side_to_move;
@@ -44,45 +26,7 @@ struct SearchTelemetry {
   std::uint64_t elapsed_ns = 0;
   std::uint64_t engine_elapsed_ms = 0;
   std::int64_t timer_accounting_delta_ns = 0;
-  std::uint64_t nodes = 0;
-  std::uint64_t eval_calls = 0;
-  bool incremental_eval_enabled = false;
-  std::uint64_t incremental_state_initializations = 0;
-  std::uint64_t incremental_eval_calls = 0;
-  std::uint64_t stateless_eval_calls = 0;
-  std::uint64_t incremental_updates = 0;
-  std::uint64_t incremental_touched_instances = 0;
-  std::uint64_t leaf_nodes = 0;
-  std::uint64_t terminal_nodes = 0;
-  std::uint64_t pass_nodes = 0;
-  std::uint64_t tt_probes = 0;
-  std::uint64_t tt_hits = 0;
-  std::uint64_t tt_cutoffs = 0;
-  std::uint64_t tt_stores = 0;
-  std::uint64_t tt_replacements = 0;
-  std::uint64_t tt_bucket_conflicts = 0;
-  std::uint64_t tt_same_key_updates = 0;
-  std::uint64_t tt_probe_slots = 0;
-  std::uint64_t tt_generation_age_hits = 0;
-  std::uint64_t tt_rejected_stores = 0;
-  std::uint64_t pvs_researches = 0;
-  std::uint64_t aspiration_fail_lows = 0;
-  std::uint64_t aspiration_fail_highs = 0;
-  std::uint64_t iid_searches = 0;
-  std::uint64_t endgame_nodes = 0;
-  std::uint64_t selective_cuts = 0;
-  std::uint64_t probcut_attempts = 0;
-  std::uint64_t probcut_shallow_nodes = 0;
-  std::uint64_t probcut_successes = 0;
-  std::uint64_t probcut_confidence_rejections = 0;
-  std::uint64_t probcut_unsupported_profile = 0;
-  std::uint64_t probcut_near_exact_rejections = 0;
-  std::uint64_t probcut_pass_rejections = 0;
-  std::uint64_t probcut_pv_rejections = 0;
-  std::uint64_t probcut_beta_cuts = 0;
-  std::uint64_t probcut_cut_low_attempts = 0;
-  std::uint64_t probcut_shadow_false_cuts = 0;
-  std::vector<ProbCutPairTelemetry> probcut_by_phase_depth_pair;
+  search::SearchStats stats;
   bool exact = false;
   bool stopped = false;
   bool exact_handoff_used = false;
@@ -96,45 +40,8 @@ struct TelemetrySummary {
   std::uint64_t elapsed_ns = 0;
   std::uint64_t engine_elapsed_ms = 0;
   std::int64_t timer_accounting_delta_ns = 0;
-  std::uint64_t nodes = 0;
-  std::uint64_t eval_calls = 0;
+  search::SearchStats stats;
   std::uint64_t incremental_eval_enabled_searches = 0;
-  std::uint64_t incremental_state_initializations = 0;
-  std::uint64_t incremental_eval_calls = 0;
-  std::uint64_t stateless_eval_calls = 0;
-  std::uint64_t incremental_updates = 0;
-  std::uint64_t incremental_touched_instances = 0;
-  std::uint64_t leaf_nodes = 0;
-  std::uint64_t terminal_nodes = 0;
-  std::uint64_t pass_nodes = 0;
-  std::uint64_t tt_probes = 0;
-  std::uint64_t tt_hits = 0;
-  std::uint64_t tt_cutoffs = 0;
-  std::uint64_t tt_stores = 0;
-  std::uint64_t tt_replacements = 0;
-  std::uint64_t tt_bucket_conflicts = 0;
-  std::uint64_t tt_same_key_updates = 0;
-  std::uint64_t tt_probe_slots = 0;
-  std::uint64_t tt_generation_age_hits = 0;
-  std::uint64_t tt_rejected_stores = 0;
-  std::uint64_t pvs_researches = 0;
-  std::uint64_t aspiration_fail_lows = 0;
-  std::uint64_t aspiration_fail_highs = 0;
-  std::uint64_t iid_searches = 0;
-  std::uint64_t endgame_nodes = 0;
-  std::uint64_t selective_cuts = 0;
-  std::uint64_t probcut_attempts = 0;
-  std::uint64_t probcut_shallow_nodes = 0;
-  std::uint64_t probcut_successes = 0;
-  std::uint64_t probcut_confidence_rejections = 0;
-  std::uint64_t probcut_unsupported_profile = 0;
-  std::uint64_t probcut_near_exact_rejections = 0;
-  std::uint64_t probcut_pass_rejections = 0;
-  std::uint64_t probcut_pv_rejections = 0;
-  std::uint64_t probcut_beta_cuts = 0;
-  std::uint64_t probcut_cut_low_attempts = 0;
-  std::uint64_t probcut_shadow_false_cuts = 0;
-  std::vector<ProbCutPairTelemetry> probcut_by_phase_depth_pair;
   std::uint64_t stopped_searches = 0;
   std::uint64_t exact_handoff_uses = 0;
   std::uint64_t exact_root_searches = 0;
@@ -186,6 +93,11 @@ struct StrengthGateSummary {
 };
 
 [[nodiscard]] const char* engine_role_name(EngineRole role) noexcept;
+[[nodiscard]] SearchTelemetry
+make_search_telemetry(EngineRole role, std::string side_to_move, int occupied_count, int phase,
+                      std::uint64_t elapsed_ns, std::int64_t timer_accounting_delta_ns,
+                      bool exact_root_search, std::optional<std::uint64_t> time_budget_ns,
+                      const search::SearchResult& result);
 [[nodiscard]] TelemetrySummary summarize_telemetry(std::span<const SearchTelemetry> records);
 [[nodiscard]] std::optional<double> events_per_second(std::uint64_t events,
                                                       std::uint64_t elapsed_ns) noexcept;

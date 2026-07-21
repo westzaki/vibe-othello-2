@@ -28,6 +28,7 @@ namespace board_core = vibe_othello::board_core;
 namespace eval = vibe_othello::evaluation;
 
 using vibe_othello::tools::pattern::parse_int;
+using vibe_othello::tools::pattern::position_from_a1_to_h8_board;
 using vibe_othello::tools::pattern::split_tabs;
 using vibe_othello::tools::pattern::trim_trailing_cr;
 
@@ -292,34 +293,6 @@ std::optional<LoadedArtifact> load_artifact(const Args& args) {
   }
 }
 
-std::optional<board_core::Position> position_from_relative_board(std::string_view board) noexcept {
-  if (board.size() != board_core::kSquareCount) {
-    return std::nullopt;
-  }
-  board_core::Bitboard player = 0;
-  board_core::Bitboard opponent = 0;
-  for (std::size_t index = 0; index < board.size(); ++index) {
-    const board_core::Square square = board_core::square_from_index(static_cast<int>(index));
-    const board_core::Bitboard bit = board_core::bit(square);
-    if (board[index] == 'X') {
-      player |= bit;
-    } else if (board[index] == 'O') {
-      opponent |= bit;
-    } else if (board[index] != '-') {
-      return std::nullopt;
-    }
-  }
-  board_core::Position position{
-      .player = player,
-      .opponent = opponent,
-      .side_to_move = board_core::Color::black,
-  };
-  if (!board_core::is_valid(position)) {
-    return std::nullopt;
-  }
-  return position;
-}
-
 bool parse_move_teacher_row(std::string_view line, int schema_version, MoveTeacherRow* row,
                             std::string* error) {
   const std::vector<std::string_view> fields = split_tabs(trim_trailing_cr(line));
@@ -360,7 +333,7 @@ bool parse_move_teacher_row(std::string_view line, int schema_version, MoveTeach
     *error = "root_board_id, move, child_board_id, and child_board_a1_to_h8 must be non-empty";
     return false;
   }
-  if (!position_from_relative_board(fields[7]).has_value()) {
+  if (!position_from_a1_to_h8_board(fields[7]).has_value()) {
     *error = "child_board_a1_to_h8 could not be converted to Position";
     return false;
   }
@@ -534,7 +507,7 @@ MetricsAccumulator evaluate_root(const std::vector<MoveTeacherRow>& rows,
   predictions.reserve(rows.size());
   for (std::size_t index = 0; index < rows.size(); ++index) {
     const std::optional<board_core::Position> child =
-        position_from_relative_board(rows[index].child_board);
+        position_from_a1_to_h8_board(rows[index].child_board);
     const int child_score = evaluator.evaluate(*child);
     const int predicted_root_score = -child_score;
     predictions.push_back(Prediction{

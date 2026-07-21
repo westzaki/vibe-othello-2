@@ -21,6 +21,14 @@ target_include_directories(vibe_othello_pattern_smoke_fixture PUBLIC ${CMAKE_CUR
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+  if(TARGET Catch2::Catch2WithMain)
+    add_executable(vibe_othello_pattern_normalized_tsv_tests normalized_tsv_test.cc)
+    target_link_libraries(vibe_othello_pattern_normalized_tsv_tests
+                          PRIVATE vibe_othello_pattern_normalized_tsv Catch2::Catch2WithMain)
+    add_test(NAME vibe_othello_pattern_normalized_tsv_tests
+             COMMAND vibe_othello_pattern_normalized_tsv_tests)
+  endif()
+
   add_test(
     NAME vibe_othello_pattern_common_boundary
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_boundary.py --common-dir
