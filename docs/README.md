@@ -3,6 +3,11 @@
 This file is the canonical documentation index.
 Read only the document needed for the current task.
 
+Architecture documents describe the implemented system: ownership boundaries,
+public contracts, important internal flows, invariants, current limitations,
+and the checks required when changing them. Historical measurements and
+superseded routes belong under `experiments/`, not in the default reading path.
+
 | Task | Document |
 | --- | --- |
 | Repository layout | `repository-layout.md` |
@@ -10,21 +15,14 @@ Read only the document needed for the current task.
 | Selective-search shadow calibration workflow | `../tools/search-calibration/README.md` |
 | C++ style | `cpp-coding-style.md` |
 | Board core architecture | `architecture/board-core.md` |
-| Board core implementation status | `progress/board-core.md` |
-| Search design | `architecture/search.md` |
-| Search implementation status | `progress/search.md` |
+| Search architecture | `architecture/search.md` |
 | Web app and WASM architecture | `architecture/web-app.md` |
-| Web app and WASM implementation status | `progress/web-app.md` |
 | Endgame architecture | `architecture/endgame.md` |
-| Endgame implementation status | `progress/endgame.md` |
 | 20-empty endgame experiment notes | `experiments/endgame-high-empty-20.md` |
 | Evaluation architecture | `architecture/evaluation.md` |
 | Evaluation artifact architecture | `architecture/evaluation-artifacts.md` |
-| Evaluation current status | `progress/evaluation.md` |
 | Arena and strength-gate architecture | `architecture/arena.md` |
-| Arena and strength-gate implementation status | `progress/arena.md` |
 | Pattern learning architecture | `architecture/pattern-learning.md` |
-| Pattern learning implementation status | `progress/pattern-learning.md` |
 | Pattern learning corpus data policy | `../data/corpora/README.md` |
 | External corpus import workflows | `../tools/data-import/README.md` |
 | Pattern learning teacher label data policy | `../data/labels/README.md` |
@@ -32,4 +30,3 @@ Read only the document needed for the current task.
 | Progressive pattern training | `../tools/pattern/train/README.md` |
 | Evaluation artifact data policy | `../data/eval/README.md` |
 | Pattern experiment log archive | `experiments/README.md` |
-| Progress documentation rules | `progress/README.md` |

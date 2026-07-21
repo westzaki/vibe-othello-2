@@ -7,6 +7,35 @@ not an Elo system, an artifact-promotion mechanism, or a production-strength
 claim. It compares two manifest-backed evaluators from identical opening
 positions while the current checkout remains the referee.
 
+## Implemented Surface
+
+Arena tooling has three distinct comparison layers:
+
+* `vibe-othello-arena` referees external one-shot engine commands.
+* `vibe-othello-pattern-artifact-arena` compares loaded artifacts on selected
+  normalized late-game positions.
+* `vibe-othello-full-game-artifact-arena` loads two phase-aware evaluators once
+  and plays paired full games with explicit depth, node, or time limits.
+
+The full-game path is the foundation for the fixed-time artifact campaign and
+the Multi-ProbCut campaign. Its v4 report includes deterministic paired-opening
+selection, color swaps, runtime/build/input identities, complete public search
+telemetry, explicit TT allocation and session-retention policy, artifact and
+search-option identities, failure adjudication, opening-pair bootstrap
+intervals, and strength-gate eligibility. Python campaign runners add
+checksum-guarded stage resume and schema-checked decision reports without
+changing artifacts or the default pointer.
+
+## Current Limitations
+
+Wall-time search is cooperative and machine/load-sensitive. Fixed-time sanity
+and argument-order symmetry are therefore diagnostics rather than exact timing
+invariants. Matrix-wide outcome aggregates are descriptive because repeated
+openings across cells are not independent. Long campaigns remain local-only;
+CI exercises small real-tool smoke overrides. No reviewed Multi-ProbCut
+calibration or fixed-time strength report is committed, and campaign output
+cannot enable a search preset by itself.
+
 ## Pairing
 
 Every selected opening produces exactly two games: candidate as Black and

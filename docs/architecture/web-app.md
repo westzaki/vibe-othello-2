@@ -1,399 +1,234 @@
-# Web App Architecture
+# Web App and WASM Architecture
 
 ## Purpose
 
-Define the intended architecture for a browser-playable app distributed through
-GitHub Pages.
+The browser app is a single-threaded React client backed by the native engine
+compiled to WebAssembly. It is built with Vite, runs engine work in a Web
+Worker, and is deployed to GitHub Pages.
 
-The app uses:
+The architecture keeps one rule and search implementation in C++. TypeScript
+owns asynchronous orchestration and presentation; it must not reimplement
+legal moves, flips, pass/terminal rules, evaluation, or move choice.
 
-* React + Vite for the browser UI
-* Web Worker for engine isolation
-* TypeScript wrapper for WASM loading and raw ABI conversion
-* top-level `wasm/` adapter for Emscripten, flat C ABI, ABI versioning, and
-  native-vs-WASM parity
-* existing C++ engine public API for board rules, search, and evaluation
-
-Implementation status and milestone tracking live in
-`docs/progress/web-app.md`.
-
-## Non-goals
-
-This document does not implement:
-
-* React app
-* Vite setup
-* WASM adapter source
-* Emscripten build
-* Web Worker protocol implementation
-* GitHub Pages deployment workflow
-* game review logic
-* opening books
-* training workflows
-* browser preset exposure or default enablement of ProbCut/Multi-ProbCut
-* parallel search
-* evaluator artifact publication
-
-## Component graph
+## Implemented Stack
 
 ```text
-React components
-  -> React hooks / app services
-  -> Worker client
-  -> postMessage protocol
-  -> Engine Web Worker
-  -> TypeScript WasmCore wrapper
-  -> WASM C ABI adapter
+React App
+  -> EngineWorkerClient
+  -> typed postMessage request/response protocol
+  -> engine.worker.ts
+  -> wasm/js/wasmCore.mjs
+  -> versioned flat C ABI in wasm/
   -> engine public C++ API
-  -> board_core / search / evaluation
+  -> board_core / evaluation / search
 ```
 
-Forbidden dependency directions:
+The current app supports:
 
-* `engine/` must not include or depend on React, Vite, DOM APIs, Web Worker APIs,
-  Emscripten headers outside the WASM adapter, JSON UI protocols, or GitHub
-  Pages workflow details.
-* `board_core` must not depend on WASM, apps, search, evaluation, tools, or UI.
-* `wasm/` may depend on engine public headers, but `engine/` must not depend on
-  `wasm/`.
-* `apps/web` may depend on the TypeScript WASM wrapper or worker-facing API, but
-  must not own C++ WASM adapter source.
-* React components must not directly call Emscripten exports or manipulate WASM
-  memory.
-* Web Worker code must not duplicate Othello rules.
-* TypeScript code must not reimplement legal move generation, flip calculation,
-  pass rules, terminal detection, or search scoring.
-* Search and evaluation internals must not leak into UI state.
+* initial position and reset
+* legal-move display, checked move application, and checked pass
+* a manual CPU move for the current side
+* a minimal human-Black/CPU-White mode with automatic White replies
+* a compact summary of the last CPU search
+* runtime loading of the committed default evaluation artifact
+* GitHub Pages builds containing generated WASM and copied evaluation assets
 
-## Proposed top-level layout
+The app uses a plain ESM `WasmCore` implementation shared by Node smokes and
+the browser. `apps/web/src/types/wasmCore.d.ts` supplies the app-facing type
+declarations. There is no separate TypeScript wrapper implementation.
 
-```text
-repo/
-  engine/
-    include/
-    src/
-    tests/
-  wasm/
-    README.md
-    CMakeLists.txt
-    include/
-    src/
-    ts/
-    tests/
-      smoke/
-  apps/
-    web/
-      README.md
-      package metadata
-      app entry and Vite config
-      public/runtime assets
-      src/
-        app/
-        components/
-        game/
-        engine/
-        workers/
-        review/
-```
+## Dependency and Ownership Boundaries
 
-`wasm/` is a top-level adapter layer because it is not a user-facing
-application and should not live under `apps/`.
+### Engine
 
-`wasm/` is also not part of `engine/` because `engine/` must remain
-browser-agnostic and Emscripten-agnostic.
+`engine/` owns board rules, relative position semantics, evaluation, search,
+exact endgame behavior, result semantics, and reusable search sessions. It has
+no React, Vite, Worker, Emscripten, or deployment dependency.
 
-`apps/web` owns UI, worker protocol, app state, rendering, and user-facing
-formatting.
+### WASM adapter
 
-`wasm/` owns the Emscripten build, C ABI, ABI versioning, packed wire structs,
-low-level WASM TypeScript wrapper, and WASM parity tests.
+`wasm/` owns:
 
-Generated `.mjs` and `.wasm` files may be copied into `apps/web` public/runtime
-assets during the web build, but the source of truth for the adapter lives under
-`wasm/`.
+* ABI version and status codes
+* C-compatible position, query, apply, and search-result structures
+* layout-introspection exports used instead of hard-coded JavaScript offsets
+* validation and conversion between wire values and engine public types
+* opaque evaluation-artifact handles
+* in-memory manifest-plus-weights loading
+* phase-aware evaluation and bounded best-move search
+* easy/normal/hard algorithm presets
+* evaluator-owned WASM-profile `SearchSession` state
+* opt-in Emscripten module generation and Node smokes
+* the Node/browser-neutral `WasmCore` JavaScript wrapper
 
-If more bindings are added later, a future architecture PR may rename `wasm/` to
-`bindings/wasm` or `adapters/wasm`. Do not introduce that abstraction now.
+The adapter links against public engine headers and never duplicates Othello
+rules. Generated `.mjs` and `.wasm` files are build outputs, not source files.
+The adapter does not own Worker commands, UI policy, static asset URLs, or
+deployment behavior.
 
-## Ownership boundaries
+Each loaded evaluator owns a 1 MiB TT session. Session retention is disabled by
+default; explicit ABI/JavaScript methods enable retention and reset it at a
+game boundary. The current Worker leaves retention disabled.
 
-### engine public C++ API
+### Engine Worker
 
-Owns:
+`apps/web/src/workers/engine.worker.ts` owns the live `WasmCore`, current
+position, loaded default evaluator, CPU search policy, and serialized request
+queue. It dynamically imports the generated Emscripten module using Vite's
+`BASE_URL` and fetches evaluation assets from the same base.
 
-* board rules
-* move application
-* pass and terminal semantics
-* search
-* evaluation
-* result semantics
+The Worker is the only app layer that calls `WasmCore`. It converts C/WASM
+results into serializable domain snapshots and validates a searched move
+against the pre-move legal mask before applying it.
 
-Does not own:
+### Worker client and protocol
 
-* browser concepts
-* Emscripten build flags
-* Web Worker protocol
-* React state
-* UI formatting
-* GitHub Pages deployment
+`protocol.ts` defines the app boundary. Current commands are:
 
-### WASM C ABI adapter under wasm/
+* `init`
+* `reset`
+* `applyMove`
+* `applyPass`
+* `cpuMove`
 
-Owns:
-
-* flat exported functions
-* ABI version function
-* packed wire structs
-* memory-safe input validation
-* conversion between C ABI data and engine public C++ types
-* bounded adapter-level smoke surfaces
-* evaluator-owned single-thread search sessions with explicit reuse and reset
-
-Rules:
-
-* depends only on engine public headers
-* must not include UI policy
-* must not expose search internals or evaluator internals
-* browser-facing search strength selection should use a small stable preset plus
-  independent limits, not individual search-option flags
-* persistent search knowledge must be opt-in and reset at a new-game boundary
-* must not duplicate board rules
-
-### TypeScript WasmCore wrapper under wasm/ts
-
-Owns:
-
-* Emscripten module loading
-* raw export access
-* memory allocation helpers
-* pointer lifetime
-* ABI version checks
-* conversion from packed WASM wire structs into TypeScript domain types
-
-Rules:
-
-* this should be the only TypeScript layer that knows the raw WASM ABI
-* `apps/web` should consume domain objects or worker APIs, not pointers or raw
-  memory
-
-### Engine Web Worker under apps/web/src/workers
-
-Owns:
-
-* command handling
-* request IDs
-* response ordering
-* worker-local engine instance lifetime
-* bounded search requests
-* app-facing error conversion
-
-Rules:
-
-* exposes only postMessage request/response types
-* does not duplicate Othello rules
-* does not expose raw WASM memory
-
-### Worker client / React hooks under apps/web/src
-
-Own:
-
-* UI-facing async methods
-* app state transitions
-* loading/error states
-* cancellation UI semantics
-
-Rules:
-
-* must not expose Emscripten modules
-* must not expose C ABI details
-* must not expose raw WASM pointers
+Each request has an id; each response echoes the id and command. Success
+responses carry a `BoardSnapshot` and optionally a CPU move/search summary.
+Failure responses carry a user-readable message. `EngineWorkerClient` owns the
+Worker and the pending request map and rejects outstanding requests when the
+Worker fails or is disposed.
 
 ### React UI
 
-Owns:
+`App.tsx` owns rendering, busy/error state, board orientation, user actions,
+and the human/CPU turn policy. React consumes `BoardSnapshot` and summary
+objects only. It does not import the Emscripten module, inspect pointers,
+interpret C structs, or calculate rule state.
 
-* rendering
-* input gestures
-* board orientation
-* accessibility
-* user-facing display formatting
-* visual highlights
+## Boundary Data
 
-Rules:
+The C ABI position is the engine's relative representation:
 
-* consumes domain objects
-* does not know engine internals
-* does not know WASM memory layout
+```text
+player bitboard
+opponent bitboard
+side_to_move
+```
 
-## Boundary formats
+The Worker converts that representation into a 64-cell absolute-color array,
+side to move, legal square indices, `hasLegalMove`, and `isTerminal`. React
+reorders square indices only for visual rank-8-to-rank-1 display; engine square
+identity remains `a1 = 0`.
 
-Boundary formats have two categories.
+Search results exposed to the app currently include best move/pass, score,
+completed depth, nodes, elapsed milliseconds, stopped, and exact. The score is
+still the engine's side-to-move-relative search score. The current UI shows the
+raw value and does not claim calibrated win probability or provide score-kind
+explanations.
 
-1. Low-frequency/debug boundary:
+## Evaluation Artifact Flow
 
-* canonical board text from board_core serialization
-* useful for tests, URLs, logs, and debugging
+`data/eval/` is the committed source of truth. Repo-level CMake integration
+copies only the current default pointer, selected manifest, and weights into
+the ignored Web runtime tree:
 
-2. High-frequency boundary:
+```text
+apps/web/public/eval/default-artifact.json
+apps/web/public/eval/artifacts/<artifact-id>/manifest.json
+apps/web/public/eval/artifacts/<artifact-id>/weights.bin
+```
 
-* versioned packed binary structs or typed arrays
-* useful for Worker/WASM communication and repeated analysis
+The Worker:
 
-Rules:
+1. fetches `${BASE_URL}eval/default-artifact.json`
+2. resolves `artifact_manifest` relative to that URL
+3. resolves `weights_file` relative to the manifest URL
+4. fetches manifest text and weight bytes
+5. passes both to `WasmCore.loadEvaluationArtifact()`
 
-* any binary ABI shape must include or be guarded by an ABI version
-* raw binary formats are implementation boundaries, not UI model types
-* UI-facing models should be TypeScript domain objects
+The C++ in-memory loader performs the same runtime compatibility and checksum
+checks as the filesystem loader. Missing or invalid assets fail initialization
+or CPU search visibly; the Worker does not silently substitute static
+evaluation.
 
-Prefer simple v0 commands:
+## Browser Search Policy
 
-* `init`
-* `getLegalMoves`
-* `applyMove`
-* `search`
-* `solveEndgame`
-* `cancel` or `stop`
+The Worker currently requests the `normal` preset with:
 
-Long synchronous WASM calls inside a single Web Worker cannot be interrupted by
-a normal queued `postMessage` until control returns to the Worker event loop. v0
-should rely on C++ `SearchLimits` `max_depth` and `max_time` for bounded work.
-Hard cancellation should be designed separately, for example through cooperative
-polling, shared state, or chunked search.
+```text
+max depth: 8
+max nodes: 0
+max time: 500 ms
+exact-score handoff: 8 empties
+```
 
-An exact-endgame threshold must not be accepted with only `max_depth`: exact
-root search intentionally bypasses iterative depth search. The WASM adapter must
-require a node or time limit whenever callers enable exact root search.
+`normal` and `hard` enable PVS, aspiration, IID, midgame/endgame TT, TT/history/
+killer ordering, depth-gated internal mobility ordering, and parity ordering.
+They currently differ through caller-supplied limits rather than algorithm
+flags. `easy` keeps the baseline option set. All presets keep ProbCut and
+Multi-ProbCut disabled.
 
-## Search and evaluation use from web
+Limits are independent from presets. The ABI requires a node or time limit when
+exact root search is enabled because exact root solving ignores `max_depth`.
+Time stopping is cooperative and may overshoot slightly.
 
-v0 should use existing public search APIs only.
+A long synchronous WASM search cannot consume a normal queued `postMessage`
+until control returns to the Worker event loop. The current design therefore
+relies on bounded C++ limits and does not promise interactive cancellation.
 
-Engine search and evaluation scores are side-to-move-relative. The WASM adapter
-and Worker protocol should preserve that engine meaning and carry `score_kind`
-or equivalent metadata when exposing results.
+## Build and Deployment
 
-Conversion from side-to-move-relative engine scores into UI-facing display
-scores is an app adapter responsibility. Worker clients, app services, or React
-hooks may convert scores into root-relative, black/white-relative, signed
-advantage, exact disc-difference, WLD label, or calibrated display values based
-on app state and presentation needs.
+The normal native build compiles and tests the C ABI adapter without requiring
+Node or Emscripten. Emscripten module generation is opt-in with
+`VIBE_OTHELLO_BUILD_WASM_MODULE=ON`.
 
-React components should consume display-ready score models and labels. They
-must not infer score sign from search internals, evaluator internals, raw WASM
-memory, or board perspective details.
+Repo-level CMake targets copy generated runtime files into the app:
 
-UI display conversion must not change recursive search scores, evaluator hot
-path scores, or engine result semantics.
+* `vibe_othello_copy_web_wasm_assets`
+* `vibe_othello_copy_web_eval_artifact_assets`
 
-The web adapter may expose:
+Vite aliases `@vibe-othello/wasm-core` to `wasm/js/wasmCore.mjs`, uses the
+repository Pages base `/vibe-othello-2/`, and emits `apps/web/dist`.
 
-* legal moves
-* applied move result
-* current score
-* best move
-* candidate root moves
-* principal variation
-* completed depth
-* score kind
-* nodes
-* elapsed time
-* exact flag
-* stopped flag
+`.github/workflows/pages.yml` runs on pushes to `main` and manual dispatch. It
+builds and tests the Emscripten module, copies WASM and evaluation assets,
+typechecks and builds the app, checks the Pages artifact contents, and deploys
+`apps/web/dist`. Pull requests do not deploy.
 
-Do not expose:
+## Verification
 
-* transposition table internals
-* search stack internals
-* move ordering internals
-* evaluator feature internals
-* training artifacts directly to React
-* local-only training or measurement paths
+The implemented boundaries are checked at several levels:
 
-## Review and analysis adapters
+* native C ABI tests compare adapter behavior with engine board/search behavior
+* Emscripten Node smokes load the generated module and exercise raw ABI calls
+* `WasmCore` Node smokes cover board operations, artifact loading, evaluation,
+  and bounded search
+* Web CI typechecks and builds React/Vite with generated runtime assets
+* Pages CI verifies the output contains the module, WASM binary, and a complete
+  copied default artifact
 
-Game review, blunder thresholds, swing detection, mistake labels, and human
-explanation are separate adapter policies on top of `SearchResult` and board
-history.
+Detailed native-versus-WASM position/search parity and a browser interaction
+smoke are not yet implemented.
 
-They must not be built into:
+## Current Limitations
 
-* board_core
-* recursive search
-* runtime evaluator hot path
+The browser app has no side selector, difficulty selector, continuous
+evaluation view, score explanation, game review, opening book, hard
+cancellation, threaded WASM, or browser pthread support. CPU opponent mode is
+fixed to human Black and CPU White. The UI and presets make no Elo or
+production-strength claim.
 
-A future `ReviewReport` domain shape should include:
+Threaded WASM would require a separate design for shared state and hosting
+headers. Review labels, blunder thresholds, and human explanations belong in
+an app-level adapter over board history and search results, not in board core,
+recursive search, or evaluator hot paths.
 
-* frames
-* summary
-* highlights
-* optional candidate lines
-* optional exact/endgame annotations
+## Change Checklist
 
-Keep threshold policy out of engine core.
+When changing this boundary:
 
-## Build and deployment
-
-Intended build approach:
-
-* `apps/web` uses Vite.
-* GitHub Pages deployment publishes `apps/web/dist`.
-* For repository Pages, Vite base should be `/vibe-othello-2/`.
-* `wasm/` is built before the Vite build.
-* generated WASM runtime assets are copied or emitted into an app-owned
-  static/runtime asset location.
-* the committed default evaluation artifact may be copied from `data/eval/`
-  into `apps/web/public/eval/` as ignored static runtime assets.
-* `data/eval/` remains the source of truth for evaluation artifacts; `apps/web`
-  must not own copied artifact payloads.
-* future browser/WASM artifact loading should fetch the default pointer from
-  `/eval/default-artifact.json` under the Vite base URL, then resolve the
-  manifest and `weights.bin` from that static path.
-* the native C++ build must not require Node.
-* the native default CMake build must not require Emscripten.
-* Emscripten-specific build steps should be opt-in.
-* top-level CMake should not force the WASM build by default.
-
-The first implementation should use single-threaded WASM inside a Web Worker.
-Do not require browser pthreads, `SharedArrayBuffer`, COOP, or COEP in v0.
-
-## Testing strategy
-
-Future test layers:
-
-* native C++ tests remain under `engine/tests`
-* WASM parity smoke tests compare native and WASM outputs for fixed positions
-* TypeScript unit tests cover `WasmCore` conversions
-* TypeScript unit tests cover worker protocol request/response behavior
-* browser smoke test verifies app boot, worker init, legal move query, and
-  bounded search
-* deployment workflow builds app and uploads `apps/web/dist` to GitHub Pages
-
-## Milestones
-
-1. architecture docs only
-2. minimal top-level `wasm/` adapter design skeleton, still no app dependency
-3. minimal `apps/web` Vite skeleton with static board UI and no engine
-4. single-thread WASM adapter for board_core legal moves and `applyMove`
-5. Worker protocol and React hook integration
-6. bounded search/eval display
-7. GitHub Pages deploy workflow
-8. review/report adapters
-9. optional artifact-backed evaluator loading
-10. optional advanced cancellation
-11. optional threaded WASM only if hosting requirements are solved
-
-## Change checklist
-
-When changing web app architecture, update `docs/architecture/web-app.md`.
-
-When changing current implementation status, update `docs/progress/web-app.md`.
-
-When changing repository layout, update `docs/repository-layout.md`.
-
-When changing app entry points, update `apps/README.md`.
-
-When changing WASM ABI, update `wasm/README.md` or the relevant architecture
-section once `wasm/` exists.
-
-Boundary changes must include tests or explicitly document why tests are not
-part of the PR.
+* update `wasm/README.md` for C ABI or wrapper behavior
+* update `apps/web/README.md` for user-visible development or runtime behavior
+* update `docs/repository-layout.md` if ownership moves
+* update the C ABI version/layout checks when a wire structure changes
+* keep generated WASM, copied evaluation files, and `dist/` out of git
+* add boundary tests, or state why a relevant layer could not be tested

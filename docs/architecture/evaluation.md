@@ -11,8 +11,49 @@ review.
 
 Evaluation must be deterministic, measurable, fast enough for recursive search,
 and explainable enough for analysis workflows. This document defines the
-runtime architecture contract, not committed artifact policy or training
-workflow status.
+runtime architecture contract and current implementation. Committed artifact
+policy and experiment history are documented separately.
+
+## Implemented System
+
+Runtime evaluation is implemented around `search::Evaluator` and three engine
+evaluators:
+
+* `EarlyMidgameHeuristicEvaluator`, the deterministic fallback
+* `PatternEvaluator`, the immutable phase-dependent learned model
+* `PhaseAwareEvaluator`, which routes fallback, learned replacement, or
+  fallback-plus-learned-residual according to artifact metadata
+
+`PatternEvaluator` compiles dynamic pattern geometry and weights into flat
+runtime arrays at construction. It keeps a reference extraction path and an
+incremental state with paired black/white indices. Search initializes that
+state once for eligible roots, updates only affected active instances on move
+and undo, and skips dormant suffix tables until a later phase activates them.
+Weights use a signed 16-bit compact array when every value fits exactly and
+otherwise retain the 32-bit path.
+
+Filesystem loading and in-memory manifest-plus-bytes loading share the same
+manifest, checksum, pattern-set, phase, score-unit, score-scale, and table-shape
+validation. The CLI uses the filesystem path; WASM uses the byte path and owns
+the resulting evaluator behind an opaque handle. Load failures are explicit and
+do not silently select another evaluator.
+
+The current experimental default is
+`pattern-v2-egaroucid-lv17-full-value-v1`. It declares reviewed coverage for
+all 13 phases: phases 0 through 9 add a learned residual to the fallback and
+phases 10 through 12 use learned replacement weights. Its training route and
+paired validation evidence are summarized in
+`data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/README.md`; the
+earlier `pattern-v2-wthor-full-policy-v1` remains available
+for rollback and comparison. “Experimental default” is not an Elo,
+self-play, publication-readiness, or production-strength claim.
+
+## Current Limitations
+
+There is no evaluation-explanation API, calibrated display-score API, or
+separately promoted production baseline evaluator. Native/WASM parity coverage
+does not yet cover every evaluator path, and production-strength validation for
+the default artifact remains outside the repository's current claims.
 
 ## Boundaries
 
@@ -67,13 +108,10 @@ search-facing interface. Non-search helpers such as `explain` or calibration
 views are adapters around the evaluator and are measured separately from the
 recursive search path.
 
-## Built-in Evaluators
+## Evaluator Roles
 
-The runtime evaluator stack is intentionally small:
+The engine runtime evaluator stack is intentionally small:
 
-* `StaticEvaluator` or `BaselineEvaluator`: a simple handwritten evaluator for
-  regression stability, fallback analysis, and tests that do not need learned
-  weights.
 * `EarlyMidgameHeuristicEvaluator`: a small deterministic baseline used only
   when a loaded artifact explicitly does not report learned coverage for the
   current phase. It combines mobility, potential mobility, frontier, corner,
@@ -85,14 +123,11 @@ The runtime evaluator stack is intentionally small:
   learned pattern evaluator only for reviewed phases and otherwise selects the
   early/midgame heuristic fallback. An explicit artifact policy may treat
   covered early phases as learned residuals over that fallback.
-* `CheapEvaluator`: an optional low-cost evaluator for move ordering,
-  constrained WASM analysis, or other latency-sensitive paths.
-* `ExplainingEvaluator`: a non-recursive adapter that exposes score
-  contribution data or calibrated display values for tools.
 
-Non-pattern terms may exist in baseline evaluators. Learned runtime evaluators
-should keep feature ownership explicit and avoid hiding search policy inside
-evaluation.
+The engine CLI's `--eval-mode static` path is a tool-local disc-difference
+evaluator, not another engine evaluation implementation. Future explanation or
+display-calibration adapters must stay outside recursive evaluation and keep
+feature ownership explicit.
 
 ## Pattern Evaluator Runtime Contract
 
@@ -261,8 +296,6 @@ generated measurement payloads.
 
 ## What Belongs Elsewhere
 
-Current evaluation implementation status: `docs/progress/evaluation.md`.
-
 Artifact layout, manifest, default pointer, promotion, rollback, and commit
 policy: `docs/architecture/evaluation-artifacts.md`.
 
@@ -271,4 +304,5 @@ Pattern learning data pipeline and trainer/exporter responsibilities:
 
 Evaluation artifact data directory policy: `data/eval/README.md`.
 
-Pattern learning current status: `docs/progress/pattern-learning.md`.
+Current training route and learning contracts:
+`docs/architecture/pattern-learning.md`.
