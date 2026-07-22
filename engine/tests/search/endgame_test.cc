@@ -1081,7 +1081,7 @@ TEST_CASE("exact endgame best-only keeps terminal and forced pass root reports s
 
 TEST_CASE("exact endgame TT preserves exact scores for representative positions",
           "[search][endgame][tt]") {
-  const std::array<board_core::Position, 6> positions{
+  const std::array<board_core::Position, 8> positions{
       parse_position_or_fail(
           "BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/WWWWWWWW/WWWWWWWW/WWWWWWWW b"),
       parse_position_or_fail(
@@ -1091,6 +1091,8 @@ TEST_CASE("exact endgame TT preserves exact scores for representative positions"
       test_support::generated_endgame_position(2),
       test_support::generated_endgame_position(4),
       test_support::generated_endgame_position(6),
+      test_support::generated_endgame_position(8),
+      test_support::generated_endgame_position(12),
   };
 
   bool saw_tt_probe = false;
@@ -1114,6 +1116,47 @@ TEST_CASE("exact endgame TT preserves exact scores for representative positions"
   REQUIRE(saw_tt_probe);
   REQUIRE(saw_tt_store);
   REQUIRE(saw_tt_cutoff);
+}
+
+TEST_CASE("exact endgame skips TT work on specialized shallow nodes", "[search][endgame][tt]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+
+  const SearchResult exact = search_exact(position, 4, true);
+  const SearchResult wld = search_wld(position, 4, true);
+
+  require_exact_result_invariants(position, exact);
+  require_wld_result_invariants(position, wld);
+  REQUIRE(exact.stats.tt_probes == 0);
+  REQUIRE(exact.stats.tt_stores == 0);
+  REQUIRE(wld.stats.tt_probes == 0);
+  REQUIRE(wld.stats.tt_stores == 0);
+}
+
+TEST_CASE("exact endgame PVS preserves exact root scores and can be disabled",
+          "[search][endgame][pvs]") {
+  const board_core::Position position = corpus_position("fourteen_empty_simple");
+  SearchOptions pvs_options{};
+  pvs_options.endgame.use_endgame_pvs = true;
+  SearchOptions alpha_beta_options = pvs_options;
+  alpha_beta_options.endgame.use_endgame_pvs = false;
+
+  const SearchResult with_pvs = solve_direct_exact(position, {}, pvs_options);
+  const SearchResult with_alpha_beta = solve_direct_exact(position, {}, alpha_beta_options);
+
+  require_exact_result_invariants(position, with_pvs);
+  require_exact_result_invariants(position, with_alpha_beta);
+  require_same_exact_scores(position, with_pvs, with_alpha_beta);
+  REQUIRE(with_pvs.stats.pvs_researches > 0);
+  REQUIRE(with_alpha_beta.stats.pvs_researches == 0);
+}
+
+TEST_CASE("exact endgame PVS stays off below its high-empty threshold", "[search][endgame][pvs]") {
+  const board_core::Position position = corpus_position("eight_empty_simple");
+
+  const SearchResult result = solve_direct_exact(position);
+
+  require_exact_result_invariants(position, result);
+  REQUIRE(result.stats.pvs_researches == 0);
 }
 
 TEST_CASE("exact endgame parity ordering preserves corpus scores and best move tie behavior",

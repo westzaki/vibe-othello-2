@@ -12,7 +12,15 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_GROUP_BY = ("mode", "empties", "parity_ordering", "tt_mode", "root_mode")
+DEFAULT_GROUP_BY = (
+    "mode",
+    "empties",
+    "parity_ordering",
+    "tt_mode",
+    "stability_mode",
+    "pvs",
+    "root_mode",
+)
 PERCENTILE_FIELDS = ("elapsed_ms", "nodes", "endgame_nodes", "nps")
 REQUIRED_FIELDS = (
     *DEFAULT_GROUP_BY,
@@ -93,6 +101,8 @@ def sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
         empties_key,
         str(row.get("parity_ordering", "")),
         str(row.get("tt_mode", "")),
+        str(row.get("stability_mode", "")),
+        str(row.get("pvs", "")),
         str(row.get("root_mode", "")),
         tuple(str(row[key]) for key in sorted(row)),
     )

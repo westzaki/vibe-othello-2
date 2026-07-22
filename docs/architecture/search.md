@@ -335,6 +335,7 @@ struct MoveOrderingOptions {
 struct EndgameSearchOptions {
   bool exact_endgame;
   bool use_endgame_tt;
+  bool use_endgame_pvs;
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
   EndgameStabilityMode stability_mode;
@@ -426,8 +427,10 @@ when search would normalize it to off.
 
 Every non-baseline option must be independently disableable.
 
-Most options default to disabled. `ordering.use_endgame_parity_ordering` defaults
-enabled because it is an ordering-only exact-endgame hint.
+Most options default to disabled. `ordering.use_endgame_parity_ordering` and
+`endgame.use_endgame_pvs` default enabled; parity is an ordering-only hint and
+endgame PVS is an exact null-window optimization that can be disabled for
+differential measurements.
 `endgame.stability_mode` defaults to `EndgameStabilityMode::cutoff`; callers can
 select `shadow` to collect and verify hypothetical bound cuts without changing
 the searched result, or `off` for a strict no-probe baseline.
@@ -458,7 +461,14 @@ threshold gate.
 `endgame.use_endgame_tt` enables exact-score endgame transposition-table probe, store,
 and cutoff behavior when exact endgame search is active. It also enables WLD
 endgame transposition-table probe, store, and cutoff behavior when direct or
-root-triggered WLD search is active.
+root-triggered WLD search is active. Both paths intentionally bypass TT probe
+and store work below five remaining empty squares, where the shallow search
+cost is lower than the table overhead.
+
+`endgame.use_endgame_pvs` enables exact-score endgame Principal Variation
+Search at nodes with at least nine remaining empty squares. It does not affect
+WLD search. A scout result strictly inside the full window is re-searched and
+counted in `stats.pvs_researches`.
 
 Endgame TT entries may only be probed or stored by exact endgame search paths.
 
@@ -523,7 +533,7 @@ should use `SearchLimits` when appropriate. `max_nodes`, `max_time`, and
 search entry points. `max_depth` is not meaningful for direct exact endgame
 solving and is ignored.
 
-`endgame.use_endgame_tt`, `endgame.stability_mode`,
+`endgame.use_endgame_tt`, `endgame.use_endgame_pvs`, `endgame.stability_mode`,
 `ordering.use_endgame_parity_ordering`, and exact endgame root reporting
 options such as `reporting.multi_pv` keep their exact endgame meanings.
 Midgame options such as PVS, IID, history, killers, midgame TT, and selective

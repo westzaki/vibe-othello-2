@@ -7,6 +7,11 @@
 namespace vibe_othello::search::internal {
 namespace {
 
+// Null-window probes pay off in the wider high-empty tree, but add work near
+// the specialized small-empty boundary where the remaining tree is already
+// cheap. Keep this threshold independent from the exact cutover threshold.
+constexpr std::uint8_t kExactPvsMinimumEmpties = 9;
+
 template <typename EndgamePolicy>
 ExactEndgameTtProbe probe_tt_with_policy(EndgameContext* context, Depth remaining_empties,
                                          Score alpha, Score beta) {
@@ -177,8 +182,27 @@ endgame_search_after_stability_with_policy(EndgameContext* context, Score alpha,
     }
 
     const board_core::Move move = frame.moves.moves[move_index];
-    const SearchNodeResult child = search_endgame_child_with_policy<EndgamePolicy>(
-        context, move, alpha, beta, empties, ply, small_endgame_policy);
+    SearchNodeResult child = SearchNodeResult::stopped();
+    if constexpr (EndgamePolicy::kUsesSmallEmpty) {
+      const bool use_null_window = context->options.endgame.use_endgame_pvs && move_index > 0 &&
+                                   empties >= kExactPvsMinimumEmpties && alpha + 1 < beta;
+      if (use_null_window) {
+        child = search_endgame_child_with_policy<EndgamePolicy>(context, move, alpha,
+                                                                static_cast<Score>(alpha + 1),
+                                                                empties, ply, small_endgame_policy);
+        if (child.is_complete() && child.value().score > alpha && child.value().score < beta) {
+          ++context->stats.pvs_researches;
+          child = search_endgame_child_with_policy<EndgamePolicy>(
+              context, move, alpha, beta, empties, ply, small_endgame_policy);
+        }
+      } else {
+        child = search_endgame_child_with_policy<EndgamePolicy>(context, move, alpha, beta, empties,
+                                                                ply, small_endgame_policy);
+      }
+    } else {
+      child = search_endgame_child_with_policy<EndgamePolicy>(context, move, alpha, beta, empties,
+                                                              ply, small_endgame_policy);
+    }
     if (child.is_stopped()) {
       return SearchNodeResult::stopped();
     }

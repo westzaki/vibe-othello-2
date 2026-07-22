@@ -3,8 +3,15 @@
 namespace vibe_othello::search::internal {
 namespace {
 
-bool should_use_endgame_tt(const EndgameContext& context) noexcept {
-  return context.options.endgame.use_endgame_tt && context.transposition_table != nullptr;
+// At four empties and below exact-score search is already specialized and the
+// WLD tree is shallow. Probing and attempting to store these abundant nodes
+// costs more than the transpositions save, especially once the table is
+// saturated.
+constexpr Depth kEndgameTtMinimumEmpties = 5;
+
+bool should_use_endgame_tt(const EndgameContext& context, Depth remaining_empties) noexcept {
+  return remaining_empties >= kEndgameTtMinimumEmpties && context.options.endgame.use_endgame_tt &&
+         context.transposition_table != nullptr;
 }
 
 ExactEndgameTtProbe probe_endgame_tt_entry(const TTEntry& entry, TTEntryKind kind,
@@ -35,7 +42,7 @@ ExactEndgameTtProbe probe_endgame_tt_entry(const TTEntry& entry, TTEntryKind kin
 
 ExactEndgameTtProbe probe_endgame_tt(EndgameContext* context, TTEntryKind kind,
                                      Depth remaining_empties, Score alpha, Score beta) {
-  if (!should_use_endgame_tt(*context)) {
+  if (!should_use_endgame_tt(*context, remaining_empties)) {
     return {};
   }
 
@@ -57,7 +64,7 @@ std::optional<board_core::Move> probe_endgame_root_tt_best_move(EndgameContext* 
                                                                 TTEntryKind kind,
                                                                 Depth remaining_empties,
                                                                 Score alpha, Score beta) {
-  if (!should_use_endgame_tt(*context)) {
+  if (!should_use_endgame_tt(*context, remaining_empties)) {
     return std::nullopt;
   }
 
@@ -75,7 +82,7 @@ std::optional<board_core::Move> probe_endgame_root_tt_best_move(EndgameContext* 
 void store_endgame_tt(EndgameContext* context, TTEntryKind kind, Depth remaining_empties,
                       Score score, BoundType bound,
                       std::optional<board_core::Move> best_move) noexcept {
-  if (!should_use_endgame_tt(*context) || should_stop_endgame(context)) {
+  if (!should_use_endgame_tt(*context, remaining_empties) || should_stop_endgame(context)) {
     return;
   }
 
