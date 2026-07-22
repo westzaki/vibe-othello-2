@@ -6,6 +6,7 @@
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
 #include <cstddef>
@@ -44,9 +45,10 @@ struct Args {
   std::uint32_t max_samples_per_search = 1;
   std::uint64_t sampling_seed = 0;
   std::size_t position_limit = 0;
+  std::size_t position_limit_per_phase = 0;
   std::uint32_t partition_count = 1;
   std::uint32_t partition_index = 0;
-  int root_phase = -1;
+  std::vector<std::uint8_t> root_phases;
   std::vector<search::ShadowCalibrationDepthPairV1> depth_pairs;
 };
 
@@ -184,6 +186,13 @@ std::optional<Args> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       args.position_limit = *parsed;
+    } else if (argument == "--position-limit-per-phase") {
+      const auto next = value();
+      const auto parsed = next.has_value() ? parse_integer<std::size_t>(*next) : std::nullopt;
+      if (!parsed.has_value() || *parsed == 0) {
+        return std::nullopt;
+      }
+      args.position_limit_per_phase = *parsed;
     } else if (argument == "--partition-count") {
       const auto next = value();
       const auto parsed = next.has_value() ? parse_integer<std::uint32_t>(*next) : std::nullopt;
@@ -204,7 +213,7 @@ std::optional<Args> parse_args(int argc, char** argv) {
       if (!parsed.has_value() || *parsed < 0 || *parsed > 12) {
         return std::nullopt;
       }
-      args.root_phase = *parsed;
+      args.root_phases.push_back(static_cast<std::uint8_t>(*parsed));
     } else {
       return std::nullopt;
     }
@@ -220,7 +229,14 @@ std::optional<Args> parse_args(int argc, char** argv) {
   }
   if (args.artifact_manifest.empty() || args.positions_path.empty() || args.output_path.empty() ||
       args.repository_sha.empty() || args.search_config_id.empty() || args.depth_pairs.empty() ||
-      duplicate_pair || args.partition_index >= args.partition_count) {
+      duplicate_pair || args.partition_index >= args.partition_count ||
+      (args.position_limit_per_phase != 0 && args.root_phases.empty()) ||
+      (args.position_limit != 0 && args.position_limit_per_phase != 0)) {
+    return std::nullopt;
+  }
+  std::sort(args.root_phases.begin(), args.root_phases.end());
+  if (std::adjacent_find(args.root_phases.begin(), args.root_phases.end()) !=
+      args.root_phases.end()) {
     return std::nullopt;
   }
   return args;
@@ -617,6 +633,7 @@ int run(const Args& args) {
 
   std::size_t input_rows = 0;
   std::size_t selected_rows = 0;
+  std::array<std::size_t, 13> selected_rows_by_phase{};
   std::size_t stopped_searches = 0;
   search::NodeCount official_nodes = 0;
   search::NodeCount shadow_nodes = 0;
@@ -642,7 +659,20 @@ int run(const Args& args) {
       std::cerr << "invalid side-to-move-relative board at row " << (input_rows + 1) << '\n';
       return 2;
     }
-    if (args.root_phase >= 0 && phase_for(*position) != args.root_phase) {
+    const std::uint8_t root_phase = phase_for(*position);
+    if (!args.root_phases.empty() &&
+        !std::binary_search(args.root_phases.begin(), args.root_phases.end(), root_phase)) {
+      continue;
+    }
+    if (args.position_limit_per_phase != 0 &&
+        selected_rows_by_phase[root_phase] >= args.position_limit_per_phase) {
+      const bool all_phases_complete =
+          std::all_of(args.root_phases.begin(), args.root_phases.end(), [&](std::uint8_t phase) {
+            return selected_rows_by_phase[phase] >= args.position_limit_per_phase;
+          });
+      if (all_phases_complete) {
+        break;
+      }
       continue;
     }
     if (args.position_limit != 0 && selected_rows >= args.position_limit) {
@@ -653,6 +683,7 @@ int run(const Args& args) {
     const search::SearchResult result =
         search::search_fixed_depth(session, *position, evaluator, args.depth, options);
     ++selected_rows;
+    ++selected_rows_by_phase[root_phase];
     stopped_searches += result.stopped ? 1U : 0U;
     official_nodes += result.nodes;
     shadow_nodes += result.shadow_calibration.shadow_shallow_nodes +
@@ -687,7 +718,8 @@ int main(int argc, char** argv) {
            "--output PATH --repository-sha SHA --search-config-id ID --depth-pair DEEP:SHALLOW "
            "[--depth N] [--exact-endgame-empties N] [--sample-rate N] "
            "[--max-samples-per-search N] [--sampling-seed N] [--position-limit N] "
-           "[--partition-count N --partition-index N] [--root-phase N]\n";
+           "[--position-limit-per-phase N] [--partition-count N --partition-index N] "
+           "[--root-phase N ...]\n";
     return 2;
   }
   try {

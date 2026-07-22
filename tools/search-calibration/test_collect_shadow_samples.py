@@ -44,8 +44,12 @@ def main() -> int:
             "3:2",
             "--max-samples-per-search",
             "2",
-            "--position-limit",
-            "2",
+            "--root-phase",
+            "0",
+            "--root-phase",
+            "1",
+            "--position-limit-per-phase",
+            "1",
         ]
         completed = subprocess.run(command, check=False, capture_output=True, text=True)
         if completed.returncode != 0:

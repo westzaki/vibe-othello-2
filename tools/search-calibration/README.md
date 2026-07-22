@@ -127,14 +127,20 @@ build/tools/search-calibration/vibe-othello-collect-shadow-samples \
   --depth 8 --exact-endgame-empties 8 \
   --depth-pair 7:3 --depth-pair 7:4 \
   --sample-rate 1000000 --max-samples-per-search 2 \
-  --sampling-seed 0 --root-phase 0 --position-limit 1000
+  --sampling-seed 0 \
+  --root-phase 0 --root-phase 1 --root-phase 2 \
+  --position-limit-per-phase 1000
 ```
+
+Repeat `--root-phase` and add `--position-limit-per-phase` to collect the same
+number of roots from each requested phase in one pass over a large corpus.
 
 The two rows produced for a sampled node are one scheduler observation, not two
 independent nodes. Use a different partition and sampling seed for joint
 holdout collection while keeping the artifact, search config, ordered pair
-list, sampling rate, and per-search cap identical. Generated JSONL and summary
-output remain local-only.
+list, sampling rate, and per-search cap identical. `--position-limit` and
+`--position-limit-per-phase` are mutually exclusive. Generated JSONL and
+summary output remain local-only.
 
 ## Analyzer
 
