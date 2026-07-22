@@ -99,6 +99,14 @@ def run(command: list[str], expected: int = 0) -> subprocess.CompletedProcess[st
     return result
 
 
+def search_config_id(canonical: str) -> str:
+    checksum = 14695981039346656037
+    for byte in canonical.encode("utf-8"):
+        checksum ^= byte
+        checksum = (checksum * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return f"fnv1a64:0x{checksum:016x}"
+
+
 def make_full_coverage_artifact(source_manifest: Path, source_weights: Path, output_root: Path,
                                 name: str, phase_zero_bias: int | None = None) -> tuple[Path, Path]:
     manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
@@ -169,6 +177,17 @@ def main() -> int:
             rows = read_tsv(first / "moves.tsv")
             if len(rows) != 4 or {row["move_rank"] for row in rows} != {"1", "2", "3", "4"}:
                 raise RuntimeError(f"initial root legal-move completeness/rank failed: {rows}")
+            expected_config_id = search_config_id(
+                "search-move-teacher-config-v3\nbasic\n1\n0\n0\n0\n0\nrequire-all\n2\n"
+            )
+            first_report = json.loads((first / "report.json").read_text(encoding="utf-8"))
+            if first_report.get("teacher_search_config_id") != expected_config_id or {
+                row["teacher_search_config_id"] for row in rows
+            } != {expected_config_id}:
+                raise RuntimeError(
+                    "teacher config provenance does not identify v3 cutoff semantics: "
+                    f"{first_report!r}"
+                )
             for row in rows:
                 if row["teacher_kind"] != "artifact_search" or row["teacher_source"] != "search-move-teacher-v1":
                     raise RuntimeError(f"teacher provenance missing: {row}")

@@ -144,6 +144,16 @@ def assert_report(report: dict[str, object]) -> None:
         raise AssertionError(f"unexpected limit scope: {report['search_config']!r}")
     if report["search_config"]["resolved_options"]["use_pvs"] is not True:
         raise AssertionError(f"full preset did not enable PVS: {report['search_config']!r}")
+    for option_key in (
+        "resolved_options",
+        "candidate_resolved_options",
+        "baseline_resolved_options",
+    ):
+        if report["search_config"][option_key].get("stability_mode") != "cutoff":
+            raise AssertionError(
+                f"{option_key} did not report the endgame stability mode: "
+                f"{report['search_config'][option_key]!r}"
+            )
     if report["input_opening_count"] != 4 or report["opening_count"] != 4:
         raise AssertionError(f"unexpected opening counts: {report!r}")
     if report["games"] != 8 or len(report["game_records"]) != 8:
@@ -192,6 +202,16 @@ def assert_report(report: dict[str, object]) -> None:
     ) is not True:
         raise AssertionError(f"v4 paired sanity failed: {paired_sanity!r}")
     telemetry = report["telemetry"]
+    endgame_fields = (
+        "endgame_nodes",
+        "endgame_last_flip_solved",
+        "endgame_stability_probes",
+        "endgame_stability_lower_candidates",
+        "endgame_stability_upper_candidates",
+        "endgame_stability_cutoffs",
+        "endgame_stability_shadow_verifications",
+        "endgame_stability_shadow_false_cutoffs",
+    )
     for role in ("candidate", "baseline"):
         role_report = telemetry.get(role)
         if not isinstance(role_report, dict) or role_report["overall"]["search_calls"] <= 0:
@@ -201,6 +221,11 @@ def assert_report(report: dict[str, object]) -> None:
             raise AssertionError(f"missing high-resolution {role} timing: {overall_telemetry!r}")
         if "engine_elapsed_ms" not in overall_telemetry or "timer_accounting_delta_ns" not in overall_telemetry:
             raise AssertionError(f"missing {role} timer accounting: {overall_telemetry!r}")
+        for field in endgame_fields:
+            if field not in overall_telemetry:
+                raise AssertionError(
+                    f"missing {role} endgame telemetry {field}: {overall_telemetry!r}"
+                )
         for field in (
             "incremental_eval_enabled",
             "incremental_eval_enabled_searches",
@@ -238,6 +263,9 @@ def assert_report(report: dict[str, object]) -> None:
     if any(not game.get("search_calls") for game in report["game_records"]):
         raise AssertionError("game record lacks per-search telemetry")
     first_search = report["game_records"][0]["search_calls"][0]
+    for field in endgame_fields:
+        if field not in first_search:
+            raise AssertionError(f"per-search endgame telemetry lacks {field}: {first_search!r}")
     for field in (
         "elapsed_ns",
         "elapsed_ms",

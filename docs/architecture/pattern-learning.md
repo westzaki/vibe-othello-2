@@ -271,6 +271,11 @@ training passes retained shallow roots and deeper overlay roots as disjoint
 sidecars, preserving one explicit provenance per file in the trainer report.
 Per-move depth and node counts may differ and are not part of this equality
 check.
+
+The `teacher_search_config_id` canonical payload uses
+`search-move-teacher-config-v3`. This solver-semantics revision covers the
+eight-empty internal exact handoff and includes `EndgameStabilityMode`, so
+labels produced with different stability policies cannot share provenance.
 Ordinary teacher coverage requires declared phases `0..12`; an explicit
 phase-aware bootstrap may use reported fallback phases, but legacy implicit
 coverage remains invalid.

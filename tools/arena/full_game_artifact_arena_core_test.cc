@@ -21,7 +21,15 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
                                                    .incremental_updates = 200,
                                                    .incremental_touched_instances = 500,
                                                    .tt_probes = 20,
-                                                   .tt_hits = 10}},
+                                                   .tt_hits = 10,
+                                                   .endgame_nodes = 23,
+                                                   .endgame_last_flip_solved = 1,
+                                                   .endgame_stability_probes = 22,
+                                                   .endgame_stability_lower_candidates = 3,
+                                                   .endgame_stability_upper_candidates = 4,
+                                                   .endgame_stability_cutoffs = 5,
+                                                   .endgame_stability_shadow_verifications = 6,
+                                                   .endgame_stability_shadow_false_cutoffs = 7}},
       SearchTelemetry{
           .role = EngineRole::baseline,
           .completed_depth = 5,
@@ -45,6 +53,14 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
   REQUIRE(candidate.stats.incremental_updates == 200);
   REQUIRE(candidate.stats.incremental_touched_instances == 500);
   REQUIRE(candidate.stats.tt_hits == 10);
+  REQUIRE(candidate.stats.endgame_nodes == 23);
+  REQUIRE(candidate.stats.endgame_last_flip_solved == 1);
+  REQUIRE(candidate.stats.endgame_stability_probes == 22);
+  REQUIRE(candidate.stats.endgame_stability_lower_candidates == 3);
+  REQUIRE(candidate.stats.endgame_stability_upper_candidates == 4);
+  REQUIRE(candidate.stats.endgame_stability_cutoffs == 5);
+  REQUIRE(candidate.stats.endgame_stability_shadow_verifications == 6);
+  REQUIRE(candidate.stats.endgame_stability_shadow_false_cutoffs == 7);
   REQUIRE(baseline.search_calls == 1);
   REQUIRE(baseline.stats.nodes == 300);
   REQUIRE(baseline.completed_depths == std::vector<std::uint64_t>{5});

@@ -85,6 +85,13 @@ void add_search_stats(search::SearchStats* total, const search::SearchStats& val
   total->aspiration_fail_highs += value.aspiration_fail_highs;
   total->iid_searches += value.iid_searches;
   total->endgame_nodes += value.endgame_nodes;
+  total->endgame_last_flip_solved += value.endgame_last_flip_solved;
+  total->endgame_stability_probes += value.endgame_stability_probes;
+  total->endgame_stability_lower_candidates += value.endgame_stability_lower_candidates;
+  total->endgame_stability_upper_candidates += value.endgame_stability_upper_candidates;
+  total->endgame_stability_cutoffs += value.endgame_stability_cutoffs;
+  total->endgame_stability_shadow_verifications += value.endgame_stability_shadow_verifications;
+  total->endgame_stability_shadow_false_cutoffs += value.endgame_stability_shadow_false_cutoffs;
   total->selective_cuts += value.selective_cuts;
   total->probcut_attempts += value.probcut_attempts;
   total->probcut_shallow_nodes += value.probcut_shallow_nodes;

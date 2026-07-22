@@ -532,14 +532,17 @@ SearchConfig make_search_config(const Args& args) {
       .exact_endgame_empties = args.exact_endgame_empties,
   };
   std::ostringstream canonical;
-  canonical << "search-move-teacher-config-v2\n"
+  // v3 is the solver-semantics revision for the eight-empty internal exact
+  // handoff and makes the stability policy explicit in label provenance.
+  canonical << "search-move-teacher-config-v3\n"
             << preset_name(config.preset) << '\n'
             << config.limits.max_depth << '\n'
             << config.limits.max_nodes << '\n'
             << config.limits.max_time.count() << '\n'
             << static_cast<int>(config.exact_endgame_empties) << '\n'
             << full << '\n'
-            << coverage_policy_name(args.teacher_coverage_policy);
+            << coverage_policy_name(args.teacher_coverage_policy) << '\n'
+            << static_cast<int>(config.options.endgame.stability_mode) << '\n';
   config.id =
       "fnv1a64:" + checksum_string(fnv1a64_update(14695981039346656037ull, canonical.str()));
   return config;
