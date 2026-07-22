@@ -72,14 +72,11 @@ of truth for committed evaluation artifacts and the default artifact pointer.
 Artifact layout, default pointer, manifest, provenance, promotion, rollback,
 commit policy: `../../docs/architecture/evaluation-artifacts.md`
 
-Runtime evaluation architecture: `../../docs/architecture/evaluation.md`
+Runtime evaluation architecture and current implementation:
+`../../docs/architecture/evaluation.md`
 
-Current evaluation status: `../../docs/progress/evaluation.md`
-
-Pattern learning pipeline and trainer/exporter responsibilities:
-`../../docs/architecture/pattern-learning.md`
-
-Pattern learning current status: `../../docs/progress/pattern-learning.md`
+Pattern learning pipeline, trainer/exporter responsibilities, and current route:
+`../../docs/architecture/pattern-learning.md`.
 
 Corpus source policy: `../corpora/README.md`
 

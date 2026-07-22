@@ -8,8 +8,28 @@ It is the foundation used by search, evaluation, pattern learning, WASM, tools, 
 
 The board core must be correct, deterministic, fast, and easy to validate.
 
-Implementation status and milestone tracking live in
-`docs/progress/board-core.md`.
+## Implemented System
+
+The production implementation under `engine/src/board_core/` provides the
+complete rule surface used by the rest of the repository:
+
+* relative two-bitboard positions with absolute color helpers
+* checked normal-move and pass application
+* precomputed `MoveDelta` application and exact undo for trusted search paths
+* reference and unrolled legal-move and flip implementations
+* pass and terminal detection
+* canonical parsing and formatting
+* deterministic full-position hashing and `hash_after_move`
+
+Search uses these operations directly and maintains no competing rule model.
+The public implementation is covered by unit, reference differential,
+property, deterministic random-game, perft, serialization, and incremental-hash
+tests. `engine/benchmarks/board_core_bench.cc` and checked-in aggregate
+baselines protect the hot paths.
+
+There is no required board-core gap for the current search, evaluation, WASM,
+or tooling stack. New consumers may require adapter-specific validation, but
+they must not introduce rules outside this module.
 
 ## Boundary
 
@@ -447,9 +467,8 @@ Optimize only after tests can detect mistakes.
 
 ## Change Checklist
 
-When changing board-core public behavior, update this document for intended
-design changes, update `docs/progress/board-core.md` for current implementation
-status changes, and update the relevant tests in `engine/tests/board_core`.
+When changing board-core public behavior, update this document and the relevant
+tests in `engine/tests/board_core`.
 
 Rule or representation changes should run:
 

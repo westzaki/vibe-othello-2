@@ -8,12 +8,71 @@ artifacts for the pattern evaluator.
 This document defines the stable architecture contract: ownership boundaries,
 data flow, local-only data rules, normalized training schemas, label contracts,
 feature contracts, trainer/exporter responsibilities, and the handoff to
-runtime artifacts. It does not track current project status, experiment history,
-command lines, or artifact-specific evidence.
+runtime artifacts. It also records the currently adopted route at a level that
+helps implementation work. Detailed commands, run history, and superseded
+experiments remain outside the default reading path.
 
 Pattern learning must keep the engine runtime deterministic, small, and
 license-safe. Learned artifacts are not strength, Elo, self-play, or production
 claims unless separate validation gates say so.
+
+## Implemented System and Current Route
+
+The repository implements the pipeline as independent tools under
+`tools/data-import/` and `tools/pattern/`:
+
+```text
+external corpus
+  -> board-core-backed import/normalization
+  -> optional root selection and exact/search move teachers
+  -> compact pattern datasets or bounded-memory streaming trainers
+  -> trainer-weight JSON
+  -> runtime artifact export
+  -> paired artifact Arena review
+```
+
+Shared normalized-schema validation, canonical board identities, split audits,
+pattern catalog parity checks, checksum-bound reports, and resume sidecars keep
+the stages composable without making generated data part of the repository.
+Exact teacher generation calls the public endgame solver; search teachers load
+an explicit artifact and search configuration. Training and export reuse the
+runtime-owned pattern catalog and ternary indexing contract.
+
+The current experimental default is
+`pattern-v2-egaroucid-lv17-full-value-v1` on the
+`pattern-v2-endgame-lite` runtime schema. Its adopted final training route
+streams all 25,514,097 Egaroucid board-score positions without materializing an
+expanded dataset: 1,514,097 positions at 4–15 occupied squares use the declared
+Egaroucid 7.4.0 lv17 enumeration/evaluation/negamax route, while 24,000,000
+positions at 16–63 occupied squares use declared Egaroucid 7.5.1 lv17 self-play
+terminal outcomes. Phases 0–9 receive five full-corpus residual-training passes;
+phases 10–12 receive one replacement-weight pass.
+
+Promotion used independent paired fixed-depth and fixed-time Arena comparisons
+against the prior full-WHTOR default, a zero-overlap audit between the 1,000-pair
+16-ply promotion suite and all training boards, and short-opening gates that
+directly exercised phases 0–2. Exact metrics and source notices live in the
+artifact README and experiment archive. The headline score rates were 68.05%
+at depth 3, 67.97% at depth 5, and 68.85% at 10 ms plus exact-8; short-opening
+depth-3 gates scored 69.92%, 71.48%, and 66.70% at 4, 8, and 11 plies. Every
+paired interval excluded 50% and all games were clean. These are evidence for
+selecting an experimental engineering default, not a production-strength or
+publication claim. The prior full-WHTOR artifact remains committed for
+comparison and rollback.
+
+The current default was reached through earlier normalized-v2, move-teacher,
+pairwise-ranking, hard-root overlay, WHTOR policy, and independent-Arena stages.
+Those facilities remain supported tooling, but their chronological run log is
+history rather than architecture and lives under `docs/experiments/`.
+
+## Current Limitations
+
+Training workflows are local campaign tools, not a hosted or productionized
+trainer service. Generated corpora, labels, caches, datasets, weights, reports,
+and logs remain local-only until a reviewed minimal runtime artifact crosses the
+publication boundary. Fitting metrics alone never authorize promotion, and the
+repository does not claim external-engine Elo or self-play production strength
+for the current default.
 
 ## Boundaries
 
@@ -398,8 +457,6 @@ Runtime evaluation loads artifacts through the contract in
 runtime evaluation architecture in `docs/architecture/evaluation.md`.
 
 ## What Belongs Elsewhere
-
-Current implementation status belongs in `docs/progress/pattern-learning.md`.
 
 Experiment history and evidence belong in `docs/experiments/README.md`.
 

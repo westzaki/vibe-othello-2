@@ -144,7 +144,8 @@ Use these docs for the broader workflow and historical context:
 
 * Pattern learning architecture and data flow:
   `../../docs/architecture/pattern-learning.md`
-* Pattern learning current status: `../../docs/progress/pattern-learning.md`
+* Pattern learning architecture and current route:
+  `../../docs/architecture/pattern-learning.md`
 * Historical experiment logs: `../../docs/experiments/README.md`
 * Corpus source policy: `../corpora/README.md`
 * Evaluation artifact directory policy: `../eval/README.md`

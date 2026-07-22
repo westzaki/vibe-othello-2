@@ -194,7 +194,7 @@ To promote a future artifact:
    identity and overlap audit, direct comparison with the current default,
    checksum, and non-claims
 5. update `data/eval/default-artifact.json`
-6. update `data/eval/README.md`, this document, and progress docs
+6. update `data/eval/README.md` and the affected architecture documents
 7. run the commit policy checker and loader smoke tests
 
 Do not overwrite an existing artifact directory with semantically different

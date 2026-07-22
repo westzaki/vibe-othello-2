@@ -27,14 +27,14 @@ repo/
 | `AGENTS.md` | Agent working rules |
 | `README.md` | Project entry point |
 | `.github/` | Pull request templates, CI workflows, and GitHub Pages deployment workflow |
-| `docs/` | Architecture, progress, layout, style, and review documents |
+| `docs/` | Architecture, layout, style, and historical experiment documents |
 | `cmake/` | Shared CMake helper modules, including shared test dependency setup and repo-level build integration |
 | `data/` | Dataset manifest policy, evaluation artifact policy, and local-only data placement |
 | `engine/` | Native C++ Othello engine static library |
-| `wasm/` | Native-buildable C ABI adapters and opt-in Emscripten module smoke for browser/WASM-facing engine boundaries |
+| `wasm/` | Native-buildable C ABI, JavaScript wrapper, and opt-in Emscripten module for browser-facing engine boundaries |
 | `tools/` | Developer and validation command-line tools |
 | `apps/` | User-facing applications |
-| `apps/web/` | Browser app skeleton using React, Vite, TypeScript, and a Web Worker boundary to the WASM adapter |
+| `apps/web/` | Browser app using React, Vite, TypeScript, and a Web Worker boundary to the WASM adapter |
 | `.clang-format` | C++ formatting rules |
 | `.clang-tidy` | C++ static analysis rules |
 
@@ -42,18 +42,15 @@ repo/
 
 Documentation is indexed from `docs/README.md`.
 
-Architecture documents describe intended boundaries, semantics, and invariants.
-
-Progress documents describe current implementation state, milestones, benchmark
-notes, temporary gaps, and deferred work.
-
-Progress documents must not redefine architecture.
+Architecture documents describe the implemented system: current ownership,
+semantics, invariants, important flows, and known limitations. Historical
+measurements and superseded implementation routes live under `experiments/`.
 
 ```text
 docs/
 ├─ README.md
 ├─ architecture/
-├─ progress/
+├─ experiments/
 ├─ repository-layout.md
 └─ cpp-coding-style.md
 ```
@@ -75,10 +72,10 @@ Web app static asset directories.
 
 ## Engine Layout
 
-The engine owns Othello rules and state transitions. It builds as a static
-library. Human-facing executable entry points live in `tools/` or `apps/`;
-engine-specific benchmark executables and benchmark management scripts live
-under `engine/benchmarks/`.
+The engine owns the board core, runtime evaluation, and search. It builds as a
+static library. Human-facing executable entry points live in `tools/` or
+`apps/`; engine-specific benchmark executables and benchmark management scripts
+live under `engine/benchmarks/`.
 
 ```text
 engine/
@@ -118,10 +115,13 @@ data/
 ├─ corpora/
 │  ├─ README.md
 │  ├─ dataset-manifest.schema.json
+│  ├─ manifests/
 │  └─ samples/
-└─ eval/
-   ├─ default-artifact.json
-   ├─ artifacts/
+├─ eval/
+│  ├─ default-artifact.json
+│  ├─ artifacts/
+│  └─ README.md
+└─ labels/
    └─ README.md
 ```
 
@@ -138,31 +138,32 @@ human-run development CLIs rather than benchmark suite management scripts.
 
 ```text
 tools/
-├─ data-policy/
-├─ data-import/
-├─ pattern/
-│  ├─ common/
-│  ├─ dataset/
-│  ├─ features/
-│  ├─ train/
-│  └─ export/
 ├─ arena/
 │  ├─ openings/
 │  └─ README.md
+├─ data-import/
+├─ data-policy/
 ├─ engine-cli/
 │  └─ main.cc
+├─ pattern/
+│  ├─ artifacts/
+│  ├─ common/
+│  ├─ dataset/
+│  ├─ export/
+│  ├─ labels/
+│  └─ train/
+├─ search-calibration/
+└─ self-play/
 ```
 
 ## WASM Adapter Layout
 
-`wasm/` owns native-buildable C ABI adapters and opt-in Emscripten module smoke
-for browser/WASM-facing engine boundaries. It links against engine public APIs
-and must not duplicate engine rules.
-
-The current adapter exposes board-core operations only. It can build generated
-`.wasm` and `.mjs` outputs as local build artifacts, but does not own committed
-runtime output, TypeScript wrappers, Web Worker protocols, React, Vite, GitHub
-Pages workflows, search bindings, or evaluation bindings.
+`wasm/` owns the native-buildable C ABI, opt-in Emscripten module, and the
+Node/browser-neutral JavaScript `WasmCore` wrapper. It links against engine
+public APIs and must not duplicate engine rules. The adapter exposes board
+operations, in-memory evaluation-artifact loading, evaluation, bounded preset
+search, and explicit search-session reuse/reset. It does not own Web Worker
+protocols, React, Vite, or GitHub Pages policy.
 
 ```text
 wasm/
@@ -203,3 +204,7 @@ The committed default evaluation artifact may also be copied from `data/eval/`
 into `apps/web/public/eval/` for local browser runs, Web CI, and GitHub Pages
 builds. `data/eval/` remains the source of truth; copied eval payloads are
 ignored runtime assets and must not be committed under `apps/web`.
+
+The Worker imports `wasm/js/wasmCore.mjs` through a Vite alias, owns the live
+position and loaded evaluator, serializes commands, and returns domain
+snapshots. React never imports the Emscripten module or accesses WASM memory.

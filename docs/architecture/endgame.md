@@ -11,8 +11,35 @@ when heuristic evaluation is no longer good enough.
 Endgame search must be exact, deterministic in single-thread mode, measurable,
 interruptible, and isolated from selective midgame pruning.
 
-Implementation status and milestone tracking live in
-`docs/progress/endgame.md`.
+## Implemented System
+
+Exact endgame is a production submodule of `engine/src/search/`. It provides:
+
+* evaluator-free `solve_exact_endgame` and `solve_wld_endgame` APIs, with
+  temporary-session and caller-owned-session overloads
+* root exact-score and explicit root WLD routing from `search_iterative`
+* conservative internal exact-score handoff at heuristic leaves
+* separate exact-score and WLD TT entry kinds
+* generic negamax/alpha-beta recursion using board-core move deltas and
+  incremental hashes
+* exact-score specializations for 0, 1, 2, 3, and 4 empty squares
+* ordering-only empty-region parity hints
+* all-root and best-only exact root reporting, replayable PVs, cooperative
+  limits, and endgame node accounting
+
+Tests compare production and reference solvers, generic and specialized paths,
+TT on/off, parity on/off, root-move scores, pass positions, terminal positions,
+and checked-in corpus results. `engine/benchmarks/endgame_bench.cc` provides
+exact/WLD, TT, parity, and root-reporting comparisons with checked-in aggregate
+baseline data.
+
+## Current Limitations
+
+Native and WASM exact-handoff thresholds are caller or preset policy; there is
+no universally tuned engine default. WLD uses the generic recursion rather
+than the exact-score small-empty specializations. `reporting.multi_pv > 1`
+still means all-root reporting rather than top N. Endgame search is
+single-threaded, and time/node cancellation remains cooperative.
 
 ## Boundary
 
@@ -197,30 +224,13 @@ WLD TT entries must never satisfy exact-score probes.
 
 ## Triggering Endgame Search
 
-Endgame search is triggered from root search when all of the following hold:
-
-* `SearchOptions::endgame.exact_endgame` is true after option normalization
-* empty count is less than or equal to a configured threshold
-* the requested mode is compatible with endgame solving
-* cancellation has not already been requested
-
 Exact-score and WLD root triggers are separate. Exact-score root integration
-uses `SearchOptions::endgame.endgame_exact_empties` and returns a final
-disc-difference margin. WLD root integration is used only when the caller
-explicitly requests `SearchMode::win_loss_draw` and the root empty count is less
-than or equal to `SearchOptions::endgame.endgame_wld_empties`; it returns only
-`-1`, `0`, or `1`.
-
-Recommended initial thresholds:
-
-* `endgame_exact_empties = 10`
-* `endgame_wld_empties = 12`
-
-These are conservative defaults for early implementation.
-
-They are not strength claims.
-
-They must be benchmarked and tuned after the generic solver is correct.
+requires `endgame.exact_endgame`, a non-WLD request, and a root empty count at
+or below `endgame.endgame_exact_empties`; it returns a final disc-difference
+margin. WLD root integration requires an explicit
+`SearchMode::win_loss_draw`, a nonzero `endgame.endgame_wld_empties`, and a
+root empty count at or below that threshold; it returns only `-1`, `0`, or `1`.
+The direct solver APIs bypass both threshold gates.
 
 Thresholds should be independently configurable for:
 
@@ -231,13 +241,9 @@ Thresholds should be independently configurable for:
 * debug builds
 * benchmark runs
 
-The root search may call WLD first and exact score second.
-
-For example, WLD may quickly prove win, draw, or loss, and exact score may run
-only when UI, review, or engine decision code needs margin.
-
-The first implementation may skip WLD-first orchestration and solve exact score
-directly.
+Root search does not automatically cascade from WLD into exact-score solving.
+The requested mode selects one result domain. A caller that wants a WLD proof
+followed by a final margin must make two explicit requests.
 
 Correctness is more important than threshold size.
 
@@ -269,8 +275,7 @@ move unless the position became terminal.
 
 ## Public API Shape
 
-The first implementation should expose endgame through existing search entry
-points.
+Endgame is exposed through the existing search entry points.
 
 ```cpp
 SearchResult search_iterative(board_core::Position position,
@@ -316,37 +321,27 @@ exact WLD outcome was completed rather than an exact final margin.
 reporting options such as `reporting.multi_pv` are honored. Midgame-only
 options must not change direct exact-score or WLD semantics.
 
-Reusable endgame logic should live in `engine/src/search/`.
-
-Tool entry points should live in `tools/`.
+Reusable endgame logic lives in `engine/src/search/`; tool entry points remain
+under `tools/`.
 
 ## Internal API Shape
 
-Recommended internal functions:
+The internal implementation uses a dedicated `EndgameContext` with
+`SearchPositionState`, resolved options, the shared limit state, an optional
+session TT, accumulated public stats, and a fixed per-ply `EndgameStackFrame`
+array. Exact-score and WLD policy types share root and recursive orchestration
+while selecting separate terminal score ranges and TT entry kinds.
+
+The important internal entry points are:
 
 ```cpp
 namespace vibe_othello::search::internal {
 
-struct EndgameContext {
-  board_core::Position position;
-  SearchLimits limits{};
-  SearchOptions options{};
-  TranspositionTable* transposition_table = nullptr;
-  SearchStats stats{};
-  std::array<StackFrame, kMaxPly> stack{};
-};
+SearchNodeResult exact_score_search(EndgameContext*, Score alpha, Score beta,
+                                    std::uint8_t empties, Ply ply);
 
-SearchValue exact_score_search(EndgameContext* context,
-                               Score alpha,
-                               Score beta,
-                               std::uint8_t empties,
-                               Ply ply);
-
-SearchValue wld_search(EndgameContext* context,
-                       Score alpha,
-                       Score beta,
-                       std::uint8_t empties,
-                       Ply ply);
+SearchNodeResult wld_search(EndgameContext*, Score alpha, Score beta,
+                            std::uint8_t empties, Ply ply);
 
 SearchResult solve_exact_endgame(board_core::Position position,
                                  SearchLimits limits,
@@ -361,10 +356,6 @@ SearchResult solve_wld_endgame(board_core::Position position,
 }
 ```
 
-The internal API may evolve.
-
-The important boundary is semantic, not the exact function names.
-
 Endgame recursive code must not call `Evaluator::evaluate`.
 
 ## Generic Exact-Score Algorithm
@@ -376,8 +367,8 @@ At each node:
 * increment `nodes` and `endgame_nodes`
 * check cancellation periodically
 * return terminal disc difference if terminal
-* probe exact endgame TT if enabled
 * generate legal moves
+* probe the compatible exact endgame TT kind if enabled
 * if no legal move exists, apply pass and recurse without reducing empty count
 * order legal moves
 * apply each move through board-core delta
@@ -424,19 +415,14 @@ Endgame move ordering is a speed optimization.
 
 It must not change the minimax result.
 
-The first move ordering policy should be deterministic and simple.
+The current deterministic ordering computes weighted features for:
 
-Recommended ordering priority:
-
-1. TT best move
-2. previous root best move
-3. legal corner moves
-4. parity-favorable moves
-5. safe edge moves
-6. stable-like edge moves
-7. moves that minimize opponent mobility
-8. moves that avoid dangerous X-squares and C-squares when the corner is empty
-9. lower square index as deterministic tie-breaker
+1. TT and previous-root best-move matches
+2. corner, edge, and stable-like edge status
+3. dangerous X/C-square penalties while the corner is empty
+4. opponent mobility after the move
+5. odd 4-neighbor empty-region parity
+6. lower square index as deterministic tie-breaker
 
 Existing midgame ordering concepts should be reused where possible.
 
@@ -457,16 +443,13 @@ It must be implemented as ordering first.
 It must not prune moves unless the pruning rule is proven exact and tested
 against the generic solver.
 
-Recommended first shape:
+The implemented `EmptyRegionMap` stores a region id per square and the size of
+each region. It is built allocation-free from the current empty mask.
 
 ```cpp
-struct EmptyRegion {
-  board_core::Bitboard squares = 0;
-  std::uint8_t size = 0;
-};
-
 struct EmptyRegionMap {
-  std::array<EmptyRegion, board_core::kSquareCount> regions{};
+  std::array<std::uint8_t, board_core::kSquareCount> region_for_square{};
+  std::array<std::uint8_t, board_core::kSquareCount> region_sizes{};
   std::uint8_t size = 0;
 };
 ```
@@ -479,9 +462,7 @@ Rules:
 * use deterministic tie-breaking
 * keep the region-connectivity rule documented and tested
 
-The initial implementation should use one fixed connectivity policy.
-
-The initial fixed policy is 4-neighbor connectivity. A move whose destination
+The fixed policy is 4-neighbor connectivity. A move whose destination
 belongs to an odd-sized empty region is treated as parity-favorable and ordered
 ahead of otherwise similar moves in even-sized regions. This is only an ordering
 hint.
@@ -553,22 +534,14 @@ Rules:
   depth
 * replacement policy must be deterministic in single-thread mode
 
-A stronger endgame TT should eventually become:
+Endgame uses the session-owned four-way, configurable, generation-aware TT.
+Exact-score and WLD probes include the entry kind and treat depth as remaining
+empty squares. Tests can disable the table, and benchmark/report telemetry uses
+the same public counters as midgame search.
 
-* configurable in size
-* shared with search context
-* multi-way or replacement-aware
-* generation-aware
-* benchmarked by hit rate and cutoff rate
-* optional for correctness tests
-
-Recommended early replacement policy:
-
-1. empty slot
-2. same key and same kind
-3. deeper remaining search
-4. older generation
-5. otherwise replace the current slot only if the new entry is more useful
+The shared TT first handles same-key/same-kind refinement, then uses an empty
+slot, otherwise prefers an older, shallower, or weaker-bound victim. A current-
+generation entry with a stronger depth/bound may reject the incoming store.
 
 Do not make TT correctness depend on collision luck.
 
@@ -606,15 +579,8 @@ Do not mix the two meanings silently.
 
 ## Specialized Small-Empty Routines
 
-Specialized small-empty routines are optional speed optimizations.
-
-Recommended order:
-
-1. zero empty squares
-2. one empty square
-3. two empty squares
-4. three empty squares
-5. four empty squares only after benchmark evidence
+Specialized 0-, 1-, 2-, 3-, and 4-empty exact-score routines are implemented
+as speed optimizations. WLD remains on the generic path.
 
 They must preserve exact-score semantics.
 
@@ -702,9 +668,8 @@ PVS is a midgame search optimization.
 
 Exact endgame may use alpha-beta directly.
 
-Endgame does not need PVS in the first implementation.
-
-WLD search may use null-window search.
+Endgame currently uses its own alpha-beta recursion rather than midgame PVS.
+WLD uses the same generic recursion with the narrow WLD score range.
 
 If PVS is added to endgame later:
 
@@ -714,7 +679,7 @@ If PVS is added to endgame later:
 * it must be benchmarked separately from midgame PVS
 * it must not call heuristic evaluation
 
-Do not block the first exact solver on endgame PVS.
+PVS is not required for exact endgame correctness.
 
 ## Interaction with Selective Search
 
@@ -748,7 +713,6 @@ Endgame search must respect `SearchLimits`.
 
 Supported limits:
 
-* fixed empty threshold
 * max nodes
 * max time
 * external stop flag
@@ -784,7 +748,8 @@ If interrupted:
 A stopped search may store safe lower or upper bounds only if the bound
 semantics are valid.
 
-The first implementation should avoid storing entries after cancellation.
+The current TT store path checks the shared stop state and does not store after
+cancellation is observed.
 
 ## Root Reporting
 
@@ -846,9 +811,8 @@ Rules:
 * candidate ordering must be deterministic
 * Multi-PV may be slower than single-PV
 
-The first implementation may return all root moves with exact scores.
-
-That is often useful for UI and review.
+The default returns all root moves with exact scores, which is useful for UI and
+review.
 
 For exact endgame root search, `SearchOptions::reporting.multi_pv` is
 interpreted as:
@@ -901,21 +865,14 @@ Detailed stats may be compiled out or disabled in hot builds.
 
 Endgame lives inside the engine static library.
 
-Recommended public header layout:
-
-```text
-engine/include/vibe_othello/search/
-  endgame.h
-```
-
-The first implementation may skip a public `endgame.h` and route through
-`search.h`.
-
-Recommended private implementation layout:
+The public APIs and options are declared in `search.h`; no separate public
+endgame header exists. The private implementation is split as follows:
 
 ```text
 engine/src/search/
+  endgame_context_internal.h
   endgame_policy_internal.h
+  endgame_tt_internal.h
   endgame_root.cc
   endgame_search.cc
   endgame_small_empty.cc
@@ -925,57 +882,14 @@ engine/src/search/
     parity_ordering.cc
 ```
 
-Earlier implementations kept generic endgame search in one file:
+Endgame tests live alongside other search tests. Reference solver and position
+helpers live in `engine/tests/support/search/`. The reusable checked-in corpus
+and benchmark are:
 
 ```text
-engine/src/search/endgame.cc
+engine/fixtures/endgame/positions.tsv
+engine/benchmarks/endgame_bench.cc
 ```
-
-Recommended test layout:
-
-```text
-engine/tests/search/
-  endgame_test.cc
-  endgame_tt_test.cc
-  endgame_ordering_test.cc
-```
-
-Recommended test-support layout:
-
-```text
-engine/tests/support/search/
-  reference_endgame.h
-  reference_endgame.cc
-  endgame_positions.h
-  endgame_positions.cc
-```
-
-Recommended benchmark layout:
-
-```text
-engine/benchmarks/
-  endgame_bench.cc
-```
-
-Recommended corpus layout:
-
-```text
-engine/benchmarks/corpora/
-  endgame_positions.txt
-```
-
-or:
-
-```text
-engine/fixtures/endgame/
-  exact_score.txt
-  wld.txt
-  pass.txt
-  parity.txt
-```
-
-Use the repository's existing layout before introducing new top-level
-directories.
 
 ## Testing Strategy
 
@@ -1048,9 +962,9 @@ Use benchmarks for:
 
 ## Reference Endgame Solver
 
-A slow, clear reference endgame solver should live in test support.
+A slow, clear reference endgame solver lives in test support.
 
-It should:
+It:
 
 * use board core
 * enumerate all legal moves
@@ -1168,38 +1082,14 @@ Endgame search should return the same:
 Node counts should also be deterministic in single-thread mode unless the TT
 replacement policy intentionally allows variation.
 
-Parallel mode may relax node-count determinism.
-
-Deterministic single-thread mode must remain available.
+There is no parallel mode in the current implementation.
 
 ## Thread Safety
 
-Independent endgame contexts may run concurrently.
-
-Per-thread data includes:
-
-* search stack
-* move lists
-* parity maps
-* local stats
-* local cancellation counters
-
-Shared data may include:
-
-* transposition table
-* stop flag
-* root result publication
-* task queues
-
-Shared TT writes require synchronization, lock-free-safe writes, or a clearly
-documented benign-race policy.
-
-Correctness must not depend on data races.
-
-The first implementation should be single-threaded.
-
-Parallel endgame search should come after single-thread correctness and
-benchmarks are stable.
+Endgame search is single-threaded. Independent sessions may be used on separate
+threads when their evaluators and inputs are also safe to use independently,
+but a session and its TT must not be shared by concurrent searches. External
+cancellation communicates only through the caller-owned atomic stop flag.
 
 ## Error Handling
 
@@ -1256,11 +1146,8 @@ Add TT cutoffs only after TT enabled/disabled equality tests exist.
 
 ## Change Checklist
 
-When changing endgame behavior, update this document only for intended design or
-semantic changes.
-
-Update `docs/progress/endgame.md` for current implementation state, milestones,
-temporary gaps, benchmark notes, or rollout status.
+When changing endgame behavior, update this document for implementation,
+boundary, or semantic changes.
 
 Semantic changes should run:
 

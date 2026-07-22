@@ -107,7 +107,7 @@ data only when terms permit.
 
 * Pattern learning architecture and data flow: `../../docs/architecture/pattern-learning.md`
 * External corpus import workflows: `../../tools/data-import/README.md`
-* Pattern learning current status: `../../docs/progress/pattern-learning.md`
+* Pattern learning architecture and current route: `../../docs/architecture/pattern-learning.md`
 * Historical experiment logs: `../../docs/experiments/README.md`
 * Teacher label and move-teacher local policy: `../labels/README.md`
 * Evaluation artifact directory policy: `../eval/README.md`

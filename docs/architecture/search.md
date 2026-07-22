@@ -10,7 +10,46 @@ Search must be correct, deterministic in single-thread mode, interruptible,
 measurable, and strong enough to support play, analysis, review, tools, WASM, and
 UI adapters.
 
-Implementation status and milestone tracking live in `docs/progress/search.md`.
+## Implemented System
+
+The public surface is defined by `score.h`, `evaluator.h`, `probcut.h`,
+`shadow_calibration.h`, `result.h`, `search_session.h`, and `search.h`.
+Production search currently includes:
+
+* fixed-depth alpha-beta and optional PVS
+* iterative deepening with optional aspiration windows and publication of the
+  last completed depth when stopped
+* deterministic root search, PV propagation, and root-move reports
+* TT, history, killer, Othello-static, mobility, and IID ordering paths
+* a four-way bucketed, entry- or byte-budgeted transposition table
+* caller-owned reusable `SearchSession` state with semantic TT invalidation
+* root-once hashing with incremental move/pass updates
+* fixed-node, fixed-time, depth, infinite, and external-stop limits
+* exact-score and WLD endgame entry points and configured handoff
+* incremental built-in pattern evaluation where the root can reach learned
+  phases
+* diagnostics-only shadow calibration and reviewed-profile-gated cut-high
+  Multi-ProbCut, both disabled by default
+
+The recursive implementation is split by responsibility under
+`engine/src/search/`; reference search lives only in test support. Search is
+single-threaded. It has fixed-position, reference differential, option/limit,
+TT/session, PVS, endgame, ProbCut, and shadow-calibration tests plus local
+search and endgame benchmarks.
+
+## Current Limitations
+
+The following are deliberately not represented as completed capabilities:
+
+* `reporting.multi_pv > 1` does not limit output to top N; exact root search
+  treats it as all-root reporting
+* time limits are cooperative and can overshoot before the next check
+* there is no dedicated PV table, advanced clock allocation, parallel search,
+  or review-specific result adapter
+* ProbCut has no cut-low path and no reviewed production profile is built in or
+  enabled by a preset
+* learned-artifact fixed-position smoke coverage is not match, self-play, Elo,
+  or production-strength evidence
 
 ## Boundary
 
@@ -252,7 +291,7 @@ Rules:
 * `max_nodes` limits visited nodes
 * `max_time` limits wall-clock time
 * `infinite` searches until cancelled
-* `stop_requested` carries future cooperative cancellation requests
+* `stop_requested` carries cooperative cancellation requests
 * callers that provide `stop_requested` must keep the pointed value alive for
   the whole search call
 * callers that provide `stop_requested` must use external synchronization through
@@ -726,19 +765,14 @@ class Evaluator {
 };
 ```
 
-An incremental evaluator provides explicit scratch-state updates.
+The public evaluator interface remains stateless. At root initialization,
+search recognizes the built-in `PatternEvaluator` and `PhaseAwareEvaluator`
+and may create their concrete `IncrementalState`. Other evaluator types use the
+virtual stateless path. This optimization is internal: third-party evaluators
+do not need to implement a second public interface.
 
-```cpp
-class IncrementalEvaluator {
- public:
-  void reset(const board_core::Position& position) noexcept;
-  void apply(const board_core::Position& before, board_core::MoveDelta delta) noexcept;
-  void undo(const board_core::Position& after, board_core::MoveDelta delta) noexcept;
-  Score evaluate(const board_core::Position& position) noexcept;
-};
-```
-
-Search owns evaluator scratch state per search context or search thread.
+Search owns the incremental evaluator state inside its search context and must
+apply and undo it in lockstep with the position.
 
 Evaluators must not mutate caller-owned position state.
 
@@ -829,10 +863,6 @@ The per-ply frame owns the PV scratch line, and a parent prepends a move only
 when that child becomes the best line. This avoids copying a maximum-length
 `Line` on every recursive return while keeping root publication independent of
 the transposition table.
-
-Initial stack-frame implementations may leave future fields such as hash keys,
-killer moves, history-related scratch, or static eval unused until the
-corresponding feature is added.
 
 Search must restore evaluator incremental state after every recursive call.
 
@@ -1084,15 +1114,16 @@ The current implementation stores `key`, `depth`, `score`, `bound`,
 `best_move`, `has_best_move`, `generation`, `kind`, `selective`, and
 `occupied`.
 
-The midgame table uses a search-internal default capacity. Public search
-defaults do not enable TT cutoff or TT ordering, and no public capacity option is
-currently exposed.
+Temporary-session entry points use the public default entry capacity. Callers
+that own a `SearchSession` select an entry or byte capacity and can inspect the
+requested/actual allocation. Search options still control TT cutoffs and
+best-move ordering independently.
 
 The table is organized as power-of-two 4-way buckets. Construction may allocate
 the bucket vector; recursive probe and store operations must not allocate.
 Requested capacities are rounded up to buckets and capped at the internal
-maximum bucket count to avoid power-of-two rounding overflow. Public capacity
-options must keep equivalent validation before exposing this constructor path.
+maximum bucket count to avoid power-of-two rounding overflow. Allocation
+failure produces a disabled table and an auditable allocation result.
 
 Iterative deepening advances the table generation before starting each new
 depth after depth 1. Aspiration re-searches at the same depth stay in the same
@@ -1104,8 +1135,8 @@ Replacement policy is intentionally simple:
 * use an empty bucket slot before overwriting
 * prefer replacing old-generation entries
 * otherwise prefer replacing shallower current-generation entries
-* reject a store only when every bucket entry is current-generation and deeper
-  than the incoming entry
+* among current-generation entries, prefer replacing shallower or weaker-bound
+  victims and reject a less useful incoming store
 
 When `use_tt_best_move_ordering` is enabled, a matching entry's `best_move` may
 be used as an ordering hint.
@@ -1152,30 +1183,25 @@ struct TTEntry {
 };
 ```
 
-Future selective search, WLD solving, or cache-layout tuning may add fields such
-as a short hash tag, WLD result payload, static evaluation, empty count, or
-selectivity marker. Adding those fields must preserve the mode-compatibility
+Future cache-layout tuning may add a short hash tag, static evaluation, or
+debug verification data. Adding fields must preserve the mode-compatibility
 rules in this document.
 
-Recommended table layout:
+Implemented table layout:
 
 * power-of-two bucket count
-* 4-way or 8-way set-associative buckets
-* cache-line-aware bucket size
+* 4-way set-associative buckets
 * generation aging
 * depth-preferred replacement
-* optional full-position verification in debug builds
 
 Probe rules:
 
-* key or tag must match
+* key must match
 * stored selectivity must be compatible
 * entry kind must be compatible with the current search mode
 * heuristic midgame entries require stored depth at least the requested depth
-* exact endgame score entries are reusable for the same position regardless of
-  requested depth
-* endgame bound entries require solve mode and remaining-empty semantics
-  compatible with the current query
+* endgame entries require a matching solve kind and stored remaining-empty depth
+  at least as large as the current remaining-empty request
 * exact entries may return immediately
 * lower-bound entries may cut when `score >= beta`
 * upper-bound entries may cut when `score <= alpha`
@@ -1207,9 +1233,9 @@ and does not perform exact-score-to-WLD conversion at probe time.
 
 `exact_endgame_wld` entries must not answer exact score queries.
 
-WLD entries may be used for WLD bounds and move ordering.
-
-Exact score entries have higher replacement priority than WLD entries.
+WLD entries may be used for WLD bounds and move ordering. Entry kind does not
+grant replacement priority; the shared replacement policy uses generation,
+depth, and bound quality.
 
 WLD results must never be exposed as exact disc-difference scores.
 
@@ -1269,17 +1295,8 @@ Detailed endgame design lives in `docs/architecture/endgame.md`.
 
 This section records the search-level integration boundary.
 
-It should be a separate search path sharing board core, search stack concepts,
-and transposition table infrastructure.
-
-Supported modes:
-
-```cpp
-enum class SolveMode : std::uint8_t {
-  exact_score,
-  win_loss_draw,
-};
-```
+It is a separate search path sharing board core, incremental position state,
+limit state, result builders, and session TT infrastructure.
 
 Exact score returns final disc differential.
 
@@ -1290,7 +1307,7 @@ WLD does not return the margin of victory.
 Exact score and WLD search may share code paths, but their public result types
 and transposition table entry kinds must remain distinct.
 
-Endgame solver should use:
+Endgame solver uses:
 
 * alpha-beta or null-window search
 * parity ordering
@@ -1302,7 +1319,8 @@ Endgame solver must handle pass exactly.
 
 Endgame solver must not call heuristic evaluation at terminal leaves.
 
-Endgame solver may use WLD first and exact score second.
+WLD and exact-score requests are independent; the engine does not implicitly
+run one and then the other.
 
 Exact endgame entries must be marked separately from heuristic or selective
 midgame entries.
@@ -1311,20 +1329,14 @@ Endgame thresholds must be configurable and benchmarked.
 
 ## Specialized Endgame Routines
 
-Specialized routines may replace generic recursion for very small empty counts.
-
-Recommended special cases:
-
-* zero empty squares
-* one empty square
-* two empty squares
-* three empty squares
+Specialized exact-score routines replace generic recursion for zero through
+four empty squares.
 
 They must preserve exact score semantics.
 
 They must be tested against the generic solver.
 
-They should be added only after the generic solver is correct.
+WLD currently keeps the generic recursion.
 
 ## Selective Search
 
@@ -1524,15 +1536,14 @@ The JSON/JSONL contract and deterministic offline analyzer are documented in
 
 ## Time Management
 
-Search must support fixed-depth, fixed-node, fixed-time, and infinite analysis.
-
-Time management owns allocation of time across iterative-deepening depths.
+Search supports fixed-depth, fixed-node, fixed-time, and infinite analysis.
+The current implementation uses one cooperative deadline; it does not allocate
+a clock across moves or expose separate soft and hard deadlines.
 
 Rules:
 
 * keep the last completed result available
-* allow soft and hard deadlines
-* allow immediate cancellation
+* honor node, time, and atomic external-stop requests cooperatively
 * avoid time checks at every node if they hurt performance
 
 Recommended checks:
@@ -1540,7 +1551,6 @@ Recommended checks:
 * every root move
 * before starting a new iterative-deepening depth
 * every fixed number of nodes
-* every split point if parallel search is enabled
 
 Search must be usable inside a Web Worker.
 
@@ -1548,29 +1558,10 @@ Time management must not depend on UI frameworks.
 
 ## Parallel Search
 
-Parallel search is optional advanced work.
-
-The preferred architecture is Young Brothers Wait Concept.
-
-Rules:
-
-* search the first child before splitting siblings
-* split only at sufficiently deep nodes
-* split only when enough legal moves remain
-* keep per-thread search stacks
-* keep per-thread evaluator scratch
-* share transposition tables carefully
-* aggregate node counts at safe points
-* support deterministic single-thread mode
-
-Parallel search may produce different node counts from single-thread search.
-
-Parallel search should return the same best move in deterministic test suites
-when selective pruning is disabled, or document why not.
-
-Browser multithreading is an adapter concern.
-
-Search architecture must not require browser threads to be available.
+Parallel search is not implemented and no public option promises it. A future
+design must preserve deterministic single-thread mode, use independent stacks
+and evaluator scratch, define shared-TT synchronization, and keep browser
+threading requirements in the adapter layer.
 
 ## Root Search
 
@@ -1586,7 +1577,6 @@ Root search owns:
 * iterative-deepening loop
 * aspiration control
 * search result publication
-* observer callbacks
 
 After each completed depth, root search must publish a coherent result.
 
@@ -1594,7 +1584,9 @@ Root search must not publish half-applied positions or illegal PVs.
 
 ## Multi-PV
 
-Multi-PV returns multiple candidate moves.
+Root reporting can return multiple candidate moves. `multi_pv == 1` requests a
+best-only exact/WLD report; `0` and values greater than one currently retain
+all-root behavior where applicable. Top-N limiting is not implemented.
 
 Rules:
 
@@ -1679,79 +1671,46 @@ Benchmarks should store stats with timing results.
 
 Search lives inside the engine static library.
 
-Recommended public header layout:
+The implemented public headers are:
 
 ```text
 engine/include/vibe_othello/search/
-  score.h
-  limits.h
-  options.h
-  result.h
   evaluator.h
+  probcut.h
+  result.h
+  score.h
   search.h
-  stats.h
+  search_session.h
+  shadow_calibration.h
 ```
 
-Recommended private implementation layout:
+The implementation separates entry-point orchestration, recursive algorithms,
+state, options, TT, endgame, and ordering:
 
 ```text
 engine/src/search/
-  negamax.cc
   alphabeta.cc
   pvs.cc
   root_search.cc
-  aspiration.cc
-  move_ordering/
-    move_list.cc
-    static_othello_ordering.cc
-    mobility_ordering.cc
-    parity_ordering.cc
-    midgame_ordering.cc
-    endgame_ordering.cc
+  search_node_common.cc
+  search_options.cc
+  search_session.cc
+  search_util.cc
   transposition_table.cc
-  endgame_policy_internal.h
-  endgame_tt.cc
-  endgame_small_empty.cc
-  endgame_search.cc
-  endgame_root.cc
-  time_manager.cc
-  stats.cc
+  probcut.cc
+  shadow_calibration.cc
+  *_internal.h
+  move_ordering/
+  endgame_*.cc
 ```
 
-Recommended test layout:
+Reference negamax and reference endgame implementations are test support, not
+production alternatives. Tests live in `engine/tests/search/`; shared reference
+code and fixed-position loaders live under `engine/tests/support/search/`.
+Search and endgame benchmark entry points live in `engine/benchmarks/`.
 
-```text
-engine/tests/search/
-  negamax_test.cc
-  alphabeta_test.cc
-  pvs_test.cc
-  transposition_table_test.cc
-  move_ordering_test.cc
-  aspiration_test.cc
-  endgame_test.cc
-  time_limit_test.cc
-```
-
-Recommended test-support layout:
-
-```text
-engine/tests/support/search/
-  reference_search.h
-  reference_search.cc
-  search_positions.h
-  search_positions.cc
-```
-
-Recommended benchmark layout:
-
-```text
-engine/benchmarks/
-  search_bench.cc
-  endgame_bench.cc
-```
-
-Tools may provide command-line entry points for solving, comparing, and measuring
-positions, but reusable search code belongs in `engine/`.
+Tools may provide command-line entry points for solving, comparing, calibrating,
+and measuring positions, but reusable search code belongs in `engine/`.
 
 ## Testing Strategy
 
@@ -1779,7 +1738,7 @@ Use differential tests to compare:
 * generic endgame vs specialized endgame
 * TT disabled vs TT enabled
 * exact endgame TT disabled vs exact endgame TT enabled
-* single-thread vs parallel deterministic mode
+* single-thread production paths vs reference implementations
 
 Use property tests for:
 
