@@ -56,6 +56,11 @@ struct WasmEvaluationArtifact {
   bool retain_search_session = false;
 };
 
+struct SearchPresetRequest {
+  std::uint32_t preset = VIBE_OTHELLO_WASM_SEARCH_PRESET_EASY;
+  std::uint8_t exact_endgame_empties = 0;
+};
+
 using ArtifactRegistry = std::unordered_map<uintptr_t, std::unique_ptr<WasmEvaluationArtifact>>;
 
 ArtifactRegistry& artifact_registry() {
@@ -229,7 +234,7 @@ bool fill_best_move(Move move, vibe_othello_wasm_search_result* out_result) noex
   return true;
 }
 
-uint32_t fill_search_result(const vibe_othello::search::SearchResult& result,
+uint32_t fill_search_result(const vibe_othello::search::SearchResult& result, bool probcut_enabled,
                             vibe_othello_wasm_search_result* out_result) noexcept {
   *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_OK);
   out_result->score = result.score;
@@ -238,6 +243,8 @@ uint32_t fill_search_result(const vibe_othello::search::SearchResult& result,
   out_result->elapsed_ms = elapsed_ms_to_wasm(result.elapsed);
   out_result->stopped = result.stopped ? uint8_t{1} : uint8_t{0};
   out_result->exact = result.exact ? uint8_t{1} : uint8_t{0};
+  out_result->reserved0 =
+      probcut_enabled ? VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED : 0;
 
   if (result.best_move.has_value() && !fill_best_move(*result.best_move, out_result)) {
     *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED);
@@ -249,7 +256,7 @@ uint32_t fill_search_result(const vibe_othello::search::SearchResult& result,
 
 uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_position* position,
                           uint32_t max_depth, uint32_t max_nodes, uint32_t max_time_ms,
-                          vibe_othello::search::SearchOptions options,
+                          std::optional<SearchPresetRequest> preset_request,
                           vibe_othello_wasm_search_result* out_result) noexcept {
   if (out_result == nullptr) {
     return VIBE_OTHELLO_WASM_STATUS_NULL_POINTER;
@@ -282,6 +289,17 @@ uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_positio
       return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
     }
 
+    vibe_othello::search::SearchOptions options{};
+    if (preset_request.has_value()) {
+      options = vibe_othello::wasm_adapter::internal::search_options_for_preset(
+          preset_request->preset, preset_request->exact_endgame_empties,
+          vibe_othello::search::ProbCutRuntimeIdentityV1{
+              .evaluator_family = artifact->pattern_set_id,
+              .artifact_family = artifact->artifact_id,
+              .weights_checksum = artifact->weights_checksum,
+          });
+    }
+
     Position engine_position{};
     const uint32_t status = to_engine_position(*position, &engine_position);
     if (status != VIBE_OTHELLO_WASM_STATUS_OK) {
@@ -301,7 +319,7 @@ uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_positio
     }
     const vibe_othello::search::SearchResult result = vibe_othello::search::search_iterative(
         artifact->search_session, engine_position, artifact->evaluator, limits, options);
-    return fill_search_result(result, out_result);
+    return fill_search_result(result, options.probcut_options.use_probcut, out_result);
   } catch (...) {
     *out_result = empty_search_result(VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED);
     return VIBE_OTHELLO_WASM_STATUS_SEARCH_FAILED;
@@ -398,6 +416,10 @@ uint32_t vibe_othello_wasm_offsetof_search_result_best_move_square(void) noexcep
 
 uint32_t vibe_othello_wasm_offsetof_search_result_is_pass(void) noexcept {
   return offsetof(vibe_othello_wasm_search_result, is_pass);
+}
+
+uint32_t vibe_othello_wasm_offsetof_search_result_flags(void) noexcept {
+  return offsetof(vibe_othello_wasm_search_result, reserved0);
 }
 
 uint32_t vibe_othello_wasm_offsetof_search_result_score(void) noexcept {
@@ -629,8 +651,8 @@ uint32_t vibe_othello_wasm_search_best_move(uintptr_t eval_handle,
                                             uint32_t max_depth, uint32_t max_nodes,
                                             uint32_t max_time_ms,
                                             vibe_othello_wasm_search_result* out_result) noexcept {
-  return search_best_move(eval_handle, position, max_depth, max_nodes, max_time_ms,
-                          vibe_othello::search::SearchOptions{}, out_result);
+  return search_best_move(eval_handle, position, max_depth, max_nodes, max_time_ms, std::nullopt,
+                          out_result);
 }
 
 uint32_t vibe_othello_wasm_search_best_move_v2(
@@ -650,10 +672,13 @@ uint32_t vibe_othello_wasm_search_best_move_v2(
     return VIBE_OTHELLO_WASM_STATUS_INVALID_ARGUMENT;
   }
 
-  return search_best_move(eval_handle, position, max_depth, max_nodes, max_time_ms,
-                          vibe_othello::wasm_adapter::internal::search_options_for_preset(
-                              search_preset, static_cast<std::uint8_t>(exact_endgame_empties)),
-                          out_result);
+  return search_best_move(
+      eval_handle, position, max_depth, max_nodes, max_time_ms,
+      SearchPresetRequest{
+          .preset = search_preset,
+          .exact_endgame_empties = static_cast<std::uint8_t>(exact_endgame_empties),
+      },
+      out_result);
 }
 
 } // extern "C"

@@ -92,6 +92,7 @@ assert.ok(searchResult.nodes > 0n);
 assert.equal(typeof searchResult.elapsedMs, "number");
 assert.equal(typeof searchResult.stopped, "boolean");
 assert.equal(typeof searchResult.exact, "boolean");
+assert.equal(searchResult.probcutEnabled, false);
 
 const normalSearchResult = artifact.searchBestMoveWithPreset(
   initialPosition,
@@ -107,6 +108,7 @@ assert.equal(normalSearchResult.completedDepth, 3);
 assert.ok(normalSearchResult.completedDepth > 2);
 assert.equal(typeof normalSearchResult.nodes, "bigint");
 assert.ok(normalSearchResult.nodes > 0n);
+assert.equal(normalSearchResult.probcutEnabled, false);
 assert.throws(
   () => artifact.searchBestMoveWithPreset(initialPosition, { maxDepth: 1 }, "invalid"),
   /invalid search preset/,
@@ -127,6 +129,32 @@ assert.equal(lateSearch.score, 4);
 assert.equal(lateSearch.completedDepth, 3);
 assert.equal(lateSearch.bestMoveSquare, 48);
 assert.equal(lateSearch.nodes, 152n);
+
+const productionManifestText = await readFile(
+  new URL(
+    "../../data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const productionWeightsBytes = await readFile(
+  new URL(
+    "../../data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/weights.bin",
+    import.meta.url,
+  ),
+);
+const productionArtifact = core.loadEvaluationArtifact(
+  productionManifestText,
+  productionWeightsBytes,
+);
+const productionSearch = productionArtifact.searchBestMoveWithPreset(
+  initialPosition,
+  { maxDepth: 8, maxNodes: 1000 },
+  "normal",
+  8,
+);
+assert.equal(productionSearch.probcutEnabled, true);
+productionArtifact.free();
 
 artifact.free();
 artifact.free();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vibe_othello/search/production_probcut.h"
 #include "vibe_othello/search/search.h"
 #include "vibe_othello_wasm/wasm_api.h"
 
@@ -14,11 +15,12 @@ inline bool is_valid_search_preset(std::uint32_t preset) noexcept {
 }
 
 inline search::SearchOptions
-search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empties) noexcept {
+search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empties,
+                          search::ProbCutRuntimeIdentityV1 runtime_identity = {}) noexcept {
   const bool use_full_search_stack = preset == VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL ||
                                      preset == VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD;
 
-  return search::SearchOptions{
+  search::SearchOptions options{
       .midgame =
           search::MidgameSearchOptions{
               .use_pvs = use_full_search_stack,
@@ -45,6 +47,12 @@ search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empti
       .selective = search::SelectiveSearchOptionsV1{},
       .mode = search::SearchMode::move,
   };
+  if (use_full_search_stack) {
+    options.probcut_options = search::production_probcut_configuration_v1(
+                                  runtime_identity, options.mode, exact_endgame_empties)
+                                  .options;
+  }
+  return options;
 }
 
 } // namespace vibe_othello::wasm_adapter::internal

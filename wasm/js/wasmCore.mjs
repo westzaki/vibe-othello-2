@@ -15,6 +15,7 @@ const STATUS_NAMES = new Map([
 
 const SIDE_BLACK = 0;
 const SIDE_WHITE = 1;
+const VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED = 1;
 
 const SEARCH_PRESETS = new Map([
   ["easy", 0],
@@ -134,6 +135,7 @@ function makeLayout(module) {
         "_vibe_othello_wasm_offsetof_search_result_best_move_square",
       )(),
       isPass: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_is_pass")(),
+      flags: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_flags")(),
       score: requireFunction(module, "_vibe_othello_wasm_offsetof_search_result_score")(),
       completedDepth: requireFunction(
         module,
@@ -528,6 +530,10 @@ export class WasmCore {
         ? view.getUint8(ptr + this.layout.searchResult.bestMoveSquare)
         : null,
       isPass: toBoolean(view.getUint8(ptr + this.layout.searchResult.isPass)),
+      probcutEnabled:
+        (view.getUint8(ptr + this.layout.searchResult.flags) &
+          VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED) !==
+        0,
       score: view.getInt32(ptr + this.layout.searchResult.score, true),
       completedDepth: view.getUint32(ptr + this.layout.searchResult.completedDepth, true),
       nodes: view.getBigUint64(ptr + this.layout.searchResult.nodes, true),

@@ -23,6 +23,8 @@
 #define VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL 1u
 #define VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD 2u
 
+#define VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED 1u
+
 #ifdef __cplusplus
 #define VIBE_OTHELLO_WASM_NOEXCEPT noexcept
 extern "C" {
@@ -57,6 +59,8 @@ typedef struct vibe_othello_wasm_search_result {
   uint8_t has_best_move;
   uint8_t best_move_square;
   uint8_t is_pass;
+  // ABI-v1 reserved byte; flag bits are defined above without changing layout
+  // or the original field name.
   uint8_t reserved0;
   int32_t score;
   uint32_t completed_depth;
@@ -109,6 +113,8 @@ uint32_t vibe_othello_wasm_offsetof_search_result_has_best_move(void) VIBE_OTHEL
 uint32_t vibe_othello_wasm_offsetof_search_result_best_move_square(void) VIBE_OTHELLO_WASM_NOEXCEPT;
 
 uint32_t vibe_othello_wasm_offsetof_search_result_is_pass(void) VIBE_OTHELLO_WASM_NOEXCEPT;
+
+uint32_t vibe_othello_wasm_offsetof_search_result_flags(void) VIBE_OTHELLO_WASM_NOEXCEPT;
 
 uint32_t vibe_othello_wasm_offsetof_search_result_score(void) VIBE_OTHELLO_WASM_NOEXCEPT;
 
