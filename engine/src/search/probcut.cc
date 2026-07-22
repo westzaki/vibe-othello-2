@@ -191,14 +191,18 @@ bool confidence_accepts(const ProbCutOptionsV1& options, const ProbCutCalibratio
   return *lower_bound >= beta;
 }
 
-bool shallow_overhead_limit_reached(const SearchStats& stats, double maximum_ratio) noexcept {
+bool shallow_overhead_limit_reached(const SearchStats& stats, double maximum_ratio,
+                                    NodeCount minimum_official_nodes) noexcept {
+  const NodeCount official_nodes =
+      stats.nodes > stats.probcut_shallow_nodes ? stats.nodes - stats.probcut_shallow_nodes : 0;
+  if (official_nodes < minimum_official_nodes) {
+    return true;
+  }
   if (maximum_ratio <= 0.0 || stats.probcut_attempts == 0) {
     return false;
   }
-  const NodeCount official_nodes =
-      stats.nodes > stats.probcut_shallow_nodes ? stats.nodes - stats.probcut_shallow_nodes : 1;
   const long double ratio = static_cast<long double>(stats.probcut_shallow_nodes) /
-                            static_cast<long double>(official_nodes);
+                            static_cast<long double>(official_nodes == 0 ? 1 : official_nodes);
   return ratio >= static_cast<long double>(maximum_ratio);
 }
 
@@ -298,7 +302,8 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
       ++context->stats.probcut_probe_limit_reached;
       break;
     }
-    if (shallow_overhead_limit_reached(context->stats, options.maximum_shallow_overhead_ratio)) {
+    if (shallow_overhead_limit_reached(context->stats, options.maximum_shallow_overhead_ratio,
+                                       options.minimum_official_nodes_before_probe)) {
       ++context->stats.probcut_rejected_overhead;
       break;
     }

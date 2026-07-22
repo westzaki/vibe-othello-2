@@ -2,9 +2,10 @@
 
 This directory owns the local-only MPC/ProbCut calibration workflow. The engine
 can collect reduced-depth versus deep-search observations. Runtime search also
-has a separate conservative, typed, caller-supplied ProbCut path, but the
-repository contains no production profile or coefficient and enables nothing
-by default. A generated analyzer report is not itself runtime authorization.
+has a separate conservative, typed, caller-supplied ProbCut path. One reviewed
+profile is checked in for the exact default artifact identity; generic callers
+remain disabled, and a generated analyzer report is not itself runtime
+authorization.
 
 ## Collection contract
 
@@ -89,9 +90,10 @@ fixed-depth or fixed-node runs: an external stop can naturally arrive while any
 diagnostic callback is running. Deep verification is intentionally expensive;
 control it with sample rate and the per-search cap.
 
-Normal C++ defaults, runtime presets, WASM `easy`/`normal`/`hard` presets,
-default benchmark runs, and Arena runs remain disabled. The search benchmark
-can opt in only when an external reviewed profile TSV is explicitly supplied.
+Normal C++ option defaults, `easy`, the legacy WASM API, default benchmark runs,
+and Arena runs remain disabled. `normal`/`hard` WASM presets may select the
+checked-in production profile through the exact identity gate. The search
+benchmark can opt in only when a reviewed profile TSV is explicitly supplied.
 Long collection runs belong under a local measurement root outside the
 repository, for example:
 
@@ -141,6 +143,18 @@ holdout collection while keeping the artifact, search config, ordered pair
 list, sampling rate, and per-search cap identical. `--position-limit` and
 `--position-limit-per-phase` are mutually exclusive. Generated JSONL and
 summary output remain local-only.
+
+Deterministically disjoint root partitions can still converge on the same
+sampled child node. Remove those holdout scheduler nodes as a complete pair
+group before analysis; the converter independently rejects any overlap that
+remains:
+
+```sh
+python3 tools/search-calibration/filter_disjoint_shadow_samples.py \
+  --training "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/training.jsonl" \
+  --holdout "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/holdout.jsonl" \
+  --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/holdout-disjoint.jsonl"
+```
 
 ## Analyzer
 
@@ -319,8 +333,20 @@ not infer one from the report. Keep the TSV, source report, samples, and run
 outputs under the local measurement root. Do not commit them as generated
 reports or calibration raw data.
 
-The repository intentionally contains no reviewed calibration TSV. Multi-pair
-runtime capability therefore remains off in C++ defaults, native presets,
-teacher generation, and every WASM/Web preset. A calibration report authorizes
-neither a preset change nor a strength claim; use the separate same-artifact
-fixed-time campaign and review its holdouts before enablement.
+To compile a reviewed TSV into the production C++ data include, use the checked
+exporter and keep the invocation synchronized with its drift test:
+
+```sh
+python3 tools/search-calibration/export_probcut_profile_cpp.py \
+  data/search/profiles/<profile>/profile.tsv \
+  --weights-checksum 0x00000000 \
+  --maximum-margin 22 \
+  --maximum-shallow-overhead-ratio 0.005 \
+  --output engine/src/search/production_probcut_profile_data.inc
+```
+
+The checked-in profile under `data/search/profiles/` records the reviewed
+adoption decision and summarized gates. Raw samples, analyzer reports, Arena
+reports, and machine-timing output remain outside the repository. A calibration
+report alone authorizes neither a preset change nor a strength claim; promotion
+also requires same-artifact fixed-node/fixed-time and real WASM A/B review.

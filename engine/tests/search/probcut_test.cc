@@ -771,6 +771,13 @@ TEST_CASE("Multi-ProbCut enforces probe and cumulative shallow overhead limits",
       run_null_window(board_core::initial_position(), Score{0}, Depth{4}, overhead_limited);
   REQUIRE(overhead.stats.probcut_attempts == 1);
   REQUIRE(overhead.stats.probcut_rejected_overhead == 1);
+
+  SearchOptions cold_start_limited = limited;
+  cold_start_limited.probcut_options.minimum_official_nodes_before_probe = 1'000'000;
+  const DirectRun cold_start =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, cold_start_limited);
+  REQUIRE(cold_start.stats.probcut_attempts == 0);
+  REQUIRE(cold_start.stats.probcut_rejected_overhead == 1);
 }
 
 TEST_CASE("Multi-ProbCut shallow search suppresses nested pair probes",

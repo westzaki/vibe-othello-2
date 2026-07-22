@@ -76,8 +76,8 @@ struct ProbCutSchedulerEvidenceV1 {
 };
 
 // Profile storage and every referenced string/entry must outlive the search
-// call. No production profile is built into the engine without reviewed local
-// calibration evidence.
+// call. Generic callers remain disabled unless they provide a reviewed profile;
+// the production selector exposes the one checked-in identity-matched profile.
 struct ProbCutCalibrationProfileV1 {
   std::uint32_t schema_version = kProbCutCalibrationProfileSchemaVersion;
   std::string_view profile_id;
@@ -113,6 +113,9 @@ struct ProbCutOptionsV1 {
   // Zero means no cumulative overhead gate. Otherwise a new probe is refused
   // once shallow nodes / non-shallow official nodes reaches this ratio.
   double maximum_shallow_overhead_ratio = 0.0;
+  // Avoid an unbounded cold-start probe before the current fixed-depth search
+  // has accumulated enough non-shallow work to amortize it.
+  NodeCount minimum_official_nodes_before_probe = 0;
   std::uint16_t enabled_phase_mask = kAllProbCutPhasesMask;
   bool non_pv_only = true;
   bool beta_only = true;
@@ -138,6 +141,7 @@ struct ProbCutOptionsV1 {
            lhs.minimum_confidence == rhs.minimum_confidence &&
            lhs.minimum_margin == rhs.minimum_margin && lhs.maximum_margin == rhs.maximum_margin &&
            lhs.maximum_shallow_overhead_ratio == rhs.maximum_shallow_overhead_ratio &&
+           lhs.minimum_official_nodes_before_probe == rhs.minimum_official_nodes_before_probe &&
            lhs.enabled_phase_mask == rhs.enabled_phase_mask && lhs.non_pv_only == rhs.non_pv_only &&
            lhs.beta_only == rhs.beta_only && lhs.disable_near_exact == rhs.disable_near_exact &&
            lhs.near_exact_disable_empties == rhs.near_exact_disable_empties &&

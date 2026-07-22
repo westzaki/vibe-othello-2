@@ -29,8 +29,8 @@ Production search currently includes:
 * exact-score stability bounds and zero-to-eight-empty specialized recursion
 * incremental built-in pattern evaluation where the root can reach learned
   phases
-* diagnostics-only shadow calibration and reviewed-profile-gated cut-high
-  Multi-ProbCut, both disabled by default
+* diagnostics-only shadow calibration, disabled by default, plus a fail-closed
+  reviewed-profile-gated cut-high Multi-ProbCut production selector
 
 The recursive implementation is split by responsibility under
 `engine/src/search/`; reference search lives only in test support. Search is
@@ -373,6 +373,7 @@ struct ProbCutOptionsV1 {
   Score minimum_margin;
   Score maximum_margin;
   double maximum_shallow_overhead_ratio;
+  NodeCount minimum_official_nodes_before_probe;
   std::uint16_t enabled_phase_mask;
   bool non_pv_only;
   bool beta_only;
@@ -1403,17 +1404,22 @@ They must not be enabled in exact endgame modes.
 
 ### Conservative non-PV Multi-ProbCut
 
-Runtime ProbCut is off by default and has no built-in production calibration
-profile. Its default depths and margins are zero/invalid as an additional guard;
-callers must supply every runtime value from a reviewed profile and adoption
-decision. It is attempted only at an explicit PVS scout/null-window entry marked
+Generic runtime ProbCut options remain off by default; their default depths and
+margins are zero/invalid as an additional guard. The production selector owns
+one checked-in reviewed profile and resolves it only for the exact evaluator,
+artifact, weights checksum, move-search mode, and exact-handoff threshold. It is
+attempted only at an explicit PVS scout/null-window entry marked
 as cut-node-equivalent. Plain PV/full-window nodes, recursive alpha-beta nodes
 without that marker, IID work, root/terminal/pass nodes,
 depths below `minimum_depth`, disabled phases, unsupported complete profile
 domains, sentinel-adjacent windows, and positions at or below the configured
 near-exact threshold cannot cut.
-Only beta-direction cut-high is implemented. Easy/normal/hard WASM presets leave
-`probcut_options` at its disabled default.
+Only beta-direction cut-high is implemented. The WASM `normal` and `hard`
+presets use the production selector; `easy`, the legacy API, identity mismatch,
+and the build-time kill switch leave `probcut_options` disabled. The selected
+production rollout additionally limits execution to phases 2–3, waits for
+25,000 official nodes within the fixed-depth search, and caps cumulative
+shallow work at 0.5% before starting another probe.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
 source calibration report SHA-256, independent joint holdout SHA-256, evaluator
@@ -1446,10 +1452,13 @@ At a node, the scheduler walks the configured pair preference, considering
 only pairs whose deep depth exactly equals the current depth. It stops at the
 first successful cut and never runs more than `maximum_probes_per_node`.
 `enabled_phase_mask`, `minimum_depth`, `minimum_confidence`,
-`near_exact_disable_empties`, and `maximum_shallow_overhead_ratio` provide
-additional gates. The overhead ratio is cumulative shallow nodes divided by
-non-shallow official nodes; zero disables only this ratio gate. The current V1
-contract requires `stop_after_first_success=true`.
+`near_exact_disable_empties`, `maximum_shallow_overhead_ratio`, and
+`minimum_official_nodes_before_probe` provide additional gates. The overhead
+ratio is cumulative shallow nodes divided by non-shallow official nodes; zero
+disables only this ratio gate. The official-node minimum prevents the first
+probe from escaping the cumulative budget before enough current-depth work is
+available to amortize it. The current V1 contract requires
+`stop_after_first_success=true`.
 
 For an eligible node, a full-window shallow search produces integer score `s`.
 The profile condition is:

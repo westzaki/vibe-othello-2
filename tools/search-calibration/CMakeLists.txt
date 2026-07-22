@@ -17,6 +17,20 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_convert_probcut_profile.py
             --converter ${CMAKE_CURRENT_SOURCE_DIR}/convert_probcut_profile.py)
   add_test(
+    NAME vibe_othello_shadow_calibration_disjoint_filter_smoke
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/test_filter_disjoint_shadow_samples.py
+      --filter ${CMAKE_CURRENT_SOURCE_DIR}/filter_disjoint_shadow_samples.py)
+  add_test(
+    NAME vibe_othello_production_probcut_cpp_export_smoke
+    COMMAND
+      ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_export_probcut_profile_cpp.py
+      --exporter ${CMAKE_CURRENT_SOURCE_DIR}/export_probcut_profile_cpp.py
+      --profile
+      ${PROJECT_SOURCE_DIR}/data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-v1/profile.tsv
+      --expected ${PROJECT_SOURCE_DIR}/engine/src/search/production_probcut_profile_data.inc)
+  add_test(
     NAME vibe_othello_multi_probcut_pipeline_e2e
     COMMAND
       ${Python3_EXECUTABLE}
