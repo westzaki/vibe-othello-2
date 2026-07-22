@@ -296,12 +296,42 @@ class ConverterTests(unittest.TestCase):
             holdout_path = root / "holdout.json"
             report_path.write_text(json.dumps(report(), sort_keys=True), encoding="utf-8")
             adoption_path.write_text(json.dumps(adoption(), sort_keys=True), encoding="utf-8")
-            holdout_path.write_text(json.dumps(report(holdout=True), sort_keys=True), encoding="utf-8")
+            holdout_path.write_text(
+                json.dumps(report(holdout=True), sort_keys=True), encoding="utf-8"
+            )
             first = root / "first.tsv"
             second = root / "second.tsv"
             self.converter.convert(report_path, adoption_path, holdout_path, first)
             self.converter.convert(report_path, adoption_path, holdout_path, second)
             self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_json_conversion_is_compact_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report_path = root / "report.json"
+            adoption_path = root / "adoption.json"
+            holdout_path = root / "holdout.json"
+            report_path.write_text(json.dumps(report(), sort_keys=True), encoding="utf-8")
+            adoption_path.write_text(json.dumps(adoption(), sort_keys=True), encoding="utf-8")
+            holdout_path.write_text(json.dumps(report(holdout=True), sort_keys=True), encoding="utf-8")
+            first = root / "first.json"
+            second = root / "second.json"
+            self.converter.convert(report_path, adoption_path, holdout_path, first, "json")
+            self.converter.convert(report_path, adoption_path, holdout_path, second, "json")
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+            payload = json.loads(first.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], 3)
+            self.assertEqual(
+                payload["validated_pair_order"],
+                [
+                    {"deep_depth": 8, "shallow_depth": 3},
+                    {"deep_depth": 8, "shallow_depth": 4},
+                ],
+            )
+            self.assertEqual(len(payload["scheduler_domain_evidence"]), 1)
+            self.assertEqual(len(payload["entries"]), 2)
+            self.assertNotIn("scheduler_domain_evidence", payload["entries"][0])
 
 
 def main() -> int:

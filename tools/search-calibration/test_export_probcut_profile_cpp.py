@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the checked-in constexpr profile matches its reviewed TSV."""
+"""Verify the checked-in constexpr profile matches its reviewed source."""
 
 from __future__ import annotations
 

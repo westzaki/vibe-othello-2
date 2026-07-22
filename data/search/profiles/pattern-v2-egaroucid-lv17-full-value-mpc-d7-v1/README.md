@@ -19,7 +19,7 @@ Reviewed beta-direction Multi-ProbCut profile for the default learned evaluator.
 | Shallow-work cap | 0.5% of official nodes |
 | Cold-start guard | 25,000 official nodes per fixed-depth search |
 
-The TSV contains every independently accepted domain, while the initial
+The JSON profile contains every independently accepted domain, while the initial
 production rollout deliberately enables only phases 2 and 3. Missing domains,
 identity mismatch, other exact thresholds, `easy`, the legacy API, and
 `VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` all resolve to disabled.
@@ -64,12 +64,12 @@ the primary review evidence.
 
 ## Regeneration
 
-`profile.tsv` is the checked conversion of `adoption.json`. Regenerate the
+`profile.json` is the checked conversion of `adoption.json`. Regenerate the
 compiled include from the repository root:
 
 ```sh
 python3 tools/search-calibration/export_probcut_profile_cpp.py \
-  data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-v1/profile.tsv \
+  data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-v1/profile.json \
   --weights-checksum 0xfe3d38f9 \
   --maximum-margin 22 \
   --maximum-shallow-overhead-ratio 0.005 \

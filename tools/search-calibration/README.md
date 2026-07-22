@@ -333,20 +333,25 @@ not infer one from the report. Keep the TSV, source report, samples, and run
 outputs under the local measurement root. Do not commit them as generated
 reports or calibration raw data.
 
-To compile a reviewed TSV into the production C++ data include, use the checked
-exporter and keep the invocation synchronized with its drift test:
+For an adopted production profile, rerun the converter with
+`--output-format json` and commit that compact reviewed JSON instead of the
+local TSV. The JSON keeps common metadata and scheduler evidence once, while
+preserving the validated pair and entry order. Compile it into the production
+C++ data include with the checked exporter and keep the invocation synchronized
+with its drift test:
 
 ```sh
 python3 tools/search-calibration/export_probcut_profile_cpp.py \
-  data/search/profiles/<profile>/profile.tsv \
+  data/search/profiles/<profile>/profile.json \
   --weights-checksum 0x00000000 \
   --maximum-margin 22 \
   --maximum-shallow-overhead-ratio 0.005 \
   --output engine/src/search/production_probcut_profile_data.inc
 ```
 
-The checked-in profile under `data/search/profiles/` records the reviewed
-adoption decision and summarized gates. Raw samples, analyzer reports, Arena
-reports, and machine-timing output remain outside the repository. A calibration
-report alone authorizes neither a preset change nor a strength claim; promotion
-also requires same-artifact fixed-node/fixed-time and real WASM A/B review.
+The checked-in JSON profile under `data/search/profiles/` records the reviewed
+adoption decision and summarized gates. Raw samples, generated TSV, analyzer
+reports, Arena reports, and machine-timing output remain outside the repository.
+A calibration report alone authorizes neither a preset change nor a strength
+claim; promotion also requires same-artifact fixed-node/fixed-time and real WASM
+A/B review.

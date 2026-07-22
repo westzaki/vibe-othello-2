@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a reviewed ProbCut TSV profile as constexpr C++ data."""
+"""Export a reviewed ProbCut profile as constexpr C++ data."""
 
 from __future__ import annotations
 
@@ -17,10 +17,172 @@ MODE_CPP = {
     "exact_score": "SearchMode::exact_score",
     "win_loss_draw": "SearchMode::win_loss_draw",
 }
+COMMON_FIELDS = (
+    "schema_version",
+    "profile_id",
+    "source_checksum_sha256",
+    "joint_holdout_checksum_sha256",
+    "evaluator_family",
+    "artifact_family",
+    "node_class",
+    "validated_maximum_probes_per_node",
+    "joint_false_cut_count",
+    "joint_cut_candidate_count",
+    "joint_false_cut_rate_upper_bound",
+)
+ENTRY_FIELDS = (
+    "phase",
+    "search_mode",
+    "minimum_empties",
+    "maximum_empties",
+    "deep_depth",
+    "shallow_depth",
+    "exact_handoff_enabled",
+    "exact_handoff_threshold",
+    "minimum_exact_handoff_distance",
+    "maximum_exact_handoff_distance",
+    "regression_slope",
+    "intercept",
+    "residual_sigma",
+    "confidence_multiplier",
+    "minimum_shallow_score",
+    "maximum_shallow_score",
+    "minimum_beta",
+    "maximum_beta",
+)
+EVIDENCE_FIELDS = (
+    "pair_prefix_length",
+    "maximum_probes_per_node",
+    "phase",
+    "search_mode",
+    "minimum_empties",
+    "maximum_empties",
+    "deep_depth",
+    "exact_handoff_enabled",
+    "exact_handoff_threshold",
+    "minimum_exact_handoff_distance",
+    "maximum_exact_handoff_distance",
+    "holdout_node_count",
+    "false_cut_count",
+    "cut_candidate_count",
+    "false_cut_rate_upper_bound",
+)
 
 
 class ExportError(ValueError):
-    """Raised when the reviewed TSV cannot be exported exactly."""
+    """Raised when the reviewed profile cannot be exported exactly."""
+
+
+def profile_text(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ExportError("profile contains a non-finite number")
+        return format(value, ".17g")
+    if isinstance(value, (int, str)):
+        return str(value)
+    raise ExportError(f"unsupported profile value: {value!r}")
+
+
+def require_object_field(source: dict[str, object], field: str, label: str) -> object:
+    if field not in source:
+        raise ExportError(f"{label} is missing {field}")
+    return source[field]
+
+
+def load_json_profile(
+    profile_path: Path,
+) -> tuple[list[dict[str, str]], list[tuple[int, int]], list[list[str]]]:
+    try:
+        payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ExportError(f"cannot read profile: {error}") from error
+    if not isinstance(payload, dict):
+        raise ExportError("profile JSON must be an object")
+
+    raw_pairs = require_object_field(payload, "validated_pair_order", "profile")
+    if not isinstance(raw_pairs, list) or not raw_pairs:
+        raise ExportError("validated_pair_order must be a non-empty array")
+    pairs: list[tuple[int, int]] = []
+    for index, raw_pair in enumerate(raw_pairs):
+        if not isinstance(raw_pair, dict):
+            raise ExportError(f"validated_pair_order[{index}] must be an object")
+        try:
+            pair = (int(raw_pair["deep_depth"]), int(raw_pair["shallow_depth"]))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ExportError(f"invalid validated_pair_order[{index}]") from error
+        if pair in pairs:
+            raise ExportError(f"duplicate validated depth pair {pair[0]}/{pair[1]}")
+        pairs.append(pair)
+
+    raw_evidence = require_object_field(payload, "scheduler_domain_evidence", "profile")
+    if not isinstance(raw_evidence, list) or not raw_evidence:
+        raise ExportError("scheduler_domain_evidence must be a non-empty array")
+    evidence: list[list[str]] = []
+    for index, raw_record in enumerate(raw_evidence):
+        if not isinstance(raw_record, dict):
+            raise ExportError(f"scheduler_domain_evidence[{index}] must be an object")
+        evidence.append(
+            [
+                profile_text(
+                    require_object_field(
+                        raw_record,
+                        field,
+                        f"scheduler_domain_evidence[{index}]",
+                    )
+                )
+                for field in EVIDENCE_FIELDS
+            ]
+        )
+
+    raw_entries = require_object_field(payload, "entries", "profile")
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise ExportError("entries must be a non-empty array")
+    common = {
+        field: profile_text(require_object_field(payload, field, "profile"))
+        for field in COMMON_FIELDS
+    }
+    rows: list[dict[str, str]] = []
+    for index, raw_entry in enumerate(raw_entries):
+        if not isinstance(raw_entry, dict):
+            raise ExportError(f"entries[{index}] must be an object")
+        row = dict(common)
+        row.update(
+            {
+                field: profile_text(
+                    require_object_field(raw_entry, field, f"entries[{index}]")
+                )
+                for field in ENTRY_FIELDS
+            }
+        )
+        rows.append(row)
+    return rows, pairs, evidence
+
+
+def load_tsv_profile(
+    profile_path: Path,
+) -> tuple[list[dict[str, str]], list[tuple[int, int]], list[list[str]]]:
+    try:
+        with profile_path.open(encoding="utf-8", newline="") as source:
+            rows = list(csv.DictReader(source, delimiter="\t"))
+    except (OSError, UnicodeDecodeError, csv.Error) as error:
+        raise ExportError(f"cannot read profile: {error}") from error
+    if not rows:
+        raise ExportError("profile has no rows")
+
+    pairs: list[tuple[int, int]] = []
+    for row in rows:
+        pair = (int(row["deep_depth"]), int(row["shallow_depth"]))
+        if pair not in pairs:
+            pairs.append(pair)
+    evidence: list[list[str]] = []
+    for record in require_same(rows, "scheduler_domain_evidence").split(";"):
+        fields = record.split(":")
+        if len(fields) != len(EVIDENCE_FIELDS):
+            raise ExportError(f"invalid scheduler evidence: {record}")
+        evidence.append(fields)
+    return rows, pairs, evidence
 
 
 def cpp_bool(value: str) -> str:
@@ -50,37 +212,32 @@ def render(
     maximum_margin: int,
     maximum_overhead: float,
 ) -> str:
-    try:
-        with profile_path.open(encoding="utf-8", newline="") as source:
-            rows = list(csv.DictReader(source, delimiter="\t"))
-    except (OSError, UnicodeDecodeError, csv.Error) as error:
-        raise ExportError(f"cannot read profile: {error}") from error
-    if not rows:
-        raise ExportError("profile has no rows")
+    if profile_path.suffix.lower() == ".json":
+        rows, pairs, evidence = load_json_profile(profile_path)
+    else:
+        rows, pairs, evidence = load_tsv_profile(profile_path)
     if require_same(rows, "schema_version") != "3":
         raise ExportError("only schema-v3 profiles can be exported")
     if require_same(rows, "node_class") != "non_pv_scout_beta_only":
         raise ExportError("unsupported node class")
 
-    pairs: list[tuple[int, int]] = []
+    row_pairs: list[tuple[int, int]] = []
     for row in rows:
         pair = (int(row["deep_depth"]), int(row["shallow_depth"]))
-        if pair not in pairs:
-            pairs.append(pair)
+        if pair not in row_pairs:
+            row_pairs.append(pair)
+    if row_pairs != pairs:
+        raise ExportError("profile entry order disagrees with validated_pair_order")
     maximum_probes = int(require_same(rows, "validated_maximum_probes_per_node"))
     if maximum_probes <= 0 or maximum_probes > len(pairs):
         raise ExportError("validated probe cap is inconsistent with pair order")
 
-    evidence: list[list[str]] = []
-    for record in require_same(rows, "scheduler_domain_evidence").split(";"):
-        fields = record.split(":")
-        if len(fields) != 15 or fields[3] not in MODE_CPP:
-            raise ExportError(f"invalid scheduler evidence: {record}")
-        evidence.append(fields)
+    if any(fields[3] not in MODE_CPP for fields in evidence):
+        raise ExportError("invalid scheduler evidence search mode")
 
     output = [
         "// Generated by tools/search-calibration/export_probcut_profile_cpp.py.",
-        "// Do not edit by hand; regenerate from the reviewed profile TSV.",
+        "// Do not edit by hand; regenerate from the reviewed profile.",
         "#pragma once",
         "",
         "#include \"vibe_othello/search/probcut.h\"",

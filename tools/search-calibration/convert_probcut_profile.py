@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Convert reviewed MPC training/holdout reports to a scheduler-safe profile TSV."""
+"""Convert reviewed MPC training/holdout reports to a scheduler-safe profile."""
 
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import math
 import sys
@@ -51,6 +53,69 @@ HEADER = (
     "minimum_beta",
     "maximum_beta",
 )
+JSON_COMMON_FIELDS = (
+    "schema_version",
+    "profile_id",
+    "source_checksum_sha256",
+    "joint_holdout_checksum_sha256",
+    "evaluator_family",
+    "artifact_family",
+    "node_class",
+    "validated_maximum_probes_per_node",
+    "joint_false_cut_count",
+    "joint_cut_candidate_count",
+    "joint_false_cut_rate_upper_bound",
+)
+ENTRY_FIELDS = HEADER[12:]
+SCHEDULER_EVIDENCE_FIELDS = (
+    "pair_prefix_length",
+    "maximum_probes_per_node",
+    "phase",
+    "search_mode",
+    "minimum_empties",
+    "maximum_empties",
+    "deep_depth",
+    "exact_handoff_enabled",
+    "exact_handoff_threshold",
+    "minimum_exact_handoff_distance",
+    "maximum_exact_handoff_distance",
+    "holdout_node_count",
+    "false_cut_count",
+    "cut_candidate_count",
+    "false_cut_rate_upper_bound",
+)
+INTEGER_PROFILE_FIELDS = {
+    "schema_version",
+    "validated_maximum_probes_per_node",
+    "joint_false_cut_count",
+    "joint_cut_candidate_count",
+    "pair_prefix_length",
+    "maximum_probes_per_node",
+    "phase",
+    "minimum_empties",
+    "maximum_empties",
+    "deep_depth",
+    "shallow_depth",
+    "exact_handoff_threshold",
+    "minimum_exact_handoff_distance",
+    "maximum_exact_handoff_distance",
+    "holdout_node_count",
+    "false_cut_count",
+    "cut_candidate_count",
+    "minimum_shallow_score",
+    "maximum_shallow_score",
+    "minimum_beta",
+    "maximum_beta",
+}
+FLOAT_PROFILE_FIELDS = {
+    "joint_false_cut_rate_upper_bound",
+    "false_cut_rate_upper_bound",
+    "regression_slope",
+    "intercept",
+    "residual_sigma",
+    "confidence_multiplier",
+}
+BOOLEAN_PROFILE_FIELDS = {"exact_handoff_enabled"}
 
 
 class ProfileConversionError(ValueError):
@@ -337,6 +402,91 @@ def serialize_scheduler_evidence(evidence: Sequence[dict[str, Any]]) -> str:
         records.append(":".join(str(value) for value in fields))
     require(bool(records), "no scheduler/domain holdout configuration passed review")
     return ";".join(records)
+
+
+def profile_value(field: str, value: str) -> Any:
+    if field in INTEGER_PROFILE_FIELDS:
+        return int(value)
+    if field in FLOAT_PROFILE_FIELDS:
+        converted = float(value)
+        require(math.isfinite(converted), f"{field} must be finite")
+        return converted
+    if field in BOOLEAN_PROFILE_FIELDS:
+        require(value in {"true", "false"}, f"{field} must be boolean")
+        return value == "true"
+    return value
+
+
+def render_profile_json(rendered_tsv: str) -> str:
+    try:
+        rows = list(csv.DictReader(io.StringIO(rendered_tsv), delimiter="\t"))
+    except csv.Error as error:
+        raise ProfileConversionError(f"cannot parse converted TSV: {error}") from error
+    require(bool(rows), "converted profile has no rows")
+    first = rows[0]
+    for field in JSON_COMMON_FIELDS:
+        require(
+            all(row.get(field) == first.get(field) for row in rows),
+            f"profile rows disagree on {field}",
+        )
+    serialized_evidence = first.get("scheduler_domain_evidence", "")
+    require(
+        all(row.get("scheduler_domain_evidence") == serialized_evidence for row in rows),
+        "profile rows disagree on scheduler_domain_evidence",
+    )
+
+    pair_order: list[dict[str, int]] = []
+    seen_pairs: set[tuple[int, int]] = set()
+    for row in rows:
+        pair = (int(row["deep_depth"]), int(row["shallow_depth"]))
+        if pair not in seen_pairs:
+            pair_order.append({"deep_depth": pair[0], "shallow_depth": pair[1]})
+            seen_pairs.add(pair)
+
+    scheduler_evidence: list[dict[str, Any]] = []
+    for record in serialized_evidence.split(";"):
+        values = record.split(":")
+        require(
+            len(values) == len(SCHEDULER_EVIDENCE_FIELDS),
+            f"invalid scheduler evidence: {record}",
+        )
+        scheduler_evidence.append(
+            {
+                field: profile_value(field, value)
+                for field, value in zip(SCHEDULER_EVIDENCE_FIELDS, values, strict=True)
+            }
+        )
+
+    payload = {
+        "schema_version": profile_value("schema_version", first["schema_version"]),
+        "profile_id": first["profile_id"],
+        "source_checksum_sha256": first["source_checksum_sha256"],
+        "joint_holdout_checksum_sha256": first["joint_holdout_checksum_sha256"],
+        "evaluator_family": first["evaluator_family"],
+        "artifact_family": first["artifact_family"],
+        "node_class": first["node_class"],
+        "validated_pair_order": pair_order,
+        "validated_maximum_probes_per_node": profile_value(
+            "validated_maximum_probes_per_node",
+            first["validated_maximum_probes_per_node"],
+        ),
+        "joint_false_cut_count": profile_value(
+            "joint_false_cut_count", first["joint_false_cut_count"]
+        ),
+        "joint_cut_candidate_count": profile_value(
+            "joint_cut_candidate_count", first["joint_cut_candidate_count"]
+        ),
+        "joint_false_cut_rate_upper_bound": profile_value(
+            "joint_false_cut_rate_upper_bound",
+            first["joint_false_cut_rate_upper_bound"],
+        ),
+        "scheduler_domain_evidence": scheduler_evidence,
+        "entries": [
+            {field: profile_value(field, row[field]) for field in ENTRY_FIELDS}
+            for row in rows
+        ],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
 def render_profile(
@@ -638,11 +788,20 @@ def convert(
     adoption_path: Path,
     joint_holdout_path: Path,
     output_path: Path,
+    output_format: str = "tsv",
 ) -> None:
     report, report_raw = load_json(report_path, "training report")
     adoption, _ = load_json(adoption_path, "adoption specification")
     joint_holdout, joint_holdout_raw = load_json(joint_holdout_path, "joint holdout report")
-    rendered = render_profile(report, report_raw, adoption, joint_holdout, joint_holdout_raw)
+    rendered_tsv = render_profile(
+        report, report_raw, adoption, joint_holdout, joint_holdout_raw
+    )
+    if output_format == "tsv":
+        rendered = rendered_tsv
+    elif output_format == "json":
+        rendered = render_profile_json(rendered_tsv)
+    else:
+        raise ProfileConversionError(f"unsupported output format: {output_format}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
 
@@ -652,10 +811,17 @@ def main() -> int:
     parser.add_argument("report", type=Path)
     parser.add_argument("adoption", type=Path)
     parser.add_argument("--joint-holdout-report", type=Path, required=True)
+    parser.add_argument("--output-format", choices=("tsv", "json"), default="tsv")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        convert(args.report, args.adoption, args.joint_holdout_report, args.output)
+        convert(
+            args.report,
+            args.adoption,
+            args.joint_holdout_report,
+            args.output,
+            args.output_format,
+        )
     except ProfileConversionError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
