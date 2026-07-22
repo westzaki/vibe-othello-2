@@ -1,3 +1,10 @@
+add_executable(vibe_othello_collect_shadow_samples collect_shadow_samples.cc)
+
+target_link_libraries(vibe_othello_collect_shadow_samples PRIVATE vibe_othello::engine)
+
+set_target_properties(vibe_othello_collect_shadow_samples
+                      PROPERTIES OUTPUT_NAME vibe-othello-collect-shadow-samples)
+
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -19,4 +26,13 @@ if(BUILD_TESTING)
       --arena $<TARGET_FILE:vibe_othello_full_game_artifact_arena>
       --artifact-fixture
       ${PROJECT_SOURCE_DIR}/tools/arena/check_full_game_artifact_arena_smoke.py)
+  add_test(
+    NAME vibe_othello_shadow_calibration_collector_smoke
+    COMMAND
+      ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_collect_shadow_samples.py
+      --collector $<TARGET_FILE:vibe_othello_collect_shadow_samples>
+      --analyzer ${CMAKE_CURRENT_SOURCE_DIR}/analyze_shadow_samples.py
+      --artifact
+      ${PROJECT_SOURCE_DIR}/data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json
+      --positions ${PROJECT_SOURCE_DIR}/engine/fixtures/search/positions.tsv)
 endif()

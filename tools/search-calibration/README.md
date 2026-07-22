@@ -103,6 +103,39 @@ mkdir -p "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow"
 Do not commit generated sample JSON/JSONL, fitted reports, or Markdown
 summaries.
 
+### Native JSONL collector
+
+`vibe-othello-collect-shadow-samples` runs the full production search stack at
+a fixed depth over either the checked-in search fixture TSV shape (`id` plus
+`position`) or normalized pattern corpus TSV shape (`position_id` plus
+`board_a1_to_h8`). It loads the exact supplied artifact, clears the search
+session between roots, and writes schema-v5 samples directly to JSONL. Root
+selection can be split into deterministic FNV partitions, and `--root-phase`
+supports balanced phase-local campaigns. Canonically repeated sampled
+positions are kept only once per output so the analyzer receives one complete
+same-deep pair population per scheduler node.
+
+For the current browser depth-8/exact-8 policy, a local collection command is:
+
+```sh
+build/tools/search-calibration/vibe-othello-collect-shadow-samples \
+  --artifact-manifest data/eval/artifacts/<artifact>/manifest.json \
+  --positions "$VIBE_OTHELLO_TRAINING/<corpus>/positions.tsv" \
+  --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/training-phase-0.jsonl" \
+  --repository-sha "$(git rev-parse HEAD)" \
+  --search-config-id web-normal-depth8-exact8-full-v1 \
+  --depth 8 --exact-endgame-empties 8 \
+  --depth-pair 7:3 --depth-pair 7:4 \
+  --sample-rate 1000000 --max-samples-per-search 2 \
+  --sampling-seed 0 --root-phase 0 --position-limit 1000
+```
+
+The two rows produced for a sampled node are one scheduler observation, not two
+independent nodes. Use a different partition and sampling seed for joint
+holdout collection while keeping the artifact, search config, ordered pair
+list, sampling rate, and per-search cap identical. Generated JSONL and summary
+output remain local-only.
+
 ## Analyzer
 
 Analyze any mix of JSON/JSONL files or directories:
