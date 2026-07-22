@@ -540,7 +540,10 @@ def render_profile(
     require(node_class == NODE_CLASS, f"node_class must be {NODE_CLASS}")
 
     pair_order = parse_validated_pair_order(adoption)
-    require(pair_order == training_pairs, "validated_pair_order must exactly match the collected pair order")
+    require(
+        pair_order == training_pairs[: len(pair_order)],
+        "validated_pair_order must be a prefix of the collected pair order",
+    )
     maximum_probes = integer(
         adoption.get("validated_maximum_probes_per_node"),
         "validated_maximum_probes_per_node",

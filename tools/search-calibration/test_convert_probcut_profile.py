@@ -266,7 +266,17 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(first[header.index("minimum_empties")], "20")
         self.assertEqual(first[header.index("maximum_empties")], "20")
 
-    def test_rejects_order_not_identical_to_collection(self) -> None:
+    def test_accepts_ordered_collection_prefix(self) -> None:
+        reviewed = adoption()
+        reviewed["validated_pair_order"] = reviewed["validated_pair_order"][:1]
+        reviewed["validated_maximum_probes_per_node"] = 1
+        reviewed["entries"] = [reviewed["entries"][0]]
+        reviewed["minimum_joint_cut_candidates"] = 1
+        reviewed["maximum_joint_false_cut_rate_upper_bound"] = 0.9
+        rendered = self.render(reviewed=reviewed)
+        self.assertEqual(len(rendered.splitlines()), 2)
+
+    def test_rejects_order_not_prefix_of_collection(self) -> None:
         reviewed = adoption()
         reviewed["validated_pair_order"] = list(reversed(reviewed["validated_pair_order"]))
         with self.assertRaisesRegex(self.converter.ProfileConversionError, "collected pair order"):

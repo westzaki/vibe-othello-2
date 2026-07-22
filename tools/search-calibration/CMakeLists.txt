@@ -28,7 +28,7 @@ if(BUILD_TESTING)
       ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_export_probcut_profile_cpp.py
       --exporter ${CMAKE_CURRENT_SOURCE_DIR}/export_probcut_profile_cpp.py
       --profile
-      ${PROJECT_SOURCE_DIR}/data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-v1/profile.json
+      ${PROJECT_SOURCE_DIR}/data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v2/profile.json
       --expected ${PROJECT_SOURCE_DIR}/engine/src/search/production_probcut_profile_data.inc)
   add_test(
     NAME vibe_othello_multi_probcut_pipeline_e2e

@@ -29,7 +29,7 @@ def main() -> int:
                 "--maximum-margin",
                 "22",
                 "--maximum-shallow-overhead-ratio",
-                "0.005",
+                "0.20",
                 "--output",
                 str(output),
             ],

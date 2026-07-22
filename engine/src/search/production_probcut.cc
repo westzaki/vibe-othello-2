@@ -5,7 +5,8 @@
 namespace vibe_othello::search {
 namespace {
 
-constexpr std::uint16_t kProductionPhaseMask = (std::uint16_t{1} << 2U) | (std::uint16_t{1} << 3U);
+constexpr std::uint16_t kProductionPhaseMask = (std::uint16_t{1} << 3U) | (std::uint16_t{1} << 4U) |
+                                               (std::uint16_t{1} << 6U) | (std::uint16_t{1} << 7U);
 
 } // namespace
 
@@ -38,7 +39,7 @@ production_probcut_configuration_v1(ProbCutRuntimeIdentityV1 identity, SearchMod
       .minimum_margin = 0,
       .maximum_margin = kMaximumMargin,
       .maximum_shallow_overhead_ratio = kMaximumShallowOverheadRatio,
-      .minimum_official_nodes_before_probe = 25'000,
+      .minimum_official_nodes_before_probe = 0,
       .enabled_phase_mask = kProductionPhaseMask,
       .non_pv_only = true,
       .beta_only = true,

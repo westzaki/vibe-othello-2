@@ -47,8 +47,8 @@ The following are deliberately not represented as completed capabilities:
 * time limits are cooperative and can overshoot before the next check
 * there is no dedicated PV table, advanced clock allocation, parallel search,
   or review-specific result adapter
-* ProbCut has no cut-low path and no reviewed production profile is built in or
-  enabled by a preset
+* ProbCut has no cut-low path; the built-in speed-gated production profile is
+  intentionally narrow and applies only to one exact evaluator/artifact identity
 * learned-artifact fixed-position smoke coverage is not match, self-play, Elo,
   or production-strength evidence
 
@@ -1402,7 +1402,7 @@ decision, and telemetry.
 
 They must not be enabled in exact endgame modes.
 
-### Conservative non-PV Multi-ProbCut
+### Speed-gated non-PV Multi-ProbCut
 
 Generic runtime ProbCut options remain off by default; their default depths and
 margins are zero/invalid as an additional guard. The production selector owns
@@ -1417,9 +1417,11 @@ near-exact threshold cannot cut.
 Only beta-direction cut-high is implemented. The WASM `normal` and `hard`
 presets use the production selector; `easy`, the legacy API, identity mismatch,
 and the build-time kill switch leave `probcut_options` disabled. The selected
-production rollout additionally limits execution to phases 2–3, waits for
-25,000 official nodes within the fixed-depth search, and caps cumulative
-shallow work at 0.5% before starting another probe.
+production profile uses one `7:3` probe only in its reviewed phase 3, 4, 6, and
+7 domains, has no cold-start delay, and caps cumulative shallow work at 20%.
+Promotion additionally requires a phase-balanced WASM comparison with at least
+1% aggregate node reduction, at least 1% median wall-time reduction, and exact
+best-move, score, and completed-depth parity against a kill-switch build.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
 source calibration report SHA-256, independent joint holdout SHA-256, evaluator
@@ -1460,25 +1462,29 @@ probe from escaping the cumulative budget before enough current-depth work is
 available to amortize it. The current V1 contract requires
 `stop_after_first_success=true`.
 
-For an eligible node, a full-window shallow search produces integer score `s`.
-The profile condition is:
+For an eligible node, runtime first inverts the reviewed regression condition
+to find the smallest integer shallow score that can cut:
 
 ```text
-predicted_deep = a * s + b
 k_effective = max(profile_k, option_k, minimum_confidence)
 margin = max(ceil(k_effective * residual_sigma), minimum_margin)
-lower = floor(predicted_deep) - margin
-cut-high iff lower >= beta
+shallow_beta = max(minimum_shallow_score,
+                   ceil((beta + margin - intercept) / slope))
+probe [shallow_beta - 1, shallow_beta]
+cut-high iff the shallow probe fails high
 ```
 
 `maximum_margin` is an eligibility ceiling: a larger computed margin rejects
-the candidate instead of clamping it downward. All floating inputs must be
-finite. The implementation computes prediction and margin in wider types,
-checks conversion ranges before integer conversion, floors prediction, and
-keeps shallow score, beta, and the resulting lower confidence bound away from
-`kScoreLoss`/`kScoreWin`. Terminal exact disc differences never reach the gate,
-and the shallow search temporarily disables exact handoff, so the fitted
-heuristic domain is not mixed with exact score kinds.
+the candidate instead of clamping it downward. A threshold above the reviewed
+maximum shallow score is also rejected. All floating inputs must be finite.
+The implementation computes the threshold and margin in wider types, checks
+conversion ranges before integer conversion, and keeps both sides of the
+shallow null window away from `kScoreLoss`/`kScoreWin`. This is algebraically
+equivalent to `floor(slope * s + intercept) - margin >= beta` for an exact
+integer shallow score, but it avoids paying for an exact full-window result.
+Terminal exact disc differences never reach the gate, and the shallow search
+temporarily disables exact handoff, so the fitted heuristic domain is not mixed
+with exact score kinds.
 
 The shallow search shares the official stop flag, deadline, node limit, node
 counter, and evaluator state. Its nodes therefore contribute to

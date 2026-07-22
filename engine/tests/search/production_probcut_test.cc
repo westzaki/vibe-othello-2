@@ -17,18 +17,23 @@ TEST_CASE("production ProbCut profile resolves only for its reviewed runtime ide
       production_probcut_configuration_v1(kReviewedIdentity, SearchMode::move, 8);
   REQUIRE(resolved.enabled());
   REQUIRE(resolved.semantic_fingerprint != 0);
-  REQUIRE(resolved.options.maximum_probes_per_node == 2);
-  REQUIRE(resolved.options.ordered_depth_pairs.size() == 2);
+  REQUIRE(resolved.options.maximum_probes_per_node == 1);
+  REQUIRE(resolved.options.ordered_depth_pairs.size() == 1);
+  REQUIRE(resolved.options.ordered_depth_pairs[0] ==
+          (ProbCutDepthPairV1{.deep_depth = 7, .shallow_depth = 3}));
   REQUIRE(resolved.options.maximum_margin == 22);
-  REQUIRE(resolved.options.maximum_shallow_overhead_ratio == 0.005);
-  REQUIRE(resolved.options.minimum_official_nodes_before_probe == 25'000);
+  REQUIRE(resolved.options.maximum_shallow_overhead_ratio == 0.20);
+  REQUIRE(resolved.options.minimum_official_nodes_before_probe == 0);
   REQUIRE(resolved.options.enabled_phase_mask ==
-          ((std::uint16_t{1} << 2U) | (std::uint16_t{1} << 3U)));
+          ((std::uint16_t{1} << 3U) | (std::uint16_t{1} << 4U) | (std::uint16_t{1} << 6U) |
+           (std::uint16_t{1} << 7U)));
   REQUIRE(resolved.options.calibration_profile != nullptr);
-  REQUIRE(resolved.options.calibration_profile->entries.size() == 24);
-  REQUIRE(resolved.options.calibration_profile->scheduler_evidence.size() == 24);
-  REQUIRE(resolved.options.calibration_profile->joint_false_cut_count == 3);
-  REQUIRE(resolved.options.calibration_profile->joint_cut_candidate_count == 1690);
+  REQUIRE(resolved.options.calibration_profile->profile_id ==
+          "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v2");
+  REQUIRE(resolved.options.calibration_profile->entries.size() == 5);
+  REQUIRE(resolved.options.calibration_profile->scheduler_evidence.size() == 5);
+  REQUIRE(resolved.options.calibration_profile->joint_false_cut_count == 0);
+  REQUIRE(resolved.options.calibration_profile->joint_cut_candidate_count == 631);
 
   ProbCutRuntimeIdentityV1 mismatch = kReviewedIdentity;
   mismatch.weights_checksum = "0x00000000";
