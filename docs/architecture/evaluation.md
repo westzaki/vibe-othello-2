@@ -112,11 +112,11 @@ recursive search path.
 
 The engine runtime evaluator stack is intentionally small:
 
-* `EarlyMidgameHeuristicEvaluator`: a small deterministic baseline used only
-  when a loaded artifact explicitly does not report learned coverage for the
-  current phase. It combines mobility, potential mobility, frontier, corner,
-  empty-corner X/C-square, and phase-weighted disc-difference signals; it is
-  not a production-strength claim.
+* `EarlyMidgameHeuristicEvaluator`: a small deterministic baseline used as the
+  complete fallback for uncovered phases and as the additive baseline for
+  covered residual phases. It combines mobility, potential mobility, frontier,
+  corner, empty-corner X/C-square, and phase-weighted disc-difference signals;
+  it is not a production-strength claim.
 * `PatternEvaluator`: the learned runtime evaluator backed by an immutable
   pattern set definition and loaded phase-dependent weights.
 * `PhaseAwareEvaluator`: the artifact-facing composition that selects the
