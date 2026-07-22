@@ -882,17 +882,17 @@ TEST_CASE("public direct exact endgame TT and parity options preserve exact resu
   REQUIRE(with_both.stats.tt_probes > 0);
 }
 
-TEST_CASE("midgame leaf cutover solves small exact endgames without evaluator",
+TEST_CASE("midgame leaf cutover solves up to eight-empty exact endgames without evaluator",
           "[search][endgame][internal]") {
-  const board_core::Position position = test_support::generated_endgame_position(5);
-  REQUIRE(test_support::endgame_empty_count(position) == 5);
+  const board_core::Position position = test_support::generated_endgame_position(9);
+  REQUIRE(test_support::endgame_empty_count(position) == 9);
   CountingEvaluator evaluator{77};
 
   const SearchResult result =
       search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{1}},
                        SearchOptions{.endgame = EndgameSearchOptions{
                                          .exact_endgame = true,
-                                         .endgame_exact_empties = 4,
+                                         .endgame_exact_empties = 8,
                                      }});
 
   REQUIRE_FALSE(result.stopped);
@@ -902,6 +902,7 @@ TEST_CASE("midgame leaf cutover solves small exact endgames without evaluator",
   REQUIRE(result.stats.eval_calls == 0);
   REQUIRE(result.stats.leaf_nodes == 0);
   REQUIRE(result.stats.endgame_nodes > 0);
+  REQUIRE(result.stats.endgame_last_flip_solved > 0);
   REQUIRE(evaluator.calls == 0);
   REQUIRE_FALSE(result.root_moves.empty());
   for (const RootMoveInfo& root_move : result.root_moves) {
@@ -909,8 +910,8 @@ TEST_CASE("midgame leaf cutover solves small exact endgames without evaluator",
     REQUIRE(root_move.move.kind == board_core::MoveKind::normal);
 
     const board_core::Position child = child_after_move(position, root_move.move);
-    REQUIRE(test_support::endgame_empty_count(child) == 4);
-    const SearchResult direct = search_exact(child, 4);
+    REQUIRE(test_support::endgame_empty_count(child) == 8);
+    const SearchResult direct = search_exact(child, 8);
     REQUIRE(root_move.score == static_cast<Score>(-direct.score));
   }
 }

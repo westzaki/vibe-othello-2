@@ -18,28 +18,36 @@ Exact endgame is a production submodule of `engine/src/search/`. It provides:
 * evaluator-free `solve_exact_endgame` and `solve_wld_endgame` APIs, with
   temporary-session and caller-owned-session overloads
 * root exact-score and explicit root WLD routing from `search_iterative`
-* conservative internal exact-score handoff at heuristic leaves
+* conservative internal exact-score handoff through eight empties at heuristic
+  leaves
 * separate exact-score and WLD TT entry kinds
 * generic negamax/alpha-beta recursion using board-core move deltas and
   incremental hashes
-* exact-score specializations for 0, 1, 2, 3, and 4 empty squares
-* ordering-only empty-region parity hints
+* exact-score specializations through eight empty squares, including direct
+  one-empty flip counting
+* ordering-only empty-region parity hints and a cheap odd/even region branch
+  partition for five-to-eight-empty search
+* conservative stable-disc lower/upper bounds before move generation, with
+  off, shadow-verification, and cutoff modes
 * all-root and best-only exact root reporting, replayable PVs, cooperative
   limits, and endgame node accounting
 
 Tests compare production and reference solvers, generic and specialized paths,
-TT on/off, parity on/off, root-move scores, pass positions, terminal positions,
-and checked-in corpus results. `engine/benchmarks/endgame_bench.cc` provides
-exact/WLD, TT, parity, and root-reporting comparisons with checked-in aggregate
-baseline data.
+TT on/off, parity on/off, stability off/shadow/cutoff, root-move scores, pass
+positions, terminal positions, and checked-in corpus results.
+`engine/benchmarks/endgame_bench.cc` provides exact/WLD, TT, parity, stability,
+and root-reporting comparisons with checked-in aggregate baseline data.
 
 ## Current Limitations
 
 Native and WASM exact-handoff thresholds are caller or preset policy; there is
 no universally tuned engine default. WLD uses the generic recursion rather
-than the exact-score small-empty specializations. `reporting.multi_pv > 1`
-still means all-root reporting rather than top N. Endgame search is
-single-threaded, and time/node cancellation remains cooperative.
+than the exact-score small-empty specializations, and exact-score requests do
+not run a WLD proof first. Exact endgame uses alpha-beta rather than PVS, and
+parity regions only order branches rather than prune them.
+`reporting.multi_pv > 1` still means all-root reporting rather than top N.
+Endgame search is single-threaded, and time/node cancellation remains
+cooperative.
 
 ## Boundary
 
@@ -317,9 +325,11 @@ Root-triggered WLD through `search_iterative` uses the same result semantics.
 `SearchResult::score` and root move scores are WLD values, and `exact` means the
 exact WLD outcome was completed rather than an exact final margin.
 
-`endgame.use_endgame_tt`, `ordering.use_endgame_parity_ordering`, and root
-reporting options such as `reporting.multi_pv` are honored. Midgame-only
-options must not change direct exact-score or WLD semantics.
+`endgame.use_endgame_tt`, `endgame.stability_mode`,
+`ordering.use_endgame_parity_ordering`, and root reporting options such as
+`reporting.multi_pv` are honored. Stability bounds apply to exact-score search;
+WLD search does not consume final-margin stability bounds. Midgame-only options
+must not change direct exact-score or WLD semantics.
 
 Reusable endgame logic lives in `engine/src/search/`; tool entry points remain
 under `tools/`.
@@ -366,6 +376,7 @@ At each node:
 
 * increment `nodes` and `endgame_nodes`
 * check cancellation periodically
+* probe exact stability bounds before legal-move generation when enabled
 * return terminal disc difference if terminal
 * generate legal moves
 * probe the compatible exact endgame TT kind if enabled
@@ -464,8 +475,11 @@ Rules:
 
 The fixed policy is 4-neighbor connectivity. A move whose destination
 belongs to an odd-sized empty region is treated as parity-favorable and ordered
-ahead of otherwise similar moves in even-sized regions. This is only an ordering
-hint.
+ahead of otherwise similar moves in even-sized regions. In the dedicated
+five-to-eight-empty path, the same region policy directly partitions the legal
+branches into odd-region then even-region groups and skips the more expensive
+generic mobility scoring. It remains an ordering strategy and never removes a
+legal branch.
 
 If 4-neighbor and 8-neighbor region policies are compared, they must be separate
 benchmark options.
@@ -480,7 +494,7 @@ Benchmark-only counters may track:
 * odd-region first moves
 * parity ordering time
 
-## Corner, Edge, and Stability Ordering
+## Corner, Edge, and Stability Bounds
 
 Corners are high-priority ordering candidates.
 
@@ -499,13 +513,36 @@ A move may be ordered earlier because it:
 
 Do not prune based on these heuristics in exact mode.
 
-Optional exact stability bounds may be added later only if:
+Exact-score endgame search may use a conservative stable-disc proof. The
+implementation starts from complete rows, files, and diagonals and grows a
+fixed point only when a same-color disc is protected on all four axes by a full
+axis, a board boundary, or an already-proven stable neighbor. A missed stable
+disc only weakens the bound; an unproven disc must never be included.
 
-* the bound is mathematically exact
-* the implementation has a clear proof comment
-* differential tests compare against generic exact search
-* known tactical edge cases are in the corpus
-* the optimization can be disabled
+For `p` proven stable current-player discs and `o` proven stable opponent discs,
+the final disc-difference bounds are:
+
+```text
+lower = 2 * p - 64
+upper = 64 - 2 * o
+```
+
+These follow by assigning every disc not covered by the proof to the opponent
+for the lower bound, or to the current player for the upper bound.
+
+`EndgameStabilityMode` has three behaviors:
+
+* `off`: do not probe the proof
+* `shadow`: record hypothetical fail-high/fail-low candidates, complete normal
+  search, and verify each candidate against the returned alpha-beta result
+* `cutoff`: return a proven lower or upper bound and store the matching exact
+  endgame TT bound
+
+The probe runs before legal-move generation. A window/empty-count gate may skip
+positions where the bound cannot plausibly reach alpha or beta; this is only a
+cost control and must not affect correctness. The optimization must remain
+disableable and differential corpus tests must cover `off`, `shadow`, and
+`cutoff`, including zero shadow false-cut candidates.
 
 ## Transposition Table Semantics
 
@@ -579,8 +616,15 @@ Do not mix the two meanings silently.
 
 ## Specialized Small-Empty Routines
 
-Specialized 0-, 1-, 2-, 3-, and 4-empty exact-score routines are implemented
-as speed optimizations. WLD remains on the generic path.
+Specialized zero-to-eight-empty exact-score routines are implemented as speed
+optimizations. WLD remains on the generic path. The implemented tiers are:
+
+1. zero empty squares
+2. one empty square
+3. two empty squares
+4. three empty squares
+5. four empty squares
+6. five through eight empty squares
 
 They must preserve exact-score semantics.
 
@@ -599,7 +643,10 @@ Small-empty routines should avoid unnecessary:
 * logging
 * file I/O
 
-Small-empty routines may use direct flip computation.
+The one-empty path uses direct flip computation for both normal and forced-pass
+positions. The five-to-eight-empty tier keeps recursive alpha-beta but replaces
+generic per-move mobility scoring with direct legal-bit enumeration and optional
+odd-region/even-region partitioning.
 
 They must still use board-core flip logic or a tested equivalent.
 
@@ -649,7 +696,7 @@ Internal integration:
 * when a midgame leaf reaches depth zero, exact-score endgame is enabled, and
   the request is not WLD, call exact endgame search instead of heuristic
   evaluation if the position is under the conservative internal threshold
-* the initial internal exact-score threshold is capped at four empties, even
+* the internal exact-score threshold is capped at eight empties, even
   when `endgame_exact_empties` is larger
 * internal endgame calls do not publish root move reports
 * negate returned score according to normal negamax rules
@@ -841,6 +888,13 @@ Mandatory endgame stats:
 * `tt_stores`
 * `tt_cutoffs`
 * `endgame_nodes`
+* `endgame_last_flip_solved`
+* `endgame_stability_probes`
+* `endgame_stability_lower_candidates`
+* `endgame_stability_upper_candidates`
+* `endgame_stability_cutoffs`
+* `endgame_stability_shadow_verifications`
+* `endgame_stability_shadow_false_cutoffs`
 
 Recommended future stats:
 
@@ -876,6 +930,8 @@ engine/src/search/
   endgame_root.cc
   endgame_search.cc
   endgame_small_empty.cc
+  endgame_stability.cc
+  endgame_stability_internal.h
   endgame_tt.cc
   move_ordering/
     endgame_ordering.cc
@@ -917,6 +973,7 @@ Use differential tests to compare:
 * generic endgame vs specialized small-empty routines
 * exact TT disabled vs exact TT enabled
 * parity ordering disabled vs parity ordering enabled
+* stability disabled vs shadow verification vs enabled cutoff
 * root-only exact integration vs direct solver
 * WLD sign vs exact-score sign
 
@@ -927,6 +984,8 @@ Use property tests for:
 * exact score is unchanged by move ordering policy
 * exact score is unchanged by TT enablement
 * exact score is unchanged by specialized routine enablement
+* proven stable discs survive every legal continuation
+* stability shadow candidates have no false cuts
 * pass does not change occupancy
 * normal moves reduce empty count by one
 * apply and undo restore root position

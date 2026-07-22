@@ -63,6 +63,13 @@ struct SearchStats {
   NodeCount aspiration_fail_highs = 0;
   NodeCount iid_searches = 0;
   NodeCount endgame_nodes = 0;
+  NodeCount endgame_last_flip_solved = 0;
+  NodeCount endgame_stability_probes = 0;
+  NodeCount endgame_stability_lower_candidates = 0;
+  NodeCount endgame_stability_upper_candidates = 0;
+  NodeCount endgame_stability_cutoffs = 0;
+  NodeCount endgame_stability_shadow_verifications = 0;
+  NodeCount endgame_stability_shadow_false_cutoffs = 0;
   NodeCount selective_cuts = 0;
   NodeCount probcut_attempts = 0;
   NodeCount probcut_shallow_nodes = 0;

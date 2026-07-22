@@ -47,7 +47,8 @@ shared with benchmarks or golden generation scripts lives in `../fixtures/`.
 | `search/endgame_test.cc` | Root exact/WLD endgame integration, pass handling, flags, legality, and PV replay. |
 | `search/endgame_reference_test.cc` | Production exact endgame results against the slow reference solver. |
 | `search/endgame_corpus_test.cc` | Exact endgame corpus coverage against the reference solver. |
-| `search/endgame_small_empty_test.cc` | Specialized 0/1/2/3/4-empty exact-score paths against the generic solver. |
+| `search/endgame_small_empty_test.cc` | Specialized zero-to-eight-empty exact-score paths against the generic solver. |
+| `search/endgame_stability_test.cc` | Conservative stable-disc bounds, exhaustive preservation, and off/shadow/cutoff exact-score parity. |
 
 ## Test Support
 

@@ -7,7 +7,7 @@ namespace vibe_othello::search::internal {
 
 namespace {
 
-constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 4;
+constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 8;
 constexpr int kHistoryScoreLimit = 1'000'000;
 constexpr Depth kIidMinDepth = 4;
 constexpr Depth kIidDepthReduction = 2;

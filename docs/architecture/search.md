@@ -26,6 +26,7 @@ Production search currently includes:
 * root-once hashing with incremental move/pass updates
 * fixed-node, fixed-time, depth, infinite, and external-stop limits
 * exact-score and WLD endgame entry points and configured handoff
+* exact-score stability bounds and zero-to-eight-empty specialized recursion
 * incremental built-in pattern evaluation where the root can reach learned
   phases
 * diagnostics-only shadow calibration and reviewed-profile-gated cut-high
@@ -336,6 +337,7 @@ struct EndgameSearchOptions {
   bool use_endgame_tt;
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
+  EndgameStabilityMode stability_mode;
 };
 
 struct SearchReportingOptions {
@@ -426,6 +428,9 @@ Every non-baseline option must be independently disableable.
 
 Most options default to disabled. `ordering.use_endgame_parity_ordering` defaults
 enabled because it is an ordering-only exact-endgame hint.
+`endgame.stability_mode` defaults to `EndgameStabilityMode::cutoff`; callers can
+select `shadow` to collect and verify hypothetical bound cuts without changing
+the searched result, or `off` for a strict no-probe baseline.
 
 The typed sub-configs in `SearchOptions` are the only configuration source of
 truth. Search internals resolve public options once at the API boundary, validate
@@ -459,6 +464,11 @@ Endgame TT entries may only be probed or stored by exact endgame search paths.
 
 `ordering.use_endgame_parity_ordering` controls ordering-only parity hints in exact
 endgame search. It must not prune legal moves or change exact results.
+
+`endgame.stability_mode` controls conservative stable-disc bounds in exact-score
+endgame search. `shadow` records and verifies candidates while continuing the
+normal search. `cutoff` may return only a mathematically proven final-margin
+lower or upper bound. WLD search ignores this option.
 
 `ordering.use_tt_best_move_ordering` controls transposition-table best-move ordering.
 
@@ -513,10 +523,11 @@ should use `SearchLimits` when appropriate. `max_nodes`, `max_time`, and
 search entry points. `max_depth` is not meaningful for direct exact endgame
 solving and is ignored.
 
-`endgame.use_endgame_tt`, `ordering.use_endgame_parity_ordering`, and exact
-endgame root reporting options such as `reporting.multi_pv` keep their exact
-endgame meanings. Midgame options such as PVS, IID, history, killers, midgame
-TT, and selective pruning do not change direct exact result semantics.
+`endgame.use_endgame_tt`, `endgame.stability_mode`,
+`ordering.use_endgame_parity_ordering`, and exact endgame root reporting
+options such as `reporting.multi_pv` keep their exact endgame meanings.
+Midgame options such as PVS, IID, history, killers, midgame TT, and selective
+pruning do not change direct exact result semantics.
 
 ## Direct WLD Endgame API
 
@@ -591,6 +602,13 @@ struct SearchStats {
   NodeCount aspiration_fail_highs;
   NodeCount iid_searches;
   NodeCount endgame_nodes;
+  NodeCount endgame_last_flip_solved;
+  NodeCount endgame_stability_probes;
+  NodeCount endgame_stability_lower_candidates;
+  NodeCount endgame_stability_upper_candidates;
+  NodeCount endgame_stability_cutoffs;
+  NodeCount endgame_stability_shadow_verifications;
+  NodeCount endgame_stability_shadow_false_cutoffs;
   NodeCount selective_cuts;
 };
 
@@ -747,6 +765,10 @@ fail-highs.
 `stats.iid_searches` counts internal iterative-deepening searches.
 
 `stats.endgame_nodes` counts nodes visited by exact endgame search paths.
+
+`stats.endgame_last_flip_solved` counts one-empty exact-score nodes completed by
+direct flip counting. Stability counters separate proof probes, lower/upper
+candidates, real cutoffs, shadow verifications, and shadow false-cut findings.
 
 `stats.selective_cuts` counts selective-pruning cuts.
 
@@ -1330,7 +1352,9 @@ Endgame thresholds must be configurable and benchmarked.
 ## Specialized Endgame Routines
 
 Specialized exact-score routines replace generic recursion for zero through
-four empty squares.
+eight empty squares. The one-empty path counts the last move's flips directly;
+five-to-eight-empty search avoids generic mobility scoring and can partition
+branches by odd/even empty-region parity.
 
 They must preserve exact score semantics.
 
