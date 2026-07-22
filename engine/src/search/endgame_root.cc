@@ -75,19 +75,21 @@ MoveList root_endgame_moves_with_policy(EndgameContext* context, Depth completed
       return root_moves;
     }
 
-    std::optional<board_core::Move> root_tt_best_move;
-    if (!(small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 4)) {
-      root_tt_best_move =
-          probe_root_tt_best_move_with_policy<EndgamePolicy>(context, completed_depth);
+    const bool use_small_empty =
+        small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 8;
+    if (use_small_empty) {
+      return root_empties >= 5 && context->options.ordering.use_endgame_parity_ordering
+                 ? order_endgame_moves_by_parity(context->position_state.position, legal_moves)
+                 : move_list_from_legal_mask(legal_moves);
     }
-    return small_endgame_policy == SmallEndgamePolicy::enabled && root_empties <= 4
-               ? move_list_from_legal_mask(legal_moves)
-               : order_endgame_moves(
-                     context->position_state.position, legal_moves,
-                     EndgameOrderingHints{
-                         .tt_best_move = root_tt_best_move,
-                         .use_parity_ordering =
-                             context->options.ordering.use_endgame_parity_ordering});
+
+    const std::optional<board_core::Move> root_tt_best_move =
+        probe_root_tt_best_move_with_policy<EndgamePolicy>(context, completed_depth);
+    return order_endgame_moves(
+        context->position_state.position, legal_moves,
+        EndgameOrderingHints{.tt_best_move = root_tt_best_move,
+                             .use_parity_ordering =
+                                 context->options.ordering.use_endgame_parity_ordering});
   }
 
   const std::optional<board_core::Move> root_tt_best_move =

@@ -76,7 +76,10 @@ rejections, real beta cuts, and shadow false cuts.
 engine struct on each call and aggregates it in `full_game_artifact_arena_core`.
 It does not maintain a parallel arena-only copy of the counters. Report and
 deterministic-checksum serialization must therefore be updated together when a
-new public counter is added.
+new public counter is added. Schema v4 reports the resolved endgame stability
+mode in each option payload and emits last-flip and stability counters in every
+per-search and aggregate telemetry record. The same mode and counters are part
+of deterministic report identity.
 
 Backend telemetry keeps stable report fields corresponding to the public
 `SearchStats` payload on each search record and in every aggregate:

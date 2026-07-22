@@ -1,4 +1,5 @@
 #include "endgame_policy_internal.h"
+#include "endgame_stability_internal.h"
 
 #include <bit>
 #include <optional>
@@ -30,6 +31,12 @@ template <typename EndgamePolicy>
 SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha, Score beta,
                                             std::uint8_t empties, Ply ply,
                                             SmallEndgamePolicy small_endgame_policy);
+
+template <typename EndgamePolicy>
+SearchNodeResult
+endgame_search_after_stability_with_policy(EndgameContext* context, Score alpha, Score beta,
+                                           std::uint8_t empties, Ply ply,
+                                           SmallEndgamePolicy small_endgame_policy);
 
 template <typename EndgamePolicy>
 SearchNodeResult search_endgame_child_with_policy(EndgameContext* context, board_core::Move move,
@@ -81,17 +88,42 @@ SearchNodeResult endgame_search_with_policy(EndgameContext* context, Score alpha
                                             SmallEndgamePolicy small_endgame_policy) {
   require_invariant(alpha < beta);
   require_invariant(ply < kMaxPly);
+  context->stack[ply].pv.size = 0;
+  if (note_endgame_node_visited(context)) {
+    return SearchNodeResult::stopped();
+  }
+
+  std::optional<EndgameStabilityCutoffCandidate> stability_candidate;
+  if constexpr (EndgamePolicy::kUsesSmallEmpty) {
+    stability_candidate = probe_endgame_stability(context, alpha, beta, empties);
+    if (stability_candidate.has_value() &&
+        context->options.endgame.stability_mode == EndgameStabilityMode::cutoff) {
+      ++context->stats.endgame_stability_cutoffs;
+      const BoundType bound = stability_candidate->kind == EndgameStabilityCutoffKind::lower
+                                  ? BoundType::lower
+                                  : BoundType::upper;
+      store_tt_with_policy<EndgamePolicy>(context, static_cast<Depth>(empties),
+                                          stability_candidate->score, bound);
+      return SearchNodeResult::completed(SearchValue{.score = stability_candidate->score});
+    }
+  }
+
+  const SearchNodeResult result = endgame_search_after_stability_with_policy<EndgamePolicy>(
+      context, alpha, beta, empties, ply, small_endgame_policy);
+  verify_endgame_stability_shadow(context, stability_candidate, result);
+  return result;
+}
+
+template <typename EndgamePolicy>
+SearchNodeResult
+endgame_search_after_stability_with_policy(EndgameContext* context, Score alpha, Score beta,
+                                           std::uint8_t empties, Ply ply,
+                                           SmallEndgamePolicy small_endgame_policy) {
   const Score original_alpha = alpha;
   const Score original_beta = beta;
   const Depth remaining_empties = static_cast<Depth>(empties);
 
   EndgameStackFrame& frame = context->stack[ply];
-  frame.pv.size = 0;
-
-  if (note_endgame_node_visited(context)) {
-    return SearchNodeResult::stopped();
-  }
-
   frame.legal_moves = legal_moves(&context->position_state);
   if (frame.legal_moves == 0 && opponent_legal_moves(context->position_state) == 0) {
     return endgame_terminal<EndgamePolicy>(context, empties);

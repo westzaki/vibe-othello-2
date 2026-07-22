@@ -16,6 +16,7 @@ target_sources(
           src/search/endgame_root.cc
           src/search/endgame_search.cc
           src/search/endgame_small_empty.cc
+          src/search/endgame_stability.cc
           src/search/endgame_tt.cc
           src/search/move_ordering/endgame_ordering.cc
           src/search/move_ordering/midgame_ordering.cc

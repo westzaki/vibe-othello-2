@@ -962,6 +962,18 @@ std::string_view probcut_mode_name(ProbCutMode mode) noexcept {
   return "unknown";
 }
 
+std::string_view endgame_stability_mode_name(search::EndgameStabilityMode mode) noexcept {
+  switch (mode) {
+  case search::EndgameStabilityMode::off:
+    return "off";
+  case search::EndgameStabilityMode::shadow:
+    return "shadow";
+  case search::EndgameStabilityMode::cutoff:
+    return "cutoff";
+  }
+  return "unknown";
+}
+
 void configure_probcut(search::SearchOptions* options, ProbCutMode mode, const Args& args,
                        const search::ProbCutCalibrationProfileV1* profile,
                        std::string_view evaluator_family, std::string_view artifact_family) {
@@ -1539,6 +1551,8 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
   write_bool(output, options.endgame.exact_endgame);
   output << ", \"use_endgame_tt\": ";
   write_bool(output, options.endgame.use_endgame_tt);
+  output << ", \"stability_mode\": ";
+  write_json_string(output, endgame_stability_mode_name(options.endgame.stability_mode));
   output << ", \"endgame_exact_empties\": "
          << static_cast<int>(options.endgame.endgame_exact_empties);
   output << ", \"endgame_wld_empties\": " << static_cast<int>(options.endgame.endgame_wld_empties);
@@ -1826,6 +1840,13 @@ void write_search_stats_identity(std::ostream& output, const search::SearchStats
          << stats.aspiration_fail_highs << '\n'
          << stats.iid_searches << '\n'
          << stats.endgame_nodes << '\n'
+         << stats.endgame_last_flip_solved << '\n'
+         << stats.endgame_stability_probes << '\n'
+         << stats.endgame_stability_lower_candidates << '\n'
+         << stats.endgame_stability_upper_candidates << '\n'
+         << stats.endgame_stability_cutoffs << '\n'
+         << stats.endgame_stability_shadow_verifications << '\n'
+         << stats.endgame_stability_shadow_false_cutoffs << '\n'
          << stats.selective_cuts << '\n'
          << stats.probcut_attempts << '\n'
          << stats.probcut_shallow_nodes << '\n'
@@ -1957,6 +1978,17 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   output << ", \"aspiration_fail_highs\": " << summary.stats.aspiration_fail_highs;
   output << ", \"iid_searches\": " << summary.stats.iid_searches;
   output << ", \"endgame_nodes\": " << summary.stats.endgame_nodes;
+  output << ", \"endgame_last_flip_solved\": " << summary.stats.endgame_last_flip_solved;
+  output << ", \"endgame_stability_probes\": " << summary.stats.endgame_stability_probes;
+  output << ", \"endgame_stability_lower_candidates\": "
+         << summary.stats.endgame_stability_lower_candidates;
+  output << ", \"endgame_stability_upper_candidates\": "
+         << summary.stats.endgame_stability_upper_candidates;
+  output << ", \"endgame_stability_cutoffs\": " << summary.stats.endgame_stability_cutoffs;
+  output << ", \"endgame_stability_shadow_verifications\": "
+         << summary.stats.endgame_stability_shadow_verifications;
+  output << ", \"endgame_stability_shadow_false_cutoffs\": "
+         << summary.stats.endgame_stability_shadow_false_cutoffs;
   output << ", \"selective_cuts\": " << summary.stats.selective_cuts;
   output << ", \"probcut\": {\"attempts\": " << summary.stats.probcut_attempts
          << ", \"shallow_nodes\": " << summary.stats.probcut_shallow_nodes
@@ -2084,6 +2116,17 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   output << ", \"aspiration_fail_highs\": " << record.stats.aspiration_fail_highs;
   output << ", \"iid_searches\": " << record.stats.iid_searches;
   output << ", \"endgame_nodes\": " << record.stats.endgame_nodes;
+  output << ", \"endgame_last_flip_solved\": " << record.stats.endgame_last_flip_solved;
+  output << ", \"endgame_stability_probes\": " << record.stats.endgame_stability_probes;
+  output << ", \"endgame_stability_lower_candidates\": "
+         << record.stats.endgame_stability_lower_candidates;
+  output << ", \"endgame_stability_upper_candidates\": "
+         << record.stats.endgame_stability_upper_candidates;
+  output << ", \"endgame_stability_cutoffs\": " << record.stats.endgame_stability_cutoffs;
+  output << ", \"endgame_stability_shadow_verifications\": "
+         << record.stats.endgame_stability_shadow_verifications;
+  output << ", \"endgame_stability_shadow_false_cutoffs\": "
+         << record.stats.endgame_stability_shadow_false_cutoffs;
   output << ", \"selective_cuts\": " << record.stats.selective_cuts;
   output << ", \"probcut\": {\"attempts\": " << record.stats.probcut_attempts
          << ", \"shallow_nodes\": " << record.stats.probcut_shallow_nodes
@@ -2287,7 +2330,8 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
            << options.ordering.use_history << options.ordering.use_killers
            << options.ordering.use_midgame_mobility_ordering
            << options.ordering.use_endgame_parity_ordering << options.endgame.exact_endgame
-           << options.endgame.use_endgame_tt << false << false << false << '\n';
+           << options.endgame.use_endgame_tt << static_cast<int>(options.endgame.stability_mode)
+           << false << false << false << '\n';
     const search::ProbCutOptionsV1& probcut = options.probcut_options;
     output << probcut.use_probcut << '\n'
            << probcut.calibration_profile_id << '\n'

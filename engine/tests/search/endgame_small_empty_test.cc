@@ -26,6 +26,7 @@ SearchResult solve_with_policy(board_core::Position position, SmallEndgamePolicy
                         EndgameSearchOptions{
                             .exact_endgame = true,
                             .endgame_exact_empties = empties,
+                            .stability_mode = EndgameStabilityMode::off,
                         }},
       nullptr, policy);
 }
@@ -47,6 +48,7 @@ SearchResult solve_with_policy(board_core::Position position, SmallEndgamePolicy
                   .exact_endgame = true,
                   .use_endgame_tt = use_endgame_tt,
                   .endgame_exact_empties = empties,
+                  .stability_mode = EndgameStabilityMode::off,
               },
       },
       use_endgame_tt ? &tt : nullptr, policy);
@@ -185,6 +187,23 @@ void require_small_empty_path_matches_generic(board_core::Position position) {
   }
 }
 
+void require_shallow_small_empty_path_matches_generic(board_core::Position position) {
+  const SearchResult shallow = solve_with_policy(position, SmallEndgamePolicy::enabled);
+  const SearchResult generic = solve_with_policy(position, SmallEndgamePolicy::generic_only);
+
+  require_exact_result(position, shallow);
+  require_exact_result(position, generic);
+  REQUIRE(shallow.score == generic.score);
+  REQUIRE(shallow.completed_depth == generic.completed_depth);
+  REQUIRE(shallow.root_moves.size() == generic.root_moves.size());
+  if (shallow.best_move.has_value()) {
+    REQUIRE(root_score_for_move(generic, *shallow.best_move) == generic.score);
+  }
+  for (const RootMoveInfo& root_move : shallow.root_moves) {
+    REQUIRE(root_score_for_move(generic, root_move.move) == root_move.score);
+  }
+}
+
 void require_best_move_uses_low_square_tie_break(const SearchResult& result) {
   if (!result.best_move.has_value()) {
     return;
@@ -222,6 +241,27 @@ TEST_CASE("small-empty exact path matches generic generated positions",
   require_small_empty_path_matches_generic(test_support::generated_endgame_position(4));
   require_small_empty_path_matches_generic(parse_position_or_fail(
       "WWWWWWW./BBBBBW../BBWBWWWW/BBBBBWWB/BWBBWWWB/BBBWB.WW/BBBBBBWW/BBBWWWWW b"));
+}
+
+TEST_CASE("five-to-eight-empty shallow path matches generic exact root scores",
+          "[search][endgame][small_empty][shallow]") {
+  require_shallow_small_empty_path_matches_generic(test_support::generated_endgame_position(5));
+  require_shallow_small_empty_path_matches_generic(test_support::generated_endgame_position(6));
+  require_shallow_small_empty_path_matches_generic(test_support::generated_endgame_position(7));
+  require_shallow_small_empty_path_matches_generic(test_support::generated_endgame_position(8));
+  require_shallow_small_empty_path_matches_generic(generated_forced_pass_position(6));
+}
+
+TEST_CASE("specialized last-flip scoring removes terminal recursion",
+          "[search][endgame][small_empty][last_flip]") {
+  const board_core::Position position = test_support::generated_endgame_position(4);
+  const SearchResult specialized = solve_with_policy(position, SmallEndgamePolicy::enabled);
+  const SearchResult generic = solve_with_policy(position, SmallEndgamePolicy::generic_only);
+
+  REQUIRE(specialized.score == generic.score);
+  REQUIRE(specialized.stats.endgame_last_flip_solved > 0);
+  REQUIRE(generic.stats.endgame_last_flip_solved == 0);
+  REQUIRE(specialized.nodes < generic.nodes);
 }
 
 TEST_CASE("small-empty exact path matches generic forced-pass two, three, and four-empty positions",

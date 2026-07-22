@@ -42,6 +42,7 @@ add_executable(
   search/endgame_corpus_test.cc
   search/endgame_root_move_differential_test.cc
   search/endgame_small_empty_test.cc
+  search/endgame_stability_test.cc
   search/endgame_test.cc
   search/iterative_search_test.cc
   search/move_ordering_test.cc

@@ -1,6 +1,7 @@
 #include "move_ordering_features_internal.h"
 
 #include <array>
+#include <bit>
 
 namespace vibe_othello::search::internal {
 namespace {
@@ -78,6 +79,35 @@ int parity_region_order_score(board_core::Move move, const EmptyRegionMap& regio
   // First policy: with fixed 4-neighbor regions, odd empty regions are treated
   // as favorable ordering hints and even regions receive no bonus.
   return (regions.region_sizes[region_id] % 2) == 1 ? 20'000 : 0;
+}
+
+MoveList order_endgame_moves_by_parity(board_core::Position position,
+                                       board_core::Bitboard legal_moves) noexcept {
+  const EmptyRegionMap regions = build_empty_region_map(position);
+  MoveList list{};
+  for (int parity_pass = 0; parity_pass < 2; ++parity_pass) {
+    const bool odd_region = parity_pass == 0;
+    board_core::Bitboard remaining = legal_moves;
+    while (remaining != 0) {
+      const int square_index = std::countr_zero(remaining);
+      remaining &= remaining - 1;
+      const std::uint8_t region_id = regions.region_for_square[square_index];
+      if (region_id == kNoEmptyRegion) {
+        if (!odd_region) {
+          list.moves[list.size] =
+              board_core::make_move(board_core::square_from_index(square_index));
+          ++list.size;
+        }
+        continue;
+      }
+      if (((regions.region_sizes[region_id] % 2) == 1) != odd_region) {
+        continue;
+      }
+      list.moves[list.size] = board_core::make_move(board_core::square_from_index(square_index));
+      ++list.size;
+    }
+  }
+  return list;
 }
 
 } // namespace vibe_othello::search::internal

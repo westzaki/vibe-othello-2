@@ -197,6 +197,7 @@ endgame solver through `solve_exact_endgame` or the direct WLD solver through
 `--csv` for comma-separated output, `--jsonl` for JSON Lines output,
 `--parity on|off|both` to choose exact endgame parity ordering,
 `--tt off|on|both` to choose exact endgame transposition-table use,
+`--stability off|shadow|cutoff|all` to choose exact-score stability-bound use,
 `--root-mode all|best` to choose root reporting behavior,
 `--mode exact-score|wld` to choose the solve mode,
 `--entry direct|iterative-root` to choose whether the benchmark calls the direct
@@ -206,7 +207,7 @@ to set the iterative-root WLD threshold, `--repeat N` to repeat each position,
 by empty count, repeatable `--position-id ID` and `--category NAME` filters to
 run selected rows, and `--list-positions` to print matching `id`, `category`,
 `empties`, and `notes` without running search.
-Defaults are `--parity on`, `--tt off`, `--root-mode all`,
+Defaults are `--parity on`, `--tt off`, `--stability cutoff`, `--root-mode all`,
 `--mode exact-score`, `--entry direct`, `--min-empties 0`, and
 `--max-empties 12`, which preserve the original non-TT all-root exact-score
 benchmark shape except for newly emitted columns. A `--position-id` selection
@@ -374,13 +375,13 @@ option rows on `score`, `best_move`, `pv`, `exact`, and `stopped`; only then
 review nodes, timing, NPS, and TT hit/cutoff rates.
 
 For small-empty exact-score changes, use a low cap to isolate the shared
-0/1/2/3/4-empty path:
+zero-to-eight-empty path:
 
 ```sh
 ./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
   --jsonl \
   --repeat 10 \
-  --max-empties 4 \
+  --max-empties 8 \
   --corpus engine/fixtures/endgame/positions.tsv
 ```
 
@@ -388,6 +389,22 @@ Compare the existing `nodes`, `endgame_nodes`, `elapsed_ms`, and `nps` fields
 against the previous baseline or a same-machine before run. TSV and CSV outputs
 now include additional option and TT-stat columns; prefer header-based parsing
 for local scripts.
+
+For stability-bound changes, hold parity and TT fixed and compare all three
+modes. `shadow` must preserve scores and node counts from `off`, every candidate
+must be verified, and `stability_shadow_false_cutoffs` must remain zero before
+enabling `cutoff`:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --parity on \
+  --tt off \
+  --stability all \
+  --repeat 3 \
+  --max-empties 12 \
+  --corpus engine/fixtures/endgame/positions.tsv
+```
 
 For parity-ordering changes, keep TT fixed and compare node counts by empty
 count:
@@ -499,12 +516,16 @@ For search benchmarks, report the depth argument and the emitted columns:
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
 `position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `tt_mode`,
+`stability_mode`,
 `root_mode`, `mode`, `entry`, `threshold`, `triggered`, `status`, `score`,
 `wld_result`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
-`endgame_nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
+`endgame_nodes`, `last_flip_solved`, `eval_calls`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
 `alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
 `tt_stores`, `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
-`tt_invalid_best_move_stores`, `elapsed_ms`, and `nps`.
+`tt_invalid_best_move_stores`, `stability_probes`,
+`stability_lower_candidates`, `stability_upper_candidates`,
+`stability_cutoffs`, `stability_shadow_verifications`,
+`stability_shadow_false_cutoffs`, `elapsed_ms`, and `nps`.
 
 For evaluation benchmarks, report the corpus and emitted columns: `evaluator`,
 `position_id`, `iterations`, `elapsed_ns`, `ns_per_eval`, and `checksum`.
@@ -537,14 +558,18 @@ schema is:
 - `threshold`, `triggered`, `status`
 - `parity_ordering`, currently `on` or `off`
 - `tt_mode`, currently `off` or `on`
+- `stability_mode`, currently `off`, `shadow`, or `cutoff`
 - `root_mode`, currently `all` or `best`
 - `score`, `wld_result` for WLD rows, `best_move`, `exact`, `stopped`,
   `completed_depth`
-- `nodes`, `endgame_nodes`, `eval_calls`, `terminal_nodes`, `pass_nodes`
+- `nodes`, `endgame_nodes`, `last_flip_solved`, `eval_calls`, `terminal_nodes`, `pass_nodes`
 - `beta_cutoffs`, `alpha_updates`, `root_moves_searched`
 - `tt_probes`, `tt_hits`, `tt_cutoffs`, `tt_stores`
 - `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
   `tt_invalid_best_move_stores`
+- `stability_probes`, `stability_lower_candidates`,
+  `stability_upper_candidates`, `stability_cutoffs`,
+  `stability_shadow_verifications`, `stability_shadow_false_cutoffs`
 - `elapsed_ms`, `nps`
 - `pv`
 - `root_moves`, with `move`, `score`, `bound`, `depth`, `exact`, `selective`

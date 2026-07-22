@@ -84,6 +84,13 @@ void add_stats(SearchStats* total, const SearchStats& delta) {
   total->aspiration_fail_highs += delta.aspiration_fail_highs;
   total->iid_searches += delta.iid_searches;
   total->endgame_nodes += delta.endgame_nodes;
+  total->endgame_last_flip_solved += delta.endgame_last_flip_solved;
+  total->endgame_stability_probes += delta.endgame_stability_probes;
+  total->endgame_stability_lower_candidates += delta.endgame_stability_lower_candidates;
+  total->endgame_stability_upper_candidates += delta.endgame_stability_upper_candidates;
+  total->endgame_stability_cutoffs += delta.endgame_stability_cutoffs;
+  total->endgame_stability_shadow_verifications += delta.endgame_stability_shadow_verifications;
+  total->endgame_stability_shadow_false_cutoffs += delta.endgame_stability_shadow_false_cutoffs;
   total->selective_cuts += delta.selective_cuts;
   total->probcut_attempts += delta.probcut_attempts;
   total->probcut_shallow_nodes += delta.probcut_shallow_nodes;

@@ -59,5 +59,7 @@ MoveList ordered_moves(board_core::Position position, MoveOrderingHints hints) n
 MoveList order_endgame_moves(board_core::Position position, EndgameOrderingHints hints) noexcept;
 MoveList order_endgame_moves(board_core::Position position, board_core::Bitboard legal_moves,
                              EndgameOrderingHints hints) noexcept;
+MoveList order_endgame_moves_by_parity(board_core::Position position,
+                                       board_core::Bitboard legal_moves) noexcept;
 
 } // namespace vibe_othello::search::internal
