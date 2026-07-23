@@ -117,7 +117,8 @@ supports balanced phase-local campaigns. Canonically repeated sampled
 positions are kept only once per output so the analyzer receives one complete
 same-deep pair population per scheduler node.
 
-For the current browser depth-8/exact-8 policy, a local collection command is:
+For the production profile's original fixed-depth-8/exact-8 calibration
+policy, a local collection command is:
 
 ```sh
 build/tools/search-calibration/vibe-othello-collect-shadow-samples \

@@ -48,22 +48,50 @@ a per-domain Wilson 95% upper bound below 5%.
 
 ## Mandatory speed gate
 
-The production profile is accepted only when both aggregate speed gates pass
-and every fixed-depth output matches the disabled build:
+The production profile is accepted only when the original fixed-depth gate,
+the extended fixed-depth gate, and the time-bounded rollout gate all pass. The
+original depth-8 gate retains its 270-position population and five alternating
+trials:
 
 | Gate | Required | Measured |
 | --- | ---: | ---: |
-| Enabled/disabled nodes | <= 0.990000 | 0.948832 |
-| Median enabled/disabled wall time | <= 0.990000 | 0.939281 |
+| Enabled/disabled nodes | <= 0.990000 | 0.984221 |
+| Median enabled/disabled wall time | <= 0.990000 | 0.979731 |
 | Best move, score, completed depth | exact match | 1,350/1,350 each |
 
-The measurement used 270 independent-game positions, balanced at 30 positions
-for every phase from 2 through 10, depth 8, exact handoff 8, and five trials
-with alternating ON/OFF order after rebasing onto the exact-endgame changes at
-`origin/main` commit `472e6f2`. `performance.json` records the corpus checksum,
-environment class, thresholds, aggregates, and individual wall-time ratios.
-Timing remains machine-local; deterministic node reduction and exact output
-parity are the primary portable evidence.
+The 8 MiB TT rollout also checks a 27-position subset balanced at three
+independent games per phase through every fixed depth observed under the Web
+time budget. A 1 billion node safety limit lets every depth finish; it is a
+measurement bound, not a Web runtime setting:
+
+| Depth | Enabled nodes | Disabled nodes | Ratio | Best move / score / completed depth |
+| ---: | ---: | ---: | ---: | ---: |
+| 8 | 2,383,804 | 2,398,615 | 0.993825 | 27/27 each |
+| 9 | 5,183,547 | 5,158,794 | 1.004798 | 27/27 each |
+| 10 | 151,269,342 | 153,023,482 | 0.988537 | 27/27 each |
+| 11 | 396,653,363 | 430,232,010 | 0.921952 | 27/27 each |
+| 12 | 618,481,156 | 635,628,043 | 0.973024 | 27/27 each |
+| Aggregate | 1,173,971,212 | 1,226,440,944 | 0.957218 | 135/135 each |
+
+The extended gate requires at least 1% aggregate node reduction, no individual
+depth above a 1.01 node ratio, exact fixed-depth output parity, and no stopped
+searches. Depth 9 has a 0.48% local node increase, below the per-depth guard;
+the aggregate reduces nodes by 4.28%.
+
+The same 27 positions were then run for three alternating trials with the Web
+limits, depth 64 and 500 ms. Both variants had median completed depth 10 and
+median per-position wall time at the 500 ms cap. Enabled search completed 1,063
+total depth units versus 1,060 disabled: it was deeper in four comparisons,
+equal in 76, and shallower in one. Best move and score matched in 81/81
+comparisons; all 76 equal-depth comparisons also matched exactly. The timed
+gate requires best-move and score parity for every comparison, equal-depth
+output parity, and non-regression in both median and aggregate completed depth.
+
+The source corpus is balanced across phases 2 through 10 and the exact handoff
+remains 8. `performance.json` records its checksum, the local environment
+class, every threshold and aggregate, fixed-depth completion histograms, and
+individual wall-time ratios. Timing remains machine-local; deterministic node
+counts and exact output parity are the primary portable evidence.
 
 Run the same gate with an equivalent phase-labelled corpus:
 
@@ -73,9 +101,19 @@ node tools/search-calibration/run_wasm_probcut_speed_gate.mjs \
   --off-module build-wasm-off/wasm/vibe_othello_wasm_module.mjs \
   --manifest data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/manifest.json \
   --weights data/eval/artifacts/pattern-v2-egaroucid-lv17-full-value-v1/weights.bin \
-  --corpus /path/to/phase-balanced-selected.tsv \
+  --corpus /path/to/phase-balanced-source.tsv \
+  --profile-id pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v4-aggressive \
+  --machine-class "local arm64 desktop" \
   --depth 8 --positions-per-phase 30 --trials 5 \
-  --maximum-node-ratio 0.99 --maximum-median-wall-ratio 0.99
+  --extended-depths 8,9,10,11,12 \
+  --extended-positions-per-phase 3 --extended-trials 1 \
+  --fixed-max-nodes 1000000000 \
+  --timed-max-depth 64 --timed-max-time-ms 500 \
+  --timed-positions-per-phase 3 --timed-trials 3 \
+  --maximum-node-ratio 0.99 --maximum-median-wall-ratio 0.99 \
+  --maximum-extended-aggregate-node-ratio 0.99 \
+  --maximum-extended-depth-node-ratio 1.01 \
+  --output data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v4-aggressive/performance.json
 ```
 
 ## Regeneration

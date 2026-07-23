@@ -1422,9 +1422,14 @@ production profile tries threshold-directed `7:3` and then `7:4` probes in its
 reviewed phase 2, 3, 4, 6, 7, 9, and 10 domains, has no cold-start delay, and
 caps cumulative shallow work at 20%. The `7:4` probe runs only after `7:3`
 rejects and only where its exact scheduler domain has passing evidence.
-Promotion additionally requires a phase-balanced WASM comparison with at least
-1% aggregate node reduction, at least 1% median wall-time reduction, and exact
-best-move, score, and completed-depth parity against a kill-switch build.
+Promotion additionally requires phase-balanced WASM comparisons against a
+kill-switch build. The original fixed-depth gate requires at least 1%
+aggregate node reduction, at least 1% median wall-time reduction, and exact
+best-move, score, and completed-depth parity. When production limits or TT
+capacity change, an extended fixed-depth gate must cover every depth observed
+under the new time budget, and a time-bounded gate must verify best-move and
+score parity, equal-depth output parity, and non-regression in median and
+aggregate completed depth.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
 source calibration report SHA-256, independent joint holdout SHA-256, evaluator
