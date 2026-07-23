@@ -146,12 +146,16 @@ struct ScopedProbCutShallow {
   MidgameOrderingState* previous_ordering_state;
 };
 
-bool confidence_accepts(const ProbCutOptionsV1& options, const ProbCutCalibrationEntryV1& entry,
-                        Score shallow_score, Score beta, Score* lower_bound) noexcept {
-  if (!score_is_safely_heuristic(shallow_score) || shallow_score < entry.minimum_shallow_score ||
-      shallow_score > entry.maximum_shallow_score || beta < entry.minimum_beta ||
-      beta > entry.maximum_beta) {
-    return false;
+std::optional<Score> shallow_beta_for(const ProbCutOptionsV1& options,
+                                      const ProbCutCalibrationEntryV1& entry, Score beta) noexcept {
+  if (beta < entry.minimum_beta || beta > entry.maximum_beta) {
+    return std::nullopt;
+  }
+
+  const long double slope = static_cast<long double>(entry.regression_slope);
+  const long double intercept = static_cast<long double>(entry.intercept);
+  if (!std::isfinite(slope) || slope <= 0.0L || !std::isfinite(intercept)) {
+    return std::nullopt;
   }
 
   const long double confidence = std::max({static_cast<long double>(entry.confidence_multiplier),
@@ -160,45 +164,65 @@ bool confidence_accepts(const ProbCutOptionsV1& options, const ProbCutCalibratio
   const long double raw_margin = confidence * static_cast<long double>(entry.residual_sigma);
   if (!std::isfinite(raw_margin) || raw_margin < 0.0L ||
       raw_margin > static_cast<long double>(std::numeric_limits<Score>::max())) {
-    return false;
+    return std::nullopt;
   }
   const auto calibrated_margin = static_cast<std::int64_t>(std::ceil(raw_margin));
   const std::int64_t effective_margin =
       std::max<std::int64_t>(calibrated_margin, options.minimum_margin);
   if (effective_margin > options.maximum_margin) {
-    return false;
+    return std::nullopt;
   }
 
-  const long double predicted = static_cast<long double>(entry.regression_slope) * shallow_score +
-                                static_cast<long double>(entry.intercept);
-  if (!std::isfinite(predicted) ||
-      predicted < static_cast<long double>(std::numeric_limits<Score>::min()) ||
-      predicted > static_cast<long double>(std::numeric_limits<Score>::max())) {
-    return false;
+  // Solve the reviewed one-sided condition for the smallest integer shallow
+  // score that can cut:
+  //   floor(a * shallow + b) - margin >= beta
+  //   shallow >= ceil((beta + margin - b) / a)
+  // A null-window search at this threshold proves the same predicate without
+  // paying for an exact full-window shallow score.
+  const long double raw_threshold =
+      (static_cast<long double>(beta) + static_cast<long double>(effective_margin) - intercept) /
+      slope;
+  if (!std::isfinite(raw_threshold) ||
+      raw_threshold < static_cast<long double>(std::numeric_limits<Score>::min()) ||
+      raw_threshold > static_cast<long double>(std::numeric_limits<Score>::max())) {
+    return std::nullopt;
+  }
+  const auto rounded_threshold = static_cast<std::int64_t>(std::ceil(raw_threshold));
+  const std::int64_t threshold =
+      std::max<std::int64_t>(rounded_threshold, entry.minimum_shallow_score);
+  if (threshold > entry.maximum_shallow_score ||
+      threshold <= static_cast<std::int64_t>(std::numeric_limits<Score>::min()) ||
+      threshold > static_cast<std::int64_t>(std::numeric_limits<Score>::max())) {
+    return std::nullopt;
   }
 
-  // Integer decision for the calibrated one-sided confidence condition:
-  //   predicted_deep = a * shallow_score + b
-  //   floor(predicted_deep) - max(ceil(k * sigma), minimum_margin) >= beta
-  // maximum_margin is an eligibility ceiling, never an unsafe downward clamp.
-  const auto predicted_floor = static_cast<std::int64_t>(std::floor(predicted));
-  const std::int64_t conservative_lower = predicted_floor - effective_margin;
-  if (conservative_lower <= kScoreLoss || conservative_lower >= kScoreWin ||
-      !score_is_safely_heuristic(static_cast<Score>(conservative_lower))) {
-    return false;
+  const Score shallow_beta = static_cast<Score>(threshold);
+  const Score shallow_alpha = static_cast<Score>(threshold - 1);
+  if (!score_is_safely_heuristic(shallow_alpha) || !score_is_safely_heuristic(shallow_beta)) {
+    return std::nullopt;
   }
-  *lower_bound = static_cast<Score>(conservative_lower);
-  return *lower_bound >= beta;
+  return shallow_beta;
 }
 
-bool shallow_overhead_limit_reached(const SearchStats& stats, double maximum_ratio) noexcept {
+bool shallow_probe_accepts(const SearchNodeResult& shallow, Score shallow_beta) noexcept {
+  if (!shallow.is_complete() || !score_is_safely_heuristic(shallow.value().score)) {
+    return false;
+  }
+  return shallow.value().score >= shallow_beta;
+}
+
+bool shallow_overhead_limit_reached(const SearchStats& stats, double maximum_ratio,
+                                    NodeCount minimum_official_nodes) noexcept {
+  const NodeCount official_nodes =
+      stats.nodes > stats.probcut_shallow_nodes ? stats.nodes - stats.probcut_shallow_nodes : 0;
+  if (official_nodes < minimum_official_nodes) {
+    return true;
+  }
   if (maximum_ratio <= 0.0 || stats.probcut_attempts == 0) {
     return false;
   }
-  const NodeCount official_nodes =
-      stats.nodes > stats.probcut_shallow_nodes ? stats.nodes - stats.probcut_shallow_nodes : 1;
   const long double ratio = static_cast<long double>(stats.probcut_shallow_nodes) /
-                            static_cast<long double>(official_nodes);
+                            static_cast<long double>(official_nodes == 0 ? 1 : official_nodes);
   return ratio >= static_cast<long double>(maximum_ratio);
 }
 
@@ -214,6 +238,9 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
   }
 
   const ProbCutOptionsV1& options = context->options.probcut;
+  if (depth < options.minimum_depth) {
+    return std::nullopt;
+  }
   const std::uint8_t phase = phase_for(context->position_state.position);
   if (ply == 0) {
     ++context->stats.probcut_rejected_root;
@@ -228,10 +255,6 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
   if (static_cast<std::int64_t>(beta) - alpha != 1 || !options.non_pv_only || !options.beta_only ||
       options.calibration_profile == nullptr ||
       options.calibration_profile->node_class != ProbCutNodeClassV1::non_pv_scout_beta_only) {
-    return std::nullopt;
-  }
-  if (depth < options.minimum_depth) {
-    ++context->stats.probcut_rejected_by_depth;
     return std::nullopt;
   }
   if (!score_is_safely_heuristic(alpha) || !score_is_safely_heuristic(beta)) {
@@ -298,9 +321,17 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
       ++context->stats.probcut_probe_limit_reached;
       break;
     }
-    if (shallow_overhead_limit_reached(context->stats, options.maximum_shallow_overhead_ratio)) {
+    if (shallow_overhead_limit_reached(context->stats, options.maximum_shallow_overhead_ratio,
+                                       options.minimum_official_nodes_before_probe)) {
       ++context->stats.probcut_rejected_overhead;
       break;
+    }
+    const std::optional<Score> shallow_beta = shallow_beta_for(options, *entry, beta);
+    if (!shallow_beta.has_value()) {
+      ++context->stats.probcut_rejected_confidence;
+      ++pair_stats(&context->stats, phase, pair.deep_depth, pair.shallow_depth)
+            .confidence_rejections;
+      continue;
     }
     ++probes;
 
@@ -313,7 +344,8 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
     SearchNodeResult shallow;
     {
       const ScopedProbCutShallow guard{context};
-      shallow = full_window_search(context, kScoreLoss, kScoreWin, pair.shallow_depth, ply);
+      shallow = full_window_search(context, static_cast<Score>(*shallow_beta - 1), *shallow_beta,
+                                   pair.shallow_depth, ply);
     }
     const NodeCount shallow_nodes = context->stats.nodes - before_nodes;
     context->stats.probcut_shallow_nodes += shallow_nodes;
@@ -325,8 +357,7 @@ maybe_probcut(SearchContext* context, Score alpha, Score beta, Depth depth, Ply 
       return SearchNodeResult::stopped();
     }
 
-    Score conservative_lower = 0;
-    if (!confidence_accepts(options, *entry, shallow.value().score, beta, &conservative_lower)) {
+    if (!shallow_probe_accepts(shallow, *shallow_beta)) {
       ++context->stats.probcut_rejected_confidence;
       ++telemetry.confidence_rejections;
       continue;

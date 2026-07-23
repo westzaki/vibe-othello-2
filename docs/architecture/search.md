@@ -29,8 +29,8 @@ Production search currently includes:
 * exact-score stability bounds and zero-to-eight-empty specialized recursion
 * incremental built-in pattern evaluation where the root can reach learned
   phases
-* diagnostics-only shadow calibration and reviewed-profile-gated cut-high
-  Multi-ProbCut, both disabled by default
+* diagnostics-only shadow calibration, disabled by default, plus a fail-closed
+  reviewed-profile-gated cut-high Multi-ProbCut production selector
 
 The recursive implementation is split by responsibility under
 `engine/src/search/`; reference search lives only in test support. Search is
@@ -47,8 +47,8 @@ The following are deliberately not represented as completed capabilities:
 * time limits are cooperative and can overshoot before the next check
 * there is no dedicated PV table, advanced clock allocation, parallel search,
   or review-specific result adapter
-* ProbCut has no cut-low path and no reviewed production profile is built in or
-  enabled by a preset
+* ProbCut has no cut-low path; the built-in speed-gated production profile is
+  intentionally narrow and applies only to one exact evaluator/artifact identity
 * learned-artifact fixed-position smoke coverage is not match, self-play, Elo,
   or production-strength evidence
 
@@ -373,6 +373,7 @@ struct ProbCutOptionsV1 {
   Score minimum_margin;
   Score maximum_margin;
   double maximum_shallow_overhead_ratio;
+  NodeCount minimum_official_nodes_before_probe;
   std::uint16_t enabled_phase_mask;
   bool non_pv_only;
   bool beta_only;
@@ -1401,19 +1402,29 @@ decision, and telemetry.
 
 They must not be enabled in exact endgame modes.
 
-### Conservative non-PV Multi-ProbCut
+### Speed-gated non-PV Multi-ProbCut
 
-Runtime ProbCut is off by default and has no built-in production calibration
-profile. Its default depths and margins are zero/invalid as an additional guard;
-callers must supply every runtime value from a reviewed profile and adoption
-decision. It is attempted only at an explicit PVS scout/null-window entry marked
+Generic runtime ProbCut options remain off by default; their default depths and
+margins are zero/invalid as an additional guard. The production selector owns
+one checked-in reviewed profile and resolves it only for the exact evaluator,
+artifact, weights checksum, score scale, trained-phase mask, fallback-additive
+phase boundary, move-search mode, and exact-handoff threshold. It is
+attempted only at an explicit PVS scout/null-window entry marked
 as cut-node-equivalent. Plain PV/full-window nodes, recursive alpha-beta nodes
 without that marker, IID work, root/terminal/pass nodes,
 depths below `minimum_depth`, disabled phases, unsupported complete profile
 domains, sentinel-adjacent windows, and positions at or below the configured
 near-exact threshold cannot cut.
-Only beta-direction cut-high is implemented. Easy/normal/hard WASM presets leave
-`probcut_options` at its disabled default.
+Only beta-direction cut-high is implemented. The WASM `normal` and `hard`
+presets use the production selector; `easy`, the legacy API, identity mismatch,
+and the build-time kill switch leave `probcut_options` disabled. The selected
+production profile tries threshold-directed `7:3` and then `7:4` probes in its
+reviewed phase 2, 3, 4, 6, 7, 9, and 10 domains, has no cold-start delay, and
+caps cumulative shallow work at 20%. The `7:4` probe runs only after `7:3`
+rejects and only where its exact scheduler domain has passing evidence.
+Promotion additionally requires a phase-balanced WASM comparison with at least
+1% aggregate node reduction, at least 1% median wall-time reduction, and exact
+best-move, score, and completed-depth parity against a kill-switch build.
 
 Each `ProbCutCalibrationProfileV1` identifies its schema version, profile ID,
 source calibration report SHA-256, independent joint holdout SHA-256, evaluator
@@ -1428,7 +1439,9 @@ phase, search mode, inclusive empties range, deep/shallow pair, exact-handoff
 enabled state and threshold, and inclusive exact-handoff-distance range. They also contain slope
 `a`, intercept `b`, residual sigma, audited confidence multiplier, and inclusive
 shallow-score/beta validity ranges. The caller supplies the evaluator and
-artifact family actually in use; both must exactly match the reviewed profile.
+artifact family plus its score scale, trained-phase mask, and optional
+fallback-additive boundary actually in use; every field must exactly match the
+reviewed profile.
 Missing or ambiguous domains are rejected. Adjacent phase, empties, depth,
 handoff, evaluator, and artifact profiles are never extrapolated.
 Runtime pair options must be an identical prefix of `validated_pair_order`, and
@@ -1446,30 +1459,43 @@ At a node, the scheduler walks the configured pair preference, considering
 only pairs whose deep depth exactly equals the current depth. It stops at the
 first successful cut and never runs more than `maximum_probes_per_node`.
 `enabled_phase_mask`, `minimum_depth`, `minimum_confidence`,
-`near_exact_disable_empties`, and `maximum_shallow_overhead_ratio` provide
-additional gates. The overhead ratio is cumulative shallow nodes divided by
-non-shallow official nodes; zero disables only this ratio gate. The current V1
-contract requires `stop_after_first_success=true`.
+`near_exact_disable_empties`, `maximum_shallow_overhead_ratio`, and
+`minimum_official_nodes_before_probe` provide additional gates. The overhead
+ratio is cumulative shallow nodes divided by non-shallow official nodes; zero
+disables only this ratio gate. The official-node minimum prevents the first
+probe from escaping the cumulative budget before enough current-depth work is
+available to amortize it. The current V1 contract requires
+`stop_after_first_success=true`.
 
-For an eligible node, a full-window shallow search produces integer score `s`.
-The profile condition is:
+For an eligible node, runtime first inverts the reviewed regression condition
+to find the smallest integer shallow score that can cut:
 
 ```text
-predicted_deep = a * s + b
 k_effective = max(profile_k, option_k, minimum_confidence)
 margin = max(ceil(k_effective * residual_sigma), minimum_margin)
-lower = floor(predicted_deep) - margin
-cut-high iff lower >= beta
+shallow_beta = max(minimum_shallow_score,
+                   ceil((beta + margin - intercept) / slope))
+probe [shallow_beta - 1, shallow_beta]
+cut-high iff the shallow probe fails high
 ```
 
 `maximum_margin` is an eligibility ceiling: a larger computed margin rejects
-the candidate instead of clamping it downward. All floating inputs must be
-finite. The implementation computes prediction and margin in wider types,
-checks conversion ranges before integer conversion, floors prediction, and
-keeps shallow score, beta, and the resulting lower confidence bound away from
-`kScoreLoss`/`kScoreWin`. Terminal exact disc differences never reach the gate,
-and the shallow search temporarily disables exact handoff, so the fitted
-heuristic domain is not mixed with exact score kinds.
+the candidate instead of clamping it downward. A threshold above the reviewed
+maximum shallow score is also rejected. All floating inputs must be finite.
+The implementation computes the threshold and margin in wider types, checks
+conversion ranges before integer conversion, and keeps both sides of the
+shallow null window away from `kScoreLoss`/`kScoreWin`. This is algebraically
+equivalent to `floor(slope * s + intercept) - margin >= beta` for an exact
+integer shallow score, but it avoids paying for an exact full-window result.
+Terminal exact disc differences never reach the gate, and the shallow search
+temporarily disables exact handoff, so the fitted heuristic domain is not mixed
+with exact score kinds.
+
+The reviewed shallow-score maximum limits the derived threshold, not the
+eventual fail-high value. If `shallow_beta` is eligible, any result at or above
+that threshold cuts, including an exact shallow value above the reviewed
+maximum. Holdout conversion replays this threshold-directed null-window
+decision exactly when counting candidates and false cuts.
 
 The shallow search shares the official stop flag, deadline, node limit, node
 counter, and evaluator state. Its nodes therefore contribute to
@@ -1562,9 +1588,10 @@ Separate-seed or holdout validation remains mandatory before any coefficient
 can be proposed for runtime use.
 The analyzer rejects partial same-deep populations, groups by phase/pair/role,
 search mode, observed empties bucket, and observed exact-handoff-distance
-bucket. Profile conversion requires disjoint training and holdout samples and
-offline-replays the runtime first-success policy. Pair-local fits without joint
-scheduler evidence cannot produce a profile.
+bucket. Profile conversion requires training and holdout to be disjoint by
+canonical position hash, regardless of ply, official window, or search role,
+and offline-replays the runtime threshold-directed first-success policy.
+Pair-local fits without joint scheduler evidence cannot produce a profile.
 The JSON/JSONL contract and deterministic offline analyzer are documented in
 `tools/search-calibration/README.md`. Samples and reports are local-only.
 

@@ -47,6 +47,7 @@ if(VIBE_OTHELLO_BUILD_WASM_MODULE)
     _vibe_othello_wasm_offsetof_search_result_has_best_move
     _vibe_othello_wasm_offsetof_search_result_best_move_square
     _vibe_othello_wasm_offsetof_search_result_is_pass
+    _vibe_othello_wasm_offsetof_search_result_flags
     _vibe_othello_wasm_offsetof_search_result_score
     _vibe_othello_wasm_offsetof_search_result_completed_depth
     _vibe_othello_wasm_offsetof_search_result_nodes

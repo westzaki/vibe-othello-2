@@ -66,11 +66,21 @@ enables exact-score endgame search at or below that empty-square threshold and
 requires `maxNodes` or `maxTimeMs`: exact root search intentionally ignores a
 depth limit.
 
-All WASM presets leave ProbCut and Multi-ProbCut disabled. `normal` remains
-disabled by policy; `hard` must also remain disabled until a reviewed matching
-calibration profile and a WASM fixed-time strength/overhead gate both pass.
-The C++ runtime capability is not exposed as a browser option, and no profile is
-embedded in the module.
+`normal` and `hard` select the checked-in Multi-ProbCut profile only when the
+loaded evaluator family, artifact ID, weights checksum, score scale,
+trained-phase mask, fallback-additive phase boundary, move-search mode, and
+8-empty exact handoff all match its reviewed identity. The speed-gated
+production schedule tries threshold-directed `7:3` and then `7:4` null-window
+probes in the reviewed phase 2, 3, 4, 6, 7, 9, and 10 domains, with a 20%
+cumulative shallow-search ceiling. `easy`, the legacy API, nonmatching
+artifacts, and other exact
+thresholds remain disabled. Search results expose the effective selection as
+`probcutEnabled`; this reports configuration selection, even when the current
+position does not enter an enabled profile domain.
+
+`VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` is the build-time rollback switch.
+It defaults to `ON` for native and Emscripten builds. Low-level profile knobs are
+not exposed as browser options.
 
 ## Native adapter build
 

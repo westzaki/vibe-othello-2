@@ -36,6 +36,7 @@ declare module "@vibe-othello/wasm-core" {
     elapsedMs: number;
     stopped: boolean;
     exact: boolean;
+    probcutEnabled: boolean;
   }
 
   export class WasmEvaluationArtifact {

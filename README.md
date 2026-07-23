@@ -62,6 +62,9 @@ appear in git status. Only a reviewed final runtime artifact may use the narrow
 commit exception documented in `data/corpora/README.md` and
 `data/eval/README.md`.
 
+Reviewed search calibration profiles use the same narrow exception under
+`data/search/`; raw samples and complete measurement reports remain local-only.
+
 ```sh
 export VIBE_OTHELLO_LOCAL="${VIBE_OTHELLO_LOCAL:-$HOME/vibe-othello-local}"
 export VIBE_OTHELLO_CORPORA="${VIBE_OTHELLO_CORPORA:-$VIBE_OTHELLO_LOCAL/corpora}"

@@ -324,6 +324,9 @@ class AnalyzerTests(unittest.TestCase):
         )
         self.assertEqual(len(report["scheduler_observations"]), 6)
         self.assertTrue(all(len(node["pairs"]) == 2 for node in report["scheduler_observations"]))
+        self.assertTrue(
+            all("canonical_position_hash" in node for node in report["scheduler_observations"])
+        )
 
     def test_incomplete_same_deep_pair_population_is_rejected(self) -> None:
         first = sample(0)

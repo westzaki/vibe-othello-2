@@ -123,7 +123,8 @@ Search results exposed to the app currently include best move/pass, score,
 completed depth, nodes, elapsed milliseconds, stopped, and exact. The score is
 still the engine's side-to-move-relative search score. The current UI shows the
 raw value and does not claim calibrated win probability or provide score-kind
-explanations.
+explanations. The result contract also includes `probcutEnabled`, which reports
+effective production-profile selection rather than whether a cut occurred.
 
 ## Evaluation Artifact Flow
 
@@ -163,9 +164,13 @@ exact-score handoff: 8 empties
 
 `normal` and `hard` enable PVS, aspiration, IID, midgame/endgame TT, TT/history/
 killer ordering, depth-gated internal mobility ordering, and parity ordering.
-They currently differ through caller-supplied limits rather than algorithm
-flags. `easy` keeps the baseline option set. All presets keep ProbCut and
-Multi-ProbCut disabled.
+They also select the fail-closed production Multi-ProbCut profile only for the
+exact reviewed evaluator, artifact, weights checksum, score scale,
+trained-phase mask, fallback-additive phase boundary, move-search mode, and
+8-empty handoff identity. They currently differ through caller-supplied limits
+rather than algorithm flags. `easy`, the legacy search API, identity mismatch,
+and other handoff thresholds keep Multi-ProbCut disabled. Search results expose
+the effective configuration selection through `probcutEnabled`.
 
 Limits are independent from presets. The ABI requires a node or time limit when
 exact root search is enabled because exact root solving ignores `max_depth`.

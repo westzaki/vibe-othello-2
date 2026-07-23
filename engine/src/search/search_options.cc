@@ -366,6 +366,22 @@ bool valid_probcut_options(const ProbCutOptionsV1& options,
     mix_integer(pair.deep_depth, &hash);
     mix_integer(pair.shallow_depth, &hash);
   }
+  mix_integer(options.minimum_depth, &hash);
+  mix_integer(options.shallow_depth_reduction, &hash);
+  mix_integer(options.maximum_probes_per_node, &hash);
+  mix_integer(static_cast<std::uint8_t>(options.stop_after_first_success), &hash);
+  mix_double(options.confidence_multiplier, &hash);
+  mix_double(options.minimum_confidence, &hash);
+  mix_integer(options.minimum_margin, &hash);
+  mix_integer(options.maximum_margin, &hash);
+  mix_double(options.maximum_shallow_overhead_ratio, &hash);
+  mix_integer(options.minimum_official_nodes_before_probe, &hash);
+  mix_integer(options.enabled_phase_mask, &hash);
+  mix_integer(static_cast<std::uint8_t>(options.non_pv_only), &hash);
+  mix_integer(static_cast<std::uint8_t>(options.beta_only), &hash);
+  mix_integer(static_cast<std::uint8_t>(options.disable_near_exact), &hash);
+  mix_integer(options.near_exact_disable_empties, &hash);
+  mix_integer(static_cast<std::uint8_t>(options.shadow_verify), &hash);
   *profile_fingerprint = hash;
   return true;
 }

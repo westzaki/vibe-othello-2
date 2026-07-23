@@ -58,6 +58,7 @@ def group(shallow_depth: int) -> dict[str, object]:
 def observation(node_id: str, pair_scores: tuple[int, int], deep_score: int = 2) -> dict[str, object]:
     return {
         "node_id": node_id,
+        "canonical_position_hash": hashlib.sha256(node_id.encode("utf-8")).hexdigest()[:16],
         "phase": 3,
         "empties": 20,
         "search_mode": "move",
@@ -101,7 +102,7 @@ def report(*, holdout: bool = False) -> dict[str, object]:
         else [observation("training-node", (0, 2))]
     )
     return {
-        "schema_version": "mpc-shadow-calibration-report-v5",
+        "schema_version": "mpc-shadow-calibration-report-v6",
         "provenance_inventory": [provenance(len(observations) * 2)],
         "collection_config_inventory": [
             {"collection_config_id": "1234567890abcdef", "sample_count": len(observations) * 2}
@@ -266,17 +267,42 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(first[header.index("minimum_empties")], "20")
         self.assertEqual(first[header.index("maximum_empties")], "20")
 
-    def test_rejects_order_not_identical_to_collection(self) -> None:
+    def test_accepts_ordered_collection_prefix(self) -> None:
+        reviewed = adoption()
+        reviewed["validated_pair_order"] = reviewed["validated_pair_order"][:1]
+        reviewed["validated_maximum_probes_per_node"] = 1
+        reviewed["entries"] = [reviewed["entries"][0]]
+        reviewed["minimum_joint_cut_candidates"] = 1
+        reviewed["maximum_joint_false_cut_rate_upper_bound"] = 0.9
+        rendered = self.render(reviewed=reviewed)
+        self.assertEqual(len(rendered.splitlines()), 2)
+
+    def test_rejects_order_not_prefix_of_collection(self) -> None:
         reviewed = adoption()
         reviewed["validated_pair_order"] = list(reversed(reviewed["validated_pair_order"]))
         with self.assertRaisesRegex(self.converter.ProfileConversionError, "collected pair order"):
             self.render(reviewed=reviewed)
 
-    def test_rejects_duplicate_training_holdout_node(self) -> None:
+    def test_rejects_duplicate_training_holdout_position(self) -> None:
         holdout = report(holdout=True)
-        holdout["scheduler_observations"][0]["node_id"] = "training-node"
-        with self.assertRaisesRegex(self.converter.ProfileConversionError, "duplicate sampled nodes"):
+        holdout["scheduler_observations"][0]["canonical_position_hash"] = report()[
+            "scheduler_observations"
+        ][0]["canonical_position_hash"]
+        with self.assertRaisesRegex(self.converter.ProfileConversionError, "duplicate canonical positions"):
             self.render(holdout=holdout)
+
+    def test_threshold_replay_includes_score_above_reviewed_maximum(self) -> None:
+        holdout = report(holdout=True)
+        holdout["scheduler_observations"] = [observation("above-maximum", (150, -100))]
+        holdout["provenance_inventory"] = [provenance(2)]
+        reviewed = adoption()
+        reviewed["validated_pair_order"] = reviewed["validated_pair_order"][:1]
+        reviewed["validated_maximum_probes_per_node"] = 1
+        reviewed["entries"] = [reviewed["entries"][0]]
+        reviewed["minimum_joint_cut_candidates"] = 1
+        rendered = self.render(reviewed=reviewed, holdout=holdout)
+        header, row = [line.split("\t") for line in rendered.splitlines()[:2]]
+        self.assertEqual(row[header.index("joint_cut_candidate_count")], "1")
 
     def test_rejects_joint_false_cut_bound(self) -> None:
         holdout = report(holdout=True)
@@ -296,12 +322,42 @@ class ConverterTests(unittest.TestCase):
             holdout_path = root / "holdout.json"
             report_path.write_text(json.dumps(report(), sort_keys=True), encoding="utf-8")
             adoption_path.write_text(json.dumps(adoption(), sort_keys=True), encoding="utf-8")
-            holdout_path.write_text(json.dumps(report(holdout=True), sort_keys=True), encoding="utf-8")
+            holdout_path.write_text(
+                json.dumps(report(holdout=True), sort_keys=True), encoding="utf-8"
+            )
             first = root / "first.tsv"
             second = root / "second.tsv"
             self.converter.convert(report_path, adoption_path, holdout_path, first)
             self.converter.convert(report_path, adoption_path, holdout_path, second)
             self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_json_conversion_is_compact_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report_path = root / "report.json"
+            adoption_path = root / "adoption.json"
+            holdout_path = root / "holdout.json"
+            report_path.write_text(json.dumps(report(), sort_keys=True), encoding="utf-8")
+            adoption_path.write_text(json.dumps(adoption(), sort_keys=True), encoding="utf-8")
+            holdout_path.write_text(json.dumps(report(holdout=True), sort_keys=True), encoding="utf-8")
+            first = root / "first.json"
+            second = root / "second.json"
+            self.converter.convert(report_path, adoption_path, holdout_path, first, "json")
+            self.converter.convert(report_path, adoption_path, holdout_path, second, "json")
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+            payload = json.loads(first.read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema_version"], 3)
+            self.assertEqual(
+                payload["validated_pair_order"],
+                [
+                    {"deep_depth": 8, "shallow_depth": 3},
+                    {"deep_depth": 8, "shallow_depth": 4},
+                ],
+            )
+            self.assertEqual(len(payload["scheduler_domain_evidence"]), 1)
+            self.assertEqual(len(payload["entries"]), 2)
+            self.assertNotIn("scheduler_domain_evidence", payload["entries"][0])
 
 
 def main() -> int:

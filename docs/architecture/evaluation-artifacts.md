@@ -159,6 +159,12 @@ explicit manifest paths. A legacy artifact without that field remains
 all-phase learned at runtime for backward compatibility; this is not an
 inference that its training coverage was all-phase.
 
+Production selective-search identity binds not only the pattern set, artifact
+ID, and weights checksum, but also `score_scale`, the exact `trained_phases`
+mask, and `fallback_additive_through_phase`. Reusing the same weights bytes and
+IDs with different evaluation scale or phase routing therefore fails closed
+and leaves production Multi-ProbCut disabled.
+
 ## Commit Policy
 
 The CTest target `vibe_othello_eval_artifact_commit_policy` runs

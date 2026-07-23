@@ -11,6 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(VIBE_OTHELLO_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(VIBE_OTHELLO_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT
+       "Enable selection of the checked-in reviewed production ProbCut profile" ON)
 
 if(VIBE_OTHELLO_ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

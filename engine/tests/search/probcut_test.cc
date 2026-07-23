@@ -382,7 +382,7 @@ TEST_CASE("ProbCut rejects insufficient confidence and sentinel-adjacent windows
   const ProbCutCalibrationProfileV1 uncertain_profile = profile_for(uncertain_entries);
   const DirectRun uncertain = run_null_window(board_core::initial_position(), Score{0}, Depth{4},
                                               options_for(&uncertain_profile, Depth{4}, Depth{2}));
-  REQUIRE(uncertain.stats.probcut_attempts == 1);
+  REQUIRE(uncertain.stats.probcut_attempts == 0);
   REQUIRE(uncertain.stats.probcut_successes == 0);
   REQUIRE(uncertain.stats.probcut_rejected_confidence == 1);
 
@@ -420,6 +420,15 @@ TEST_CASE("successful beta ProbCut returns and stores only a lower bound",
   REQUIRE(context.stats.selective_cuts == 1);
   REQUIRE(context.stats.tt_stores == 1);
   REQUIRE(result.is_selective());
+
+  SearchContext full_window_context{
+      .position_state = make_search_position(board_core::initial_position()),
+      .evaluator = evaluator,
+  };
+  const SearchNodeResult full_window =
+      full_window_search(&full_window_context, kScoreLoss, kScoreWin, Depth{2}, Ply{1});
+  REQUIRE(full_window.is_complete());
+  REQUIRE(context.stats.probcut_shallow_nodes < full_window_context.stats.nodes);
 
   SearchStats probe_stats{};
   const std::optional<TTEntry> stored =
@@ -704,7 +713,7 @@ TEST_CASE("Multi-ProbCut probes reviewed pairs in order and stops at first succe
       ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 2},
   };
   const std::array entries{
-      entry(0, Depth{4}, Depth{1}, -1000.0),
+      entry(0, Depth{4}, Depth{1}, -10.0),
       entry(0, Depth{4}, Depth{2}, 100.0),
   };
   ProbCutCalibrationProfileV1 profile = profile_for(entries, pairs, 2);
@@ -751,8 +760,8 @@ TEST_CASE("Multi-ProbCut enforces probe and cumulative shallow overhead limits",
       ProbCutDepthPairV1{.deep_depth = 4, .shallow_depth = 2},
   };
   const std::array entries{
-      entry(0, Depth{4}, Depth{1}, -1000.0),
-      entry(0, Depth{4}, Depth{2}, -1000.0),
+      entry(0, Depth{4}, Depth{1}, -10.0),
+      entry(0, Depth{4}, Depth{2}, -10.0),
   };
   ProbCutCalibrationProfileV1 profile = profile_for(entries, pairs, 2);
 
@@ -771,6 +780,13 @@ TEST_CASE("Multi-ProbCut enforces probe and cumulative shallow overhead limits",
       run_null_window(board_core::initial_position(), Score{0}, Depth{4}, overhead_limited);
   REQUIRE(overhead.stats.probcut_attempts == 1);
   REQUIRE(overhead.stats.probcut_rejected_overhead == 1);
+
+  SearchOptions cold_start_limited = limited;
+  cold_start_limited.probcut_options.minimum_official_nodes_before_probe = 1'000'000;
+  const DirectRun cold_start =
+      run_null_window(board_core::initial_position(), Score{0}, Depth{4}, cold_start_limited);
+  REQUIRE(cold_start.stats.probcut_attempts == 0);
+  REQUIRE(cold_start.stats.probcut_rejected_overhead == 1);
 }
 
 TEST_CASE("Multi-ProbCut shallow search suppresses nested pair probes",
@@ -780,7 +796,7 @@ TEST_CASE("Multi-ProbCut shallow search suppresses nested pair probes",
       ProbCutDepthPairV1{.deep_depth = 2, .shallow_depth = 1},
   };
   const std::array entries{
-      entry(0, Depth{4}, Depth{2}, -1000.0),
+      entry(0, Depth{4}, Depth{2}, -10.0),
       entry(0, Depth{2}, Depth{1}, 100.0),
   };
   ProbCutCalibrationProfileV1 profile = profile_for(entries, pairs, 2);

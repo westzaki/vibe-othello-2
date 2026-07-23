@@ -96,6 +96,14 @@ TEST_CASE("ProbCut normalization requires a complete reviewed profile identity",
   REQUIRE(resolved.probcut == options.probcut_options);
   REQUIRE(resolved.probcut_profile_semantic_fingerprint != 0);
 
+  SearchOptions guarded = options;
+  guarded.probcut_options.minimum_official_nodes_before_probe = 25'000;
+  const internal::ResolvedSearchOptions guarded_resolved =
+      internal::normalize_search_options(guarded);
+  REQUIRE(guarded_resolved.probcut.use_probcut);
+  REQUIRE(guarded_resolved.probcut_profile_semantic_fingerprint !=
+          resolved.probcut_profile_semantic_fingerprint);
+
   SearchOptions wrong_family = options;
   wrong_family.probcut_options.artifact_family = "another-artifact";
   REQUIRE_FALSE(internal::normalize_search_options(wrong_family).probcut.use_probcut);

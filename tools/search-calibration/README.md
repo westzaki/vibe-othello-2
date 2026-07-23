@@ -2,9 +2,10 @@
 
 This directory owns the local-only MPC/ProbCut calibration workflow. The engine
 can collect reduced-depth versus deep-search observations. Runtime search also
-has a separate conservative, typed, caller-supplied ProbCut path, but the
-repository contains no production profile or coefficient and enables nothing
-by default. A generated analyzer report is not itself runtime authorization.
+has a separate conservative, typed, caller-supplied ProbCut path. One reviewed
+profile is checked in for the exact default artifact identity; generic callers
+remain disabled, and a generated analyzer report is not itself runtime
+authorization.
 
 ## Collection contract
 
@@ -89,9 +90,10 @@ fixed-depth or fixed-node runs: an external stop can naturally arrive while any
 diagnostic callback is running. Deep verification is intentionally expensive;
 control it with sample rate and the per-search cap.
 
-Normal C++ defaults, runtime presets, WASM `easy`/`normal`/`hard` presets,
-default benchmark runs, and Arena runs remain disabled. The search benchmark
-can opt in only when an external reviewed profile TSV is explicitly supplied.
+Normal C++ option defaults, `easy`, the legacy WASM API, default benchmark runs,
+and Arena runs remain disabled. `normal`/`hard` WASM presets may select the
+checked-in production profile through the exact identity gate. The search
+benchmark can opt in only when a reviewed profile TSV is explicitly supplied.
 Long collection runs belong under a local measurement root outside the
 repository, for example:
 
@@ -102,6 +104,58 @@ mkdir -p "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow"
 
 Do not commit generated sample JSON/JSONL, fitted reports, or Markdown
 summaries.
+
+### Native JSONL collector
+
+`vibe-othello-collect-shadow-samples` runs the full production search stack at
+a fixed depth over either the checked-in search fixture TSV shape (`id` plus
+`position`) or normalized pattern corpus TSV shape (`position_id` plus
+`board_a1_to_h8`). It loads the exact supplied artifact, clears the search
+session between roots, and writes schema-v5 samples directly to JSONL. Root
+selection can be split into deterministic FNV partitions, and `--root-phase`
+supports balanced phase-local campaigns. Canonically repeated sampled
+positions are kept only once per output so the analyzer receives one complete
+same-deep pair population per scheduler node.
+
+For the current browser depth-8/exact-8 policy, a local collection command is:
+
+```sh
+build/tools/search-calibration/vibe-othello-collect-shadow-samples \
+  --artifact-manifest data/eval/artifacts/<artifact>/manifest.json \
+  --positions "$VIBE_OTHELLO_TRAINING/<corpus>/positions.tsv" \
+  --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/training-phase-0.jsonl" \
+  --repository-sha "$(git rev-parse HEAD)" \
+  --search-config-id web-normal-depth8-exact8-full-v1 \
+  --depth 8 --exact-endgame-empties 8 \
+  --depth-pair 7:3 --depth-pair 7:4 \
+  --sample-rate 1000000 --max-samples-per-search 2 \
+  --sampling-seed 0 \
+  --root-phase 0 --root-phase 1 --root-phase 2 \
+  --position-limit-per-phase 1000
+```
+
+Repeat `--root-phase` and add `--position-limit-per-phase` to collect the same
+number of roots from each requested phase in one pass over a large corpus.
+
+The two rows produced for a sampled node are one scheduler observation, not two
+independent nodes. Use a different partition and sampling seed for joint
+holdout collection while keeping the artifact, search config, ordered pair
+list, sampling rate, and per-search cap identical. `--position-limit` and
+`--position-limit-per-phase` are mutually exclusive. Generated JSONL and
+summary output remain local-only.
+
+Deterministically disjoint root partitions can still converge on the same
+sampled child position. Remove every holdout row for a canonical position hash
+seen in training before analysis, regardless of ply, official window, or search
+role. The converter independently rejects any position-level overlap that
+remains:
+
+```sh
+python3 tools/search-calibration/filter_disjoint_shadow_samples.py \
+  --training "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/training.jsonl" \
+  --holdout "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/holdout.jsonl" \
+  --output "$VIBE_OTHELLO_MEASUREMENTS/mpc-shadow/holdout-disjoint.jsonl"
+```
 
 ## Analyzer
 
@@ -161,8 +215,9 @@ stable. The recommended margin is an in-sample, report-only diagnostic. Before
 runtime adoption, coefficients and margins require validation against a
 separate seed or holdout campaign and a separate measured search change.
 
-The report also retains the collection pair order and per-node
-`scheduler_observations`. A report is rejected when a sampled node is missing
+The schema-v6 report also retains the collection pair order and per-node
+`scheduler_observations`, including each observation's
+`canonical_position_hash`. A report is rejected when a sampled node is missing
 one of its same-deep pairs or maps one collection index to multiple pairs.
 CTest includes a synthetic same-deep two-pair pipeline test through analyzer,
 converter, and the native Arena loader. That fixture checks the evidence chain;
@@ -234,23 +289,29 @@ converter selects exactly one eligible
 `non_pv_scout` group, maps `.slope` to `regression_slope` and `.intercept` to
 `intercept`, copies residual sigma, verifies that the preference exactly matches
 the collected pair order, and records both report SHA-256 values. Training and
-holdout provenance/collection policy must match and their sampled-node
-identities must be disjoint. The converter replays the runtime scheduler—pair
-1, then pair 2 after a rejection, stopping at the first success—for every pair
-prefix, probe cap, and exact profile domain. Only combinations meeting the
-candidate minimum and reviewed false-cut upper bound are stored. The full
+holdout provenance/collection policy must match and their canonical position
+hashes must be disjoint. The converter replays the runtime scheduler—deriving
+the threshold for pair 1, then pair 2 after a rejection, stopping at the first
+threshold-directed success—for every pair prefix, probe cap, and exact profile
+domain. An exact shallow value above `maximum_shallow_score` still counts as a
+success when the derived threshold is within the reviewed range, matching the
+runtime null-window decision. Only combinations meeting the candidate minimum
+and reviewed false-cut upper bound are stored. The full
 validated scheduler must pass every enabled domain or conversion fails; an
 optional prefix that fails remains absent and cannot be selected at runtime.
 Pair-local margins and a global aggregate alone cannot authorize a
 Multi-ProbCut profile.
 
-The one-sided integer condition is:
+The threshold-directed one-sided condition is:
 
 ```text
-predicted_deep = slope * shallow_score + intercept
 k = max(profile_confidence_multiplier, option_confidence_multiplier, minimum_confidence)
 margin = max(ceil(k * residual_sigma), minimum_margin)
-cut-high only if floor(predicted_deep) - margin >= beta
+shallow_beta = max(minimum_shallow_score,
+                   ceil((beta + margin - intercept) / slope))
+reject if shallow_beta > maximum_shallow_score
+probe [shallow_beta - 1, shallow_beta]
+cut-high iff the shallow probe fails high
 ```
 
 If `margin > maximum_margin`, the candidate is rejected; the maximum is never
@@ -280,8 +341,25 @@ not infer one from the report. Keep the TSV, source report, samples, and run
 outputs under the local measurement root. Do not commit them as generated
 reports or calibration raw data.
 
-The repository intentionally contains no reviewed calibration TSV. Multi-pair
-runtime capability therefore remains off in C++ defaults, native presets,
-teacher generation, and every WASM/Web preset. A calibration report authorizes
-neither a preset change nor a strength claim; use the separate same-artifact
-fixed-time campaign and review its holdouts before enablement.
+For an adopted production profile, rerun the converter with
+`--output-format json` and commit that compact reviewed JSON instead of the
+local TSV. The JSON keeps common metadata and scheduler evidence once, while
+preserving the validated pair and entry order. Compile it into the production
+C++ data include with the checked exporter and keep the invocation synchronized
+with its drift test:
+
+```sh
+python3 tools/search-calibration/export_probcut_profile_cpp.py \
+  data/search/profiles/<profile>/profile.json \
+  --weights-checksum 0x00000000 \
+  --maximum-margin 22 \
+  --maximum-shallow-overhead-ratio 0.005 \
+  --output engine/src/search/production_probcut_profile_data.inc
+```
+
+The checked-in JSON profile under `data/search/profiles/` records the reviewed
+adoption decision and summarized gates. Raw samples, generated TSV, analyzer
+reports, Arena reports, and machine-timing output remain outside the repository.
+A calibration report alone authorizes neither a preset change nor a strength
+claim; promotion also requires same-artifact fixed-node/fixed-time and real WASM
+A/B review.
