@@ -23,6 +23,7 @@ Exact endgame is a production submodule of `engine/src/search/`. It provides:
 * separate exact-score and WLD TT entry kinds
 * generic negamax/alpha-beta recursion using board-core move deltas and
   incremental hashes
+* disableable exact-score PVS above the specialized small-empty boundary
 * exact-score specializations through eight empty squares, including direct
   one-empty flip counting
 * ordering-only empty-region parity hints and a cheap odd/even region branch
@@ -33,18 +34,20 @@ Exact endgame is a production submodule of `engine/src/search/`. It provides:
   limits, and endgame node accounting
 
 Tests compare production and reference solvers, generic and specialized paths,
-TT on/off, parity on/off, stability off/shadow/cutoff, root-move scores, pass
-positions, terminal positions, and checked-in corpus results.
-`engine/benchmarks/endgame_bench.cc` provides exact/WLD, TT, parity, stability,
-and root-reporting comparisons with checked-in aggregate baseline data.
+TT on/off, PVS on/off, parity on/off, stability off/shadow/cutoff, root-move
+scores, pass positions, terminal positions, and checked-in corpus results.
+`engine/benchmarks/endgame_bench.cc` provides exact/WLD, TT, PVS, parity,
+stability, and root-reporting comparisons with checked-in aggregate baseline
+data.
 
 ## Current Limitations
 
 Native and WASM exact-handoff thresholds are caller or preset policy; there is
 no universally tuned engine default. WLD uses the generic recursion rather
 than the exact-score small-empty specializations, and exact-score requests do
-not run a WLD proof first. Exact endgame uses alpha-beta rather than PVS, and
-parity regions only order branches rather than prune them.
+not run a WLD proof first. Exact endgame uses PVS only above the specialized
+eight-empty boundary, and parity regions only order branches rather than prune
+them.
 `reporting.multi_pv > 1` still means all-root reporting rather than top N.
 Endgame search is single-threaded, and time/node cancellation remains
 cooperative.
@@ -95,7 +98,8 @@ Use exact negamax with alpha-beta pruning as the reference endgame solver.
 
 Use null-window search for WLD solving.
 
-Use full-window search for exact final disc-difference solving.
+Use full-window alpha-beta as the exact final disc-difference reference and PVS
+as a disableable high-empty optimization.
 
 Use endgame-specific transposition-table entries.
 
@@ -383,7 +387,9 @@ At each node:
 * if no legal move exists, apply pass and recurse without reducing empty count
 * order legal moves
 * apply each move through board-core delta
-* recurse with negated window and `empties - 1`
+* recurse with negated window and `empties - 1`; when exact-score PVS is active,
+  later moves first use a null window and re-search scores strictly inside the
+  full window
 * undo through board core
 * update best score, alpha, PV, and best move
 * store exact endgame TT entry if enabled
@@ -574,7 +580,9 @@ Rules:
 Endgame uses the session-owned four-way, configurable, generation-aware TT.
 Exact-score and WLD probes include the entry kind and treat depth as remaining
 empty squares. Tests can disable the table, and benchmark/report telemetry uses
-the same public counters as midgame search.
+the same public counters as midgame search. Nodes with four or fewer remaining
+empty squares bypass TT probes and stores because specialized/shallow recursion
+is cheaper than table access and saturated-table replacement attempts.
 
 The shared TT first handles same-key/same-kind refinement, then uses an empty
 slot, otherwise prefers an older, shallower, or weaker-bound victim. A current-
@@ -711,22 +719,20 @@ disc-difference score for that internal position.
 
 ## Interaction with PVS
 
-PVS is a midgame search optimization.
+Exact-score endgame uses its own PVS path, independent of midgame PVS. The
+first ordered move receives the full window. Later moves at nodes with at least
+nine remaining empty squares first receive `[alpha, alpha + 1]`; a completed
+score strictly between alpha and beta is re-searched with the full window.
 
-Exact endgame may use alpha-beta directly.
+`endgame.use_endgame_pvs` defaults enabled and can be disabled to run the plain
+alpha-beta reference path. Re-searches increment `stats.pvs_researches`.
+Through eight empties the exact solver uses its specialized path without scout
+overhead. WLD continues to use the generic recursion with its narrow score
+range and ignores this option.
 
-Endgame currently uses its own alpha-beta recursion rather than midgame PVS.
-WLD uses the same generic recursion with the narrow WLD score range.
-
-If PVS is added to endgame later:
-
-* it must match generic alpha-beta exact results
-* it must be disableable
-* it must count re-searches
-* it must be benchmarked separately from midgame PVS
-* it must not call heuristic evaluation
-
-PVS is not required for exact endgame correctness.
+Endgame PVS must match alpha-beta exact scores, remain independently
+benchmarkable, and never call heuristic evaluation. It is an optimization, not
+a correctness requirement.
 
 ## Interaction with Selective Search
 

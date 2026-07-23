@@ -24,6 +24,7 @@ DEFAULT_POSITION_IDS = (
 DEFAULT_ROOT_MODE = "best"
 DEFAULT_PARITY = "on"
 DEFAULT_TT = "on"
+DEFAULT_PVS = "on"
 DEFAULT_MODE = "exact-score"
 DEFAULT_ENTRY = "direct"
 DEFAULT_REPEAT = 1
@@ -49,6 +50,8 @@ SUMMARY_COLUMNS = (
     "status",
     "entry",
     "mode",
+    "stability_mode",
+    "pvs",
     "elapsed_wall_ms",
     "output_jsonl",
     "elapsed_ms_p50",
@@ -251,7 +254,15 @@ def nearest_rank(values: list[Any], percentile: float) -> Any:
 def group_key(record: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(
         record.get(field)
-        for field in ("mode", "empties", "parity_ordering", "tt_mode", "root_mode")
+        for field in (
+            "mode",
+            "empties",
+            "parity_ordering",
+            "tt_mode",
+            "stability_mode",
+            "pvs",
+            "root_mode",
+        )
     )
 
 
@@ -285,6 +296,8 @@ def build_summary_rows(
                 "entry": entry,
                 "status": status,
                 "mode": mode,
+                "stability_mode": first_record.get("stability_mode", ""),
+                "pvs": first_record.get("pvs", ""),
                 "elapsed_wall_ms": elapsed_wall_ms,
                 "output_jsonl": str(output_jsonl),
                 "score": first_record.get("score", ""),
@@ -315,6 +328,8 @@ def build_summary_rows(
             "entry": entry,
             "threshold": threshold,
             "mode": mode,
+            "stability_mode": aggregate_row.get("stability_mode", ""),
+            "pvs": aggregate_row.get("pvs", ""),
             "elapsed_wall_ms": elapsed_wall_ms,
             "output_jsonl": str(output_jsonl),
             "elapsed_ms_p50": aggregate_row.get("elapsed_ms_p50", ""),
@@ -432,6 +447,8 @@ def run_probe(
         args.parity,
         "--tt",
         args.tt,
+        "--pvs",
+        args.pvs,
         "--mode",
         mode,
         "--entry",
@@ -698,6 +715,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root-mode", choices=("all", "best"), default=DEFAULT_ROOT_MODE)
     parser.add_argument("--parity", choices=("on", "off", "both"), default=DEFAULT_PARITY)
     parser.add_argument("--tt", choices=("off", "on", "both"), default=DEFAULT_TT)
+    parser.add_argument("--pvs", choices=("off", "on", "both"), default=DEFAULT_PVS)
     parser.add_argument("--mode", choices=MODE_CHOICES, default=DEFAULT_MODE)
     parser.add_argument(
         "--entry",

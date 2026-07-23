@@ -273,9 +273,10 @@ Per-move depth and node counts may differ and are not part of this equality
 check.
 
 The `teacher_search_config_id` canonical payload uses
-`search-move-teacher-config-v3`. This solver-semantics revision covers the
-eight-empty internal exact handoff and includes `EndgameStabilityMode`, so
-labels produced with different stability policies cannot share provenance.
+`search-move-teacher-config-v4`. This solver-semantics revision covers the
+eight-empty internal exact handoff and includes `EndgameStabilityMode` and the
+endgame PVS policy, so labels produced with different stability or PVS policies
+cannot share provenance.
 Ordinary teacher coverage requires declared phases `0..12`; an explicit
 phase-aware bootstrap may use reported fallback phases, but legacy implicit
 coverage remains invalid.

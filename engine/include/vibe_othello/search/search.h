@@ -54,6 +54,7 @@ enum class EndgameStabilityMode : std::uint8_t {
 struct EndgameSearchOptions {
   bool exact_endgame = false;
   bool use_endgame_tt = false;
+  bool use_endgame_pvs = true;
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;
   EndgameStabilityMode stability_mode = EndgameStabilityMode::cutoff;

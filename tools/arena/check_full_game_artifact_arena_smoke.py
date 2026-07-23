@@ -149,6 +149,11 @@ def assert_report(report: dict[str, object]) -> None:
         "candidate_resolved_options",
         "baseline_resolved_options",
     ):
+        if report["search_config"][option_key].get("use_endgame_pvs") is not True:
+            raise AssertionError(
+                f"{option_key} did not report endgame PVS: "
+                f"{report['search_config'][option_key]!r}"
+            )
         if report["search_config"][option_key].get("stability_mode") != "cutoff":
             raise AssertionError(
                 f"{option_key} did not report the endgame stability mode: "

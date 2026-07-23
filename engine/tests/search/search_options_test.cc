@@ -23,6 +23,7 @@ void require_default_resolved_options(const internal::ResolvedSearchOptions& opt
 
   REQUIRE_FALSE(options.endgame.exact_endgame);
   REQUIRE_FALSE(options.endgame.use_endgame_tt);
+  REQUIRE(options.endgame.use_endgame_pvs);
   REQUIRE(options.endgame.endgame_exact_empties == 0);
   REQUIRE(options.endgame.endgame_wld_empties == 0);
   REQUIRE(options.endgame.stability_mode == EndgameStabilityMode::cutoff);

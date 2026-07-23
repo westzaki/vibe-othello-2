@@ -178,14 +178,14 @@ def main() -> int:
             if len(rows) != 4 or {row["move_rank"] for row in rows} != {"1", "2", "3", "4"}:
                 raise RuntimeError(f"initial root legal-move completeness/rank failed: {rows}")
             expected_config_id = search_config_id(
-                "search-move-teacher-config-v3\nbasic\n1\n0\n0\n0\n0\nrequire-all\n2\n"
+                "search-move-teacher-config-v4\nbasic\n1\n0\n0\n0\n0\nrequire-all\n2\n1\n"
             )
             first_report = json.loads((first / "report.json").read_text(encoding="utf-8"))
             if first_report.get("teacher_search_config_id") != expected_config_id or {
                 row["teacher_search_config_id"] for row in rows
             } != {expected_config_id}:
                 raise RuntimeError(
-                    "teacher config provenance does not identify v3 cutoff semantics: "
+                    "teacher config provenance does not identify v4 cutoff/PVS semantics: "
                     f"{first_report!r}"
                 )
             for row in rows:

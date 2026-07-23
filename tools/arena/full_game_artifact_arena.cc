@@ -1045,6 +1045,7 @@ make_search_config(const Args& args, const search::ProbCutCalibrationProfileV1* 
           search::EndgameSearchOptions{
               .exact_endgame = args.exact_endgame_empties != 0,
               .use_endgame_tt = full,
+              .use_endgame_pvs = true,
               .endgame_exact_empties = args.exact_endgame_empties,
               .endgame_wld_empties = 0,
           },
@@ -1551,6 +1552,8 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
   write_bool(output, options.endgame.exact_endgame);
   output << ", \"use_endgame_tt\": ";
   write_bool(output, options.endgame.use_endgame_tt);
+  output << ", \"use_endgame_pvs\": ";
+  write_bool(output, options.endgame.use_endgame_pvs);
   output << ", \"stability_mode\": ";
   write_json_string(output, endgame_stability_mode_name(options.endgame.stability_mode));
   output << ", \"endgame_exact_empties\": "
@@ -2330,8 +2333,8 @@ std::string deterministic_payload(const LoadedEvaluator& candidate, const Loaded
            << options.ordering.use_history << options.ordering.use_killers
            << options.ordering.use_midgame_mobility_ordering
            << options.ordering.use_endgame_parity_ordering << options.endgame.exact_endgame
-           << options.endgame.use_endgame_tt << static_cast<int>(options.endgame.stability_mode)
-           << false << false << false << '\n';
+           << options.endgame.use_endgame_tt << options.endgame.use_endgame_pvs
+           << static_cast<int>(options.endgame.stability_mode) << false << false << false << '\n';
     const search::ProbCutOptionsV1& probcut = options.probcut_options;
     output << probcut.use_probcut << '\n'
            << probcut.calibration_profile_id << '\n'

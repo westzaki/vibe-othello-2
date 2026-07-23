@@ -80,6 +80,12 @@ enum class StabilityModeSelection {
   all,
 };
 
+enum class PvsMode {
+  off,
+  on,
+  both,
+};
+
 enum class RootMode {
   all,
   best,
@@ -101,6 +107,7 @@ struct Config {
   ParityMode parity_mode = ParityMode::on;
   TTMode tt_mode = TTMode::off;
   StabilityModeSelection stability_mode = StabilityModeSelection::cutoff;
+  PvsMode pvs_mode = PvsMode::on;
   RootMode root_mode = RootMode::all;
   SolveMode solve_mode = SolveMode::exact_score;
   EntryMode entry_mode = EntryMode::direct;
@@ -275,6 +282,7 @@ void print_usage(std::ostream& output, std::string_view program) {
   output << "Usage: " << program
          << " [--tsv|--csv|--jsonl] [--parity on|off|both] [--tt off|on|both]"
             " [--stability off|shadow|cutoff|all]"
+            " [--pvs off|on|both]"
             " [--root-mode all|best] [--mode exact-score|wld] [--entry direct|iterative-root]"
             " [--endgame-wld-empties N] [--repeat N]"
             " [--min-empties N] [--max-empties N] [--position-id ID] [--category NAME]"
@@ -475,6 +483,25 @@ std::optional<Config> parse_config(int argc, char** argv) {
         config.stability_mode = StabilityModeSelection::all;
       } else {
         require_condition(false, "invalid stability mode");
+      }
+      continue;
+    }
+
+    if (argument == "--pvs") {
+      require_condition(index + 1 < argc, "--pvs requires a value");
+      value = argv[++index];
+    } else if (!parse_argument_with_value(argument, "--pvs", &value)) {
+      value = {};
+    }
+    if (!value.empty()) {
+      if (value == "off") {
+        config.pvs_mode = PvsMode::off;
+      } else if (value == "on") {
+        config.pvs_mode = PvsMode::on;
+      } else if (value == "both") {
+        config.pvs_mode = PvsMode::both;
+      } else {
+        require_condition(false, "invalid PVS mode");
       }
       continue;
     }
@@ -688,6 +715,10 @@ std::string_view stability_mode_name(EndgameStabilityMode mode) noexcept {
     return "cutoff";
   }
   return "unknown";
+}
+
+std::string_view pvs_mode_name(bool enabled) noexcept {
+  return enabled ? "on" : "off";
 }
 
 std::string_view root_mode_name(RootMode mode) noexcept {
@@ -927,8 +958,8 @@ void validate_result(const PositionCase& position_case, const TimedResult& timed
 }
 
 TimedResult run_endgame(Position position, std::uint8_t empties, bool use_parity_ordering,
-                        bool use_tt, EndgameStabilityMode stability_mode, RootMode root_mode,
-                        SolveMode solve_mode, EntryMode entry_mode,
+                        bool use_tt, EndgameStabilityMode stability_mode, bool use_pvs,
+                        RootMode root_mode, SolveMode solve_mode, EntryMode entry_mode,
                         std::uint8_t endgame_wld_empties) {
   const SearchOptions options{
       .ordering = MoveOrderingOptions{.use_endgame_parity_ordering = use_parity_ordering},
@@ -936,6 +967,7 @@ TimedResult run_endgame(Position position, std::uint8_t empties, bool use_parity
           EndgameSearchOptions{
               .exact_endgame = false,
               .use_endgame_tt = use_tt,
+              .use_endgame_pvs = use_pvs,
               .endgame_exact_empties = 0,
               .endgame_wld_empties = endgame_wld_empties,
               .stability_mode = stability_mode,
@@ -983,26 +1015,27 @@ void print_delimited_header(char delimiter) {
   std::cout << "position_id" << delimiter << "category" << delimiter << "empties" << delimiter
             << "repeat" << delimiter << "entry" << delimiter << "threshold" << delimiter
             << "triggered" << delimiter << "status" << delimiter << "parity_ordering" << delimiter
-            << "tt_mode" << delimiter << "stability_mode" << delimiter << "root_mode" << delimiter
-            << "mode" << delimiter << "score" << delimiter << "score_kind" << delimiter
-            << "wld_result" << delimiter << "best_move" << delimiter << "exact" << delimiter
-            << "stopped" << delimiter << "completed_depth" << delimiter << "nodes" << delimiter
-            << "endgame_nodes" << delimiter << "last_flip_solved" << delimiter << "eval_calls"
-            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
-            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "root_moves_searched"
-            << delimiter << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_cutoffs"
-            << delimiter << "tt_stores" << delimiter << "tt_replacements" << delimiter
-            << "tt_bucket_conflicts" << delimiter << "tt_rejected_stores" << delimiter
-            << "tt_invalid_best_move_stores" << delimiter << "stability_probes" << delimiter
-            << "stability_lower_candidates" << delimiter << "stability_upper_candidates"
-            << delimiter << "stability_cutoffs" << delimiter << "stability_shadow_verifications"
-            << delimiter << "stability_shadow_false_cutoffs" << delimiter << "elapsed_ms"
-            << delimiter << "nps" << '\n';
+            << "tt_mode" << delimiter << "stability_mode" << delimiter << "pvs" << delimiter
+            << "root_mode" << delimiter << "mode" << delimiter << "score" << delimiter
+            << "score_kind" << delimiter << "wld_result" << delimiter << "best_move" << delimiter
+            << "exact" << delimiter << "stopped" << delimiter << "completed_depth" << delimiter
+            << "nodes" << delimiter << "endgame_nodes" << delimiter << "last_flip_solved"
+            << delimiter << "eval_calls" << delimiter << "terminal_nodes" << delimiter
+            << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter << "alpha_updates"
+            << delimiter << "pvs_researches" << delimiter << "root_moves_searched" << delimiter
+            << "tt_probes" << delimiter << "tt_hits" << delimiter << "tt_cutoffs" << delimiter
+            << "tt_stores" << delimiter << "tt_replacements" << delimiter << "tt_bucket_conflicts"
+            << delimiter << "tt_rejected_stores" << delimiter << "tt_invalid_best_move_stores"
+            << delimiter << "stability_probes" << delimiter << "stability_lower_candidates"
+            << delimiter << "stability_upper_candidates" << delimiter << "stability_cutoffs"
+            << delimiter << "stability_shadow_verifications" << delimiter
+            << "stability_shadow_false_cutoffs" << delimiter << "elapsed_ms" << delimiter << "nps"
+            << '\n';
 }
 
 void print_delimited_result(const PositionCase& position_case, std::uint32_t repeat,
                             std::uint8_t empties, bool use_parity_ordering, bool use_tt,
-                            EndgameStabilityMode stability_mode, RootMode root_mode,
+                            EndgameStabilityMode stability_mode, bool use_pvs, RootMode root_mode,
                             SolveMode solve_mode, const TimedResult& timed_result, char delimiter) {
   const SearchResult& result = timed_result.result;
   std::cout << position_case.id << delimiter << position_case.category << delimiter
@@ -1012,8 +1045,9 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
             << (timed_result.triggered ? "true" : "false") << delimiter << timed_result.status
             << delimiter << parity_mode_name(use_parity_ordering) << delimiter
             << tt_mode_name(use_tt) << delimiter << stability_mode_name(stability_mode) << delimiter
-            << root_mode_name(root_mode) << delimiter << solve_mode_name(solve_mode) << delimiter
-            << result.score << delimiter << score_kind_name(result.score_kind) << delimiter
+            << pvs_mode_name(use_pvs) << delimiter << root_mode_name(root_mode) << delimiter
+            << solve_mode_name(solve_mode) << delimiter << result.score << delimiter
+            << score_kind_name(result.score_kind) << delimiter
             << (solve_mode == SolveMode::wld && timed_result.triggered ? wld_result_name(result)
                                                                        : "n/a")
             << delimiter << best_move_to_string(result) << delimiter
@@ -1022,12 +1056,13 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
             << result.stats.endgame_nodes << delimiter << result.stats.endgame_last_flip_solved
             << delimiter << result.stats.eval_calls << delimiter << result.stats.terminal_nodes
             << delimiter << result.stats.pass_nodes << delimiter << result.stats.beta_cutoffs
-            << delimiter << result.stats.alpha_updates << delimiter
-            << result.stats.root_moves_searched << delimiter << result.stats.tt_probes << delimiter
-            << result.stats.tt_hits << delimiter << result.stats.tt_cutoffs << delimiter
-            << result.stats.tt_stores << delimiter << result.stats.tt_replacements << delimiter
-            << result.stats.tt_bucket_conflicts << delimiter << result.stats.tt_rejected_stores
-            << delimiter << result.stats.tt_invalid_best_move_stores << delimiter
+            << delimiter << result.stats.alpha_updates << delimiter << result.stats.pvs_researches
+            << delimiter << result.stats.root_moves_searched << delimiter << result.stats.tt_probes
+            << delimiter << result.stats.tt_hits << delimiter << result.stats.tt_cutoffs
+            << delimiter << result.stats.tt_stores << delimiter << result.stats.tt_replacements
+            << delimiter << result.stats.tt_bucket_conflicts << delimiter
+            << result.stats.tt_rejected_stores << delimiter
+            << result.stats.tt_invalid_best_move_stores << delimiter
             << result.stats.endgame_stability_probes << delimiter
             << result.stats.endgame_stability_lower_candidates << delimiter
             << result.stats.endgame_stability_upper_candidates << delimiter
@@ -1040,7 +1075,7 @@ void print_delimited_result(const PositionCase& position_case, std::uint32_t rep
 
 void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
                         std::uint8_t empties, bool use_parity_ordering, bool use_tt,
-                        EndgameStabilityMode stability_mode, RootMode root_mode,
+                        EndgameStabilityMode stability_mode, bool use_pvs, RootMode root_mode,
                         SolveMode solve_mode, const TimedResult& timed_result) {
   const SearchResult& result = timed_result.result;
   std::cout << '{';
@@ -1066,6 +1101,8 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   print_json_string(std::cout, tt_mode_name(use_tt));
   std::cout << ",\"stability_mode\":";
   print_json_string(std::cout, stability_mode_name(stability_mode));
+  std::cout << ",\"pvs\":";
+  print_json_string(std::cout, pvs_mode_name(use_pvs));
   std::cout << ",\"root_mode\":";
   print_json_string(std::cout, root_mode_name(root_mode));
   std::cout << ",\"score\":" << result.score;
@@ -1088,6 +1125,7 @@ void print_jsonl_result(const PositionCase& position_case, std::uint32_t repeat,
   std::cout << ",\"pass_nodes\":" << result.stats.pass_nodes;
   std::cout << ",\"beta_cutoffs\":" << result.stats.beta_cutoffs;
   std::cout << ",\"alpha_updates\":" << result.stats.alpha_updates;
+  std::cout << ",\"pvs_researches\":" << result.stats.pvs_researches;
   std::cout << ",\"root_moves_searched\":" << result.stats.root_moves_searched;
   std::cout << ",\"tt_probes\":" << result.stats.tt_probes;
   std::cout << ",\"tt_hits\":" << result.stats.tt_hits;
@@ -1213,6 +1251,23 @@ std::array<EndgameStabilityMode, 3> stability_runs(StabilityModeSelection mode,
   return {EndgameStabilityMode::cutoff, EndgameStabilityMode::off, EndgameStabilityMode::off};
 }
 
+std::array<bool, 2> pvs_runs(PvsMode mode, std::uint8_t* size) noexcept {
+  switch (mode) {
+  case PvsMode::off:
+    *size = 1;
+    return {false, false};
+  case PvsMode::on:
+    *size = 1;
+    return {true, false};
+  case PvsMode::both:
+    *size = 2;
+    return {false, true};
+  }
+
+  *size = 1;
+  return {true, false};
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1252,21 +1307,26 @@ int main(int argc, char** argv) {
         for (std::uint8_t stability_index = 0; stability_index < stability_run_count;
              ++stability_index) {
           const EndgameStabilityMode stability_mode = stability_values[stability_index];
-          for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
-            const TimedResult timed_result =
-                run_endgame(position_case.position, actual_empties, use_parity_ordering, use_tt,
-                            stability_mode, config->root_mode, config->solve_mode,
-                            config->entry_mode, config->endgame_wld_empties);
-            validate_result(position_case, timed_result, actual_empties, use_tt,
-                            config->solve_mode);
-            if (config->output_format == OutputFormat::jsonl) {
-              print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering, use_tt,
-                                 stability_mode, config->root_mode, config->solve_mode,
-                                 timed_result);
-            } else {
-              print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
-                                     use_tt, stability_mode, config->root_mode, config->solve_mode,
-                                     timed_result, config->delimiter);
+          std::uint8_t pvs_run_count = 0;
+          const std::array<bool, 2> pvs_values = pvs_runs(config->pvs_mode, &pvs_run_count);
+          for (std::uint8_t pvs_index = 0; pvs_index < pvs_run_count; ++pvs_index) {
+            const bool use_pvs = pvs_values[pvs_index];
+            for (std::uint32_t repeat = 1; repeat <= config->repeat; ++repeat) {
+              const TimedResult timed_result =
+                  run_endgame(position_case.position, actual_empties, use_parity_ordering, use_tt,
+                              stability_mode, use_pvs, config->root_mode, config->solve_mode,
+                              config->entry_mode, config->endgame_wld_empties);
+              validate_result(position_case, timed_result, actual_empties, use_tt,
+                              config->solve_mode);
+              if (config->output_format == OutputFormat::jsonl) {
+                print_jsonl_result(position_case, repeat, actual_empties, use_parity_ordering,
+                                   use_tt, stability_mode, use_pvs, config->root_mode,
+                                   config->solve_mode, timed_result);
+              } else {
+                print_delimited_result(position_case, repeat, actual_empties, use_parity_ordering,
+                                       use_tt, stability_mode, use_pvs, config->root_mode,
+                                       config->solve_mode, timed_result, config->delimiter);
+              }
             }
           }
         }

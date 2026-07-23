@@ -198,6 +198,7 @@ endgame solver through `solve_exact_endgame` or the direct WLD solver through
 `--parity on|off|both` to choose exact endgame parity ordering,
 `--tt off|on|both` to choose exact endgame transposition-table use,
 `--stability off|shadow|cutoff|all` to choose exact-score stability-bound use,
+`--pvs off|on|both` to choose exact-score endgame PVS,
 `--root-mode all|best` to choose root reporting behavior,
 `--mode exact-score|wld` to choose the solve mode,
 `--entry direct|iterative-root` to choose whether the benchmark calls the direct
@@ -207,7 +208,8 @@ to set the iterative-root WLD threshold, `--repeat N` to repeat each position,
 by empty count, repeatable `--position-id ID` and `--category NAME` filters to
 run selected rows, and `--list-positions` to print matching `id`, `category`,
 `empties`, and `notes` without running search.
-Defaults are `--parity on`, `--tt off`, `--stability cutoff`, `--root-mode all`,
+Defaults are `--parity on`, `--tt off`, `--stability cutoff`, `--pvs on`,
+`--root-mode all`,
 `--mode exact-score`, `--entry direct`, `--min-empties 0`, and
 `--max-empties 12`, which preserve the original non-TT all-root exact-score
 benchmark shape except for newly emitted columns. A `--position-id` selection
@@ -274,11 +276,11 @@ writes one JSONL file per position/mode, applies a per-position/mode timeout,
 and preserves completed lower-empty results when a later high-empty position
 times out.
 
-Start high-empty probes with `--root-mode best`, `--tt on`, `--parity on`, and
-`--repeat 1` before expanding to a wider option matrix. The runner defaults to
-`--mode exact-score` for backward-compatible exact-score measurements. Use
-`--mode wld` for direct WLD probes or `--mode both` to run exact score and WLD
-once each for every selected position.
+Start high-empty probes with `--root-mode best`, `--tt on`, `--parity on`,
+`--pvs on`, and `--repeat 1` before expanding to a wider option matrix. The
+runner defaults to `--mode exact-score` for backward-compatible exact-score
+measurements. Use `--mode wld` for direct WLD probes or `--mode both` to run
+exact score and WLD once each for every selected position.
 
 ```sh
 python3 engine/benchmarks/scripts/endgame/run_high_empty_probe.py \
@@ -433,6 +435,19 @@ and `elapsed_ms`:
   --corpus engine/fixtures/endgame/positions.tsv
 ```
 
+For exact endgame PVS changes, keep parity and TT fixed and compare `pvs`,
+`pvs_researches`, `nodes`, and `elapsed_ms`:
+
+```sh
+./build-bench/engine/benchmarks/vibe_othello_endgame_bench \
+  --jsonl \
+  --parity on \
+  --tt on \
+  --pvs both \
+  --position-id twenty_empty_simple \
+  --corpus engine/fixtures/endgame/positions.tsv
+```
+
 For exact endgame root reporting changes, keep parity and TT fixed and compare
 `root_mode`, `score`, `best_move`, `nodes`, `elapsed_ms`, and
 `root_moves_searched`:
@@ -516,11 +531,12 @@ For search benchmarks, report the depth argument and the emitted columns:
 
 For endgame benchmarks, report the max-empty cap and the emitted columns:
 `position_id`, `category`, `empties`, `repeat`, `parity_ordering`, `tt_mode`,
-`stability_mode`,
+`stability_mode`, `pvs`,
 `root_mode`, `mode`, `entry`, `threshold`, `triggered`, `status`, `score`,
 `wld_result`, `best_move`, `exact`, `stopped`, `completed_depth`, `nodes`,
-`endgame_nodes`, `last_flip_solved`, `eval_calls`, `terminal_nodes`, `pass_nodes`, `beta_cutoffs`,
-`alpha_updates`, `root_moves_searched`, `tt_probes`, `tt_hits`, `tt_cutoffs`,
+`endgame_nodes`, `last_flip_solved`, `eval_calls`, `terminal_nodes`, `pass_nodes`,
+`beta_cutoffs`, `alpha_updates`, `pvs_researches`, `root_moves_searched`,
+`tt_probes`, `tt_hits`, `tt_cutoffs`,
 `tt_stores`, `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
 `tt_invalid_best_move_stores`, `stability_probes`,
 `stability_lower_candidates`, `stability_upper_candidates`,
@@ -559,11 +575,13 @@ schema is:
 - `parity_ordering`, currently `on` or `off`
 - `tt_mode`, currently `off` or `on`
 - `stability_mode`, currently `off`, `shadow`, or `cutoff`
+- `pvs`, currently `off` or `on`
 - `root_mode`, currently `all` or `best`
 - `score`, `wld_result` for WLD rows, `best_move`, `exact`, `stopped`,
   `completed_depth`
-- `nodes`, `endgame_nodes`, `last_flip_solved`, `eval_calls`, `terminal_nodes`, `pass_nodes`
-- `beta_cutoffs`, `alpha_updates`, `root_moves_searched`
+- `nodes`, `endgame_nodes`, `last_flip_solved`, `eval_calls`, `terminal_nodes`,
+  `pass_nodes`
+- `beta_cutoffs`, `alpha_updates`, `pvs_researches`, `root_moves_searched`
 - `tt_probes`, `tt_hits`, `tt_cutoffs`, `tt_stores`
 - `tt_replacements`, `tt_bucket_conflicts`, `tt_rejected_stores`,
   `tt_invalid_best_move_stores`
@@ -751,8 +769,9 @@ depth, PV, and root move score/bound/depth/exact/selective values keyed by
 move. It intentionally does not gate `repeat`, option columns, node counts,
 search statistics, `elapsed_ms`, or `nps`. Those values are expected to move
 when exact endgame TT, parity ordering, or small-empty paths are introduced.
-Matrix benchmark output from `--parity both` or `--tt both` has extra records
-and is not the input shape for the checked-in single-policy golden file.
+Matrix benchmark output from `--parity both`, `--tt both`, `--stability all`,
+or `--pvs both` has extra records and is not the input shape for the checked-in
+single-policy golden file.
 
 Golden updates are manual. Regenerate with:
 
