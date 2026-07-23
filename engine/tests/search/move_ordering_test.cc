@@ -1,3 +1,4 @@
+#include "../../src/search/move_ordering/move_ordering_features_internal.h"
 #include "../../src/search/search_internal.h"
 #include "vibe_othello/board_core/board.h"
 
@@ -243,6 +244,33 @@ TEST_CASE("endgame ordering combines opponent mobility and parity deterministica
   REQUIRE(static_moves.moves[1] == move(1, 1));
   REQUIRE(parity_moves.moves[0] == move(5, 5));
   REQUIRE(parity_moves.moves[1] == move(1, 1));
+}
+
+TEST_CASE("endgame empty regions use orthogonal connectivity without wrapping files",
+          "[search][move_ordering][endgame][parity]") {
+  const board_core::Bitboard empties =
+      board_core::bit(square(0, 0)) | board_core::bit(square(1, 0)) |
+      board_core::bit(square(1, 1)) | board_core::bit(square(7, 0)) |
+      board_core::bit(square(7, 1)) | board_core::bit(square(3, 3));
+  const board_core::Position position{
+      .player = ~empties,
+      .opponent = 0,
+      .side_to_move = board_core::Color::black,
+  };
+
+  const EmptyRegionMap regions = build_empty_region_map(position);
+
+  REQUIRE(regions.size == 3);
+  REQUIRE(regions.region_for_square[square(0, 0).index] == 0);
+  REQUIRE(regions.region_for_square[square(1, 0).index] == 0);
+  REQUIRE(regions.region_for_square[square(1, 1).index] == 0);
+  REQUIRE(regions.region_sizes[0] == 3);
+  REQUIRE(regions.region_for_square[square(7, 0).index] == 1);
+  REQUIRE(regions.region_for_square[square(7, 1).index] == 1);
+  REQUIRE(regions.region_sizes[1] == 2);
+  REQUIRE(regions.region_for_square[square(3, 3).index] == 2);
+  REQUIRE(regions.region_sizes[2] == 1);
+  REQUIRE(regions.region_for_square[square(2, 2).index] == kNoEmptyRegion);
 }
 
 TEST_CASE("endgame ordering prefers legal TT best move before other endgame hints",

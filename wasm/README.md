@@ -44,7 +44,7 @@ try {
   const result = artifact.searchBestMove(position, { maxDepth: 1 });
   const normal = artifact.searchBestMoveWithPreset(
     position,
-    { maxDepth: 8, maxTimeMs: 500 },
+    { maxDepth: 64, maxTimeMs: 500 },
     "normal",
     8,
   );
@@ -77,6 +77,11 @@ artifacts, and other exact
 thresholds remain disabled. Search results expose the effective selection as
 `probcutEnabled`; this reports configuration selection, even when the current
 position does not enter an enabled profile domain.
+
+Each loaded evaluator owns a WASM-profile search session with an 8 MiB
+transposition-table byte budget. The power-of-two bucket allocator currently
+uses 5 MiB of that budget. This reduces late-game collisions while keeping the
+allocation bounded per loaded evaluator.
 
 `VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` is the build-time rollback switch.
 It defaults to `ON` for native and Emscripten builds. Low-level profile knobs are

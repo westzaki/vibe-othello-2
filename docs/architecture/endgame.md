@@ -25,7 +25,7 @@ Exact endgame is a production submodule of `engine/src/search/`. It provides:
   incremental hashes
 * disableable exact-score PVS above the specialized small-empty boundary
 * exact-score specializations through eight empty squares, including direct
-  one-empty flip counting
+  one-empty flip counting and precomputed move deltas through four empties
 * ordering-only empty-region parity hints and a cheap odd/even region branch
   partition for five-to-eight-empty search
 * conservative stable-disc lower/upper bounds before move generation, with
@@ -651,10 +651,13 @@ Small-empty routines should avoid unnecessary:
 * logging
 * file I/O
 
-The one-empty path uses direct flip computation for both normal and forced-pass
-positions. The five-to-eight-empty tier keeps recursive alpha-beta but replaces
+The one-empty path uses direct flip computation for normal, forced-pass, and
+terminal positions. The two-to-four-empty tiers derive legal moves from the
+remaining empty squares and reuse their precomputed flip deltas when applying
+each move. The five-to-eight-empty tier keeps recursive alpha-beta but replaces
 generic per-move mobility scoring with direct legal-bit enumeration and optional
-odd-region/even-region partitioning.
+odd-region/even-region partitioning. Empty-region discovery uses bitboard flood
+fill while preserving deterministic low-square region IDs.
 
 They must still use board-core flip logic or a tested equivalent.
 

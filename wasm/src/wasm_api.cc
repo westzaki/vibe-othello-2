@@ -57,7 +57,7 @@ struct WasmEvaluationArtifact {
             .profile = vibe_othello::search::SearchPlatformProfile::wasm,
             .transposition_table =
                 vibe_othello::search::TranspositionTableConfig{
-                    .capacity = 1024 * 1024,
+                    .capacity = 8 * 1024 * 1024,
                     .unit = vibe_othello::search::TranspositionTableCapacityUnit::bytes,
                 },
         }) {}

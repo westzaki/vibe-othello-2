@@ -66,9 +66,11 @@ rules. Generated `.mjs` and `.wasm` files are build outputs, not source files.
 The adapter does not own Worker commands, UI policy, static asset URLs, or
 deployment behavior.
 
-Each loaded evaluator owns a 1 MiB TT session. Session retention is disabled by
-default; explicit ABI/JavaScript methods enable retention and reset it at a
-game boundary. The current Worker leaves retention disabled.
+Each loaded evaluator owns a WASM-profile search session with an 8 MiB TT byte
+budget. The power-of-two bucket allocator currently uses 5 MiB of that budget.
+Session retention is disabled by default; explicit ABI/JavaScript methods
+enable retention and reset it at a game boundary. The current Worker leaves
+retention disabled.
 
 ### Engine Worker
 
@@ -156,11 +158,15 @@ evaluation.
 The Worker currently requests the `normal` preset with:
 
 ```text
-max depth: 8
+max depth: 64
 max nodes: 0
 max time: 500 ms
 exact-score handoff: 8 empties
 ```
+
+The high depth cap makes the request effectively time-bounded iterative
+deepening. The Worker uses the deepest completed iteration rather than ending
+early at a shallow fixed cap.
 
 `normal` and `hard` enable PVS, aspiration, IID, midgame/endgame TT, TT/history/
 killer ordering, depth-gated internal mobility ordering, and parity ordering.
