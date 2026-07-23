@@ -1,6 +1,6 @@
 {
   "schema_version": "probcut-profile-adoption-v3",
-  "profile_id": "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v2",
+  "profile_id": "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v3",
   "evaluator_family": "pattern-v2-endgame-lite",
   "artifact_family": "pattern-v2-egaroucid-lv17-full-value-v1",
   "node_class": "non_pv_scout_beta_only",

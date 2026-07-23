@@ -15,7 +15,7 @@ from typing import Any, Sequence
 
 
 SAMPLE_SCHEMA_VERSION = 5
-REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v5"
+REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v6"
 DEFAULT_MINIMUM_EXACT_PAIRS = 30
 DOMAIN_BUCKET_WIDTH = 4
 VERIFICATION_ALPHA = -30_000
@@ -722,6 +722,7 @@ def scheduler_observations(samples: Sequence[dict[str, Any]]) -> list[dict[str, 
         result.append(
             {
                 "node_id": hashlib.sha256(identity_payload.encode("utf-8")).hexdigest(),
+                "canonical_position_hash": first["canonical_position_hash"],
                 "phase": first["phase"],
                 "empties": first["empties"],
                 "search_mode": first["search_mode"],

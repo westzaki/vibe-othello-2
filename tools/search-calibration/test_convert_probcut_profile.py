@@ -58,6 +58,7 @@ def group(shallow_depth: int) -> dict[str, object]:
 def observation(node_id: str, pair_scores: tuple[int, int], deep_score: int = 2) -> dict[str, object]:
     return {
         "node_id": node_id,
+        "canonical_position_hash": hashlib.sha256(node_id.encode("utf-8")).hexdigest()[:16],
         "phase": 3,
         "empties": 20,
         "search_mode": "move",
@@ -101,7 +102,7 @@ def report(*, holdout: bool = False) -> dict[str, object]:
         else [observation("training-node", (0, 2))]
     )
     return {
-        "schema_version": "mpc-shadow-calibration-report-v5",
+        "schema_version": "mpc-shadow-calibration-report-v6",
         "provenance_inventory": [provenance(len(observations) * 2)],
         "collection_config_inventory": [
             {"collection_config_id": "1234567890abcdef", "sample_count": len(observations) * 2}
@@ -282,11 +283,26 @@ class ConverterTests(unittest.TestCase):
         with self.assertRaisesRegex(self.converter.ProfileConversionError, "collected pair order"):
             self.render(reviewed=reviewed)
 
-    def test_rejects_duplicate_training_holdout_node(self) -> None:
+    def test_rejects_duplicate_training_holdout_position(self) -> None:
         holdout = report(holdout=True)
-        holdout["scheduler_observations"][0]["node_id"] = "training-node"
-        with self.assertRaisesRegex(self.converter.ProfileConversionError, "duplicate sampled nodes"):
+        holdout["scheduler_observations"][0]["canonical_position_hash"] = report()[
+            "scheduler_observations"
+        ][0]["canonical_position_hash"]
+        with self.assertRaisesRegex(self.converter.ProfileConversionError, "duplicate canonical positions"):
             self.render(holdout=holdout)
+
+    def test_threshold_replay_includes_score_above_reviewed_maximum(self) -> None:
+        holdout = report(holdout=True)
+        holdout["scheduler_observations"] = [observation("above-maximum", (150, -100))]
+        holdout["provenance_inventory"] = [provenance(2)]
+        reviewed = adoption()
+        reviewed["validated_pair_order"] = reviewed["validated_pair_order"][:1]
+        reviewed["validated_maximum_probes_per_node"] = 1
+        reviewed["entries"] = [reviewed["entries"][0]]
+        reviewed["minimum_joint_cut_candidates"] = 1
+        rendered = self.render(reviewed=reviewed, holdout=holdout)
+        header, row = [line.split("\t") for line in rendered.splitlines()[:2]]
+        self.assertEqual(row[header.index("joint_cut_candidate_count")], "1")
 
     def test_rejects_joint_false_cut_bound(self) -> None:
         holdout = report(holdout=True)

@@ -103,6 +103,13 @@ std::vector<std::uint8_t> read_bytes_or_fail(const std::filesystem::path& path) 
   return bytes;
 }
 
+std::string replace_once(std::string text, std::string_view needle, std::string_view replacement) {
+  const std::size_t position = text.find(needle);
+  REQUIRE(position != std::string::npos);
+  text.replace(position, needle.size(), replacement);
+  return text;
+}
+
 class WasmEvalHandle {
 public:
   WasmEvalHandle() = default;
@@ -471,6 +478,9 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
       .evaluator_family = "pattern-v2-endgame-lite",
       .artifact_family = "pattern-v2-egaroucid-lv17-full-value-v1",
       .weights_checksum = "0xfe3d38f9",
+      .score_scale = 100,
+      .trained_phase_mask = vibe_othello::search::kAllProbCutPhasesMask,
+      .fallback_additive_through_phase = 9,
   };
   const vibe_othello::search::SearchOptions normal =
       vibe_othello::wasm_adapter::internal::search_options_for_preset(
@@ -545,6 +555,37 @@ TEST_CASE("WASM result reports effective production ProbCut selection", "[wasm][
                                                 VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD, 10,
                                                 &result) == VIBE_OTHELLO_WASM_STATUS_OK);
   REQUIRE((result.reserved0 & VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED) == 0);
+}
+
+TEST_CASE("WASM production ProbCut rejects changed evaluator routing semantics", "[wasm][search]") {
+  const std::string manifest_text = read_text_or_fail(production_manifest_path());
+  const std::vector<std::uint8_t> weights_bytes = read_bytes_or_fail(production_weights_path());
+  const vibe_othello_wasm_position position =
+      to_wasm_position(vibe_othello::board_core::initial_position());
+  const std::array changed_manifests{
+      replace_once(manifest_text, "    11,\n    12\n  ],", "    11\n  ],"),
+      replace_once(manifest_text, "\"fallback_additive_through_phase\": 9",
+                   "\"fallback_additive_through_phase\": 8"),
+  };
+
+  for (const std::string& changed_manifest : changed_manifests) {
+    WasmEvalHandle artifact = load_wasm_eval_artifact(changed_manifest, weights_bytes);
+    vibe_othello_wasm_search_result result{};
+    REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 8, 1000, 0,
+                                                  VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 8,
+                                                  &result) == VIBE_OTHELLO_WASM_STATUS_OK);
+    REQUIRE((result.reserved0 & VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED) == 0);
+  }
+
+  const std::string changed_scale =
+      replace_once(manifest_text, "\"score_scale\": 100", "\"score_scale\": 101");
+  uintptr_t handle = 0;
+  REQUIRE(vibe_othello_wasm_load_eval_artifact(
+              reinterpret_cast<const std::uint8_t*>(changed_scale.data()),
+              static_cast<std::uint32_t>(changed_scale.size()), weights_bytes.data(),
+              static_cast<std::uint32_t>(weights_bytes.size()),
+              &handle) == VIBE_OTHELLO_WASM_STATUS_ARTIFACT_LOAD_FAILED);
+  REQUIRE(handle == 0);
 }
 
 TEST_CASE("WASM search preset API returns legal moves for every preset", "[wasm][search]") {

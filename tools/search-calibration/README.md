@@ -145,8 +145,9 @@ list, sampling rate, and per-search cap identical. `--position-limit` and
 summary output remain local-only.
 
 Deterministically disjoint root partitions can still converge on the same
-sampled child node. Remove those holdout scheduler nodes as a complete pair
-group before analysis; the converter independently rejects any overlap that
+sampled child position. Remove every holdout row for a canonical position hash
+seen in training before analysis, regardless of ply, official window, or search
+role. The converter independently rejects any position-level overlap that
 remains:
 
 ```sh
@@ -214,8 +215,9 @@ stable. The recommended margin is an in-sample, report-only diagnostic. Before
 runtime adoption, coefficients and margins require validation against a
 separate seed or holdout campaign and a separate measured search change.
 
-The report also retains the collection pair order and per-node
-`scheduler_observations`. A report is rejected when a sampled node is missing
+The schema-v6 report also retains the collection pair order and per-node
+`scheduler_observations`, including each observation's
+`canonical_position_hash`. A report is rejected when a sampled node is missing
 one of its same-deep pairs or maps one collection index to multiple pairs.
 CTest includes a synthetic same-deep two-pair pipeline test through analyzer,
 converter, and the native Arena loader. That fixture checks the evidence chain;
@@ -287,23 +289,29 @@ converter selects exactly one eligible
 `non_pv_scout` group, maps `.slope` to `regression_slope` and `.intercept` to
 `intercept`, copies residual sigma, verifies that the preference exactly matches
 the collected pair order, and records both report SHA-256 values. Training and
-holdout provenance/collection policy must match and their sampled-node
-identities must be disjoint. The converter replays the runtime scheduler—pair
-1, then pair 2 after a rejection, stopping at the first success—for every pair
-prefix, probe cap, and exact profile domain. Only combinations meeting the
-candidate minimum and reviewed false-cut upper bound are stored. The full
+holdout provenance/collection policy must match and their canonical position
+hashes must be disjoint. The converter replays the runtime scheduler—deriving
+the threshold for pair 1, then pair 2 after a rejection, stopping at the first
+threshold-directed success—for every pair prefix, probe cap, and exact profile
+domain. An exact shallow value above `maximum_shallow_score` still counts as a
+success when the derived threshold is within the reviewed range, matching the
+runtime null-window decision. Only combinations meeting the candidate minimum
+and reviewed false-cut upper bound are stored. The full
 validated scheduler must pass every enabled domain or conversion fails; an
 optional prefix that fails remains absent and cannot be selected at runtime.
 Pair-local margins and a global aggregate alone cannot authorize a
 Multi-ProbCut profile.
 
-The one-sided integer condition is:
+The threshold-directed one-sided condition is:
 
 ```text
-predicted_deep = slope * shallow_score + intercept
 k = max(profile_confidence_multiplier, option_confidence_multiplier, minimum_confidence)
 margin = max(ceil(k * residual_sigma), minimum_margin)
-cut-high only if floor(predicted_deep) - margin >= beta
+shallow_beta = max(minimum_shallow_score,
+                   ceil((beta + margin - intercept) / slope))
+reject if shallow_beta > maximum_shallow_score
+probe [shallow_beta - 1, shallow_beta]
+cut-high iff the shallow probe fails high
 ```
 
 If `margin > maximum_margin`, the candidate is rejected; the maximum is never

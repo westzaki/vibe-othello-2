@@ -210,16 +210,16 @@ inline constexpr std::array<ProbCutCalibrationEntryV1, 5> kEntries{{
 
 inline constexpr ProbCutCalibrationProfileV1 kProfile{
     .schema_version = kProbCutCalibrationProfileSchemaVersion,
-    .profile_id = "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v2",
+    .profile_id = "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v3",
     .source_calibration_report_checksum_sha256 =
-        "f3c13276b444eea82af0872a6cdf8625f5bd499482d1a6bd1965c05ea6f4fb5d",
+        "d08271a201f58083b3cedacd636890861918594f40fe56ef85399716efc2243a",
     .evaluator_family = "pattern-v2-endgame-lite",
     .artifact_family = "pattern-v2-egaroucid-lv17-full-value-v1",
     .node_class = ProbCutNodeClassV1::non_pv_scout_beta_only,
     .validated_pair_order = kPairOrder,
     .validated_maximum_probes_per_node = 1,
     .joint_holdout_checksum_sha256 =
-        "f95cf5c83f2c069ef5e0ba318868c3ccb81e4d2c5dbe4aa07526d0db71828d89",
+        "6a6e363be1f79f8405e55cedec017c8a70ac677b9c90bb0f78475f576c8af84d",
     .joint_false_cut_count = 0,
     .joint_cut_candidate_count = 631,
     .joint_false_cut_rate_upper_bound =

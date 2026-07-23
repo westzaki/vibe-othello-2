@@ -82,7 +82,7 @@ def main() -> int:
                 f"analyzer rejected collector output\nstdout:\n{analyzed.stdout}\nstderr:\n{analyzed.stderr}"
             )
         payload = json.loads(report.read_text(encoding="utf-8"))
-        if payload["schema_version"] != "mpc-shadow-calibration-report-v5":
+        if payload["schema_version"] != "mpc-shadow-calibration-report-v6":
             raise AssertionError(f"unexpected report schema: {payload!r}")
         if payload["sample_count"] != summary["samples"]:
             raise AssertionError(f"collector/analyzer sample count mismatch: {payload!r}")

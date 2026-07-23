@@ -7,6 +7,9 @@ namespace {
 
 constexpr std::uint16_t kProductionPhaseMask = (std::uint16_t{1} << 3U) | (std::uint16_t{1} << 4U) |
                                                (std::uint16_t{1} << 6U) | (std::uint16_t{1} << 7U);
+constexpr std::uint16_t kProductionScoreScale = 100;
+constexpr std::uint16_t kProductionTrainedPhaseMask = kAllProbCutPhasesMask;
+constexpr std::uint8_t kProductionFallbackAdditiveThroughPhase = 9;
 
 } // namespace
 
@@ -22,8 +25,12 @@ production_probcut_configuration_v1(ProbCutRuntimeIdentityV1 identity, SearchMod
   using namespace production_internal;
   if (identity.evaluator_family != kProfile.evaluator_family ||
       identity.artifact_family != kProfile.artifact_family ||
-      identity.weights_checksum != kWeightsChecksum || search_mode != SearchMode::move ||
-      exact_handoff_threshold != 8) {
+      identity.weights_checksum != kWeightsChecksum ||
+      identity.score_scale != kProductionScoreScale ||
+      identity.trained_phase_mask != kProductionTrainedPhaseMask ||
+      identity.fallback_additive_through_phase !=
+          std::optional<std::uint8_t>{kProductionFallbackAdditiveThroughPhase} ||
+      search_mode != SearchMode::move || exact_handoff_threshold != 8) {
     return {};
   }
 

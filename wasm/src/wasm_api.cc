@@ -30,11 +30,26 @@ using vibe_othello::board_core::MoveKind;
 using vibe_othello::board_core::Position;
 using vibe_othello::board_core::Square;
 
+std::uint16_t
+trained_phase_mask_for(const std::optional<std::vector<std::uint8_t>>& trained_phases) noexcept {
+  if (!trained_phases.has_value()) {
+    return 0;
+  }
+  std::uint16_t mask = 0;
+  for (const std::uint8_t phase : *trained_phases) {
+    mask |= static_cast<std::uint16_t>(std::uint16_t{1} << phase);
+  }
+  return mask;
+}
+
 struct WasmEvaluationArtifact {
   explicit WasmEvaluationArtifact(vibe_othello::evaluation::LoadedPatternArtifactBytes artifact)
       : artifact_id(std::move(artifact.artifact_id)),
         pattern_set_id(std::move(artifact.pattern_set_id)),
         weights_checksum(std::move(artifact.weights_checksum)),
+        score_scale(artifact.weights.score_scale()),
+        trained_phase_mask(trained_phase_mask_for(artifact.trained_phases)),
+        fallback_additive_through_phase(artifact.fallback_additive_through_phase),
         trained_phases(std::move(artifact.trained_phases)),
         evaluator(std::move(artifact.weights), std::move(artifact.feature_set), trained_phases,
                   artifact.fallback_additive_through_phase),
@@ -50,6 +65,9 @@ struct WasmEvaluationArtifact {
   std::string artifact_id;
   std::string pattern_set_id;
   std::string weights_checksum;
+  std::uint16_t score_scale;
+  std::uint16_t trained_phase_mask;
+  std::optional<std::uint8_t> fallback_additive_through_phase;
   std::optional<std::vector<std::uint8_t>> trained_phases;
   vibe_othello::evaluation::PhaseAwareEvaluator evaluator;
   vibe_othello::search::SearchSession search_session;
@@ -297,6 +315,9 @@ uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_positio
               .evaluator_family = artifact->pattern_set_id,
               .artifact_family = artifact->artifact_id,
               .weights_checksum = artifact->weights_checksum,
+              .score_scale = artifact->score_scale,
+              .trained_phase_mask = artifact->trained_phase_mask,
+              .fallback_additive_through_phase = artifact->fallback_additive_through_phase,
           });
     }
 

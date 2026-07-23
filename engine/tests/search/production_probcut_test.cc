@@ -9,6 +9,9 @@ constexpr ProbCutRuntimeIdentityV1 kReviewedIdentity{
     .evaluator_family = "pattern-v2-endgame-lite",
     .artifact_family = "pattern-v2-egaroucid-lv17-full-value-v1",
     .weights_checksum = "0xfe3d38f9",
+    .score_scale = 100,
+    .trained_phase_mask = kAllProbCutPhasesMask,
+    .fallback_additive_through_phase = 9,
 };
 
 TEST_CASE("production ProbCut profile resolves only for its reviewed runtime identity",
@@ -29,7 +32,7 @@ TEST_CASE("production ProbCut profile resolves only for its reviewed runtime ide
            (std::uint16_t{1} << 7U)));
   REQUIRE(resolved.options.calibration_profile != nullptr);
   REQUIRE(resolved.options.calibration_profile->profile_id ==
-          "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v2");
+          "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v3");
   REQUIRE(resolved.options.calibration_profile->entries.size() == 5);
   REQUIRE(resolved.options.calibration_profile->scheduler_evidence.size() == 5);
   REQUIRE(resolved.options.calibration_profile->joint_false_cut_count == 0);
@@ -37,6 +40,18 @@ TEST_CASE("production ProbCut profile resolves only for its reviewed runtime ide
 
   ProbCutRuntimeIdentityV1 mismatch = kReviewedIdentity;
   mismatch.weights_checksum = "0x00000000";
+  REQUIRE_FALSE(production_probcut_configuration_v1(mismatch, SearchMode::move, 8).enabled());
+  mismatch = kReviewedIdentity;
+  mismatch.score_scale = 101;
+  REQUIRE_FALSE(production_probcut_configuration_v1(mismatch, SearchMode::move, 8).enabled());
+  mismatch = kReviewedIdentity;
+  mismatch.trained_phase_mask &= static_cast<std::uint16_t>(~(std::uint16_t{1} << 12U));
+  REQUIRE_FALSE(production_probcut_configuration_v1(mismatch, SearchMode::move, 8).enabled());
+  mismatch = kReviewedIdentity;
+  mismatch.fallback_additive_through_phase = 8;
+  REQUIRE_FALSE(production_probcut_configuration_v1(mismatch, SearchMode::move, 8).enabled());
+  mismatch = kReviewedIdentity;
+  mismatch.fallback_additive_through_phase = std::nullopt;
   REQUIRE_FALSE(production_probcut_configuration_v1(mismatch, SearchMode::move, 8).enabled());
   REQUIRE_FALSE(
       production_probcut_configuration_v1(kReviewedIdentity, SearchMode::analyze, 8).enabled());

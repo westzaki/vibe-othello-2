@@ -1,5 +1,6 @@
 {
   "schema_version": "wasm-probcut-speed-gate-v1",
+  "profile_id": "pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v3",
   "environment": {
     "machine_class": "local arm64 desktop",
     "node_version": "24.15.0"
@@ -20,7 +21,7 @@
     "enabled_nodes": 20883538,
     "disabled_nodes": 21268493,
     "node_ratio": 0.9819002220796744,
-    "median_wall_ratio": 0.9778319311920213,
+    "median_wall_ratio": 0.9735216427627813,
     "move_matches": 1350,
     "score_matches": 1350,
     "completed_depth_matches": 1350,
@@ -29,23 +30,23 @@
   "wall_trials": [
     {
       "order": ["off", "on"],
-      "ratio": 0.9707713759269796
+      "ratio": 0.9735216427627813
     },
     {
       "order": ["on", "off"],
-      "ratio": 0.9803890655649802
+      "ratio": 0.9732536134924297
     },
     {
       "order": ["off", "on"],
-      "ratio": 0.9787058538135588
+      "ratio": 0.9793508741959667
     },
     {
       "order": ["on", "off"],
-      "ratio": 0.9707770976409
+      "ratio": 0.9785050591059905
     },
     {
       "order": ["off", "on"],
-      "ratio": 0.9778319311920213
+      "ratio": 0.9727757094333657
     }
   ]
 }

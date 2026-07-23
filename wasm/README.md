@@ -67,7 +67,8 @@ requires `maxNodes` or `maxTimeMs`: exact root search intentionally ignores a
 depth limit.
 
 `normal` and `hard` select the checked-in Multi-ProbCut profile only when the
-loaded evaluator family, artifact ID, weights checksum, move-search mode, and
+loaded evaluator family, artifact ID, weights checksum, score scale,
+trained-phase mask, fallback-additive phase boundary, move-search mode, and
 8-empty exact handoff all match its reviewed identity. The speed-gated
 production schedule uses one threshold-directed `7:3` null-window probe in the
 reviewed phase 3, 4, 6, and 7 domains, with a 20% cumulative shallow-search

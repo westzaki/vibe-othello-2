@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v5"
+REPORT_SCHEMA_VERSION = "mpc-shadow-calibration-report-v6"
 ADOPTION_SCHEMA_VERSION = "probcut-profile-adoption-v3"
 NODE_CLASS = "non_pv_scout_beta_only"
 PROFILE_SCHEMA_VERSION = 3
@@ -272,17 +272,28 @@ def entry_matches_node(entry: dict[str, Any], node: dict[str, Any], pair: tuple[
     )
 
 
-def confidence_accepts(entry: dict[str, Any], shallow_score: int, beta: int) -> bool:
-    if (
-        not score_is_safely_heuristic(shallow_score)
-        or not entry["minimum_shallow_score"] <= shallow_score <= entry["maximum_shallow_score"]
-        or not entry["minimum_beta"] <= beta <= entry["maximum_beta"]
-    ):
-        return False
+def shallow_beta_for(entry: dict[str, Any], beta: int) -> int | None:
+    if not entry["minimum_beta"] <= beta <= entry["maximum_beta"]:
+        return None
     margin = math.ceil(entry["confidence_multiplier"] * entry["residual_sigma"])
-    predicted_floor = math.floor(entry["regression_slope"] * shallow_score + entry["intercept"])
-    conservative_lower = predicted_floor - margin
-    return score_is_safely_heuristic(conservative_lower) and conservative_lower >= beta
+    threshold = max(
+        math.ceil((beta + margin - entry["intercept"]) / entry["regression_slope"]),
+        entry["minimum_shallow_score"],
+    )
+    if threshold > entry["maximum_shallow_score"]:
+        return None
+    if not score_is_safely_heuristic(threshold - 1) or not score_is_safely_heuristic(threshold):
+        return None
+    return threshold
+
+
+def threshold_probe_accepts(entry: dict[str, Any], shallow_score: int, beta: int) -> bool:
+    shallow_beta = shallow_beta_for(entry, beta)
+    return (
+        shallow_beta is not None
+        and score_is_safely_heuristic(shallow_score)
+        and shallow_score >= shallow_beta
+    )
 
 
 def scheduler_domain(entry: dict[str, Any]) -> tuple[Any, ...]:
@@ -377,7 +388,7 @@ def replay_joint_scheduler(
             probes += 1
             shallow_score = scores.get(pair)
             require(isinstance(shallow_score, int), f"joint holdout is missing pair {pair[0]}/{pair[1]}")
-            if confidence_accepts(entry_matches[0], shallow_score, beta):
+            if threshold_probe_accepts(entry_matches[0], shallow_score, beta):
                 candidates += 1
                 false_cuts += deep_score < beta
                 break
@@ -517,17 +528,24 @@ def render_profile(
     training_pairs = ordered_report_pairs(report, "training report")
     holdout_pairs = ordered_report_pairs(joint_holdout, "joint holdout report")
     require(training_pairs == holdout_pairs, "training and joint holdout depth-pair order must match")
-    training_nodes = {
-        node.get("node_id")
+    training_positions = {
+        node.get("canonical_position_hash")
         for node in report.get("scheduler_observations", [])
         if isinstance(node, dict)
     }
-    holdout_nodes = {
-        node.get("node_id")
+    holdout_positions = {
+        node.get("canonical_position_hash")
         for node in joint_holdout.get("scheduler_observations", [])
         if isinstance(node, dict)
     }
-    require(not (training_nodes & holdout_nodes), "training and joint holdout contain duplicate sampled nodes")
+    require(
+        None not in training_positions and None not in holdout_positions,
+        "training and joint holdout observations must include canonical position identity",
+    )
+    require(
+        not (training_positions & holdout_positions),
+        "training and joint holdout contain duplicate canonical positions",
+    )
 
     require(adoption.get("schema_version") == ADOPTION_SCHEMA_VERSION, "unsupported adoption schema")
     profile_id = adoption.get("profile_id")

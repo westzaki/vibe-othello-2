@@ -1407,7 +1407,8 @@ They must not be enabled in exact endgame modes.
 Generic runtime ProbCut options remain off by default; their default depths and
 margins are zero/invalid as an additional guard. The production selector owns
 one checked-in reviewed profile and resolves it only for the exact evaluator,
-artifact, weights checksum, move-search mode, and exact-handoff threshold. It is
+artifact, weights checksum, score scale, trained-phase mask, fallback-additive
+phase boundary, move-search mode, and exact-handoff threshold. It is
 attempted only at an explicit PVS scout/null-window entry marked
 as cut-node-equivalent. Plain PV/full-window nodes, recursive alpha-beta nodes
 without that marker, IID work, root/terminal/pass nodes,
@@ -1436,7 +1437,9 @@ phase, search mode, inclusive empties range, deep/shallow pair, exact-handoff
 enabled state and threshold, and inclusive exact-handoff-distance range. They also contain slope
 `a`, intercept `b`, residual sigma, audited confidence multiplier, and inclusive
 shallow-score/beta validity ranges. The caller supplies the evaluator and
-artifact family actually in use; both must exactly match the reviewed profile.
+artifact family plus its score scale, trained-phase mask, and optional
+fallback-additive boundary actually in use; every field must exactly match the
+reviewed profile.
 Missing or ambiguous domains are rejected. Adjacent phase, empties, depth,
 handoff, evaluator, and artifact profiles are never extrapolated.
 Runtime pair options must be an identical prefix of `validated_pair_order`, and
@@ -1485,6 +1488,12 @@ integer shallow score, but it avoids paying for an exact full-window result.
 Terminal exact disc differences never reach the gate, and the shallow search
 temporarily disables exact handoff, so the fitted heuristic domain is not mixed
 with exact score kinds.
+
+The reviewed shallow-score maximum limits the derived threshold, not the
+eventual fail-high value. If `shallow_beta` is eligible, any result at or above
+that threshold cuts, including an exact shallow value above the reviewed
+maximum. Holdout conversion replays this threshold-directed null-window
+decision exactly when counting candidates and false cuts.
 
 The shallow search shares the official stop flag, deadline, node limit, node
 counter, and evaluator state. Its nodes therefore contribute to
@@ -1577,9 +1586,10 @@ Separate-seed or holdout validation remains mandatory before any coefficient
 can be proposed for runtime use.
 The analyzer rejects partial same-deep populations, groups by phase/pair/role,
 search mode, observed empties bucket, and observed exact-handoff-distance
-bucket. Profile conversion requires disjoint training and holdout samples and
-offline-replays the runtime first-success policy. Pair-local fits without joint
-scheduler evidence cannot produce a profile.
+bucket. Profile conversion requires training and holdout to be disjoint by
+canonical position hash, regardless of ply, official window, or search role,
+and offline-replays the runtime threshold-directed first-success policy.
+Pair-local fits without joint scheduler evidence cannot produce a profile.
 The JSON/JSONL contract and deterministic offline analyzer are documented in
 `tools/search-calibration/README.md`. Samples and reports are local-only.
 

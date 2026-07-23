@@ -47,8 +47,8 @@ def main() -> int:
         write_jsonl(
             holdout,
             [
-                sample("0000000000000001", 0),
-                sample("0000000000000001", 1),
+                {**sample("0000000000000001", 0), "ply": 9, "official_beta": 12},
+                {**sample("0000000000000001", 1), "ply": 9, "official_beta": 12},
                 sample("0000000000000002", 0),
                 sample("0000000000000002", 1),
             ],
@@ -71,7 +71,7 @@ def main() -> int:
         if completed.returncode != 0:
             raise AssertionError(completed.stderr)
         summary = json.loads(completed.stdout)
-        if summary["overlapping_nodes_removed"] != 1:
+        if summary["overlapping_positions_removed"] != 1:
             raise AssertionError(summary)
         retained = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
         if len(retained) != 2 or {row["canonical_position_hash"] for row in retained} != {
