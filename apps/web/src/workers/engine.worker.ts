@@ -36,7 +36,7 @@ type DispatchResult = BoardSnapshot | CpuMoveResult;
 type JsonObject = Record<string, unknown>;
 
 const CPU_SEARCH_LIMITS = {
-  maxDepth: 8,
+  maxDepth: 64,
   maxNodes: 0,
   maxTimeMs: 500,
 } as const;

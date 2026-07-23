@@ -129,6 +129,13 @@ endgame_search_after_stability_with_policy(EndgameContext* context, Score alpha,
   const Depth remaining_empties = static_cast<Depth>(empties);
 
   EndgameStackFrame& frame = context->stack[ply];
+  if constexpr (EndgamePolicy::kUsesSmallEmpty) {
+    if (small_endgame_policy == SmallEndgamePolicy::enabled && empties <= 4) {
+      return *try_exact_score_small_empty(context, alpha, beta, empties, ply, small_endgame_policy,
+                                          original_alpha, original_beta);
+    }
+  }
+
   frame.legal_moves = legal_moves(&context->position_state);
   if (frame.legal_moves == 0 && opponent_legal_moves(context->position_state) == 0) {
     return endgame_terminal<EndgamePolicy>(context, empties);

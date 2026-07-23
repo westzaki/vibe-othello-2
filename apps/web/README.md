@@ -65,8 +65,11 @@ The Worker fetches the default pointer from
 from that static path, loads the bytes through `WasmCore.loadEvaluationArtifact()`,
 and uses the loaded artifact for CPU moves.
 
-The browser CPU search uses the `normal` preset: depth 8, no node cap, a 500 ms
-time cap, and exact-score endgame search from 8 empty squares. CPU opponent
+The browser CPU search uses the `normal` preset: a maximum depth of 64, no node
+cap, a 500 ms time cap, and exact-score endgame search from 8 empty squares.
+The high depth cap makes the request effectively time-bounded iterative
+deepening: it returns the deepest iteration completed within the time budget.
+CPU opponent
 mode is intentionally minimal: the human is fixed to Black, the CPU is fixed to
 White, and the same bounded CPU move command is reused for automatic responses.
 There is no side selection, difficulty selector, cancellation UI, threaded WASM,
