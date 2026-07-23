@@ -500,7 +500,7 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE(normal.endgame.endgame_exact_empties == 8);
   REQUIRE(normal.endgame.endgame_wld_empties == 0);
   REQUIRE(normal.probcut_options.use_probcut);
-  REQUIRE(normal.probcut_options.maximum_probes_per_node == 1);
+  REQUIRE(normal.probcut_options.maximum_probes_per_node == 2);
   REQUIRE(normal.probcut_options.maximum_margin == 22);
 
   const vibe_othello::search::SearchOptions hard =

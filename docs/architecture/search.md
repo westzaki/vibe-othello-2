@@ -1418,8 +1418,10 @@ near-exact threshold cannot cut.
 Only beta-direction cut-high is implemented. The WASM `normal` and `hard`
 presets use the production selector; `easy`, the legacy API, identity mismatch,
 and the build-time kill switch leave `probcut_options` disabled. The selected
-production profile uses one `7:3` probe only in its reviewed phase 3, 4, 6, and
-7 domains, has no cold-start delay, and caps cumulative shallow work at 20%.
+production profile tries threshold-directed `7:3` and then `7:4` probes in its
+reviewed phase 2, 3, 4, 6, 7, 9, and 10 domains, has no cold-start delay, and
+caps cumulative shallow work at 20%. The `7:4` probe runs only after `7:3`
+rejects and only where its exact scheduler domain has passing evidence.
 Promotion additionally requires a phase-balanced WASM comparison with at least
 1% aggregate node reduction, at least 1% median wall-time reduction, and exact
 best-move, score, and completed-depth parity against a kill-switch build.

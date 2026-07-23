@@ -5,8 +5,10 @@
 namespace vibe_othello::search {
 namespace {
 
-constexpr std::uint16_t kProductionPhaseMask = (std::uint16_t{1} << 3U) | (std::uint16_t{1} << 4U) |
-                                               (std::uint16_t{1} << 6U) | (std::uint16_t{1} << 7U);
+constexpr std::uint16_t kProductionPhaseMask = (std::uint16_t{1} << 2U) | (std::uint16_t{1} << 3U) |
+                                               (std::uint16_t{1} << 4U) | (std::uint16_t{1} << 6U) |
+                                               (std::uint16_t{1} << 7U) | (std::uint16_t{1} << 9U) |
+                                               (std::uint16_t{1} << 10U);
 constexpr std::uint16_t kProductionScoreScale = 100;
 constexpr std::uint16_t kProductionTrainedPhaseMask = kAllProbCutPhasesMask;
 constexpr std::uint8_t kProductionFallbackAdditiveThroughPhase = 9;

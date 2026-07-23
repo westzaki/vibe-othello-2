@@ -1,4 +1,4 @@
-# pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v3
+# pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v4-aggressive
 
 Speed-gated beta-direction Multi-ProbCut profile for the default learned evaluator.
 
@@ -14,22 +14,21 @@ Speed-gated beta-direction Multi-ProbCut profile for the default learned evaluat
 | Fallback additive through phase | 9 |
 | Search mode | move |
 | Exact handoff | 8 empties |
-| Depth pair | `7:3` |
-| Maximum probes per node | 1 |
+| Depth pairs | `7:3`, then `7:4` |
+| Maximum probes per node | 2 |
 | Confidence multiplier | 3.0 |
 | Maximum margin | 22 |
-| Production phases | 3, 4, 6, and 7 |
+| Production phases | 2, 3, 4, 6, 7, 9, and 10 |
 | Shallow-work cap | 20% of official nodes |
 | Cold-start guard | none |
 
-The earlier two-probe rollout paid for an exact full-window shallow score and
-did not demonstrate a speedup. V3 instead solves the reviewed regression for
-the minimum qualifying shallow score and searches only the corresponding
-null window. Holdout replay applies that same threshold-directed decision, so
-an exact shallow score above the reviewed maximum still counts as a cut when
-the derived threshold is within range. The profile retains the cheaper `7:3`
-pair and only the independently reviewed domains that observed no false cuts
-under that one-probe scheduler.
+The earlier two-probe rollout paid for exact full-window shallow scores and did
+not demonstrate a speedup. V4 solves each reviewed regression for the minimum
+qualifying shallow score and searches only the corresponding null window. It
+tries `7:4` only after `7:3` rejects, and includes only exact scheduler domains
+that observed no false cuts. Holdout replay applies the same
+threshold-directed decision, so an exact shallow score above the reviewed
+maximum still counts as a cut when the derived threshold is within range.
 Missing domains, identity mismatch, other exact thresholds, `easy`, the legacy
 API, and `VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` all resolve to disabled.
 
@@ -42,10 +41,10 @@ for the 330 canonical positions that also appeared in training left 38,672
 rows. The position-level check ignores ply, search window, and search role. No
 collection search stopped.
 
-The selected phase 3/4/6/7 domains contain 631 one-probe holdout cut candidates
-with 0 false cuts. Their joint Wilson 95% upper bound is 0.0060511. The retained
-five exact domains each have at least 90 candidates and a per-domain Wilson 95%
-upper bound below 5%.
+The selected phase 2/3/4/6/7/9/10 domains contain 1,305 threshold-directed
+holdout cut candidates with 0 false cuts. Their joint Wilson 95% upper bound is
+0.0029351. The retained ten exact domains each have at least 90 candidates and
+a per-domain Wilson 95% upper bound below 5%.
 
 ## Mandatory speed gate
 
@@ -54,13 +53,14 @@ and every fixed-depth output matches the disabled build:
 
 | Gate | Required | Measured |
 | --- | ---: | ---: |
-| Enabled/disabled nodes | <= 0.990000 | 0.981900 |
-| Median enabled/disabled wall time | <= 0.990000 | 0.973522 |
+| Enabled/disabled nodes | <= 0.990000 | 0.948832 |
+| Median enabled/disabled wall time | <= 0.990000 | 0.939281 |
 | Best move, score, completed depth | exact match | 1,350/1,350 each |
 
 The measurement used 270 independent-game positions, balanced at 30 positions
 for every phase from 2 through 10, depth 8, exact handoff 8, and five trials
-with alternating ON/OFF order. `performance.json` records the corpus checksum,
+with alternating ON/OFF order after rebasing onto the exact-endgame changes at
+`origin/main` commit `472e6f2`. `performance.json` records the corpus checksum,
 environment class, thresholds, aggregates, and individual wall-time ratios.
 Timing remains machine-local; deterministic node reduction and exact output
 parity are the primary portable evidence.
@@ -85,7 +85,7 @@ compiled include from the repository root:
 
 ```sh
 python3 tools/search-calibration/export_probcut_profile_cpp.py \
-  data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v3/profile.json \
+  data/search/profiles/pattern-v2-egaroucid-lv17-full-value-mpc-d7-fast-v4-aggressive/profile.json \
   --weights-checksum 0xfe3d38f9 \
   --maximum-margin 22 \
   --maximum-shallow-overhead-ratio 0.20 \

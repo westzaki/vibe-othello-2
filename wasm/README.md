@@ -70,9 +70,10 @@ depth limit.
 loaded evaluator family, artifact ID, weights checksum, score scale,
 trained-phase mask, fallback-additive phase boundary, move-search mode, and
 8-empty exact handoff all match its reviewed identity. The speed-gated
-production schedule uses one threshold-directed `7:3` null-window probe in the
-reviewed phase 3, 4, 6, and 7 domains, with a 20% cumulative shallow-search
-ceiling. `easy`, the legacy API, nonmatching artifacts, and other exact
+production schedule tries threshold-directed `7:3` and then `7:4` null-window
+probes in the reviewed phase 2, 3, 4, 6, 7, 9, and 10 domains, with a 20%
+cumulative shallow-search ceiling. `easy`, the legacy API, nonmatching
+artifacts, and other exact
 thresholds remain disabled. Search results expose the effective selection as
 `probcutEnabled`; this reports configuration selection, even when the current
 position does not enter an enabled profile domain.
