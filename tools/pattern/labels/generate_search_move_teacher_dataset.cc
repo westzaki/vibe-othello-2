@@ -523,6 +523,7 @@ SearchConfig make_search_config(const Args& args) {
                   search::EndgameSearchOptions{
                       .exact_endgame = args.exact_endgame_empties != 0,
                       .use_endgame_tt = full,
+                      .use_endgame_pvs = true,
                       .endgame_exact_empties = args.exact_endgame_empties,
                       .endgame_wld_empties = 0,
                   },
@@ -532,9 +533,8 @@ SearchConfig make_search_config(const Args& args) {
       .exact_endgame_empties = args.exact_endgame_empties,
   };
   std::ostringstream canonical;
-  // v3 is the solver-semantics revision for the eight-empty internal exact
-  // handoff and makes the stability policy explicit in label provenance.
-  canonical << "search-move-teacher-config-v3\n"
+  // v4 makes the endgame PVS policy explicit in label provenance.
+  canonical << "search-move-teacher-config-v4\n"
             << preset_name(config.preset) << '\n'
             << config.limits.max_depth << '\n'
             << config.limits.max_nodes << '\n'
@@ -542,7 +542,8 @@ SearchConfig make_search_config(const Args& args) {
             << static_cast<int>(config.exact_endgame_empties) << '\n'
             << full << '\n'
             << coverage_policy_name(args.teacher_coverage_policy) << '\n'
-            << static_cast<int>(config.options.endgame.stability_mode) << '\n';
+            << static_cast<int>(config.options.endgame.stability_mode) << '\n'
+            << config.options.endgame.use_endgame_pvs << '\n';
   config.id =
       "fnv1a64:" + checksum_string(fnv1a64_update(14695981039346656037ull, canonical.str()));
   return config;
