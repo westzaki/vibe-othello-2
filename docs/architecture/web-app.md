@@ -29,6 +29,7 @@ The current app supports:
 * legal-move display, checked move application, and checked pass
 * a manual CPU move for the current side
 * a minimal human-Black/CPU-White mode with automatic White replies
+* Easy, Normal, and Hard CPU time budgets
 * a compact summary of the last CPU search
 * runtime loading of the committed default evaluation artifact
 * GitHub Pages builds containing generated WASM and copied evaluation assets
@@ -70,7 +71,8 @@ Each loaded evaluator owns a WASM-profile search session with an 8 MiB TT byte
 budget. The power-of-two bucket allocator currently uses 5 MiB of that budget.
 Session retention is disabled by default; explicit ABI/JavaScript methods
 enable retention and reset it at a game boundary. The current Worker leaves
-retention disabled.
+retention disabled pending a same-condition persistent-session ON/OFF
+comparison.
 
 ### Engine Worker
 
@@ -91,7 +93,7 @@ against the pre-move legal mask before applying it.
 * `reset`
 * `applyMove`
 * `applyPass`
-* `cpuMove`
+* `cpuMove`, carrying the selected difficulty
 
 Each request has an id; each response echoes the id and command. Success
 responses carry a `BoardSnapshot` and optionally a CPU move/search summary.
@@ -155,18 +157,18 @@ evaluation.
 
 ## Browser Search Policy
 
-The Worker currently requests the `normal` preset with:
+The Worker requests the `normal` preset at every difficulty with:
 
 ```text
 max depth: 64
 max nodes: 0
-max time: 500 ms
 exact-score handoff: 8 empties
 ```
 
-The high depth cap makes the request effectively time-bounded iterative
-deepening. The Worker uses the deepest completed iteration rather than ending
-early at a shallow fixed cap.
+The difficulty selector changes only `max_time`: Easy uses 100 ms, Normal uses
+500 ms, and Hard uses 1500 ms. The high depth value is a ceiling; cooperative
+time stopping and iterative deepening determine the completed depth returned to
+the app.
 
 `normal` and `hard` enable PVS, aspiration, IID, midgame/endgame TT, TT/history/
 killer ordering, depth-gated internal mobility ordering, and parity ordering.
@@ -222,8 +224,8 @@ smoke are not yet implemented.
 
 ## Current Limitations
 
-The browser app has no side selector, difficulty selector, continuous
-evaluation view, score explanation, game review, opening book, hard
+The browser app has no side selector, continuous evaluation view, score
+explanation, game review, opening book, hard
 cancellation, threaded WASM, or browser pthread support. CPU opponent mode is
 fixed to human Black and CPU White. The UI and presets make no Elo or
 production-strength claim.

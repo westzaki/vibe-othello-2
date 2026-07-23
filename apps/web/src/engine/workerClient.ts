@@ -1,5 +1,6 @@
 import type {
   BoardSnapshot,
+  CpuDifficulty,
   CpuMoveResult,
   EngineRequest,
   EngineRequestPayload,
@@ -48,8 +49,8 @@ export class EngineWorkerClient {
     return this.requestSnapshot({ command: "applyPass" });
   }
 
-  async cpuMove(): Promise<CpuMoveResult> {
-    const response = await this.request({ command: "cpuMove" });
+  async cpuMove(difficulty: CpuDifficulty): Promise<CpuMoveResult> {
+    const response = await this.request({ command: "cpuMove", difficulty });
     if (response.cpuMove === undefined) {
       throw new Error("Engine worker returned a CPU move response without a summary.");
     }

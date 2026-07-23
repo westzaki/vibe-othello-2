@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createEngineWorkerClient, type EngineWorkerClient } from "./engine/workerClient";
-import type { BoardCell, BoardSnapshot, CpuMoveSummary, SearchSummary } from "./workers/protocol";
+import type {
+  BoardCell,
+  BoardSnapshot,
+  CpuDifficulty,
+  CpuMoveSummary,
+  SearchSummary,
+} from "./workers/protocol";
 
 type EngineStatus = "loading" | "ready" | "error";
 
@@ -23,6 +29,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [cpuMove, setCpuMove] = useState<CpuMoveSummary | null>(null);
   const [cpuOpponentEnabled, setCpuOpponentEnabled] = useState(false);
+  const [cpuDifficulty, setCpuDifficulty] = useState<CpuDifficulty>("normal");
 
   useEffect(() => {
     const client = createEngineWorkerClient();
@@ -168,7 +175,7 @@ function App() {
     setNotice(null);
     setError(null);
     try {
-      const result = await client.cpuMove();
+      const result = await client.cpuMove(cpuDifficulty);
       setSnapshot(result.snapshot);
       setCpuMove(result.cpuMove);
       setStatus("ready");
@@ -200,7 +207,7 @@ function App() {
     setError(null);
     setCpuMove(null);
     try {
-      const result = await client.cpuMove();
+      const result = await client.cpuMove(cpuDifficulty);
       setSnapshot(result.snapshot);
       setCpuMove(result.cpuMove);
       setStatus("ready");
@@ -229,6 +236,18 @@ function App() {
           ) : null}
         </div>
         <div className="app__actions">
+          <label className="app__difficulty">
+            <span>Difficulty</span>
+            <select
+              value={cpuDifficulty}
+              onChange={(event) => setCpuDifficulty(event.target.value as CpuDifficulty)}
+              disabled={busy || status === "loading"}
+            >
+              <option value="easy">Easy</option>
+              <option value="normal">Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
           <button
             className="app__button"
             type="button"
