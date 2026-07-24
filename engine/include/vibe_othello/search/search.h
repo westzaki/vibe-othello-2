@@ -57,6 +57,8 @@ struct EndgameSearchOptions {
   bool use_endgame_pvs = true;
   std::uint8_t endgame_exact_empties = 0;
   std::uint8_t endgame_wld_empties = 0;
+  // Zero reuses endgame_exact_empties for backward-compatible root triggering.
+  std::uint8_t root_exact_endgame_empties = 0;
   EndgameStabilityMode stability_mode = EndgameStabilityMode::cutoff;
 
   friend constexpr bool operator==(const EndgameSearchOptions&,

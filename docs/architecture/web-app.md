@@ -162,7 +162,8 @@ The Worker requests the `normal` preset at every difficulty with:
 ```text
 max depth: 64
 max nodes: 0
-exact-score handoff: 8 empties
+exact-score root solve: 14 empties
+internal exact-score handoff: 8 empties
 ```
 
 The difficulty selector changes only `max_time`: Easy uses 100 ms, Normal uses
@@ -172,13 +173,15 @@ the app.
 
 `normal` and `hard` enable PVS, aspiration, IID, midgame/endgame TT, TT/history/
 killer ordering, depth-gated internal mobility ordering, and parity ordering.
-They also select the fail-closed production Multi-ProbCut profile only for the
+They can select the fail-closed production Multi-ProbCut profile only for the
 exact reviewed evaluator, artifact, weights checksum, score scale,
 trained-phase mask, fallback-additive phase boundary, move-search mode, and
-8-empty handoff identity. They currently differ through caller-supplied limits
-rather than algorithm flags. `easy`, the legacy search API, identity mismatch,
-and other handoff thresholds keep Multi-ProbCut disabled. Search results expose
-the effective configuration selection through `probcutEnabled`.
+matching 8-empty internal handoff identity. The Web's wider 14-empty root
+policy is position-aware: roots above 14 empties retain production MPC, while
+roots at or below 14 empties clear it before direct exact solving and report
+`probcutEnabled = false`. `normal` and `hard` currently differ through
+caller-supplied limits rather than algorithm flags. `easy`, the legacy search
+API, and identity mismatch keep Multi-ProbCut disabled.
 
 Limits are independent from presets. The ABI requires a node or time limit when
 exact root search is enabled because exact root solving ignores `max_depth`.

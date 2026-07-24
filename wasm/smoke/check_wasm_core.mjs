@@ -154,6 +154,20 @@ const productionSearch = productionArtifact.searchBestMoveWithPreset(
   8,
 );
 assert.equal(productionSearch.probcutEnabled, true);
+const widerRootSearch = productionArtifact.searchBestMoveWithPreset(
+  initialPosition,
+  { maxDepth: 8, maxNodes: 1000 },
+  "normal",
+  14,
+);
+assert.equal(widerRootSearch.probcutEnabled, true);
+const widerExactRootSearch = productionArtifact.searchBestMoveWithPreset(
+  latePosition,
+  { maxDepth: 8, maxNodes: 1000 },
+  "normal",
+  14,
+);
+assert.equal(widerExactRootSearch.probcutEnabled, false);
 productionArtifact.free();
 
 artifact.free();

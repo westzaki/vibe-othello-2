@@ -313,8 +313,11 @@ SearchResult solve_root_endgame_with_policy(board_core::Position position, Searc
 
 bool should_use_exact_endgame(board_core::Position position,
                               ResolvedSearchOptions options) noexcept {
+  const std::uint8_t root_exact_empties = options.endgame.root_exact_endgame_empties == 0
+                                              ? options.endgame.endgame_exact_empties
+                                              : options.endgame.root_exact_endgame_empties;
   return options.endgame.exact_endgame && options.mode != SearchMode::win_loss_draw &&
-         empty_count(position) <= options.endgame.endgame_exact_empties;
+         empty_count(position) <= root_exact_empties;
 }
 
 bool should_use_wld_endgame(board_core::Position position, ResolvedSearchOptions options) noexcept {

@@ -55,7 +55,7 @@ const CPU_SEARCH_LIMITS_BY_DIFFICULTY = {
 } as const;
 
 const CPU_SEARCH_PRESET = "normal" as const;
-const CPU_SEARCH_EXACT_ENDGAME_EMPTIES = 8;
+const CPU_SEARCH_EXACT_ENDGAME_EMPTIES = 14;
 
 const workerGlobal = self as unknown as WorkerGlobal;
 

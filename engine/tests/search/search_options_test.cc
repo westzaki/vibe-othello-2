@@ -26,6 +26,7 @@ void require_default_resolved_options(const internal::ResolvedSearchOptions& opt
   REQUIRE(options.endgame.use_endgame_pvs);
   REQUIRE(options.endgame.endgame_exact_empties == 0);
   REQUIRE(options.endgame.endgame_wld_empties == 0);
+  REQUIRE(options.endgame.root_exact_endgame_empties == 0);
   REQUIRE(options.endgame.stability_mode == EndgameStabilityMode::cutoff);
 
   REQUIRE(options.reporting.multi_pv == 0);
@@ -523,6 +524,7 @@ TEST_CASE("typed search sub-configs are the resolved source of truth", "[search]
               .use_endgame_tt = true,
               .endgame_exact_empties = 10,
               .endgame_wld_empties = 12,
+              .root_exact_endgame_empties = 14,
           },
       .reporting = SearchReportingOptions{.multi_pv = 2},
       .mode = SearchMode::exact_score,
@@ -546,6 +548,7 @@ TEST_CASE("typed search sub-configs are the resolved source of truth", "[search]
   REQUIRE(resolved.endgame.use_endgame_tt);
   REQUIRE(resolved.endgame.endgame_exact_empties == 10);
   REQUIRE(resolved.endgame.endgame_wld_empties == 12);
+  REQUIRE(resolved.endgame.root_exact_endgame_empties == 14);
 
   REQUIRE(resolved.reporting.multi_pv == 2);
 }

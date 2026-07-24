@@ -307,6 +307,13 @@ uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_positio
       return VIBE_OTHELLO_WASM_STATUS_EVALUATOR_NOT_LOADED;
     }
 
+    Position engine_position{};
+    const uint32_t status = to_engine_position(*position, &engine_position);
+    if (status != VIBE_OTHELLO_WASM_STATUS_OK) {
+      *out_result = empty_search_result(status);
+      return status;
+    }
+
     vibe_othello::search::SearchOptions options{};
     if (preset_request.has_value()) {
       options = vibe_othello::wasm_adapter::internal::search_options_for_preset(
@@ -319,13 +326,7 @@ uint32_t search_best_move(uintptr_t eval_handle, const vibe_othello_wasm_positio
               .trained_phase_mask = artifact->trained_phase_mask,
               .fallback_additive_through_phase = artifact->fallback_additive_through_phase,
           });
-    }
-
-    Position engine_position{};
-    const uint32_t status = to_engine_position(*position, &engine_position);
-    if (status != VIBE_OTHELLO_WASM_STATUS_OK) {
-      *out_result = empty_search_result(status);
-      return status;
+      vibe_othello::wasm_adapter::internal::apply_root_position_policy(engine_position, &options);
     }
 
     const vibe_othello::search::SearchLimits limits{

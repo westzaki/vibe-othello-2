@@ -238,8 +238,10 @@ WLD TT entries must never satisfy exact-score probes.
 
 Exact-score and WLD root triggers are separate. Exact-score root integration
 requires `endgame.exact_endgame`, a non-WLD request, and a root empty count at
-or below `endgame.endgame_exact_empties`; it returns a final disc-difference
-margin. WLD root integration requires an explicit
+or below `endgame.root_exact_endgame_empties` when that value is nonzero. A
+zero root-specific value preserves the legacy behavior by reusing
+`endgame.endgame_exact_empties`. Exact integration returns a final
+disc-difference margin. WLD root integration requires an explicit
 `SearchMode::win_loss_draw`, a nonzero `endgame.endgame_wld_empties`, and a
 root empty count at or below that threshold; it returns only `-1`, `0`, or `1`.
 The direct solver APIs bypass both threshold gates.
@@ -710,7 +712,8 @@ Internal integration:
   the request is not WLD, call exact endgame search instead of heuristic
   evaluation if the position is under the conservative internal threshold
 * the internal exact-score threshold is capped at eight empties, even
-  when `endgame_exact_empties` is larger
+  when `endgame_exact_empties` is larger; the root-specific threshold does not
+  change internal handoff
 * internal endgame calls do not publish root move reports
 * negate returned score according to normal negamax rules
 * keep exact entries separate from midgame TT entries
