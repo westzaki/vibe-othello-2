@@ -30,7 +30,10 @@ struct Args {
   std::filesystem::path nboard_exe;
   std::filesystem::path nboard_working_directory;
   std::filesystem::path nboard_stderr;
+  std::string nboard_name;
+  std::string nboard_runtime_id;
   std::vector<std::string> nboard_args;
+  NBoardProtocolVersion nboard_protocol = NBoardProtocolVersion::v2;
   int nboard_depth = 1;
   std::filesystem::path artifact_manifest;
   std::filesystem::path openings_path;
@@ -49,11 +52,13 @@ struct LoadedEvaluator {
 
 void print_usage(std::ostream& output) {
   output << "usage: vibe-othello-nboard-match --nboard-exe PATH "
-            "--nboard-working-directory DIR [--nboard-arg ARG ...] "
+            "--nboard-working-directory DIR --nboard-name NAME --nboard-runtime-id ID "
+            "[--nboard-arg ARG ...] "
             "--artifact-manifest PATH --openings PATH [options]\n"
             "options:\n"
             "  --nboard-stderr PATH         external engine stderr log\n"
-            "  --nboard-depth N             NBoard set depth value (default: 1)\n"
+            "  --nboard-protocol 1|2        NBoard command dialect (default: 2)\n"
+            "  --nboard-depth N             NBoard depth value (default: 1)\n"
             "  --max-openings N             paired openings to play (default: 1)\n"
             "  --time-ms N                  Vibe time per move (default: 1000)\n"
             "  --tt-bytes N                 Vibe TT byte budget (default: 268435456)\n"
@@ -94,6 +99,10 @@ std::optional<Args> parse_args(int argc, char** argv, std::string* error) {
       args.nboard_working_directory = value;
     } else if (flag == "--nboard-stderr") {
       args.nboard_stderr = value;
+    } else if (flag == "--nboard-name") {
+      args.nboard_name = value;
+    } else if (flag == "--nboard-runtime-id") {
+      args.nboard_runtime_id = value;
     } else if (flag == "--nboard-arg") {
       args.nboard_args.push_back(value);
     } else if (flag == "--artifact-manifest") {
@@ -102,6 +111,13 @@ std::optional<Args> parse_args(int argc, char** argv, std::string* error) {
       args.openings_path = value;
     } else if (flag == "--report-out") {
       args.report_out = value;
+    } else if (flag == "--nboard-protocol") {
+      const auto parsed = parse_integer<int>(value);
+      if (!parsed.has_value() || (*parsed != 1 && *parsed != 2)) {
+        *error = "invalid --nboard-protocol: expected 1 or 2";
+        return std::nullopt;
+      }
+      args.nboard_protocol = static_cast<NBoardProtocolVersion>(*parsed);
     } else if (flag == "--nboard-depth") {
       const auto parsed = parse_integer<int>(value);
       if (!parsed.has_value()) {
@@ -144,9 +160,10 @@ std::optional<Args> parse_args(int argc, char** argv, std::string* error) {
   }
 
   if (args.nboard_exe.empty() || args.nboard_working_directory.empty() ||
+      args.nboard_name.empty() || args.nboard_runtime_id.empty() ||
       args.artifact_manifest.empty() || args.openings_path.empty()) {
-    *error = "--nboard-exe, --nboard-working-directory, --artifact-manifest, and --openings are "
-             "required";
+    *error = "--nboard-exe, --nboard-working-directory, --nboard-name, --nboard-runtime-id, "
+             "--artifact-manifest, and --openings are required";
     return std::nullopt;
   }
   if (args.nboard_depth <= 0 || args.max_openings <= 0 || args.time_ms <= 0 || args.tt_bytes == 0 ||
@@ -295,7 +312,7 @@ std::optional<GameRecord> play_game(int game_id, const Opening& opening, bool ca
       }
       move = *result.best_move;
     } else {
-      actor = "ntest";
+      actor = args.nboard_name;
       const auto go =
           nboard->go(std::chrono::milliseconds{std::max(15000, args.time_ms * 5)}, error);
       if (!go.has_value()) {
@@ -329,8 +346,8 @@ std::optional<GameRecord> play_game(int game_id, const Opening& opening, bool ca
   return GameRecord{
       .game_id = game_id,
       .opening = opening.id,
-      .black = candidate_is_black ? "vibe" : "ntest",
-      .white = candidate_is_black ? "ntest" : "vibe",
+      .black = candidate_is_black ? "vibe" : args.nboard_name,
+      .white = candidate_is_black ? args.nboard_name : "vibe",
       .moves = format_moves(played_moves),
       .black_discs = black_discs,
       .white_discs = white_discs,
@@ -387,21 +404,27 @@ bool write_report(const Args& args, const LoadedEvaluator& loaded,
   }
   const Summary summary = summarize(games);
   output << "{\n"
-         << "  \"schema_version\": 2,\n"
+         << "  \"schema_version\": 3,\n"
          << "  \"candidate\": \"vibe\",\n"
-         << "  \"baseline\": \"ntest\",\n"
+         << "  \"baseline\": \"" << json_escape(args.nboard_name) << "\",\n"
          << "  \"artifact_id\": \"" << json_escape(loaded.artifact_id) << "\",\n"
          << "  \"search_preset\": \"full\",\n"
          << "  \"time_ms\": " << args.time_ms << ",\n"
          << "  \"tt_bytes\": " << args.tt_bytes << ",\n"
          << "  \"exact_endgame_empties\": " << args.exact_endgame_empties << ",\n"
          << "  \"warmup\": " << (args.warmup ? "true" : "false") << ",\n"
-         << "  \"nboard\": {\"protocol_version\": 2, \"depth\": " << args.nboard_depth
-         << ", \"args\": [";
+         << "  \"nboard\": {\n"
+         << "    \"engine_name\": \"" << json_escape(args.nboard_name) << "\",\n"
+         << "    \"executable\": \"" << json_escape(args.nboard_exe.string()) << "\",\n"
+         << "    \"runtime_id\": \"" << json_escape(args.nboard_runtime_id) << "\",\n"
+         << "    \"protocol_version\": " << static_cast<int>(args.nboard_protocol) << ",\n"
+         << "    \"depth\": " << args.nboard_depth << ",\n"
+         << "    \"arguments\": [";
   for (std::size_t index = 0; index < args.nboard_args.size(); ++index) {
     output << (index == 0 ? "" : ", ") << '"' << json_escape(args.nboard_args[index]) << '"';
   }
-  output << "]},\n"
+  output << "]\n"
+         << "  },\n"
          << "  \"summary\": {\"games\": " << summary.games
          << ", \"wins\": " << summary.candidate_wins << ", \"draws\": " << summary.candidate_draws
          << ", \"losses\": " << summary.candidate_losses
@@ -410,8 +433,9 @@ bool write_report(const Args& args, const LoadedEvaluator& loaded,
   for (std::size_t index = 0; index < games.size(); ++index) {
     const GameRecord& game = games[index];
     output << "    {\"game_id\": " << game.game_id << ", \"opening\": \""
-           << json_escape(game.opening) << "\", \"black\": \"" << game.black << "\", \"white\": \""
-           << game.white << "\", \"black_discs\": " << game.black_discs
+           << json_escape(game.opening) << "\", \"black\": \"" << json_escape(game.black)
+           << "\", \"white\": \"" << json_escape(game.white)
+           << "\", \"black_discs\": " << game.black_discs
            << ", \"white_discs\": " << game.white_discs << ", \"candidate_result\": \""
            << game.candidate_result << "\", \"candidate_disc_diff\": " << game.candidate_disc_diff
            << ", \"moves\": \"" << json_escape(game.moves) << "\"}"
@@ -456,7 +480,7 @@ int run(const Args& args) {
               .stderr_path = args.nboard_stderr,
               .environment = {{"OMP_NUM_THREADS", "1"}},
           },
-      .protocol_version = 2,
+      .protocol_version = args.nboard_protocol,
       .startup_timeout = std::chrono::seconds{30},
       .command_timeout = std::chrono::seconds{30},
   };
@@ -464,8 +488,11 @@ int run(const Args& args) {
     std::cerr << "NBoard startup failed: " << error << '\n';
     return 1;
   }
-  std::cout << "started NBoard pid=" << nboard.process_id() << " artifact=" << loaded->artifact_id
-            << " preset=full time_ms=" << args.time_ms << " tt_bytes=" << args.tt_bytes << '\n'
+  std::cout << "started NBoard name=" << args.nboard_name
+            << " protocol=" << static_cast<int>(args.nboard_protocol)
+            << " runtime_id=" << args.nboard_runtime_id << " pid=" << nboard.process_id()
+            << " artifact=" << loaded->artifact_id << " preset=full time_ms=" << args.time_ms
+            << " tt_bytes=" << args.tt_bytes << '\n'
             << std::flush;
 
   if (args.warmup) {

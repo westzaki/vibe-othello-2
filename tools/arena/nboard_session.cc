@@ -27,8 +27,9 @@ NBoardSession::~NBoardSession() {
 }
 
 bool NBoardSession::start(const NBoardSessionOptions& options, std::string* error) {
-  if (options.protocol_version <= 0) {
-    *error = "NBoard protocol version must be positive";
+  if (options.protocol_version != NBoardProtocolVersion::v1 &&
+      options.protocol_version != NBoardProtocolVersion::v2) {
+    *error = "NBoard protocol version must be 1 or 2";
     return false;
   }
   if (options.startup_timeout <= std::chrono::milliseconds{0} ||
@@ -39,9 +40,11 @@ bool NBoardSession::start(const NBoardSessionOptions& options, std::string* erro
   if (!process_.start(options.process, error)) {
     return false;
   }
+  protocol_version_ = options.protocol_version;
   command_timeout_ = options.command_timeout;
   ping_id_ = 0;
-  if (!process_.write_line("nboard " + std::to_string(options.protocol_version), error) ||
+  if (!process_.write_line("nboard " + std::to_string(static_cast<int>(options.protocol_version)),
+                           error) ||
       !synchronize(options.startup_timeout, error)) {
     stop();
     return false;
@@ -54,7 +57,9 @@ bool NBoardSession::set_depth(int depth, std::string* error) {
     *error = "NBoard depth must be positive";
     return false;
   }
-  return write_and_synchronize("set depth " + std::to_string(depth), error);
+  const std::string prefix =
+      protocol_version_ == NBoardProtocolVersion::v1 ? "depth " : "set depth ";
+  return write_and_synchronize(prefix + std::to_string(depth), error);
 }
 
 bool NBoardSession::set_game(std::span<const board_core::Move> moves, std::string* error) {
@@ -62,7 +67,8 @@ bool NBoardSession::set_game(std::span<const board_core::Move> moves, std::strin
   if (!ggf.has_value()) {
     return false;
   }
-  return write_and_synchronize("set game " + *ggf, error);
+  const std::string prefix = protocol_version_ == NBoardProtocolVersion::v1 ? "game " : "set game ";
+  return write_and_synchronize(prefix + *ggf, error);
 }
 
 bool NBoardSession::play_move(board_core::Move move, std::string* error) {

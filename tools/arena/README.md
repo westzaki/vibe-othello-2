@@ -39,14 +39,20 @@ build/tools/engine-cli/vibe-othello-engine-cli bestmove \
 
 ## Persistent NBoard Paired Match
 
-`vibe-othello-nboard-match` keeps one NBoard v2 engine process alive across a
+`vibe-othello-nboard-match` keeps one NBoard v1 or v2 engine process alive across a
 paired color-swapped match while running Vibe in-process. It performs one
 warm-up search per engine by default, applies `OMP_NUM_THREADS=1` to the child,
 validates every external move, and writes an optional JSON game record. Vibe
 uses the `full` non-experimental search stack, a persistent search session
 within each game, and the supplied time, TT, and exact-endgame limits. Report
-schema v2 also records the NBoard protocol version, requested depth, and child
-arguments so fixed-depth and average-time runs remain distinguishable.
+schema v3 records the engine name, executable, user-supplied runtime identity,
+NBoard protocol version, requested depth, and child arguments so fixed-depth,
+average-time, book, and engine configurations remain distinguishable without
+recording the potentially sensitive working-directory path.
+
+Protocol 1 sends `depth N` and `game <GGF>` for Edax-compatible engines.
+Protocol 2 sends `set depth N` and `set game <GGF>` for NTest-compatible
+engines. Both dialects use `move`, `go`, and `ping`/`pong` synchronization.
 
 For NTest average-time mode at one second per move:
 
@@ -54,7 +60,8 @@ For NTest average-time mode at one second per move:
 build/tools/arena/vibe-othello-nboard-match \
   --nboard-exe /path/to/ntest-runtime/ntest \
   --nboard-working-directory /path/to/ntest-runtime \
-  --nboard-arg x --nboard-arg a1 --nboard-depth 1 \
+  --nboard-name ntest --nboard-runtime-id ntest-book-off \
+  --nboard-protocol 2 --nboard-arg x --nboard-arg a1 --nboard-depth 1 \
   --artifact-manifest data/eval/artifacts/<artifact-id>/manifest.json \
   --openings tools/arena/openings/smoke.txt --max-openings 1 \
   --time-ms 1000 --tt-bytes 268435456 --exact-endgame-empties 12 \
@@ -63,8 +70,9 @@ build/tools/arena/vibe-othello-nboard-match \
 
 NTest's book policy is configured by its runtime `parameters.txt`, not by this
 CLI. Use a separate runtime directory for book-on and book-off runs so their
-configuration and outputs cannot be mixed. `--max-openings 1` plays exactly two
-games from the first opening, with Vibe once as Black and once as White.
+configuration and outputs cannot be mixed, and give each configuration a
+distinct `--nboard-runtime-id`. `--max-openings 1` plays exactly two games from
+the first opening, with Vibe once as Black and once as White.
 
 This command is an integration and short-match surface. It does not yet provide
 CPU-affinity control, 10/100 ms NTest time profiles, campaign orchestration, or

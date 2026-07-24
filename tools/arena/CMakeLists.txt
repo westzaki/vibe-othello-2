@@ -91,6 +91,7 @@ if(BUILD_TESTING)
 
   if(TARGET Catch2::Catch2WithMain)
     add_executable(vibe_othello_fake_nboard_engine fake_nboard_engine.cc)
+    target_link_libraries(vibe_othello_fake_nboard_engine PRIVATE vibe_othello_arena_core)
 
     add_executable(vibe_othello_arena_tests arena_core_test.cc nboard_protocol_test.cc
                                             nboard_session_test.cc persistent_process_test.cc)
@@ -100,6 +101,12 @@ if(BUILD_TESTING)
     target_link_libraries(vibe_othello_arena_tests PRIVATE vibe_othello_persistent_process
                                                          Catch2::Catch2WithMain)
     add_test(NAME vibe_othello_arena_tests COMMAND vibe_othello_arena_tests)
+
+    add_test(
+      NAME vibe_othello_nboard_match_smoke
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_nboard_match_smoke.py
+              --exe $<TARGET_FILE:vibe_othello_nboard_match>
+              --fake-engine $<TARGET_FILE:vibe_othello_fake_nboard_engine>)
 
     add_executable(vibe_othello_full_game_artifact_arena_core_tests
                    full_game_artifact_arena_core_test.cc)

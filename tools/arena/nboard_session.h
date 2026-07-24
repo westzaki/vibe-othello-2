@@ -12,9 +12,14 @@
 
 namespace vibe_othello::tools::arena {
 
+enum class NBoardProtocolVersion {
+  v1 = 1,
+  v2 = 2,
+};
+
 struct NBoardSessionOptions {
   PersistentProcessOptions process;
-  int protocol_version = 2;
+  NBoardProtocolVersion protocol_version = NBoardProtocolVersion::v2;
   std::chrono::milliseconds startup_timeout{5000};
   std::chrono::milliseconds command_timeout{5000};
 };
@@ -55,6 +60,7 @@ private:
   [[nodiscard]] bool write_and_synchronize(std::string command, std::string* error);
 
   PersistentProcess process_;
+  NBoardProtocolVersion protocol_version_ = NBoardProtocolVersion::v2;
   std::chrono::milliseconds command_timeout_{5000};
   unsigned int ping_id_ = 0;
 };

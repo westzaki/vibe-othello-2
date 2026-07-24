@@ -63,7 +63,7 @@ bool wait_for_exit(pid_t process_id, std::chrono::milliseconds timeout) noexcept
 void ignore_sigpipe() {
   static std::once_flag flag;
   std::call_once(flag, [] {
-    struct sigaction action{};
+    struct sigaction action {};
     action.sa_handler = SIG_IGN;
     sigemptyset(&action.sa_mask);
     sigaction(SIGPIPE, &action, nullptr);

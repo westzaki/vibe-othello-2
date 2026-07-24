@@ -23,11 +23,17 @@ stdin/stdout pipes open, applies bounded line reads, and terminates the whole
 child process group. The NBoard layer adds versioned startup, `ping`/`pong`
 synchronization, legal opening-to-GGF serialization, incremental moves, and
 Edax/NTest-style `===` move parsing. A fake NBoard engine covers process reuse,
-protocol versions 1 and 2, noisy responses, startup failure, and timeout paths.
+strict protocol versions 1 and 2, dialect-specific depth/game commands,
+stateful GGF and move replay, legal responses, startup failure, and timeout
+paths. Protocol 1 uses Edax-compatible `depth`/`game`; protocol 2 uses
+NTest-compatible `set depth`/`set game`.
 The limited `vibe-othello-nboard-match` CLI uses this layer for a sequential
 warm-up followed by paired color-swapped games against one persistent NBoard
 process. Vibe runs in-process with the committed full search stack and an
 explicit artifact manifest, time limit, TT budget, and exact-endgame threshold.
+Its local-only report records the external engine name, executable, protocol,
+arguments, and explicit runtime identity while omitting the working-directory
+path.
 
 The full-game path is the foundation for the fixed-time artifact campaign and
 the Multi-ProbCut campaign. Its v4 report includes deterministic paired-opening
