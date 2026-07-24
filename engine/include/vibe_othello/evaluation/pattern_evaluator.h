@@ -29,18 +29,13 @@ public:
     [[nodiscard]] std::uint8_t occupied_count() const noexcept {
       return occupied_count_;
     }
-    // Returns the active unique instance count from the most recent apply or undo.
-    // Pass transitions report zero.
-    [[nodiscard]] std::uint32_t last_touched_instances() const noexcept {
-      return last_touched_instances_;
-    }
 
   private:
     friend class PatternEvaluator;
     IncrementalState(const PatternEvaluator* evaluator, board_core::Position position);
 
-    [[nodiscard]] std::uint32_t update_normal_move(board_core::MoveDelta delta,
-                                                   board_core::Color mover, int direction) noexcept;
+    void update_normal_move(board_core::MoveDelta delta, board_core::Color mover,
+                            int direction) noexcept;
     void rebuild_indices(std::size_t begin, std::size_t end) noexcept;
     void update_absolute_discs(board_core::MoveDelta delta, board_core::Color mover,
                                int direction) noexcept;
@@ -48,9 +43,6 @@ public:
     const PatternEvaluator* evaluator_ = nullptr;
     std::vector<std::uint32_t> black_indices_;
     std::vector<std::uint32_t> white_indices_;
-    std::vector<std::uint32_t> touched_generation_;
-    std::uint32_t generation_ = 0;
-    std::uint32_t last_touched_instances_ = 0;
     std::uint8_t occupied_count_ = 0;
     board_core::Color side_to_move_ = board_core::Color::black;
     board_core::Bitboard black_discs_ = 0;

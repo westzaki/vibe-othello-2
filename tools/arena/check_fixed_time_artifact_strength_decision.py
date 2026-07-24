@@ -61,9 +61,9 @@ def validate_decision(decision: dict[str, Any]) -> None:
         },
         "decision",
     )
-    if decision["schema_version"] != 1:
-        raise SchemaError("decision.schema_version must be 1")
-    if decision["decision_version"] != "fixed-time-artifact-strength-decision-v1":
+    if decision["schema_version"] != 2:
+        raise SchemaError("decision.schema_version must be 2")
+    if decision["decision_version"] != "fixed-time-artifact-strength-decision-v2":
         raise SchemaError("decision.decision_version is unsupported")
     if not isinstance(decision["repo_sha"], str) or not decision["repo_sha"]:
         raise SchemaError("decision.repo_sha must be a non-empty string")
@@ -154,7 +154,6 @@ def validate_decision(decision: dict[str, Any]) -> None:
         "incremental_eval_calls",
         "stateless_eval_calls",
         "incremental_updates",
-        "touched_pattern_instances",
     }
     for role in ("candidate", "baseline"):
         role_data = require_object(telemetry, role, "decision.telemetry")

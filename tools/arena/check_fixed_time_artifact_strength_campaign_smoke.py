@@ -126,7 +126,6 @@ def assert_decision(decision: dict[str, Any]) -> None:
             "incremental_eval_calls",
             "stateless_eval_calls",
             "incremental_updates",
-            "touched_pattern_instances",
         ):
             if field not in telemetry:
                 raise AssertionError(f"decision telemetry missing {role}.{field}")

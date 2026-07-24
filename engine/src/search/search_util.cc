@@ -62,7 +62,6 @@ void add_stats(SearchStats* total, const SearchStats& delta) {
   total->incremental_eval_calls += delta.incremental_eval_calls;
   total->stateless_eval_calls += delta.stateless_eval_calls;
   total->incremental_updates += delta.incremental_updates;
-  total->incremental_touched_instances += delta.incremental_touched_instances;
   total->terminal_nodes += delta.terminal_nodes;
   total->pass_nodes += delta.pass_nodes;
   total->beta_cutoffs += delta.beta_cutoffs;

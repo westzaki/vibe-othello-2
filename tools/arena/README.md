@@ -320,7 +320,7 @@ ordering at remaining depth 5 or greater. Depth, node, and time limits are
 identical per move for both artifacts. An exact-endgame threshold requires a
 node or time cap because exact root search does not use the depth cap.
 
-The versioned `full-game-artifact-arena-v4` report records every engine search
+The versioned `full-game-artifact-arena-v5` report records every engine search
 call separately for candidate and baseline: completed depth, nanosecond-resolution elapsed time,
 public node/evaluator/TT/PVS/aspiration/IID/endgame/selective counters, exact
 and stopped flags, side to move, occupied count, and runtime phase. It also
@@ -329,9 +329,10 @@ percentiles, TT rates, time-budget overshoot, and a deterministic opening-pair
 cluster-bootstrap 95% interval. The confidence interval resamples opening
 pairs, never individual games.
 
-Schema v4 retains the v3 split TT telemetry and adds independently resolved
-candidate/baseline ProbCut policies plus global and phase/depth-pair MPC
-telemetry. Schema v3 replaced the v2 TT `overwrites` and `collisions` fields with explicit
+Schema v5 removes incremental touched-instance telemetry so recursive
+evaluation does not pay for diagnostic-only bookkeeping. Schema v4 retained
+the v3 split TT telemetry and added independently resolved candidate/baseline
+ProbCut policies plus global and phase/depth-pair MPC telemetry. Schema v3 replaced the v2 TT `overwrites` and `collisions` fields with explicit
 `replacements`, `bucket_conflicts`, and `same_key_updates` counters. The
 configured `--tt-bytes` budget always applies to the actual search session;
 `--persistent-session` controls only whether knowledge is retained between
@@ -402,9 +403,8 @@ same-artifact paired-neutral sanity data. Its deterministic checksum excludes
 paths and elapsed time while retaining all non-time outcomes and counters,
 including backend telemetry. Per-call and phase-aggregated telemetry reports
 `incremental_eval_enabled`, state initializations,
-incremental/stateless evaluation calls, incremental updates, and touched
-pattern instances, so fallback-only and incremental phase behavior can be
-compared directly.
+incremental/stateless evaluation calls, and incremental updates, so
+fallback-only and incremental phase behavior can be compared directly.
 
 This is a local strength-gate foundation, not Elo,
 artifact promotion, or a production-strength claim; generated reports and local
@@ -510,6 +510,10 @@ an error. Each completed arena report is additionally bound back to its
 requested preset, time, exact threshold, persistence mode, TT budget, runtime
 artifact identities, executable, opening corpus, selected count, seed, and
 bootstrap config before the campaign accepts it.
+
+Decision schema v2 consumes full-game arena v5 telemetry and omits the removed
+touched-instance diagnostic. Older campaign resume state is intentionally not
+reused across this boundary.
 
 The suggested decision distinguishes `promote`, `continue_validation`,
 `reject_strength`, `reject_correctness`, and `inconclusive`. The default

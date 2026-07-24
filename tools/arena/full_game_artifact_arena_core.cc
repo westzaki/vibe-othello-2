@@ -63,7 +63,6 @@ void add_search_stats(search::SearchStats* total, const search::SearchStats& val
   total->incremental_eval_calls += value.incremental_eval_calls;
   total->stateless_eval_calls += value.stateless_eval_calls;
   total->incremental_updates += value.incremental_updates;
-  total->incremental_touched_instances += value.incremental_touched_instances;
   total->terminal_nodes += value.terminal_nodes;
   total->pass_nodes += value.pass_nodes;
   total->beta_cutoffs += value.beta_cutoffs;

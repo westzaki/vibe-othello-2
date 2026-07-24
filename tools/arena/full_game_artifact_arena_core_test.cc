@@ -19,7 +19,6 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
                                                    .incremental_eval_calls = 30,
                                                    .stateless_eval_calls = 10,
                                                    .incremental_updates = 200,
-                                                   .incremental_touched_instances = 500,
                                                    .tt_probes = 20,
                                                    .tt_hits = 10,
                                                    .endgame_nodes = 23,
@@ -51,7 +50,6 @@ TEST_CASE("telemetry aggregation keeps candidate and baseline records separate",
   REQUIRE(candidate.stats.incremental_eval_calls == 30);
   REQUIRE(candidate.stats.stateless_eval_calls == 10);
   REQUIRE(candidate.stats.incremental_updates == 200);
-  REQUIRE(candidate.stats.incremental_touched_instances == 500);
   REQUIRE(candidate.stats.tt_hits == 10);
   REQUIRE(candidate.stats.endgame_nodes == 23);
   REQUIRE(candidate.stats.endgame_last_flip_solved == 1);

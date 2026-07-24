@@ -164,10 +164,11 @@ Search may create an incremental pattern state once at a root that can reach a
 learned phase. The state stores paired black-to-move and white-to-move ternary
 indices, so the side-to-move-relative board swap does not require rebuilding
 all instances. A normal move applies each placed/flipped square's ternary-digit
-contributions directly to the affected active indices and deduplicates touched
-instance accounting with a generation table; pass changes only the selected
-perspective. Apply and undo are allocation-free after root initialization. The
-original stateless extraction remains available as the correctness reference.
+contributions directly to the affected active indices; pass changes only the
+selected perspective. Apply and undo are allocation-free after root
+initialization. Per-instance touch accounting is intentionally excluded from
+the recursive path. The original stateless extraction remains available as the
+correctness reference.
 
 Changing a pattern definition without changing the runtime artifact contract is
 a bug. The runtime evaluator must reject incompatible loaded weights rather than

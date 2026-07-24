@@ -681,7 +681,6 @@ PatternEvaluator::IncrementalState::IncrementalState(const PatternEvaluator* eva
                                                      board_core::Position position)
     : evaluator_(evaluator), black_indices_(evaluator->instances_.size()),
       white_indices_(evaluator->instances_.size()),
-      touched_generation_(evaluator->instances_.size()),
       occupied_count_(static_cast<std::uint8_t>(std::popcount(board_core::occupied(position)))),
       side_to_move_(position.side_to_move), black_discs_(board_core::black_discs(position)),
       white_discs_(board_core::white_discs(position)),
@@ -744,9 +743,9 @@ search::Score PatternEvaluator::IncrementalState::evaluate() const noexcept {
                                       white_indices_.data());
 }
 
-std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core::MoveDelta delta,
-                                                                     board_core::Color mover,
-                                                                     int direction) noexcept {
+void PatternEvaluator::IncrementalState::update_normal_move(board_core::MoveDelta delta,
+                                                            board_core::Color mover,
+                                                            int direction) noexcept {
   const auto next_occupied_count =
       static_cast<std::uint8_t>(static_cast<int>(occupied_count_) + direction);
   const std::size_t current_active_instances = evaluator_->active_instance_count(occupied_count_);
@@ -754,15 +753,8 @@ std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core:
   if (next_active_instances > current_active_instances) {
     update_absolute_discs(delta, mover, direction);
     rebuild_indices(0, next_active_instances);
-    return static_cast<std::uint32_t>(next_active_instances);
+    return;
   }
-
-  ++generation_;
-  if (generation_ == 0) {
-    std::fill(touched_generation_.begin(), touched_generation_.end(), 0);
-    generation_ = 1;
-  }
-  std::size_t touched_count = 0;
 
   const auto record_square = [&](board_core::Square square, int black_digit_delta,
                                  int white_digit_delta) {
@@ -774,10 +766,6 @@ std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core:
       const std::size_t instance_id = contribution.instance_id;
       if (instance_id >= next_active_instances) {
         continue;
-      }
-      if (touched_generation_[instance_id] != generation_) {
-        touched_generation_[instance_id] = generation_;
-        ++touched_count;
       }
       const std::int64_t black_index =
           static_cast<std::int64_t>(black_indices_[instance_id]) +
@@ -809,16 +797,14 @@ std::uint32_t PatternEvaluator::IncrementalState::update_normal_move(board_core:
   }
 
   update_absolute_discs(delta, mover, direction);
-  return static_cast<std::uint32_t>(touched_count);
 }
 
 void PatternEvaluator::IncrementalState::apply_move(board_core::MoveDelta delta) noexcept {
   if (delta.move.kind == board_core::MoveKind::pass) {
     side_to_move_ = board_core::opposite(side_to_move_);
-    last_touched_instances_ = 0;
     return;
   }
-  last_touched_instances_ = update_normal_move(delta, side_to_move_, 1);
+  update_normal_move(delta, side_to_move_, 1);
   ++occupied_count_;
   side_to_move_ = board_core::opposite(side_to_move_);
 }
@@ -826,10 +812,9 @@ void PatternEvaluator::IncrementalState::apply_move(board_core::MoveDelta delta)
 void PatternEvaluator::IncrementalState::undo_move(board_core::MoveDelta delta) noexcept {
   side_to_move_ = board_core::opposite(side_to_move_);
   if (delta.move.kind == board_core::MoveKind::pass) {
-    last_touched_instances_ = 0;
     return;
   }
-  last_touched_instances_ = update_normal_move(delta, side_to_move_, -1);
+  update_normal_move(delta, side_to_move_, -1);
   --occupied_count_;
 }
 
