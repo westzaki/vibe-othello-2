@@ -1,5 +1,6 @@
 #include "../../src/search/search_internal.h"
 #include "vibe_othello/board_core/board.h"
+#include "vibe_othello/board_core/serialization.h"
 #include "vibe_othello/search/search.h"
 
 #include <algorithm>
@@ -8,6 +9,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
 #include <initializer_list>
+#include <optional>
+#include <string_view>
 
 namespace vibe_othello::search {
 namespace {
@@ -226,6 +229,12 @@ board_core::Position position_with_empties(int empties) noexcept {
   };
 }
 
+board_core::Position parse_position_or_fail(std::string_view text) {
+  const std::optional<board_core::Position> position = board_core::parse_position(text);
+  REQUIRE(position.has_value());
+  return *position;
+}
+
 void require_aspiration_matches_without(board_core::Position position, Depth depth,
                                         SearchOptions baseline_options) {
   DiscDifferenceEvaluator aspiration_evaluator;
@@ -391,6 +400,60 @@ TEST_CASE("midgame heuristic phase uses the internal exact threshold cap",
                                                                         Depth{10}, resolved));
   REQUIRE(internal::search_horizon_reaches_internal_exact_endgame(position_with_empties(18),
                                                                   Depth{10}, resolved));
+}
+
+TEST_CASE("root aspiration stops at the exact handoff boundary",
+          "[search][iterative][aspiration][endgame]") {
+  const board_core::Position position = parse_position_or_fail(
+      "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBWB/BBBWB.BW/BBBBBB../BBBWWWWW b");
+  auto run = [&](std::uint8_t exact_empties) {
+    DiscDifferenceEvaluator evaluator;
+    return search_iterative(
+        position, evaluator, SearchLimits{.max_depth = Depth{2}},
+        SearchOptions{
+            .midgame = MidgameSearchOptions{.use_aspiration = true},
+            .endgame = EndgameSearchOptions{
+                .exact_endgame = true,
+                .endgame_exact_empties = exact_empties,
+            },
+        });
+  };
+
+  const SearchResult before_handoff = run(7);
+  const SearchResult at_handoff = run(8);
+
+  REQUIRE(before_handoff.stats.aspiration_fail_lows +
+              before_handoff.stats.aspiration_fail_highs >
+          0);
+  REQUIRE(at_handoff.stats.aspiration_fail_lows == 0);
+  REQUIRE(at_handoff.stats.aspiration_fail_highs == 0);
+}
+
+TEST_CASE("IID searches decrease at the reduced-depth exact handoff boundary",
+          "[search][iterative][iid][endgame]") {
+  const board_core::Position position = parse_position_or_fail(
+      "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBBB/BBBWB.B./BBWBBB../BW.WWWWW b");
+  auto run = [&](std::uint8_t exact_empties) {
+    DiscDifferenceEvaluator evaluator;
+    return search_iterative(
+        position, evaluator, SearchLimits{.max_depth = Depth{6}},
+        SearchOptions{
+            .midgame = MidgameSearchOptions{
+                .use_aspiration = true,
+                .use_iid = true,
+            },
+            .endgame = EndgameSearchOptions{
+                .exact_endgame = true,
+                .endgame_exact_empties = exact_empties,
+            },
+        });
+  };
+
+  const SearchResult before_handoff = run(7);
+  const SearchResult at_handoff = run(8);
+
+  REQUIRE(before_handoff.stats.iid_searches > 0);
+  REQUIRE(at_handoff.stats.iid_searches < before_handoff.stats.iid_searches);
 }
 
 TEST_CASE("iterative aspiration preserves deterministic search results",
