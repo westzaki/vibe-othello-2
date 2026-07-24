@@ -408,22 +408,21 @@ TEST_CASE("root aspiration stops at the exact handoff boundary",
       "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBWB/BBBWB.BW/BBBBBB../BBBWWWWW b");
   auto run = [&](std::uint8_t exact_empties) {
     DiscDifferenceEvaluator evaluator;
-    return search_iterative(
-        position, evaluator, SearchLimits{.max_depth = Depth{2}},
-        SearchOptions{
-            .midgame = MidgameSearchOptions{.use_aspiration = true},
-            .endgame = EndgameSearchOptions{
-                .exact_endgame = true,
-                .endgame_exact_empties = exact_empties,
-            },
-        });
+    return search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{2}},
+                            SearchOptions{
+                                .midgame = MidgameSearchOptions{.use_aspiration = true},
+                                .endgame =
+                                    EndgameSearchOptions{
+                                        .exact_endgame = true,
+                                        .endgame_exact_empties = exact_empties,
+                                    },
+                            });
   };
 
   const SearchResult before_handoff = run(7);
   const SearchResult at_handoff = run(8);
 
-  REQUIRE(before_handoff.stats.aspiration_fail_lows +
-              before_handoff.stats.aspiration_fail_highs >
+  REQUIRE(before_handoff.stats.aspiration_fail_lows + before_handoff.stats.aspiration_fail_highs >
           0);
   REQUIRE(at_handoff.stats.aspiration_fail_lows == 0);
   REQUIRE(at_handoff.stats.aspiration_fail_highs == 0);
@@ -435,18 +434,19 @@ TEST_CASE("IID searches decrease at the reduced-depth exact handoff boundary",
       "WWWWWWW./.WWWBW../BBWBWW../BWWWWWB./BWBBWBBB/BBBWB.B./BBWBBB../BW.WWWWW b");
   auto run = [&](std::uint8_t exact_empties) {
     DiscDifferenceEvaluator evaluator;
-    return search_iterative(
-        position, evaluator, SearchLimits{.max_depth = Depth{6}},
-        SearchOptions{
-            .midgame = MidgameSearchOptions{
-                .use_aspiration = true,
-                .use_iid = true,
-            },
-            .endgame = EndgameSearchOptions{
-                .exact_endgame = true,
-                .endgame_exact_empties = exact_empties,
-            },
-        });
+    return search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{6}},
+                            SearchOptions{
+                                .midgame =
+                                    MidgameSearchOptions{
+                                        .use_aspiration = true,
+                                        .use_iid = true,
+                                    },
+                                .endgame =
+                                    EndgameSearchOptions{
+                                        .exact_endgame = true,
+                                        .endgame_exact_empties = exact_empties,
+                                    },
+                            });
   };
 
   const SearchResult before_handoff = run(7);
