@@ -1115,6 +1115,11 @@ The production iterative search starts with a symmetric 8-point window around
 the previous completed score and doubles only the failed side until the result
 fits or the full score range is reached.
 
+When the nominal root horizon can reach the internal exact-endgame handoff,
+iterative search uses a full root window. The previous iteration can still be
+heuristic while the handoff iteration returns exact leaf scores, so reusing the
+previous score as a narrow aspiration guess adds avoidable fail searches.
+
 ## Principal Variation
 
 Search should maintain a principal variation line.
@@ -1299,6 +1304,12 @@ Othello-specific ordering should be preferred before generic killer and history
 heuristics.
 
 Killer and history heuristics are auxiliary ordering signals.
+
+IID remains available at the exact-handoff boundary, where its ordering hint can
+still pay for itself. Once the nominal horizon reaches at least two placements
+past that boundary, IID is skipped because the exact solver supplies the leaf
+result and the reduced-depth probe becomes redundant. Killer and history
+ordering remain enabled across this transition.
 
 ## Othello-Specific Ordering
 

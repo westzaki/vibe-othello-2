@@ -716,7 +716,9 @@ SearchResult search_iterative(SearchSession& session, board_core::Position posit
 
     const internal::MoveOrderingHints root_hints{.root_best_move = previous_best_move};
     SearchResult current =
-        resolved_options.midgame.use_aspiration && depth >= 2 && previous_score.has_value()
+        resolved_options.midgame.use_aspiration && depth >= 2 && previous_score.has_value() &&
+                !internal::search_horizon_reaches_internal_exact_endgame(position, depth,
+                                                                         resolved_options)
             ? internal::search_depth_with_aspiration(
                   position, evaluator, depth, root_hints, resolved_options, tt, *previous_score,
                   ordering_state, &limit_state, incremental_eval_verify_interval, shadow_run)

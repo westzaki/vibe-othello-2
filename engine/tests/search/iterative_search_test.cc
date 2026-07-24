@@ -1,3 +1,4 @@
+#include "../../src/search/search_internal.h"
 #include "vibe_othello/board_core/board.h"
 #include "vibe_othello/search/search.h"
 
@@ -216,6 +217,15 @@ SearchOptions make_options(MidgameSearchOptions midgame = {},
   return SearchOptions{.midgame = midgame, .ordering = ordering};
 }
 
+board_core::Position position_with_empties(int empties) noexcept {
+  const board_core::Bitboard occupied = ~board_core::Bitboard{0} << empties;
+  return board_core::Position{
+      .player = occupied & 0x5555555555555555ULL,
+      .opponent = occupied & 0xAAAAAAAAAAAAAAAAULL,
+      .side_to_move = board_core::Color::black,
+  };
+}
+
 void require_aspiration_matches_without(board_core::Position position, Depth depth,
                                         SearchOptions baseline_options) {
   DiscDifferenceEvaluator aspiration_evaluator;
@@ -333,6 +343,54 @@ TEST_CASE("iterative aspiration uses full-window search at depth one",
   require_root_move_set_matches(with_aspiration, without_aspiration);
   REQUIRE(with_aspiration.stats == without_aspiration.stats);
   REQUIRE(with_aspiration.nodes == without_aspiration.nodes);
+}
+
+TEST_CASE("midgame heuristics stop when the search horizon reaches exact endgame",
+          "[search][iterative][endgame]") {
+  SearchOptions options{.endgame = EndgameSearchOptions{
+                            .exact_endgame = true,
+                            .endgame_exact_empties = 8,
+                        }};
+  const internal::ResolvedSearchOptions resolved = internal::normalize_search_options(options);
+  const board_core::Position position = position_with_empties(16);
+
+  REQUIRE_FALSE(
+      internal::search_horizon_reaches_internal_exact_endgame(position, Depth{7}, resolved));
+  REQUIRE(internal::search_horizon_reaches_internal_exact_endgame(position, Depth{8}, resolved));
+  REQUIRE_FALSE(internal::search_horizon_reaches_internal_exact_endgame(position, Depth{8},
+                                                                        resolved, Depth{2}));
+  REQUIRE_FALSE(internal::search_horizon_reaches_internal_exact_endgame(
+      position_with_empties(15), Depth{8}, resolved, Depth{2}));
+  REQUIRE(internal::search_horizon_reaches_internal_exact_endgame(position_with_empties(14),
+                                                                  Depth{8}, resolved, Depth{2}));
+
+  options.endgame.exact_endgame = false;
+  REQUIRE_FALSE(internal::search_horizon_reaches_internal_exact_endgame(
+      position, Depth{8}, internal::normalize_search_options(options)));
+
+  options.endgame.exact_endgame = true;
+  options.endgame.endgame_exact_empties = 0;
+  REQUIRE_FALSE(internal::search_horizon_reaches_internal_exact_endgame(
+      position, Depth{16}, internal::normalize_search_options(options)));
+
+  options.endgame.endgame_exact_empties = 8;
+  options.mode = SearchMode::win_loss_draw;
+  REQUIRE_FALSE(internal::search_horizon_reaches_internal_exact_endgame(
+      position, Depth{8}, internal::normalize_search_options(options)));
+}
+
+TEST_CASE("midgame heuristic phase uses the internal exact threshold cap",
+          "[search][iterative][endgame]") {
+  const internal::ResolvedSearchOptions resolved =
+      internal::normalize_search_options(SearchOptions{.endgame = EndgameSearchOptions{
+                                                           .exact_endgame = true,
+                                                           .endgame_exact_empties = 12,
+                                                       }});
+
+  REQUIRE_FALSE(internal::search_horizon_reaches_internal_exact_endgame(position_with_empties(19),
+                                                                        Depth{10}, resolved));
+  REQUIRE(internal::search_horizon_reaches_internal_exact_endgame(position_with_empties(18),
+                                                                  Depth{10}, resolved));
 }
 
 TEST_CASE("iterative aspiration preserves deterministic search results",
