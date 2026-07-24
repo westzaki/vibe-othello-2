@@ -11,8 +11,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(VIBE_OTHELLO_BUILD_BENCHMARKS "Build local benchmark executables" OFF)
 option(VIBE_OTHELLO_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(VIBE_OTHELLO_ENABLE_IPO "Enable interprocedural optimization for optimized builds" ON)
 option(VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT
        "Enable selection of the checked-in reviewed production ProbCut profile" ON)
+
+if(VIBE_OTHELLO_ENABLE_IPO AND NOT VIBE_OTHELLO_ENABLE_SANITIZERS)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT VIBE_OTHELLO_IPO_SUPPORTED
+                      OUTPUT VIBE_OTHELLO_IPO_ERROR)
+  if(VIBE_OTHELLO_IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
+  else()
+    message(WARNING "IPO is unavailable; continuing without it: ${VIBE_OTHELLO_IPO_ERROR}")
+  endif()
+endif()
 
 if(VIBE_OTHELLO_ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

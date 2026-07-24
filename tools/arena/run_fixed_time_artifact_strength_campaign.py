@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-RUNNER_VERSION = "fixed-time-artifact-strength-campaign-v1"
-DECISION_VERSION = "fixed-time-artifact-strength-decision-v1"
-SCHEMA_VERSION = 1
+RUNNER_VERSION = "fixed-time-artifact-strength-campaign-v2"
+DECISION_VERSION = "fixed-time-artifact-strength-decision-v2"
+SCHEMA_VERSION = 2
 VARIANTS = (
     "candidate_vs_baseline",
     "baseline_vs_candidate",
@@ -798,7 +798,6 @@ def combine_telemetry_summaries(summaries: Iterable[dict[str, Any]]) -> dict[str
         "incremental_eval_calls",
         "stateless_eval_calls",
         "incremental_updates",
-        "incremental_touched_instances",
         "exact_handoff_uses",
         "exact_root_searches",
         "exact_searches",
@@ -831,7 +830,6 @@ def combine_telemetry_summaries(summaries: Iterable[dict[str, Any]]) -> dict[str
         "incremental_eval_calls": totals["incremental_eval_calls"],
         "stateless_eval_calls": totals["stateless_eval_calls"],
         "incremental_updates": totals["incremental_updates"],
-        "touched_pattern_instances": totals["incremental_touched_instances"],
         "counters": dict(totals),
     }
 

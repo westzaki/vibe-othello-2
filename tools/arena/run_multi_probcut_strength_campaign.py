@@ -291,7 +291,7 @@ def validate_report(
     seed: int,
     openings: Path,
 ) -> None:
-    if report.get("schema_version") != 4 or report.get("arena_version") != "full-game-artifact-arena-v4":
+    if report.get("schema_version") != 5 or report.get("arena_version") != "full-game-artifact-arena-v5":
         raise CampaignError(f"unsupported arena report schema: {path}")
     config = report.get("search_config")
     if not isinstance(config, dict):

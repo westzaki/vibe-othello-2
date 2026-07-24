@@ -111,7 +111,6 @@ inline void apply_move(SearchPositionState* state, board_core::MoveDelta delta,
     state->evaluation_state->apply_move(delta);
     if (stats != nullptr) {
       ++stats->incremental_updates;
-      stats->incremental_touched_instances += state->evaluation_state->last_touched_instances();
     }
   }
   state->key = board_core::hash_after_move(state->position, state->key, delta);
@@ -127,7 +126,6 @@ inline void undo_move(SearchPositionState* state, board_core::MoveDelta delta,
     state->evaluation_state->undo_move(delta);
     if (stats != nullptr) {
       ++stats->incremental_updates;
-      stats->incremental_touched_instances += state->evaluation_state->last_touched_instances();
     }
   }
   state->key = undo.key;

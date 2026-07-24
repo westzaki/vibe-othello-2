@@ -102,19 +102,21 @@ rejections, real beta cuts, and shadow false cuts.
 engine struct on each call and aggregates it in `full_game_artifact_arena_core`.
 It does not maintain a parallel arena-only copy of the counters. Report and
 deterministic-checksum serialization must therefore be updated together when a
-new public counter is added. Schema v4 reports the resolved endgame PVS option
-and stability mode in each option payload and emits last-flip and stability
-counters in every per-search and aggregate telemetry record. The PVS option,
-stability mode, and counters are part of deterministic report identity.
+public counter changes. Schema v5 removes per-instance touch accounting from
+the recursive evaluation path and its report field. Schema v4 added the
+resolved endgame PVS option and stability mode to each option payload and
+emitted last-flip and stability counters in every per-search and aggregate
+telemetry record. These options and counters are part of deterministic report
+identity.
 
 Backend telemetry keeps stable report fields corresponding to the public
 `SearchStats` payload on each search record and in every aggregate:
 incremental enablement and state
 initializations, incremental and stateless evaluation calls, incremental
-updates, and touched pattern instances. Aggregate records additionally report
-the number of searches that enabled incremental evaluation. Combined with the
-artifact phase bucket, this distinguishes learned incremental searches from
-phase-aware fallback-only searches and makes phase-local NPS changes auditable.
+updates. Aggregate records additionally report the number of searches that
+enabled incremental evaluation. Combined with the artifact phase bucket, this
+distinguishes learned incremental searches from phase-aware fallback-only
+searches and makes phase-local NPS changes auditable.
 
 Nodes/sec and evals/sec use the arena timer rather than the engine's
 millisecond-rounded elapsed field. Both timings and their accounting delta are
@@ -152,7 +154,7 @@ committed.
 ## Fixed-Time Campaign Layer
 
 The fixed-time artifact strength campaign is a Python orchestration layer over
-the v4 full-game arena. Its default 3-by-3 matrix crosses 50, 100, and 500 ms
+the v5 full-game arena. Its default 3-by-3 matrix crosses 50, 100, and 500 ms
 per move with exact thresholds 8, 10, and 12 while holding the TT budget and
 session-retention policy constant. Every cell includes forward, argument-order
 reverse, and both same-artifact comparisons; the arena remains responsible for
@@ -196,8 +198,9 @@ was enabled and the requested and actual TT allocation. The configured TT byte
 budget is always bound to the session used by search; disabling persistence
 clears that session before each move instead of falling back to a default TT.
 
-Schema v4 adds independently configured candidate/baseline ProbCut policy and
-phase/depth-pair telemetry. Schema v3 was the first schema with split TT replacement, bucket-conflict, and
+Schema v5 removes incremental touched-instance telemetry. Schema v4 added
+independently configured candidate/baseline ProbCut policy and phase/depth-pair
+telemetry. Schema v3 was the first schema with split TT replacement, bucket-conflict, and
 same-key-update telemetry. This intentionally supersedes the v2 `overwrites`
 and `collisions` field names. Allocation reporting includes both enabled state
 and allocation success so an intentional zero-byte table is distinguishable

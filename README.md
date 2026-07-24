@@ -20,6 +20,11 @@ The release job runs the same configure, build, and test checks.
 Benchmark executables are built in CI but run locally. The lint job enforces
 clang-format and runs clang-tidy as an advisory check.
 
+Release, RelWithDebInfo, and MinSizeRel builds enable interprocedural
+optimization when the compiler supports it. Pass
+`-DVIBE_OTHELLO_ENABLE_IPO=OFF` to keep translation units separate for
+diagnostics or compiler comparisons. Sanitizer builds disable IPO.
+
 ## Learned Evaluation Data
 
 The experimental default evaluator uses all 25,514,097 board-score positions

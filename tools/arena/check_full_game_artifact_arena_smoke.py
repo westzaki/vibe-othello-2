@@ -188,8 +188,8 @@ def assert_report(report: dict[str, object]) -> None:
         raise AssertionError(f"same-artifact sanity failed: {sanity!r}")
     if overall["candidate_score_rate"] != 0.5 or overall["average_disc_diff_candidate_perspective"] != 0.0:
         raise AssertionError(f"same artifact was not neutral: {overall!r}")
-    if report["schema_version"] != 4 or report["arena_version"] != "full-game-artifact-arena-v4":
-        raise AssertionError(f"unexpected v4 schema: {report!r}")
+    if report["schema_version"] != 5 or report["arena_version"] != "full-game-artifact-arena-v5":
+        raise AssertionError(f"unexpected v5 schema: {report!r}")
     if report["search_config"]["limit_mode"] != "fixed_depth":
         raise AssertionError(f"fixed-depth mode was not recorded: {report['search_config']!r}")
     if report["search_config"]["pure_limit_mode"] is not True:
@@ -238,7 +238,6 @@ def assert_report(report: dict[str, object]) -> None:
             "incremental_eval_calls",
             "stateless_eval_calls",
             "incremental_updates",
-            "incremental_touched_instances",
             "beta_cutoffs",
             "alpha_updates",
             "root_moves_searched",
@@ -282,7 +281,6 @@ def assert_report(report: dict[str, object]) -> None:
         "incremental_eval_calls",
         "stateless_eval_calls",
         "incremental_updates",
-        "incremental_touched_instances",
         "beta_cutoffs",
         "alpha_updates",
         "root_moves_searched",

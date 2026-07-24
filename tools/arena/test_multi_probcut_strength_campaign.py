@@ -236,8 +236,8 @@ class CampaignTests(unittest.TestCase):
                 "weights_file_checksum": weights_checksum,
             }
             report = {
-                "schema_version": 4,
-                "arena_version": "full-game-artifact-arena-v4",
+                "schema_version": 5,
+                "arena_version": "full-game-artifact-arena-v5",
                 "seed": 7,
                 "search_config": {
                     "candidate_probcut_mode": "multi",

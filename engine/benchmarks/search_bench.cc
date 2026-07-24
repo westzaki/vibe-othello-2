@@ -1871,14 +1871,13 @@ void print_delimited_header(char delimiter) {
             << delimiter << "incremental_eval_enabled" << delimiter
             << "incremental_state_initializations" << delimiter << "incremental_eval_calls"
             << delimiter << "stateless_eval_calls" << delimiter << "incremental_updates"
-            << delimiter << "incremental_touched_instances" << delimiter << "terminal_nodes"
-            << delimiter << "pass_nodes" << delimiter << "beta_cutoffs" << delimiter
-            << "alpha_updates" << delimiter << "pvs_researches" << delimiter
-            << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs" << delimiter
-            << "iid_searches" << delimiter << "endgame_nodes" << delimiter << "probcut_attempts"
-            << delimiter << "probcut_shallow_nodes" << delimiter << "probcut_successes" << delimiter
-            << "probcut_unsupported_profile" << delimiter << "probcut_rejected_by_phase"
-            << delimiter << "probcut_rejected_by_depth" << delimiter
+            << delimiter << "terminal_nodes" << delimiter << "pass_nodes" << delimiter
+            << "beta_cutoffs" << delimiter << "alpha_updates" << delimiter << "pvs_researches"
+            << delimiter << "aspiration_fail_lows" << delimiter << "aspiration_fail_highs"
+            << delimiter << "iid_searches" << delimiter << "endgame_nodes" << delimiter
+            << "probcut_attempts" << delimiter << "probcut_shallow_nodes" << delimiter
+            << "probcut_successes" << delimiter << "probcut_unsupported_profile" << delimiter
+            << "probcut_rejected_by_phase" << delimiter << "probcut_rejected_by_depth" << delimiter
             << "probcut_rejected_near_exact" << delimiter << "probcut_rejected_pass" << delimiter
             << "probcut_rejected_pv" << delimiter << "probcut_rejected_root" << delimiter
             << "probcut_rejected_overhead" << delimiter << "probcut_probe_limit_reached"
@@ -1953,7 +1952,6 @@ void print_delimited_result(const PositionCase& position_case, BenchmarkMode mod
             << timed_result.result.stats.incremental_eval_calls << delimiter
             << timed_result.result.stats.stateless_eval_calls << delimiter
             << timed_result.result.stats.incremental_updates << delimiter
-            << timed_result.result.stats.incremental_touched_instances << delimiter
             << timed_result.result.stats.terminal_nodes << delimiter
             << timed_result.result.stats.pass_nodes << delimiter
             << timed_result.result.stats.beta_cutoffs << delimiter
@@ -2117,8 +2115,6 @@ void print_jsonl_result(const PositionCase& position_case, BenchmarkMode mode,
   std::cout << ",\"incremental_eval_calls\":" << timed_result.result.stats.incremental_eval_calls;
   std::cout << ",\"stateless_eval_calls\":" << timed_result.result.stats.stateless_eval_calls;
   std::cout << ",\"incremental_updates\":" << timed_result.result.stats.incremental_updates;
-  std::cout << ",\"incremental_touched_instances\":"
-            << timed_result.result.stats.incremental_touched_instances;
   std::cout << ",\"terminal_nodes\":" << timed_result.result.stats.terminal_nodes;
   std::cout << ",\"pass_nodes\":" << timed_result.result.stats.pass_nodes;
   std::cout << ",\"beta_cutoffs\":" << timed_result.result.stats.beta_cutoffs;

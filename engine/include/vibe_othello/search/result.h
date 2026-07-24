@@ -41,7 +41,6 @@ struct SearchStats {
   NodeCount incremental_eval_calls = 0;
   NodeCount stateless_eval_calls = 0;
   NodeCount incremental_updates = 0;
-  NodeCount incremental_touched_instances = 0;
   NodeCount terminal_nodes = 0;
   NodeCount pass_nodes = 0;
   NodeCount beta_cutoffs = 0;

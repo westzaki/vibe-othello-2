@@ -601,7 +601,6 @@ struct SearchStats {
   NodeCount incremental_eval_calls;
   NodeCount stateless_eval_calls;
   NodeCount incremental_updates;
-  NodeCount incremental_touched_instances;
   NodeCount terminal_nodes;
   NodeCount pass_nodes;
   NodeCount beta_cutoffs;
@@ -723,9 +722,9 @@ at search roots. `stats.incremental_eval_calls` and
 `stats.eval_calls`.
 
 `stats.incremental_updates` counts incremental state transitions for apply and
-undo, including pass transitions. `stats.incremental_touched_instances` sums
-the unique pattern instances updated by those transitions; pass transitions
-therefore add an update but touch zero instances.
+undo, including pass transitions. Search does not count affected pattern
+instances because that diagnostic bookkeeping is part of the recursive hot
+path rather than evaluation correctness.
 
 For a `PhaseAwareEvaluator`, a fallback-only search reports incremental
 evaluation disabled and stateless calls. A search that can reach a learned

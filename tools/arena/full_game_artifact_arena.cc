@@ -40,7 +40,7 @@ namespace evaluation = vibe_othello::evaluation;
 namespace search = vibe_othello::search;
 namespace full_arena = vibe_othello::tools::full_game_arena;
 
-constexpr std::string_view kArenaVersion = "full-game-artifact-arena-v4";
+constexpr std::string_view kArenaVersion = "full-game-artifact-arena-v5";
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
@@ -1823,7 +1823,6 @@ void write_search_stats_identity(std::ostream& output, const search::SearchStats
          << stats.incremental_eval_calls << '\n'
          << stats.stateless_eval_calls << '\n'
          << stats.incremental_updates << '\n'
-         << stats.incremental_touched_instances << '\n'
          << stats.terminal_nodes << '\n'
          << stats.pass_nodes << '\n'
          << stats.beta_cutoffs << '\n'
@@ -1925,7 +1924,6 @@ void write_telemetry_summary(std::ostream& output, const full_arena::TelemetrySu
   output << ", \"incremental_eval_calls\": " << summary.stats.incremental_eval_calls;
   output << ", \"stateless_eval_calls\": " << summary.stats.stateless_eval_calls;
   output << ", \"incremental_updates\": " << summary.stats.incremental_updates;
-  output << ", \"incremental_touched_instances\": " << summary.stats.incremental_touched_instances;
   output << ", \"nodes_per_sec\": ";
   const std::optional<double> nodes_per_sec =
       full_arena::events_per_second(summary.stats.nodes, summary.elapsed_ns);
@@ -2098,7 +2096,6 @@ void write_search_call(std::ostream& output, const GameRecord::SearchCall& call)
   output << ", \"incremental_eval_calls\": " << record.stats.incremental_eval_calls;
   output << ", \"stateless_eval_calls\": " << record.stats.stateless_eval_calls;
   output << ", \"incremental_updates\": " << record.stats.incremental_updates;
-  output << ", \"incremental_touched_instances\": " << record.stats.incremental_touched_instances;
   output << ", \"leaf_nodes\": " << record.stats.leaf_nodes;
   output << ", \"terminal_nodes\": " << record.stats.terminal_nodes;
   output << ", \"pass_nodes\": " << record.stats.pass_nodes;
@@ -2479,7 +2476,7 @@ bool write_report(const Args& args, const LoadedEvaluator& candidate,
                             args.bootstrap_samples, args.minimum_opening_pairs, games));
   output << std::fixed << std::setprecision(6);
   output << "{\n";
-  output << "  \"schema_version\": 4,\n";
+  output << "  \"schema_version\": 5,\n";
   output << "  \"arena_version\": ";
   write_json_string(output, kArenaVersion);
   output << ",\n  \"candidate\": ";

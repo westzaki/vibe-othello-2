@@ -544,7 +544,6 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(incremental.stats.incremental_eval_calls == incremental.stats.eval_calls);
   REQUIRE(incremental.stats.stateless_eval_calls == 0);
   REQUIRE(incremental.stats.incremental_updates > 0);
-  REQUIRE(incremental.stats.incremental_touched_instances > 0);
   REQUIRE_FALSE(reference.stats.incremental_eval_enabled);
   REQUIRE(reference.stats.stateless_eval_calls == reference.stats.eval_calls);
 
@@ -588,7 +587,6 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(root_pass.stats.incremental_eval_enabled);
   REQUIRE(root_pass.stats.incremental_state_initializations == 1);
   REQUIRE(root_pass.stats.incremental_updates == 2);
-  REQUIRE(root_pass.stats.incremental_touched_instances == 0);
   REQUIRE(root_pass.stats.incremental_eval_calls + root_pass.stats.stateless_eval_calls ==
           root_pass.stats.eval_calls);
 
@@ -605,9 +603,6 @@ TEST_CASE("search session incremental backend matches the generic stateless path
   REQUIRE(direct.stats.incremental_eval_calls == direct.stats.eval_calls);
   REQUIRE(direct.stats.stateless_eval_calls == 0);
   REQUIRE(direct.stats.incremental_updates > 0);
-  // The direct and phase-aware evaluators both use the artifact's learned
-  // early-phase table values now that the default declares full coverage.
-  REQUIRE(direct.stats.incremental_touched_instances > 0);
 }
 
 } // namespace

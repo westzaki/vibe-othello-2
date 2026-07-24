@@ -23,6 +23,10 @@ cmake --build build-bench --config Release
 ./build-bench/engine/benchmarks/vibe_othello_search_bench
 ```
 
+Optimized builds enable IPO by default when supported. Use
+`-DVIBE_OTHELLO_ENABLE_IPO=OFF` for a non-IPO baseline, and keep that setting
+the same across compared builds.
+
 The board-core output includes production and unrolled legal/flip rows plus
 full `hash_position` and incremental `hash_after_move` cost. Generated results
 remain local-only.
