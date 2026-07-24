@@ -383,6 +383,40 @@ TEST_CASE("exact endgame option triggers only at or below threshold", "[search][
   REQUIRE(at_threshold_evaluator.calls == 0);
 }
 
+TEST_CASE("root exact threshold is independent from the internal handoff threshold",
+          "[search][endgame][root]") {
+  const board_core::Position position = corpus_position("four_empty_simple");
+  CountingEvaluator evaluator{77};
+
+  const SearchResult result =
+      search_iterative(position, evaluator, SearchLimits{.max_depth = Depth{0}},
+                       SearchOptions{.endgame = EndgameSearchOptions{
+                                         .exact_endgame = true,
+                                         .endgame_exact_empties = 1,
+                                         .root_exact_endgame_empties = 4,
+                                     }});
+
+  require_exact_result_invariants(position, result);
+  REQUIRE(result.completed_depth == Depth{4});
+  REQUIRE(evaluator.calls == 0);
+
+  const board_core::Position position_above_root_threshold =
+      test_support::generated_endgame_position(5);
+  CountingEvaluator internal_evaluator{77};
+  const SearchResult internal_result = search_iterative(
+      position_above_root_threshold, internal_evaluator, SearchLimits{.max_depth = Depth{1}},
+      SearchOptions{.endgame = EndgameSearchOptions{
+                        .exact_endgame = true,
+                        .endgame_exact_empties = 1,
+                        .root_exact_endgame_empties = 4,
+                    }});
+
+  REQUIRE_FALSE(internal_result.exact);
+  REQUIRE(internal_result.stats.endgame_nodes == 0);
+  REQUIRE(internal_result.stats.eval_calls > 0);
+  REQUIRE(internal_evaluator.calls == internal_result.stats.eval_calls);
+}
+
 TEST_CASE("public direct exact endgame matches root-triggered exact search",
           "[search][endgame][public]") {
   const board_core::Position position = corpus_position("four_empty_simple");

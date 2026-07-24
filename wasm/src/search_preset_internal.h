@@ -4,9 +4,12 @@
 #include "vibe_othello/search/search.h"
 #include "vibe_othello_wasm/wasm_api.h"
 
+#include <algorithm>
 #include <cstdint>
 
 namespace vibe_othello::wasm_adapter::internal {
+
+inline constexpr std::uint8_t kProductionInternalExactEndgameEmpties = 8;
 
 inline bool is_valid_search_preset(std::uint32_t preset) noexcept {
   return preset == VIBE_OTHELLO_WASM_SEARCH_PRESET_EASY ||
@@ -19,6 +22,10 @@ search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empti
                           search::ProbCutRuntimeIdentityV1 runtime_identity = {}) noexcept {
   const bool use_full_search_stack = preset == VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL ||
                                      preset == VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD;
+  const std::uint8_t internal_exact_endgame_empties =
+      use_full_search_stack
+          ? std::min(exact_endgame_empties, kProductionInternalExactEndgameEmpties)
+          : exact_endgame_empties;
 
   search::SearchOptions options{
       .midgame =
@@ -40,16 +47,18 @@ search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empti
           search::EndgameSearchOptions{
               .exact_endgame = exact_endgame_empties != 0,
               .use_endgame_tt = use_full_search_stack,
-              .endgame_exact_empties = exact_endgame_empties,
+              .endgame_exact_empties = internal_exact_endgame_empties,
               .endgame_wld_empties = 0,
+              .root_exact_endgame_empties =
+                  use_full_search_stack ? exact_endgame_empties : std::uint8_t{0},
           },
       .reporting = search::SearchReportingOptions{.multi_pv = 1},
       .selective = search::SelectiveSearchOptionsV1{},
       .mode = search::SearchMode::move,
   };
-  if (use_full_search_stack) {
+  if (use_full_search_stack && exact_endgame_empties == internal_exact_endgame_empties) {
     options.probcut_options = search::production_probcut_configuration_v1(
-                                  runtime_identity, options.mode, exact_endgame_empties)
+                                  runtime_identity, options.mode, internal_exact_endgame_empties)
                                   .options;
   }
   return options;

@@ -1559,6 +1559,8 @@ void write_search_options(std::ostream& output, const search::SearchOptions& opt
   output << ", \"endgame_exact_empties\": "
          << static_cast<int>(options.endgame.endgame_exact_empties);
   output << ", \"endgame_wld_empties\": " << static_cast<int>(options.endgame.endgame_wld_empties);
+  output << ", \"root_exact_endgame_empties\": "
+         << static_cast<int>(options.endgame.root_exact_endgame_empties);
   output << ", \"probcut\": ";
   write_bool(output, false);
   output << ", \"use_pv_table\": ";

@@ -338,6 +338,7 @@ struct EndgameSearchOptions {
   bool use_endgame_pvs;
   std::uint8_t endgame_exact_empties;
   std::uint8_t endgame_wld_empties;
+  std::uint8_t root_exact_endgame_empties;
   EndgameStabilityMode stability_mode;
 };
 
@@ -511,7 +512,11 @@ complete bounded siblings for all-root reporting.
 default. Root-triggered WLD endgame search is used only when `mode` is
 `SearchMode::win_loss_draw` and the root empty count is less than or equal to
 `endgame.endgame_wld_empties`. Exact-score endgame search remains separate and
-returns final disc-difference margins.
+returns final disc-difference margins. Its root threshold is
+`endgame.root_exact_endgame_empties` when nonzero, otherwise it reuses
+`endgame.endgame_exact_empties`. The latter continues to control internal
+midgame-leaf handoff, so callers can widen root solving without changing the
+calibrated internal search boundary.
 
 ## Direct Exact Endgame API
 
@@ -525,8 +530,9 @@ SearchResult solve_exact_endgame(board_core::Position position,
 
 This API starts exact final-disc-difference search directly. It does not use the
 `SearchOptions::endgame.exact_endgame` or
-`SearchOptions::endgame.endgame_exact_empties` root threshold gate and does not
-fall back to evaluator-based midgame search.
+the effective `SearchOptions::endgame.root_exact_endgame_empties` /
+`endgame_exact_empties` root threshold gate and does not fall back to
+evaluator-based midgame search.
 
 Because direct exact solving may be expensive for high-empty positions, callers
 should use `SearchLimits` when appropriate. `max_nodes`, `max_time`, and
@@ -552,7 +558,8 @@ SearchResult solve_wld_endgame(board_core::Position position,
 
 This API starts exact win/loss/draw search directly. It does not use the
 `SearchOptions::endgame.exact_endgame`,
-`SearchOptions::endgame.endgame_exact_empties`, or
+`SearchOptions::endgame.endgame_exact_empties`,
+`SearchOptions::endgame.root_exact_endgame_empties`, or
 `SearchOptions::endgame.endgame_wld_empties` root threshold gates and does not
 fall back to evaluator-based midgame search.
 

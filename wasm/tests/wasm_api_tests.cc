@@ -499,6 +499,7 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE(normal.endgame.use_endgame_tt);
   REQUIRE(normal.endgame.endgame_exact_empties == 8);
   REQUIRE(normal.endgame.endgame_wld_empties == 0);
+  REQUIRE(normal.endgame.root_exact_endgame_empties == 8);
   REQUIRE(normal.probcut_options.use_probcut);
   REQUIRE(normal.probcut_options.maximum_probes_per_node == 2);
   REQUIRE(normal.probcut_options.maximum_margin == 22);
@@ -518,7 +519,15 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
   REQUIRE(hard.ordering.use_endgame_parity_ordering == normal.ordering.use_endgame_parity_ordering);
   REQUIRE(hard.endgame.exact_endgame == normal.endgame.exact_endgame);
   REQUIRE(hard.endgame.use_endgame_tt == normal.endgame.use_endgame_tt);
+  REQUIRE(hard.endgame.root_exact_endgame_empties == normal.endgame.root_exact_endgame_empties);
   REQUIRE(hard.probcut_options.use_probcut);
+
+  const vibe_othello::search::SearchOptions wider_root =
+      vibe_othello::wasm_adapter::internal::search_options_for_preset(
+          VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 14, identity);
+  REQUIRE(wider_root.endgame.endgame_exact_empties == 8);
+  REQUIRE(wider_root.endgame.root_exact_endgame_empties == 14);
+  REQUIRE_FALSE(wider_root.probcut_options.use_probcut);
 
   vibe_othello::search::ProbCutRuntimeIdentityV1 mismatch = identity;
   mismatch.artifact_family = "another-artifact";

@@ -46,7 +46,7 @@ try {
     position,
     { maxDepth: 64, maxTimeMs: 500 },
     "normal",
-    8,
+    14,
   );
 } finally {
   artifact.free();
@@ -64,19 +64,22 @@ always caller-provided; `normal` and `hard` currently enable the same algorithm
 set, while callers choose wider limits for hard play. A nonzero final argument
 enables exact-score endgame search at or below that empty-square threshold and
 requires `maxNodes` or `maxTimeMs`: exact root search intentionally ignores a
-depth limit.
+depth limit. For `normal` and `hard`, internal midgame-leaf handoff remains
+capped at eight empties even when this root threshold is wider.
 
 `normal` and `hard` select the checked-in Multi-ProbCut profile only when the
 loaded evaluator family, artifact ID, weights checksum, score scale,
 trained-phase mask, fallback-additive phase boundary, move-search mode, and
-8-empty exact handoff all match its reviewed identity. The speed-gated
-production schedule tries threshold-directed `7:3` and then `7:4` null-window
-probes in the reviewed phase 2, 3, 4, 6, 7, 9, and 10 domains, with a 20%
+matching 8-empty root and internal exact handoff all match its reviewed
+identity. A wider root threshold therefore fails closed to Multi-ProbCut off.
+The speed-gated production schedule tries threshold-directed `7:3` and then
+`7:4` null-window probes in the reviewed phase 2, 3, 4, 6, 7, 9, and 10
+domains, with a 20%
 cumulative shallow-search ceiling. `easy`, the legacy API, nonmatching
-artifacts, and other exact
-thresholds remain disabled. Search results expose the effective selection as
-`probcutEnabled`; this reports configuration selection, even when the current
-position does not enter an enabled profile domain.
+artifacts, and other root exact thresholds remain disabled. Search results
+expose the effective selection as `probcutEnabled`; this reports configuration
+selection, even when the current position does not enter an enabled profile
+domain.
 
 Each loaded evaluator owns a WASM-profile search session with an 8 MiB
 transposition-table byte budget. The power-of-two bucket allocator currently

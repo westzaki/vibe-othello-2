@@ -32,6 +32,18 @@ maximum still counts as a cut when the derived threshold is within range.
 Missing domains, identity mismatch, other exact thresholds, `easy`, the legacy
 API, and `VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` all resolve to disabled.
 
+The wider 14-empty root policy was also checked against the same ON/OFF gate
+after root and internal exact thresholds were separated. Fixed-depth output
+matched completely: the primary depth-8 node ratio was `0.986927`, and the
+depth-8-through-12 aggregate node ratio was `0.947740`. However, the primary
+median wall ratio was `0.993350` against the required `0.990000`, while the
+500 ms rollout produced 80/81 best-move matches, 79/81 score matches, and a
+completed-depth sum of 859 enabled versus 860 disabled. Because that policy
+does not pass every mandatory gate, `normal` and `hard` fail closed to MPC off
+when their root threshold is wider than the reviewed internal threshold. The
+checked-in `performance.json` intentionally remains the accepted exact-8
+profile evidence.
+
 ## Calibration evidence
 
 Training and independent holdout collection each used 22,000 phase-balanced
