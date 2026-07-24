@@ -264,6 +264,28 @@ TEST_CASE("specialized last-flip scoring removes terminal recursion",
   REQUIRE(specialized.nodes < generic.nodes);
 }
 
+TEST_CASE("last-move flip count matches generic flips for every empty square",
+          "[search][endgame][small_empty][last_flip]") {
+  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
+    const board_core::Square empty = board_core::square_from_index(square_index);
+    const board_core::Bitboard occupied = ~board_core::bit(empty);
+    board_core::Bitboard pattern = 0x9e3779b97f4a7c15ULL ^ board_core::bit(empty);
+    for (int sample = 0; sample < 64; ++sample) {
+      pattern ^= pattern << 13;
+      pattern ^= pattern >> 7;
+      pattern ^= pattern << 17;
+      const board_core::Position position{
+          .player = pattern & occupied,
+          .opponent = ~pattern & occupied,
+          .side_to_move = board_core::Color::black,
+      };
+
+      REQUIRE(last_move_flip_count(position, empty) ==
+              std::popcount(board_core::flips_for_move(position, empty)));
+    }
+  }
+}
+
 TEST_CASE("small-empty exact path matches generic forced-pass two, three, and four-empty positions",
           "[search][endgame][small_empty]") {
   require_small_empty_path_matches_generic(generated_forced_pass_position(2));

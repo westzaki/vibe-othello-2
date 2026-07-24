@@ -651,11 +651,12 @@ Small-empty routines should avoid unnecessary:
 * logging
 * file I/O
 
-The one-empty path uses direct flip computation for normal, forced-pass, and
-terminal positions. The two-to-four-empty tiers derive legal moves from the
-remaining empty squares and reuse their precomputed flip deltas when applying
-each move. The five-to-eight-empty tier keeps recursive alpha-beta but replaces
-generic per-move mobility scoring with direct legal-bit enumeration and optional
+The one-empty path counts flips from precomputed directional rays and the
+nearest player anchor for normal, forced-pass, and terminal positions. The
+two-to-four-empty tiers derive legal moves from the remaining empty squares and
+reuse their precomputed flip deltas when applying each move. The
+five-to-eight-empty tier keeps recursive alpha-beta but replaces generic
+per-move mobility scoring with direct legal-bit enumeration and optional
 odd-region/even-region partitioning. Empty-region discovery uses bitboard flood
 fill while preserving deterministic low-square region IDs.
 
