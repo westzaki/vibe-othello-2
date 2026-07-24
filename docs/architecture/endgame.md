@@ -653,8 +653,9 @@ Small-empty routines should avoid unnecessary:
 
 The one-empty path counts flips from precomputed directional rays and the
 nearest player anchor for normal, forced-pass, and terminal positions. The
-two-to-four-empty tiers derive legal moves from the remaining empty squares and
-reuse their precomputed flip deltas when applying each move. The
+two-to-four-empty tiers use those rays with the nearest player-or-empty blocker
+to derive flip masks directly from the remaining empty squares, then reuse the
+precomputed deltas when applying each move. The
 five-to-eight-empty tier keeps recursive alpha-beta but replaces generic
 per-move mobility scoring with direct legal-bit enumeration and optional
 odd-region/even-region partitioning. Empty-region discovery uses bitboard flood

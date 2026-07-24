@@ -286,6 +286,40 @@ TEST_CASE("last-move flip count matches generic flips for every empty square",
   }
 }
 
+TEST_CASE("two-to-four-empty flip masks match generic flips",
+          "[search][endgame][small_empty][flips]") {
+  board_core::Bitboard state = 0xd1b54a32d192ed03ULL;
+  for (int empty_count = 2; empty_count <= 4; ++empty_count) {
+    for (int sample = 0; sample < 512; ++sample) {
+      board_core::Bitboard empty_squares = 0;
+      while (std::popcount(empty_squares) < empty_count) {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        empty_squares |= board_core::bit(
+            board_core::square_from_index(static_cast<int>(state % board_core::kSquareCount)));
+      }
+      state ^= state << 13;
+      state ^= state >> 7;
+      state ^= state << 17;
+      const board_core::Position position{
+          .player = state & ~empty_squares,
+          .opponent = ~state & ~empty_squares,
+          .side_to_move = board_core::Color::black,
+      };
+
+      board_core::Bitboard remaining = empty_squares;
+      while (remaining != 0) {
+        const int square_index = std::countr_zero(remaining);
+        remaining &= remaining - 1;
+        const board_core::Square move = board_core::square_from_index(square_index);
+        REQUIRE(small_empty_flips_for_move(position, move) ==
+                board_core::flips_for_move(position, move));
+      }
+    }
+  }
+}
+
 TEST_CASE("small-empty exact path matches generic forced-pass two, three, and four-empty positions",
           "[search][endgame][small_empty]") {
   require_small_empty_path_matches_generic(generated_forced_pass_position(2));
