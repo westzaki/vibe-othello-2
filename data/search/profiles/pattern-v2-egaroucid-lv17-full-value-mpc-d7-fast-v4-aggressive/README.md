@@ -50,13 +50,15 @@ a per-domain Wilson 95% upper bound below 5%.
 
 The production profile is accepted only when the original fixed-depth gate,
 the extended fixed-depth gate, and the time-bounded rollout gate all pass. The
-original depth-8 gate retains its 270-position population and five alternating
-trials:
+figures below were rerun after the phase-aware exact-handoff policy began using
+a full root window and omitting reduced-depth IID when that search would itself
+reach the internal exact solver. The original depth-8 gate retains its
+270-position population and five alternating trials:
 
 | Gate | Required | Measured |
 | --- | ---: | ---: |
-| Enabled/disabled nodes | <= 0.990000 | 0.984221 |
-| Median enabled/disabled wall time | <= 0.990000 | 0.979731 |
+| Enabled/disabled nodes | <= 0.990000 | 0.984436 |
+| Median enabled/disabled wall time | <= 0.990000 | 0.981748 |
 | Best move, score, completed depth | exact match | 1,350/1,350 each |
 
 The 8 MiB TT rollout also checks a 27-position subset balanced at three
@@ -66,24 +68,24 @@ measurement bound, not a Web runtime setting:
 
 | Depth | Enabled nodes | Disabled nodes | Ratio | Best move / score / completed depth |
 | ---: | ---: | ---: | ---: | ---: |
-| 8 | 2,383,804 | 2,398,615 | 0.993825 | 27/27 each |
-| 9 | 5,183,547 | 5,158,794 | 1.004798 | 27/27 each |
-| 10 | 151,269,342 | 153,023,482 | 0.988537 | 27/27 each |
-| 11 | 396,653,363 | 430,232,010 | 0.921952 | 27/27 each |
-| 12 | 618,481,156 | 635,628,043 | 0.973024 | 27/27 each |
-| Aggregate | 1,173,971,212 | 1,226,440,944 | 0.957218 | 135/135 each |
+| 8 | 2,436,067 | 2,450,878 | 0.993957 | 27/27 each |
+| 9 | 5,246,651 | 5,221,905 | 1.004739 | 27/27 each |
+| 10 | 155,243,862 | 162,472,700 | 0.955507 | 27/27 each |
+| 11 | 430,085,211 | 454,254,387 | 0.946794 | 27/27 each |
+| 12 | 643,734,203 | 680,280,344 | 0.946278 | 27/27 each |
+| Aggregate | 1,236,745,994 | 1,304,680,214 | 0.947930 | 135/135 each |
 
 The extended gate requires at least 1% aggregate node reduction, no individual
 depth above a 1.01 node ratio, exact fixed-depth output parity, and no stopped
-searches. Depth 9 has a 0.48% local node increase, below the per-depth guard;
-the aggregate reduces nodes by 4.28%.
+searches. Depth 9 has a 0.47% local node increase, below the per-depth guard;
+the aggregate reduces nodes by 5.21%.
 
 The same 27 positions were then run for three alternating trials with the Web
 limits, depth 64 and 500 ms. Both variants had median completed depth 10 and
-median per-position wall time at the 500 ms cap. Enabled search completed 1,063
-total depth units versus 1,060 disabled: it was deeper in four comparisons,
-equal in 76, and shallower in one. Best move and score matched in 81/81
-comparisons; all 76 equal-depth comparisons also matched exactly. The timed
+median per-position wall time at the 500 ms cap. Enabled search completed 1,057
+total depth units versus 1,055 disabled: it was deeper in three comparisons,
+equal in 77, and shallower in one. Best move and score matched in 81/81
+comparisons; all 77 equal-depth comparisons also matched exactly. The timed
 gate requires best-move and score parity for every comparison, equal-depth
 output parity, and non-regression in both median and aggregate completed depth.
 

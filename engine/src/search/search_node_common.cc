@@ -11,6 +11,7 @@ constexpr std::uint8_t kInternalExactEndgameMaxEmpties = 8;
 constexpr int kHistoryScoreLimit = 1'000'000;
 constexpr Depth kIidMinDepth = 4;
 constexpr Depth kIidDepthReduction = 2;
+constexpr Depth kIidExactHandoffMinPenetration = 2;
 constexpr Depth kMidgameMobilityOrderingMinDepth = 5;
 
 bool is_legal_normal_move(board_core::Bitboard legal_moves, board_core::Move move) noexcept {
@@ -107,6 +108,22 @@ SearchNodeResult search_internal_exact_endgame(SearchContext* context, Ply ply) 
 }
 
 } // namespace
+
+bool search_horizon_reaches_internal_exact_endgame(board_core::Position position, Depth depth,
+                                                   ResolvedSearchOptions options,
+                                                   Depth minimum_penetration) noexcept {
+  if (!options.endgame.exact_endgame || options.mode == SearchMode::win_loss_draw || depth < 0 ||
+      minimum_penetration < 0) {
+    return false;
+  }
+
+  const int exact_threshold = internal_exact_endgame_threshold(options);
+  if (exact_threshold == 0) {
+    return false;
+  }
+  const int horizon_empties = exact_threshold + depth - minimum_penetration;
+  return static_cast<int>(empty_count(position)) <= horizon_empties;
+}
 
 SearchNodeResult SearchNodeResult::completed(SearchValue value, bool selective) noexcept {
   SearchNodeResult result;
@@ -270,7 +287,10 @@ std::optional<board_core::Move> maybe_find_iid_best_move(SearchContext* context,
                                                          bool* stopped) {
   *stopped = false;
   if (!context->options.midgame.use_iid || context->in_iid || context->in_probcut_shallow ||
-      depth < kIidMinDepth || alpha + 1 >= beta || ply >= kMaxPly) {
+      depth < kIidMinDepth || alpha + 1 >= beta || ply >= kMaxPly ||
+      search_horizon_reaches_internal_exact_endgame(context->position_state.position, depth,
+                                                    context->options,
+                                                    kIidExactHandoffMinPenetration)) {
     return std::nullopt;
   }
 

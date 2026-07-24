@@ -35,10 +35,10 @@
       "depth": 8,
       "position_count": 270,
       "trial_count": 5,
-      "enabled_nodes": "175407130",
-      "disabled_nodes": "178219335",
-      "node_ratio": 0.984220539258549,
-      "median_wall_ratio": 0.9797313718602191,
+      "enabled_nodes": "178232580",
+      "disabled_nodes": "181050360",
+      "node_ratio": 0.9844364849647358,
+      "median_wall_ratio": 0.9817476691881036,
       "move_matches": 1350,
       "score_matches": 1350,
       "completed_depth_matches": 1350,
@@ -65,53 +65,53 @@
             "off",
             "on"
           ],
-          "ratio": 0.9779371307823562
+          "ratio": 0.9873505381882992
         },
         {
           "order": [
             "on",
             "off"
           ],
-          "ratio": 0.9770680822122616
+          "ratio": 0.9891692354327781
         },
         {
           "order": [
             "off",
             "on"
           ],
-          "ratio": 0.9797313718602191
+          "ratio": 0.9806665824364132
         },
         {
           "order": [
             "on",
             "off"
           ],
-          "ratio": 0.9812051579461433
+          "ratio": 0.9549737512133154
         },
         {
           "order": [
             "off",
             "on"
           ],
-          "ratio": 0.981577748204479
+          "ratio": 0.9817476691881036
         }
       ]
     },
     "extended_fixed": {
       "positions_per_phase": 3,
-      "enabled_nodes": "1173971212",
-      "disabled_nodes": "1226440944",
-      "aggregate_node_ratio": 0.9572178894901604,
+      "enabled_nodes": "1236745994",
+      "disabled_nodes": "1304680214",
+      "aggregate_node_ratio": 0.9479303669427763,
       "aggregate_node_gate_passed": true,
       "depths": [
         {
           "depth": 8,
           "position_count": 27,
           "trial_count": 1,
-          "enabled_nodes": "2383804",
-          "disabled_nodes": "2398615",
-          "node_ratio": 0.9938251866181109,
-          "median_wall_ratio": 0.9878542107588163,
+          "enabled_nodes": "2436067",
+          "disabled_nodes": "2450878",
+          "node_ratio": 0.9939568595417643,
+          "median_wall_ratio": 0.9786452540121873,
           "move_matches": 27,
           "score_matches": 27,
           "completed_depth_matches": 27,
@@ -138,7 +138,7 @@
                 "off",
                 "on"
               ],
-              "ratio": 0.9878542107588163
+              "ratio": 0.9786452540121873
             }
           ]
         },
@@ -146,10 +146,10 @@
           "depth": 9,
           "position_count": 27,
           "trial_count": 1,
-          "enabled_nodes": "5183547",
-          "disabled_nodes": "5158794",
-          "node_ratio": 1.0047982144664043,
-          "median_wall_ratio": 1.0008909048564434,
+          "enabled_nodes": "5246651",
+          "disabled_nodes": "5221905",
+          "node_ratio": 1.004738883606653,
+          "median_wall_ratio": 1.0004357461306241,
           "move_matches": 27,
           "score_matches": 27,
           "completed_depth_matches": 27,
@@ -176,7 +176,7 @@
                 "off",
                 "on"
               ],
-              "ratio": 1.0008909048564434
+              "ratio": 1.0004357461306241
             }
           ]
         },
@@ -184,10 +184,10 @@
           "depth": 10,
           "position_count": 27,
           "trial_count": 1,
-          "enabled_nodes": "151269342",
-          "disabled_nodes": "153023482",
-          "node_ratio": 0.9885367920199333,
-          "median_wall_ratio": 0.9979416425907374,
+          "enabled_nodes": "155243862",
+          "disabled_nodes": "162472700",
+          "node_ratio": 0.9555073683148,
+          "median_wall_ratio": 0.9664843560869969,
           "move_matches": 27,
           "score_matches": 27,
           "completed_depth_matches": 27,
@@ -214,7 +214,7 @@
                 "off",
                 "on"
               ],
-              "ratio": 0.9979416425907374
+              "ratio": 0.9664843560869969
             }
           ]
         },
@@ -222,10 +222,10 @@
           "depth": 11,
           "position_count": 27,
           "trial_count": 1,
-          "enabled_nodes": "396653363",
-          "disabled_nodes": "430232010",
-          "node_ratio": 0.9219522345629281,
-          "median_wall_ratio": 0.9338463586722607,
+          "enabled_nodes": "430085211",
+          "disabled_nodes": "454254387",
+          "node_ratio": 0.9467937422473368,
+          "median_wall_ratio": 0.9554080355463471,
           "move_matches": 27,
           "score_matches": 27,
           "completed_depth_matches": 27,
@@ -252,7 +252,7 @@
                 "off",
                 "on"
               ],
-              "ratio": 0.9338463586722607
+              "ratio": 0.9554080355463471
             }
           ]
         },
@@ -260,10 +260,10 @@
           "depth": 12,
           "position_count": 27,
           "trial_count": 1,
-          "enabled_nodes": "618481156",
-          "disabled_nodes": "635628043",
-          "node_ratio": 0.9730237090876748,
-          "median_wall_ratio": 0.9790807701202914,
+          "enabled_nodes": "643734203",
+          "disabled_nodes": "680280344",
+          "node_ratio": 0.9462778230734827,
+          "median_wall_ratio": 0.9624351993759431,
           "move_matches": 27,
           "score_matches": 27,
           "completed_depth_matches": 27,
@@ -290,7 +290,7 @@
                 "off",
                 "on"
               ],
-              "ratio": 0.9790807701202914
+              "ratio": 0.9624351993759431
             }
           ]
         }
@@ -303,9 +303,9 @@
       "positions_per_phase": 3,
       "position_count": 27,
       "trial_count": 3,
-      "median_enabled_wall_ms": 500.2166660000803,
-      "median_disabled_wall_ms": 500.1937919999473,
-      "median_total_wall_ratio": 1.000094885999602,
+      "median_enabled_wall_ms": 500.2061250000261,
+      "median_disabled_wall_ms": 500.1903329999186,
+      "median_total_wall_ratio": 0.9998172356378257,
       "median_enabled_completed_depth": 10,
       "median_disabled_completed_depth": 10,
       "enabled_completed_depth_histogram": {
@@ -314,33 +314,34 @@
         "11": 21,
         "12": 6,
         "16": 3,
+        "24": 2,
         "25": 1,
-        "27": 2,
         "64": 3
       },
       "disabled_completed_depth_histogram": {
         "9": 9,
-        "10": 39,
-        "11": 18,
+        "10": 37,
+        "11": 20,
         "12": 6,
-        "16": 3,
-        "26": 2,
-        "27": 1,
+        "15": 2,
+        "16": 1,
+        "24": 1,
+        "25": 2,
         "64": 3
       },
-      "enabled_completed_depth_sum": 1063,
-      "disabled_completed_depth_sum": 1060,
-      "completed_depth_sum_ratio": 1.0028301886792452,
-      "enabled_deeper": 4,
-      "equal_depth": 76,
+      "enabled_completed_depth_sum": 1057,
+      "disabled_completed_depth_sum": 1055,
+      "completed_depth_sum_ratio": 1.0018957345971564,
+      "enabled_deeper": 3,
+      "equal_depth": 77,
       "disabled_deeper": 1,
       "move_matches": 81,
       "score_matches": 81,
-      "completed_depth_matches": 76,
+      "completed_depth_matches": 77,
       "expected_output_comparisons": 81,
-      "same_depth_comparisons": 76,
-      "same_depth_move_matches": 76,
-      "same_depth_score_matches": 76,
+      "same_depth_comparisons": 77,
+      "same_depth_move_matches": 77,
+      "same_depth_score_matches": 77,
       "enabled_stopped": 78,
       "disabled_stopped": 78,
       "same_depth_output_parity_passed": true,
@@ -354,27 +355,27 @@
             "off",
             "on"
           ],
-          "enabled_ms": 13278.48291599995,
-          "disabled_ms": 13281.350124999997,
-          "ratio": 0.9997841176557306
+          "enabled_ms": 13272.351292000036,
+          "disabled_ms": 13275.429749999952,
+          "ratio": 0.9997681085992778
         },
         {
           "order": [
             "on",
             "off"
           ],
-          "enabled_ms": 13280.785000000033,
-          "disabled_ms": 13279.52495900006,
-          "ratio": 1.000094885999602
+          "enabled_ms": 13274.680459000054,
+          "disabled_ms": 13277.107040999923,
+          "ratio": 0.9998172356378257
         },
         {
           "order": [
             "off",
             "on"
           ],
-          "enabled_ms": 13280.310832999996,
-          "disabled_ms": 13277.455833000015,
-          "ratio": 1.000215026134215
+          "enabled_ms": 13280.139083000016,
+          "disabled_ms": 13278.708209000062,
+          "ratio": 1.0001077570180346
         }
       ]
     }

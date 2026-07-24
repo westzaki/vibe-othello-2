@@ -14,6 +14,9 @@ namespace vibe_othello::search::internal {
 
 bool should_stop_search(SearchContext* context);
 bool note_node_visited(SearchContext* context);
+bool search_horizon_reaches_internal_exact_endgame(board_core::Position position, Depth depth,
+                                                   ResolvedSearchOptions options,
+                                                   Depth minimum_penetration = 0) noexcept;
 
 std::optional<SearchNodeResult> prepare_search_node(SearchContext* context, Score alpha, Score beta,
                                                     Depth depth, Ply ply,
