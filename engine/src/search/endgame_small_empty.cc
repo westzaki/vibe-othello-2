@@ -6,7 +6,7 @@
 namespace vibe_othello::search::internal {
 namespace {
 
-enum LastMoveDirection : std::size_t {
+enum RayDirection : std::size_t {
   kEast,
   kWest,
   kNorth,
@@ -18,13 +18,13 @@ enum LastMoveDirection : std::size_t {
   kDirectionCount,
 };
 
-using LastMoveRayTable =
+using RayTable =
     std::array<std::array<board_core::Bitboard, board_core::kSquareCount>, kDirectionCount>;
 
-constexpr LastMoveRayTable make_last_move_ray_table() noexcept {
+constexpr RayTable make_ray_table() noexcept {
   constexpr std::array<int, 8> kFileSteps{1, -1, 0, 0, 1, -1, 1, -1};
   constexpr std::array<int, 8> kRankSteps{0, 0, 1, -1, 1, 1, -1, -1};
-  LastMoveRayTable rays{};
+  RayTable rays{};
   for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
     const board_core::Square square = board_core::square_from_index(square_index);
     for (std::size_t direction = 0; direction < kFileSteps.size(); ++direction) {
@@ -41,7 +41,7 @@ constexpr LastMoveRayTable make_last_move_ray_table() noexcept {
   return rays;
 }
 
-constexpr LastMoveRayTable kLastMoveRays = make_last_move_ray_table();
+constexpr RayTable kRays = make_ray_table();
 
 template <int kIndexStep>
 int last_move_ray_flip_count(board_core::Bitboard player, board_core::Bitboard ray,
@@ -56,6 +56,45 @@ int last_move_ray_flip_count(board_core::Bitboard player, board_core::Bitboard r
   }
   const int nearest = 63 - std::countl_zero(anchors);
   return ((move_index - nearest) / -kIndexStep) - 1;
+}
+
+template <RayDirection kDirection, int kIndexStep>
+board_core::Bitboard small_empty_ray_flips(board_core::Position position,
+                                           board_core::Bitboard empty_squares,
+                                           int move_index) noexcept {
+  const board_core::Bitboard move_ray = kRays[kDirection][move_index];
+  // With at most four empties, the nearest player disc or empty square decides the ray:
+  // an empty interrupts capture, while every occupied square before a player anchor is opponent.
+  const board_core::Bitboard blockers = (position.player | empty_squares) & move_ray;
+  if (blockers == 0) {
+    return 0;
+  }
+
+  int anchor_index = 0;
+  if constexpr (kIndexStep > 0) {
+    anchor_index = std::countr_zero(blockers);
+  } else {
+    anchor_index = 63 - std::countl_zero(blockers);
+  }
+  const board_core::Bitboard anchor = board_core::bit(board_core::square_from_index(anchor_index));
+  if ((anchor & position.player) == 0) {
+    return 0;
+  }
+
+  return move_ray & ~(kRays[kDirection][anchor_index] | anchor);
+}
+
+board_core::Bitboard small_empty_flips_for_move(board_core::Position position,
+                                                board_core::Bitboard empty_squares,
+                                                board_core::Square move) noexcept {
+  return small_empty_ray_flips<kEast, 1>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kWest, -1>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kNorth, 8>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kSouth, -8>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kNorthEast, 9>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kNorthWest, 7>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kSouthEast, -7>(position, empty_squares, move.index) |
+         small_empty_ray_flips<kSouthWest, -9>(position, empty_squares, move.index);
 }
 
 SearchNodeResult search_exact_score_endgame_delta(EndgameContext* context,
@@ -225,14 +264,16 @@ SearchNodeResult exact_score_delta_small_empty(EndgameContext* context, Score al
 
   std::array<board_core::MoveDelta, 4> legal_deltas{};
   std::uint8_t legal_count = 0;
-  board_core::Bitboard remaining = ~board_core::occupied(context->position_state.position);
+  const board_core::Bitboard empty_squares =
+      ~board_core::occupied(context->position_state.position);
+  board_core::Bitboard remaining = empty_squares;
   while (remaining != 0) {
     const int square_index = std::countr_zero(remaining);
     remaining &= remaining - 1;
     const board_core::Move move =
         board_core::make_move(board_core::square_from_index(square_index));
     const board_core::Bitboard flipped =
-        board_core::flips_for_move(context->position_state.position, move.square);
+        small_empty_flips_for_move(context->position_state.position, empty_squares, move.square);
     if (flipped != 0) {
       legal_deltas[legal_count] = board_core::MoveDelta{.move = move, .flipped = flipped};
       ++legal_count;
@@ -341,22 +382,19 @@ board_core::Move first_legal_move(board_core::Bitboard legal_moves) noexcept {
 }
 
 int last_move_flip_count(board_core::Position position, board_core::Square move) noexcept {
-  return last_move_ray_flip_count<1>(position.player, kLastMoveRays[kEast][move.index],
-                                     move.index) +
-         last_move_ray_flip_count<-1>(position.player, kLastMoveRays[kWest][move.index],
-                                      move.index) +
-         last_move_ray_flip_count<8>(position.player, kLastMoveRays[kNorth][move.index],
-                                     move.index) +
-         last_move_ray_flip_count<-8>(position.player, kLastMoveRays[kSouth][move.index],
-                                      move.index) +
-         last_move_ray_flip_count<9>(position.player, kLastMoveRays[kNorthEast][move.index],
-                                     move.index) +
-         last_move_ray_flip_count<7>(position.player, kLastMoveRays[kNorthWest][move.index],
-                                     move.index) +
-         last_move_ray_flip_count<-7>(position.player, kLastMoveRays[kSouthEast][move.index],
-                                      move.index) +
-         last_move_ray_flip_count<-9>(position.player, kLastMoveRays[kSouthWest][move.index],
-                                      move.index);
+  return last_move_ray_flip_count<1>(position.player, kRays[kEast][move.index], move.index) +
+         last_move_ray_flip_count<-1>(position.player, kRays[kWest][move.index], move.index) +
+         last_move_ray_flip_count<8>(position.player, kRays[kNorth][move.index], move.index) +
+         last_move_ray_flip_count<-8>(position.player, kRays[kSouth][move.index], move.index) +
+         last_move_ray_flip_count<9>(position.player, kRays[kNorthEast][move.index], move.index) +
+         last_move_ray_flip_count<7>(position.player, kRays[kNorthWest][move.index], move.index) +
+         last_move_ray_flip_count<-7>(position.player, kRays[kSouthEast][move.index], move.index) +
+         last_move_ray_flip_count<-9>(position.player, kRays[kSouthWest][move.index], move.index);
+}
+
+board_core::Bitboard small_empty_flips_for_move(board_core::Position position,
+                                                board_core::Square move) noexcept {
+  return small_empty_flips_for_move(position, ~board_core::occupied(position), move);
 }
 
 std::optional<SearchNodeResult>
