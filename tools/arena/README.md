@@ -24,9 +24,9 @@ Engine commands return one line in the form
 searched root is a legal forced pass, while `none` means search found no root
 move, such as a terminal root or depth-zero query.
 
-Engines such as NTest that do not implement this command/response contract need
-a small adapter process. This Arena remains the external-engine boundary; the
-artifact arenas below only compare evaluators inside the current process.
+Engines such as NTest that do not implement this command/response contract can
+use the persistent NBoard match tool described below. The artifact arenas only
+compare evaluators inside the current process.
 
 `vibe-othello-engine-cli` defaults to the committed learned artifact. To compare
 a custom artifact, pass its manifest inside the engine command:
@@ -36,6 +36,40 @@ build/tools/engine-cli/vibe-othello-engine-cli bestmove \
   --depth 3 \
   --eval-artifact /path/to/manifest.json
 ```
+
+## Persistent NBoard Paired Match
+
+`vibe-othello-nboard-match` keeps one NBoard v2 engine process alive across a
+paired color-swapped match while running Vibe in-process. It performs one
+warm-up search per engine by default, applies `OMP_NUM_THREADS=1` to the child,
+validates every external move, and writes an optional JSON game record. Vibe
+uses the `full` non-experimental search stack, a persistent search session
+within each game, and the supplied time, TT, and exact-endgame limits. Report
+schema v2 also records the NBoard protocol version, requested depth, and child
+arguments so fixed-depth and average-time runs remain distinguishable.
+
+For NTest average-time mode at one second per move:
+
+```sh
+build/tools/arena/vibe-othello-nboard-match \
+  --nboard-exe /path/to/ntest-runtime/ntest \
+  --nboard-working-directory /path/to/ntest-runtime \
+  --nboard-arg x --nboard-arg a1 --nboard-depth 1 \
+  --artifact-manifest data/eval/artifacts/<artifact-id>/manifest.json \
+  --openings tools/arena/openings/smoke.txt --max-openings 1 \
+  --time-ms 1000 --tt-bytes 268435456 --exact-endgame-empties 12 \
+  --report-out /path/to/local/match-report.json
+```
+
+NTest's book policy is configured by its runtime `parameters.txt`, not by this
+CLI. Use a separate runtime directory for book-on and book-off runs so their
+configuration and outputs cannot be mixed. `--max-openings 1` plays exactly two
+games from the first opening, with Vibe once as Black and once as White.
+
+This command is an integration and short-match surface. It does not yet provide
+CPU-affinity control, 10/100 ms NTest time profiles, campaign orchestration, or
+paired-opening confidence intervals, so its JSON output is not a formal
+strength report.
 
 ## Persistent Pattern Artifact Arena
 
@@ -545,5 +579,10 @@ offending engine.
 
 This tool is for engine regression and match evaluation. Human playable UI, Web
 UI, WASM integration, production learned weights, and external Edax/Egaroucid
-adapters are future work. Process launching currently targets Mac/Linux; Windows
-portability is outside the initial scope.
+campaigns are outside its scope. A tested internal POSIX persistent-process and
+NBoard session layer now handles protocol versions 1 and 2, synchronization,
+GGF position setup, noisy output, and process timeouts. The public
+`vibe-othello-arena` command still uses one-shot engine calls; Edax/NTest
+profiles, fixed-time configuration, process-lifetime selection, and campaign
+reporting remain to be connected. Process launching currently targets
+Mac/Linux; Windows portability is outside the initial scope.

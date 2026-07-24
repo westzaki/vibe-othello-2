@@ -3,11 +3,23 @@ add_library(vibe_othello_arena_core STATIC arena_core.cc)
 target_link_libraries(vibe_othello_arena_core PUBLIC vibe_othello::engine)
 target_include_directories(vibe_othello_arena_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_library(vibe_othello_persistent_process STATIC persistent_process.cc nboard_protocol.cc
+                                                     nboard_session.cc)
+
+target_link_libraries(vibe_othello_persistent_process PUBLIC vibe_othello_arena_core)
+target_include_directories(vibe_othello_persistent_process PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_executable(vibe_othello_arena main.cc)
 
 target_link_libraries(vibe_othello_arena PRIVATE vibe_othello_arena_core)
 
 set_target_properties(vibe_othello_arena PROPERTIES OUTPUT_NAME vibe-othello-arena)
+
+add_executable(vibe_othello_nboard_match nboard_match.cc)
+
+target_link_libraries(vibe_othello_nboard_match PRIVATE vibe_othello_persistent_process)
+
+set_target_properties(vibe_othello_nboard_match PROPERTIES OUTPUT_NAME vibe-othello-nboard-match)
 
 add_executable(vibe_othello_pattern_artifact_arena pattern_artifact_arena.cc)
 
@@ -78,8 +90,14 @@ if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
   if(TARGET Catch2::Catch2WithMain)
-    add_executable(vibe_othello_arena_tests arena_core_test.cc)
-    target_link_libraries(vibe_othello_arena_tests PRIVATE vibe_othello_arena_core
+    add_executable(vibe_othello_fake_nboard_engine fake_nboard_engine.cc)
+
+    add_executable(vibe_othello_arena_tests arena_core_test.cc nboard_protocol_test.cc
+                                            nboard_session_test.cc persistent_process_test.cc)
+    target_compile_definitions(
+      vibe_othello_arena_tests
+      PRIVATE VIBE_OTHELLO_FAKE_NBOARD_ENGINE="$<TARGET_FILE:vibe_othello_fake_nboard_engine>")
+    target_link_libraries(vibe_othello_arena_tests PRIVATE vibe_othello_persistent_process
                                                          Catch2::Catch2WithMain)
     add_test(NAME vibe_othello_arena_tests COMMAND vibe_othello_arena_tests)
 
