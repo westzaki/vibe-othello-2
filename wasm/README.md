@@ -70,16 +70,16 @@ capped at eight empties even when this root threshold is wider.
 `normal` and `hard` select the checked-in Multi-ProbCut profile only when the
 loaded evaluator family, artifact ID, weights checksum, score scale,
 trained-phase mask, fallback-additive phase boundary, move-search mode, and
-matching 8-empty root and internal exact handoff all match its reviewed
-identity. A wider root threshold therefore fails closed to Multi-ProbCut off.
+matching 8-empty internal exact handoff all match its reviewed identity. A
+wider root threshold keeps Multi-ProbCut while the root is above that threshold;
+at or below it, the adapter clears Multi-ProbCut before direct exact solving
+and reports `probcutEnabled = false`.
 The speed-gated production schedule tries threshold-directed `7:3` and then
 `7:4` null-window probes in the reviewed phase 2, 3, 4, 6, 7, 9, and 10
-domains, with a 20%
-cumulative shallow-search ceiling. `easy`, the legacy API, nonmatching
-artifacts, and other root exact thresholds remain disabled. Search results
-expose the effective selection as `probcutEnabled`; this reports configuration
-selection, even when the current position does not enter an enabled profile
-domain.
+domains, with a 20% cumulative shallow-search ceiling. `easy`, the legacy API,
+nonmatching artifacts, and other internal exact thresholds remain disabled.
+Search results expose the position-aware effective selection as
+`probcutEnabled`.
 
 Each loaded evaluator owns a WASM-profile search session with an 8 MiB
 transposition-table byte budget. The power-of-two bucket allocator currently

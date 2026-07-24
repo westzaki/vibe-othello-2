@@ -29,20 +29,23 @@ tries `7:4` only after `7:3` rejects, and includes only exact scheduler domains
 that observed no false cuts. Holdout replay applies the same
 threshold-directed decision, so an exact shallow score above the reviewed
 maximum still counts as a cut when the derived threshold is within range.
-Missing domains, identity mismatch, other exact thresholds, `easy`, the legacy
-API, and `VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` all resolve to disabled.
+Missing domains, identity mismatch, other internal exact thresholds, `easy`,
+the legacy API, and `VIBE_OTHELLO_ENABLE_PRODUCTION_PROBCUT=OFF` all resolve to
+disabled.
+Here, the exact threshold identity is the internal handoff threshold; a wider
+root-only threshold does not change it.
 
-The wider 14-empty root policy was also checked against the same ON/OFF gate
-after root and internal exact thresholds were separated. Fixed-depth output
-matched completely: the primary depth-8 node ratio was `0.986927`, and the
-depth-8-through-12 aggregate node ratio was `0.947740`. However, the primary
-median wall ratio was `0.993350` against the required `0.990000`, while the
-500 ms rollout produced 80/81 best-move matches, 79/81 score matches, and a
-completed-depth sum of 859 enabled versus 860 disabled. Because that policy
-does not pass every mandatory gate, `normal` and `hard` fail closed to MPC off
-when their root threshold is wider than the reviewed internal threshold. The
-checked-in `performance.json` intentionally remains the accepted exact-8
-profile evidence.
+The wider 14-empty root policy is position-aware. Roots above 14 empties keep
+the reviewed internal exact-8 profile; roots at or below 14 empties clear the
+MPC configuration before dispatching directly to the exact solver. The
+phase-2-through-9 gate, whose selected roots all have at least 18 empties,
+passed with a primary depth-8 node ratio of `0.984912`, median wall ratio of
+`0.977122`, and 1,200/1,200 fixed-output matches. Depths 8 through 12 had an
+aggregate node ratio of `0.947691` with 120/120 output matches. The 500 ms
+rollout matched best move, score, and completed depth in 72/72 comparisons,
+with completed-depth sums of 744 for both variants. The checked-in
+`performance.json` remains the accepted exact-8 profile evidence; this gate
+confirms that the wider root-only policy preserves it before root dispatch.
 
 ## Calibration evidence
 

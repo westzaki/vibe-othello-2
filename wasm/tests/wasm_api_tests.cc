@@ -527,16 +527,28 @@ TEST_CASE("WASM search presets resolve normal to the production search stack", "
           VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 14, identity);
   REQUIRE(wider_root.endgame.endgame_exact_empties == 8);
   REQUIRE(wider_root.endgame.root_exact_endgame_empties == 14);
-  REQUIRE_FALSE(wider_root.probcut_options.use_probcut);
+  REQUIRE(wider_root.probcut_options.use_probcut);
+
+  vibe_othello::search::SearchOptions midgame_root = wider_root;
+  vibe_othello::wasm_adapter::internal::apply_root_position_policy(
+      vibe_othello::board_core::initial_position(), &midgame_root);
+  REQUIRE(midgame_root.probcut_options.use_probcut);
+
+  const std::optional<Position> one_empty = vibe_othello::board_core::parse_position(
+      "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+  REQUIRE(one_empty.has_value());
+  vibe_othello::search::SearchOptions exact_root = wider_root;
+  vibe_othello::wasm_adapter::internal::apply_root_position_policy(*one_empty, &exact_root);
+  REQUIRE_FALSE(exact_root.probcut_options.use_probcut);
 
   vibe_othello::search::ProbCutRuntimeIdentityV1 mismatch = identity;
   mismatch.artifact_family = "another-artifact";
   REQUIRE_FALSE(vibe_othello::wasm_adapter::internal::search_options_for_preset(
                     VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 8, mismatch)
                     .probcut_options.use_probcut);
-  REQUIRE_FALSE(vibe_othello::wasm_adapter::internal::search_options_for_preset(
-                    VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 10, identity)
-                    .probcut_options.use_probcut);
+  REQUIRE(vibe_othello::wasm_adapter::internal::search_options_for_preset(
+              VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 10, identity)
+              .probcut_options.use_probcut);
   REQUIRE_FALSE(vibe_othello::wasm_adapter::internal::search_options_for_preset(
                     VIBE_OTHELLO_WASM_SEARCH_PRESET_EASY, 8, identity)
                     .probcut_options.use_probcut);
@@ -562,6 +574,15 @@ TEST_CASE("WASM result reports effective production ProbCut selection", "[wasm][
 
   REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &position, 8, 1000, 0,
                                                 VIBE_OTHELLO_WASM_SEARCH_PRESET_HARD, 10,
+                                                &result) == VIBE_OTHELLO_WASM_STATUS_OK);
+  REQUIRE((result.reserved0 & VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED) != 0);
+
+  const std::optional<Position> one_empty = vibe_othello::board_core::parse_position(
+      "BBBBBBW./BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB/BBBBBBBB b");
+  REQUIRE(one_empty.has_value());
+  const vibe_othello_wasm_position exact_position = to_wasm_position(*one_empty);
+  REQUIRE(vibe_othello_wasm_search_best_move_v2(artifact.get(), &exact_position, 8, 1000, 0,
+                                                VIBE_OTHELLO_WASM_SEARCH_PRESET_NORMAL, 14,
                                                 &result) == VIBE_OTHELLO_WASM_STATUS_OK);
   REQUIRE((result.reserved0 & VIBE_OTHELLO_WASM_SEARCH_RESULT_FLAG_PROBCUT_ENABLED) == 0);
 }

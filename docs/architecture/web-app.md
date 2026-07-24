@@ -176,13 +176,12 @@ killer ordering, depth-gated internal mobility ordering, and parity ordering.
 They can select the fail-closed production Multi-ProbCut profile only for the
 exact reviewed evaluator, artifact, weights checksum, score scale,
 trained-phase mask, fallback-additive phase boundary, move-search mode, and
-matching 8-empty root/internal policy. The Web's wider 14-empty root policy
-keeps that profile disabled because its 500 ms ON/OFF gate did not pass under
-the changed root population. `normal` and `hard` currently differ through
+matching 8-empty internal handoff identity. The Web's wider 14-empty root
+policy is position-aware: roots above 14 empties retain production MPC, while
+roots at or below 14 empties clear it before direct exact solving and report
+`probcutEnabled = false`. `normal` and `hard` currently differ through
 caller-supplied limits rather than algorithm flags. `easy`, the legacy search
-API, identity mismatch, and wider root thresholds also keep Multi-ProbCut
-disabled. Search results expose the effective configuration selection through
-`probcutEnabled`.
+API, and identity mismatch keep Multi-ProbCut disabled.
 
 Limits are independent from presets. The ABI requires a node or time limit when
 exact root search is enabled because exact root solving ignores `max_depth`.

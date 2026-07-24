@@ -160,7 +160,14 @@ const widerRootSearch = productionArtifact.searchBestMoveWithPreset(
   "normal",
   14,
 );
-assert.equal(widerRootSearch.probcutEnabled, false);
+assert.equal(widerRootSearch.probcutEnabled, true);
+const widerExactRootSearch = productionArtifact.searchBestMoveWithPreset(
+  latePosition,
+  { maxDepth: 8, maxNodes: 1000 },
+  "normal",
+  14,
+);
+assert.equal(widerExactRootSearch.probcutEnabled, false);
 productionArtifact.free();
 
 artifact.free();

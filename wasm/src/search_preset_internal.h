@@ -5,6 +5,7 @@
 #include "vibe_othello_wasm/wasm_api.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 
 namespace vibe_othello::wasm_adapter::internal {
@@ -56,12 +57,27 @@ search_options_for_preset(std::uint32_t preset, std::uint8_t exact_endgame_empti
       .selective = search::SelectiveSearchOptionsV1{},
       .mode = search::SearchMode::move,
   };
-  if (use_full_search_stack && exact_endgame_empties == internal_exact_endgame_empties) {
+  if (use_full_search_stack) {
     options.probcut_options = search::production_probcut_configuration_v1(
                                   runtime_identity, options.mode, internal_exact_endgame_empties)
                                   .options;
   }
   return options;
+}
+
+inline void apply_root_position_policy(board_core::Position position,
+                                       search::SearchOptions* options) noexcept {
+  const std::uint8_t root_exact_endgame_empties = options->endgame.root_exact_endgame_empties == 0
+                                                      ? options->endgame.endgame_exact_empties
+                                                      : options->endgame.root_exact_endgame_empties;
+  const std::uint8_t empty_count = static_cast<std::uint8_t>(
+      board_core::kSquareCount - std::popcount(board_core::occupied(position)));
+  const bool uses_root_exact_endgame =
+      options->endgame.exact_endgame && options->mode != search::SearchMode::win_loss_draw &&
+      root_exact_endgame_empties != 0 && empty_count <= root_exact_endgame_empties;
+  if (uses_root_exact_endgame) {
+    options->probcut_options = {};
+  }
 }
 
 } // namespace vibe_othello::wasm_adapter::internal
