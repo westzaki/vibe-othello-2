@@ -11,6 +11,7 @@ import type {
 import type {
   BoardCell,
   BoardSnapshot,
+  CpuDifficulty,
   CpuMoveResult,
   DiscColor,
   EngineRequest,
@@ -35,10 +36,22 @@ type GeneratedModuleImport =
 type DispatchResult = BoardSnapshot | CpuMoveResult;
 type JsonObject = Record<string, unknown>;
 
-const CPU_SEARCH_LIMITS = {
-  maxDepth: 64,
-  maxNodes: 0,
-  maxTimeMs: 500,
+const CPU_SEARCH_LIMITS_BY_DIFFICULTY = {
+  easy: {
+    maxDepth: 64,
+    maxNodes: 0,
+    maxTimeMs: 100,
+  },
+  normal: {
+    maxDepth: 64,
+    maxNodes: 0,
+    maxTimeMs: 500,
+  },
+  hard: {
+    maxDepth: 64,
+    maxNodes: 0,
+    maxTimeMs: 1_500,
+  },
 } as const;
 
 const CPU_SEARCH_PRESET = "normal" as const;
@@ -90,7 +103,7 @@ async function dispatchRequest(request: EngineRequest): Promise<DispatchResult> 
     case "applyPass":
       return applyPass();
     case "cpuMove":
-      return cpuMove();
+      return cpuMove(request.difficulty);
   }
 }
 
@@ -126,7 +139,7 @@ async function applyPass(): Promise<BoardSnapshot> {
   return snapshotFromPosition(engine, currentPosition);
 }
 
-async function cpuMove(): Promise<CpuMoveResult> {
+async function cpuMove(difficulty: CpuDifficulty): Promise<CpuMoveResult> {
   const engine = await getCore();
   const positionBefore = ensureCurrentPosition(engine);
   const queryBefore = engine.queryPosition(positionBefore);
@@ -152,7 +165,7 @@ async function cpuMove(): Promise<CpuMoveResult> {
   const artifact = await getDefaultEvaluationArtifact(engine);
   const searchResult = artifact.searchBestMoveWithPreset(
     positionBefore,
-    CPU_SEARCH_LIMITS,
+    cpuSearchLimits(difficulty),
     CPU_SEARCH_PRESET,
     CPU_SEARCH_EXACT_ENDGAME_EMPTIES,
   );
@@ -304,6 +317,14 @@ async function loadDefaultEvaluationArtifact(engine: WasmCore): Promise<WasmEval
   const weightsUrl = new URL(weightsPath, manifestUrl);
   const weightsBytes = await fetchBytes(weightsUrl, "evaluation artifact weights");
   return engine.loadEvaluationArtifact(manifestText, weightsBytes);
+}
+
+function cpuSearchLimits(difficulty: CpuDifficulty) {
+  const limits = CPU_SEARCH_LIMITS_BY_DIFFICULTY[difficulty];
+  if (limits === undefined) {
+    throw new Error(`Invalid CPU difficulty: ${String(difficulty)}.`);
+  }
+  return limits;
 }
 
 async function fetchText(url: URL, description: string): Promise<string> {

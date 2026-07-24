@@ -1,5 +1,6 @@
 export type DiscColor = "black" | "white";
 export type BoardCell = DiscColor | null;
+export type CpuDifficulty = "easy" | "normal" | "hard";
 
 export interface BoardSnapshot {
   cells: BoardCell[];
@@ -46,6 +47,7 @@ export type EngineRequestPayload =
     }
   | {
       command: "cpuMove";
+      difficulty: CpuDifficulty;
     };
 
 export type EngineCommand = EngineRequestPayload["command"];

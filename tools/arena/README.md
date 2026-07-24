@@ -451,6 +451,13 @@ corpus. When present, the holdout primary cell drives the suggested decision.
 The default primary cell is the largest configured time limit and exact
 threshold; `--primary-time-ms` and `--primary-exact-threshold` override it.
 
+Search-session reuse must remain independently measurable. Run otherwise
+identical campaigns once with `--persistent-session` and once with
+`--no-persistent-session`, using separate output directories. Compare the
+reported completed-depth percentiles, TT hit rates, node counts, and paired
+win-rate interval before changing the browser policy; do not infer strength
+from latency alone.
+
 The output directory contains `decision.json`, `summary.md`,
 `arena-report-inventory.json`, `campaign-manifest.json`,
 `campaign.resume.json`, and per-stage reports and resume sidecars under
