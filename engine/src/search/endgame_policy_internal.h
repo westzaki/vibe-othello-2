@@ -78,6 +78,8 @@ SearchNodeResult exact_score_search_with_policy(EndgameContext* context, Score a
 
 MoveList small_empty_move_list(board_core::Position position) noexcept;
 board_core::Move first_legal_move(board_core::Bitboard legal_moves) noexcept;
+// Precondition: move is the only empty square in a valid position.
+int last_move_flip_count(board_core::Position position, board_core::Square move) noexcept;
 std::optional<SearchNodeResult>
 try_exact_score_small_empty(EndgameContext* context, Score alpha, Score beta, std::uint8_t empties,
                             Ply ply, SmallEndgamePolicy small_endgame_policy, Score original_alpha,

@@ -6,6 +6,58 @@
 namespace vibe_othello::search::internal {
 namespace {
 
+enum LastMoveDirection : std::size_t {
+  kEast,
+  kWest,
+  kNorth,
+  kSouth,
+  kNorthEast,
+  kNorthWest,
+  kSouthEast,
+  kSouthWest,
+  kDirectionCount,
+};
+
+using LastMoveRayTable =
+    std::array<std::array<board_core::Bitboard, board_core::kSquareCount>, kDirectionCount>;
+
+constexpr LastMoveRayTable make_last_move_ray_table() noexcept {
+  constexpr std::array<int, 8> kFileSteps{1, -1, 0, 0, 1, -1, 1, -1};
+  constexpr std::array<int, 8> kRankSteps{0, 0, 1, -1, 1, 1, -1, -1};
+  LastMoveRayTable rays{};
+  for (int square_index = 0; square_index < board_core::kSquareCount; ++square_index) {
+    const board_core::Square square = board_core::square_from_index(square_index);
+    for (std::size_t direction = 0; direction < kFileSteps.size(); ++direction) {
+      int file = board_core::file_of(square) + kFileSteps[direction];
+      int rank = board_core::rank_of(square) + kRankSteps[direction];
+      while (board_core::is_valid_file_rank(file, rank)) {
+        rays[direction][square_index] |=
+            board_core::bit(board_core::square_from_file_rank(file, rank));
+        file += kFileSteps[direction];
+        rank += kRankSteps[direction];
+      }
+    }
+  }
+  return rays;
+}
+
+constexpr LastMoveRayTable kLastMoveRays = make_last_move_ray_table();
+
+template <int kIndexStep>
+int last_move_ray_flip_count(board_core::Bitboard player, board_core::Bitboard ray,
+                             int move_index) noexcept {
+  const board_core::Bitboard anchors = player & ray;
+  if (anchors == 0) {
+    return 0;
+  }
+  if constexpr (kIndexStep > 0) {
+    const int nearest = std::countr_zero(anchors);
+    return ((nearest - move_index) / kIndexStep) - 1;
+  }
+  const int nearest = 63 - std::countl_zero(anchors);
+  return ((move_index - nearest) / -kIndexStep) - 1;
+}
+
 SearchNodeResult search_exact_score_endgame_delta(EndgameContext* context,
                                                   board_core::MoveDelta delta, Score alpha,
                                                   Score beta, std::uint8_t empties, Ply ply,
@@ -60,8 +112,7 @@ SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score
   const board_core::Bitboard empty = ~board_core::occupied(context->position_state.position);
   require_invariant(std::popcount(empty) == 1);
   const board_core::Move move = first_legal_move(empty);
-  const int flipped =
-      std::popcount(board_core::flips_for_move(context->position_state.position, move.square));
+  const int flipped = last_move_flip_count(context->position_state.position, move.square);
   if (flipped == 0) {
     board_core::Position opponent_position = context->position_state.position;
     const board_core::MoveDelta pass_delta{
@@ -70,8 +121,7 @@ SearchNodeResult exact_score_1_empty(EndgameContext* context, Score alpha, Score
     };
     board_core::apply_move_delta(&opponent_position, pass_delta);
 
-    const int opponent_flipped =
-        std::popcount(board_core::flips_for_move(opponent_position, move.square));
+    const int opponent_flipped = last_move_flip_count(opponent_position, move.square);
     if (opponent_flipped == 0) {
       frame.pv.size = 0;
       return exact_score_terminal(context, empties);
@@ -288,6 +338,25 @@ MoveList small_empty_move_list(board_core::Position position) noexcept {
 board_core::Move first_legal_move(board_core::Bitboard legal_moves) noexcept {
   const int square_index = std::countr_zero(legal_moves);
   return board_core::make_move(board_core::square_from_index(square_index));
+}
+
+int last_move_flip_count(board_core::Position position, board_core::Square move) noexcept {
+  return last_move_ray_flip_count<1>(position.player, kLastMoveRays[kEast][move.index],
+                                     move.index) +
+         last_move_ray_flip_count<-1>(position.player, kLastMoveRays[kWest][move.index],
+                                      move.index) +
+         last_move_ray_flip_count<8>(position.player, kLastMoveRays[kNorth][move.index],
+                                     move.index) +
+         last_move_ray_flip_count<-8>(position.player, kLastMoveRays[kSouth][move.index],
+                                      move.index) +
+         last_move_ray_flip_count<9>(position.player, kLastMoveRays[kNorthEast][move.index],
+                                     move.index) +
+         last_move_ray_flip_count<7>(position.player, kLastMoveRays[kNorthWest][move.index],
+                                     move.index) +
+         last_move_ray_flip_count<-7>(position.player, kLastMoveRays[kSouthEast][move.index],
+                                      move.index) +
+         last_move_ray_flip_count<-9>(position.player, kLastMoveRays[kSouthWest][move.index],
+                                      move.index);
 }
 
 std::optional<SearchNodeResult>
